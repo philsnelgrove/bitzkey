@@ -4,19 +4,22 @@ Created on Feb. 28, 2022
 @author: mikdr
 '''
 LIMIT = 1000000
+ITERATION_LIMIT = 10
 
-def fibonacci(old, new, seq):
+def fibonacci(count, old, new, seq):
     newer = old + new
     if newer < LIMIT:
-        seq.append(newer)
-        fibonacci(new, newer, seq)
+        count += 1
+        seq.append("- %d" %(newer))
+        fibonacci(count, new, newer, seq)
     else:
-        seq.append(f"(The next item would be {newer})")
+        seq.append(f"\n(The next item would be {newer})")
+        seq.append(f"\n{count} steps total.")
     return seq
 
 def main():
     print("Hello World!")
-    print(f"Fibonacci sequence up to {LIMIT}:", *fibonacci(0, 1, [1]))
+    print(f"Fibonacci sequence up to {LIMIT}:", *fibonacci(1, 0, 1, [1]))
 
 if __name__ == '__main__':
     main()
