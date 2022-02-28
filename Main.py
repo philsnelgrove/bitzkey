@@ -21,7 +21,7 @@ def fibonacci(count, old, new, seq):
         seq.append(f"{count} steps total.")
     return seq
 
-def blit_text(surface, text, pos, font, color=pg.Color('black')):
+def blit_text(surface, text, pos, font, color=pg.Color('green')):
     words = [word.split(' ') for word in text.splitlines()]  # 2D array where each row is a list of words.
     space = font.size(' ')[0]  # The width of a space.
     max_width, max_height = surface.get_size()
@@ -43,7 +43,6 @@ def main():
     if pg.get_sdl_version()[0] == 2:
         pg.mixer.pre_init(44100, 32, 2, 1024)
     pg.init()
-    white = (255, 255, 255)
     X = 1024
     Y = 764
     screen = pg.display.set_mode((X, Y), pg.RESIZABLE)
@@ -52,7 +51,7 @@ def main():
     font = pg.font.Font('freesansbold.ttf', 32)
     text = ', '.join(str(e) for e in fibonacci(1, 0, 1, [1]))
     while True:
-        screen.fill(white)
+        screen.fill(pg.Color('black'))
         blit_text(screen, text, (20, 20), font)
         # get input
         for event in pg.event.get():
