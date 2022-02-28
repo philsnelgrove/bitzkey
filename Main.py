@@ -8,7 +8,7 @@ def fibonacci(old, new):
     if old > 1000:
         return
     newer = old + new
-    print(new, " ")
+    print("%d " %(new))
     fibonacci(new, newer)
     return
 
