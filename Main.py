@@ -1,7 +1,7 @@
 '''
 Created on Feb. 28, 2022
 
-@author: mikdr
+@author: Phil Snelgrove
 '''
 VALUE_LIMIT = 1000000
 ITERATION_LIMIT = 10
