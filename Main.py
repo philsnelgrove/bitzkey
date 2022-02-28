@@ -3,12 +3,12 @@ Created on Feb. 28, 2022
 
 @author: mikdr
 '''
-LIMIT = 1000000
+VALUE_LIMIT = 1000000
 ITERATION_LIMIT = 10
 
 def fibonacci(count, old, new, seq):
     newer = old + new
-    if newer < LIMIT:
+    if newer < VALUE_LIMIT:
         count += 1
         seq.append("- %d" %(newer))
         fibonacci(count, new, newer, seq)
@@ -19,7 +19,7 @@ def fibonacci(count, old, new, seq):
 
 def main():
     print("Hello World!")
-    print(f"Fibonacci sequence up to {LIMIT}:", *fibonacci(1, 0, 1, [1]))
+    print(f"Fibonacci sequence up to {VALUE_LIMIT}:", *fibonacci(1, 0, 1, [1]))
 
 if __name__ == '__main__':
     main()
