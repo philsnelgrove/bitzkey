@@ -1,5 +1,6 @@
 '''
 Created on Feb. 28, 2022
+GNU License
 
 @author: Phil Snelgrove
 '''
@@ -44,7 +45,7 @@ def main():
         pg.mixer.pre_init(44100, 32, 2, 1024)
     pg.init()
     X = 1024
-    Y = 764
+    Y = 768
     screen = pg.display.set_mode((X, Y), pg.RESIZABLE)
     # print(f"Fibonacci sequence up to {VALUE_LIMIT}:", ', '.join(str(e) for e in fibonacci(1, 0, 1, [1])))
     pg.display.set_caption(f"Fibonacci sequence up to {VALUE_LIMIT}:")
