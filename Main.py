@@ -48,7 +48,7 @@ def main():
     screen = pg.display.set_mode((X, Y), pg.RESIZABLE)
     # print(f"Fibonacci sequence up to {VALUE_LIMIT}:", ', '.join(str(e) for e in fibonacci(1, 0, 1, [1])))
     pg.display.set_caption(f"Fibonacci sequence up to {VALUE_LIMIT}:")
-    font = pg.font.Font('freesansbold.ttf', 32)
+    font = pg.font.Font('C:\\WINDOWS\\Fonts\\cour.ttf', 32)
     text = ', '.join(str(e) for e in fibonacci(1, 0, 1, [1]))
     while True:
         screen.fill(pg.Color('black'))
