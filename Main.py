@@ -8,7 +8,7 @@ import pygame as pg
 import os
 import Display.Screen as ds
 
-VALUE_LIMIT = 1000000
+VALUE_LIMIT = 10000000
 ITERATION_LIMIT = 10
 main_dir = os.path.split(os.path.abspath(__file__))[0]
 
