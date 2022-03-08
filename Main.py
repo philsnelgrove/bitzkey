@@ -5,13 +5,11 @@ GNU License
 @author: Phil Snelgrove
 '''
 import pygame as pg
-import os
+import Config.Globals as cg
 import Display.Screen as ds
 from Tools.Math import fibonacci
 
-VALUE_LIMIT = 10000000
-ITERATION_LIMIT = 10
-main_dir = os.path.split(os.path.abspath(__file__))[0]
+
 
 def main():
     # Initialize pygame
@@ -22,7 +20,7 @@ def main():
     Y = 768
     screen = pg.display.set_mode((X, Y), pg.RESIZABLE)
     # print(f"Fibonacci sequence up to {VALUE_LIMIT}:", ', '.join(str(e) for e in fibonacci(1, 0, 1, [1])))
-    pg.display.set_caption(f"Fibonacci sequence up to {VALUE_LIMIT}:")
+    pg.display.set_caption(f"Fibonacci sequence up to {cg.VALUE_LIMIT}:")
     font = pg.font.Font('C:\\WINDOWS\\Fonts\\cour.ttf', 32)
     text = ', '.join(str(e) for e in fibonacci(1, 0, 1, [1]))
     while True:

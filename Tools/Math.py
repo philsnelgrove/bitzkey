@@ -3,12 +3,11 @@ Created on Mar 8, 2022
 
 @author: Hazegoblin
 '''
-
-VALUE_LIMIT = 10000000
+import Config.Globals as cg
 
 def fibonacci(count, old, new, seq):
     newer = old + new
-    if newer < VALUE_LIMIT:
+    if newer < cg.VALUE_LIMIT:
         count += 1
         seq.append(newer)
         fibonacci(count, new, newer, seq)
