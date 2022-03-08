@@ -7,21 +7,11 @@ GNU License
 import pygame as pg
 import os
 import Display.Screen as ds
+from Tools.Math import fibonacci
 
-VALUE_LIMIT = 1000000
+VALUE_LIMIT = 10000000
 ITERATION_LIMIT = 10
 main_dir = os.path.split(os.path.abspath(__file__))[0]
-
-def fibonacci(count, old, new, seq):
-    newer = old + new
-    if newer < VALUE_LIMIT:
-        count += 1
-        seq.append(newer)
-        fibonacci(count, new, newer, seq)
-    else:
-        seq.append(f"(The next item would be {newer})")
-        seq.append(f"{count} steps total.")
-    return seq
 
 def main():
     # Initialize pygame
@@ -37,7 +27,7 @@ def main():
     text = ', '.join(str(e) for e in fibonacci(1, 0, 1, [1]))
     while True:
         screen.fill(pg.Color('black'))
-        ds.blit_text(screen, text, (20, 20), font)
+        ds.blit_text(screen, text, (20, 20), font)        
         # get input
         for event in pg.event.get():
             if event.type == pg.QUIT:
