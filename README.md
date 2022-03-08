@@ -7,7 +7,7 @@ farm".  A given number of bitzkeys will be instantiated into a generated virtual
 environment for observation purposes.
 
 The technology is Python (using the PyGame modules); however we are hand-rolling
-the AI code, rather than makinbg use of Python's well-known existing AI tools.
+the AI code, rather than making use of Python's well-known existing AI tools.
 Since our purpose is to explore the differences in weighting algorithms, using
 pre-built modules seemed counter-productive.
 

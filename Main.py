@@ -6,6 +6,7 @@ GNU License
 '''
 import pygame as pg
 import os
+import Display.Screen as ds
 
 VALUE_LIMIT = 1000000
 ITERATION_LIMIT = 10
@@ -22,23 +23,6 @@ def fibonacci(count, old, new, seq):
         seq.append(f"{count} steps total.")
     return seq
 
-def blit_text(surface, text, pos, font, color=pg.Color('green')):
-    words = [word.split(' ') for word in text.splitlines()]  # 2D array where each row is a list of words.
-    space = font.size(' ')[0]  # The width of a space.
-    max_width, max_height = surface.get_size()
-    x, y = pos
-    for line in words:
-        for word in line:
-            word_surface = font.render(word, 0, color)
-            word_width, word_height = word_surface.get_size()
-            if x + word_width >= max_width:
-                x = pos[0]  # Reset the x.
-                y += word_height  # Start on new row.
-            surface.blit(word_surface, (x, y))
-            x += word_width + space
-        x = pos[0]  # Reset the x.
-        y += word_height  # Start on new row.
-
 def main():
     # Initialize pygame
     if pg.get_sdl_version()[0] == 2:
@@ -53,7 +37,7 @@ def main():
     text = ', '.join(str(e) for e in fibonacci(1, 0, 1, [1]))
     while True:
         screen.fill(pg.Color('black'))
-        blit_text(screen, text, (20, 20), font)
+        ds.blit_text(screen, text, (20, 20), font)
         # get input
         for event in pg.event.get():
             if event.type == pg.QUIT:
