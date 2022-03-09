@@ -3,7 +3,7 @@ Created on Mar 8, 2022
 
 @author: Hazegoblin
 '''
-import Config.Globals as cg
+import config.Globals as cg
 
 def fibonacci(count, old, new, seq):
     newer = old + new

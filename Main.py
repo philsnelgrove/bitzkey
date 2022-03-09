@@ -5,7 +5,7 @@ GNU License
 @author: Phil Snelgrove
 '''
 import pygame as pg
-import Config.Globals as cg
+import config.Globals as cg
 import Display.Screen as ds
 from Tools.Math import fibonacci
 
