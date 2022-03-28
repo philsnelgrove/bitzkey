@@ -23,10 +23,10 @@ class Main(object):
         if pg.get_sdl_version()[0] == 2:
             pg.mixer.pre_init(44100, 32, 2, 1024)
         pg.init()
-        myConfig = cg.Config()
-        screen = pg.display.set_mode((myConfig.X, myConfig.Y), pg.RESIZABLE)
+        # myConfig = cg.Config()
+        screen = pg.display.set_mode((cg.Config.X, cg.Config.Y), pg.RESIZABLE)
         # print(f"Fibonacci sequence up to {VALUE_LIMIT}:", ', '.join(str(e) for e in fibonacci(1, 0, 1, [1])))
-        pg.display.set_caption(f"Fibonacci sequence up to {myConfig.VALUE_LIMIT}:")
+        pg.display.set_caption(f"Fibonacci sequence up to {cg.Config.VALUE_LIMIT}:")
         font = pg.font.Font('C:\\WINDOWS\\Fonts\\cour.ttf', 32)
         myMath = math.Math()
         myScreen = ds.Screen()
