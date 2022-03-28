@@ -8,7 +8,6 @@ import pygame as pg
 import config.Globals as cg
 import display.Screen as ds
 import tools.Math as math
-import display
 
 class Main(object):
     '''
