@@ -6,8 +6,8 @@ GNU License
 '''
 import pygame as pg
 import config.Globals as cg
-import Display.Screen as ds
-from Tools.Math import fibonacci
+import display.Screen as ds
+import tools.Math as math
 
 
 
@@ -22,7 +22,8 @@ def main():
     # print(f"Fibonacci sequence up to {VALUE_LIMIT}:", ', '.join(str(e) for e in fibonacci(1, 0, 1, [1])))
     pg.display.set_caption(f"Fibonacci sequence up to {cg.VALUE_LIMIT}:")
     font = pg.font.Font('C:\\WINDOWS\\Fonts\\cour.ttf', 32)
-    text = ', '.join(str(e) for e in fibonacci(1, 0, 1, [1]))
+    myMath = math.Math()
+    text = ', '.join(str(e) for e in myMath.fibonacci(1, 0, 1, [1]))
     while True:
         screen.fill(pg.Color('black'))
         ds.blit_text(screen, text, (20, 20), font)        
