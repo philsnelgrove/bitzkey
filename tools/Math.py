@@ -17,8 +17,9 @@ class Math(object):
         '''
         
     def fibonacci(self, count, old, new, seq):
+        myConfig = cg.Config()
         newer = old + new
-        if newer < cg.VALUE_LIMIT:
+        if newer < myConfig.VALUE_LIMIT:
             count += 1
             seq.append(newer)
             self.fibonacci(count, new, newer, seq)
