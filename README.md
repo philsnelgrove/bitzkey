@@ -29,15 +29,18 @@ A configuration panel opens first. Set:
   Each turn, 0.4% of that starting amount grows back, so density means the
   same at any grid size.
 - an optional random seed. The same seed replays the same world; leave it blank
-  for a new one. Click a row
-or use Up/Down to choose a setting. Adjust it with its - and + buttons or
-Left/Right (hold Shift for steps of ten), or type a number. Press Enter or
-click START to begin, or Esc to quit.
+  for a new one.
+- an optional population cap: the most animals alive at once. Leave it blank,
+  the default, for no limit, and crowding alone decides.
+
+Click a row or use Up/Down to choose a setting. Adjust it with its - and +
+buttons or Left/Right (hold Shift for steps of ten), or type a number. Press
+Enter or click START to begin, or QUIT (or Esc) to leave.
 
 Launch options fill in the panel's starting values:
 
 ```powershell
-python Main.py --width 80 --height 60 --population 120 --grass-density 8 --seed 42
+python Main.py --width 80 --height 60 --population 120 --grass-density 8 --seed 42 --population-cap 500
 ```
 
 The panel can also import Bitzkeys, to add to the random ones. Paste exported
@@ -66,6 +69,15 @@ Each imported genome spawns as a group of 3 to
 
 To add a setting, add a `Setting` to `SETTINGS` in `display/Setup.py` and a
 parameter with the same name to `BitzkeyApp`.
+
+## When a Simulation Ends
+
+A run ends by itself when every animal has died, leaving only plants and grass,
+or when the world is full, with every cell taken by a living Bitzkey. The world
+then stops at that turn and the colour graph opens, saying when and why it
+ended. Space won't carry it on, but you can still rewind and scrub through the
+whole run, and replaying up to the end stops there again. R restarts the same
+world, and Esc returns to the configuration panel.
 
 ## Build a Windows Executable
 
@@ -185,13 +197,14 @@ it.
 ## Behaviour
 
 Grass is sown at random, and regrows each turn (see grass density above).
-Grazers and omnivores eat grass; predators cannot. Any animal may eat carrion.
+Grazers and omnivores eat grass, and browse plants; predators can do neither.
+Any animal may eat carrion.
 
 Plants stay in place and photosynthesize. Every animal carries its own small
 neural network, and that brain chooses everything it does. Each turn it senses:
 
 - its hunger and health
-- grass underfoot or in sight (grazers and omnivores only)
+- grass underfoot or in sight, and plants in sight (grazers and omnivores only)
 - how close the nearest carrion in sight is
 - a willing mate beside it, and how close the nearest one in sight is
 - prey in sight, how close the nearest is, and how hard it could hit prey beside it
@@ -199,40 +212,52 @@ neural network, and that brain chooses everything it does. Each turn it senses:
 - its own kind and other species close by, and its own age
 - its current temperament
 
-It then picks one of the actions open to it: eat, forage, scavenge, rest, court,
-breed, hunt, attack, flee or explore. Foraging walks toward the nearest grass in
-sight. Scavenging walks to the nearest carrion in sight and, once alongside,
-eats up to 25 meat; the carrion trait decides how much of that feeds it.
-Courting walks toward the nearest willing mate in sight, but breeding is still a
-separate choice once they are side by side.
-Hunting chases the nearest prey in sight. A hunter that reaches its prey
-pounces, striking in the same turn, and attacking strikes prey alongside. A kill
-feeds the hunter 25 hunger, plus up to 45 more for the largest prey; a blow that
-doesn't kill feeds it 5. Fleeing runs from the nearest hunter in sight, and
-speed decides who wins a chase. Resting halves the hunger a Bitzkey gains that
-turn and heals 1.5% of its health pool, three times the usual rate.
-Better-valued actions are more likely, but no choice is certain. Mind traits set
-what it enjoys and dreads; the brain learns online which actions lead there.
-Death is heavily punished. A child inherits each brain neuron whole from one
-parent or the other, with small mutations, and its parents' learned shifts in
-temperament, so learned habits and moods pass down the generations.
+It then picks one of the actions open to it: eat, forage, browse, scavenge,
+rest, court, breed, hunt, attack, flee or explore. Foraging walks toward the
+nearest grass in sight; a tuft sates 35 hunger. Browsing walks to the nearest
+plant in sight and, once alongside, takes a bite: 45 hunger, up to 70 from the
+largest plants, far more than grass. Each bite costs the plant 15 health, and
+plants regrow 2% of their health each turn. A bitten plant can't be bitten again
+for 8 turns, so browsers move on, but enough bites in time kill one, and a dead
+plant leaves no meat. Plants spread by seed: each turn a well-fed plant has a 3%
+to 10% chance, by its fertility, of sprouting a seedling of its own kind, with
+the usual chance of mutation, on a free cell up to five cells away. Seeding
+costs it 20 hunger. A seed doesn't take where more than three plants already
+grow within two cells, and plants are capped at 200. Scavenging walks to the
+nearest carrion in sight and, once alongside, eats up to 25 meat; the carrion
+trait decides how much of that feeds it. Courting walks toward the nearest
+willing mate in sight, but breeding is still a separate choice once they are
+side by side. Hunting chases the nearest prey in sight. A hunter that reaches
+its prey pounces, striking in the same turn, and attacking strikes prey
+alongside. A kill feeds the hunter 25 hunger, plus up to 45 more for the largest
+prey; a blow that doesn't kill feeds it 5. Fleeing runs from the nearest hunter
+in sight, and speed decides who wins a chase. Resting halves the hunger a
+Bitzkey gains that turn and heals 1.5% of its health pool, three times the usual
+rate. Better-valued actions are more likely, but no choice is certain. Mind
+traits set what it enjoys and dreads; the brain learns online which actions lead
+there. Death is heavily punished. A child inherits each brain neuron whole from
+one parent or the other, with small mutations, and its parents' learned shifts
+in temperament, so learned habits and moods pass down the generations.
 
 Each parent pays 10 to 25 hunger to breed, less the more fertile it is. Animals
 only breed, or court, when both partners can afford it and still have at least
-10 hunger to spare afterwards, so nothing breeds itself to death. The litter shares exactly the energy its parents
-gave. Each newborn needs a free neighbouring cell, and the world holds at most
-600 living Bitzkeys. Reaching 100% hunger or zero health is fatal, and so, in
+10 hunger to spare afterwards, so nothing breeds itself to death. The litter
+shares exactly the energy its parents gave. Each newborn needs a free
+neighbouring cell, and if a population cap is set, the world holds at most that
+many living animals (plants are limited separately, to 200). Crowding also
+limits breeding: for each other animal within four cells of a would-be parent,
+besides its partner, its litter shrinks by a tenth, and with ten or more around,
+it does not breed. Reaching 100% hunger or zero health is fatal, and so, in
 time, is age. Plants live about 4,000 turns, and animals from about 250 (the
 smallest) to 900 (the largest). From 70% of its lifespan, a Bitzkey's chance of
 dying of old age grows each turn: about half reach their lifespan, and almost
 none live past 1.3 times it. Dying of old age is not held against the brain's
 last choice. A dead Bitzkey is dimmed and crossed through in red until its
-corpse fades. A corpse
-holds the energy its body had left: up to 30 meat, plus up to 50 more for the
-largest. A starved body leaves nothing, and a killed one half, as the killer has
-already eaten. The meat rots away over the 30 turns before the corpse fades.
-Brains, temperament, learning and statistics are all part of turn history, so
-rewind and replay are exact.
+corpse fades. A corpse holds the energy its body had left: up to 30 meat, plus
+up to 50 more for the largest. A starved body leaves nothing, and a killed one
+half, as the killer has already eaten. The meat rots away over the 30 turns
+before the corpse fades. Brains, temperament, learning and statistics are all
+part of turn history, so rewind and replay are exact.
 
 ## Colour Graph
 

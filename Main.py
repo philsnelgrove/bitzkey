@@ -25,12 +25,13 @@ REPORT_DIR = Config.APP_DIR / "reports"
 
 class BitzkeyApp:
     def __init__(self, width: int, height: int, population: int, grass_density: int, seed: int | None,
-                 imported: Sequence[Imported] = ()):
+                 population_cap: int | None = None, imported: Sequence[Imported] = ()):
         self.screen = Window.open_window()
         self.width = width
         self.height = height
         self.population = population
         self.grass_density = grass_density
+        self.population_cap = population_cap
         self.seed = seed
         self.imported = list(imported)
         self.simulation = self._new_world()
@@ -95,7 +96,10 @@ class BitzkeyApp:
                     elif event.key == pg.K_F11:
                         self.screen = Window.toggle_fullscreen()
                     elif event.key == pg.K_SPACE:
-                        self.playing = not self.playing
+                        if self.simulation.ended:
+                            self._say(self._end_note())
+                        else:
+                            self.playing = not self.playing
                     elif event.key == pg.K_RIGHT:
                         self.playing = False
                         self.simulation.advance()
@@ -135,11 +139,33 @@ class BitzkeyApp:
                 elif event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
                     self._click(event.pos)
 
-            if self.playing and not self.dialog and self.elapsed >= 0.24:
-                self.simulation.advance()
-                self.elapsed = 0
+            self._tick()
             self._draw()
             pg.display.flip()
+
+    def _tick(self) -> None:
+        """While playing, advance a turn every 0.24 s, and stop to show the graph once the
+        simulation has ended."""
+        if not self.playing or self.dialog:
+            return
+        if self.simulation.ended:
+            self._finish()
+        elif self.elapsed >= 0.24:
+            self.simulation.advance()
+            self.elapsed = 0
+            if self.simulation.ended:
+                self._finish()
+
+    def _end_note(self) -> str:
+        cause = ("every animal has died" if self.simulation.end_reason == "extinct"
+                 else "the world is full, with no cell left free")
+        return f"The simulation ended at turn {self.simulation.turn}: {cause}."
+
+    def _finish(self) -> None:
+        """The run is over: stop, and show how it went on the colour graph."""
+        self.playing = False
+        self.show_census = True
+        self._say(self._end_note())
 
     def _seek(self, turn: int) -> None:
         """Pause and move the world to a turn already simulated. A long replay says so first."""
@@ -292,7 +318,7 @@ class BitzkeyApp:
         self.screen.blit(title, (UI(24), UI(11)))
         self._text("ARTIFICIAL ECOLOGY  /  RESEARCH BUILD", (UI(48) + title.get_width(), UI(20)),
                    (144, 170, 151), self.small)
-        status = "RUNNING" if self.playing else "PAUSED"
+        status = "RUNNING" if self.playing else "ENDED" if self.simulation.ended else "PAUSED"
         status_color = (131, 205, 143) if self.playing else (238, 183, 110)
         label = self.font.render(status, True, status_color)
         self.screen.blit(label, (self.screen.get_width() - label.get_width() - UI(24), UI(20)))
@@ -443,7 +469,8 @@ class BitzkeyApp:
         self._say(f"Brain report saved to reports/{path.name}")
 
     def _new_world(self) -> Simulation:
-        return Simulation(self.width, self.height, self.population, self.seed, self.grass_density, self.imported)
+        return Simulation(self.width, self.height, self.population, self.seed, self.grass_density, self.imported,
+                          self.population_cap)
 
     def _say(self, message: str) -> None:
         self.message = message
@@ -539,6 +566,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--grass-density", type=int, default=Config.GRASS_DENSITY,
                         help="percent of cells with grass at the start (default: 5)")
     parser.add_argument("--seed", type=int, default=None, help="seed the world for repeatable experiments")
+    parser.add_argument("--population-cap", type=int, default=None,
+                        help="most animals alive at once (default: no limit; crowding decides)")
     parser.add_argument("--windowed", action="store_true", help="start in a window instead of fullscreen")
     return parser.parse_args()
 

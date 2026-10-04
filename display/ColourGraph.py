@@ -374,6 +374,9 @@ class ColourGraph:
                   else "Nothing selected")
         if simulation.turn < simulation.frontier:
             chosen = f"Rewound to turn {simulation.turn} of {simulation.frontier}.     " + chosen
+        elif simulation.end_reason:
+            cause = "every animal died" if simulation.end_reason == "extinct" else "the world filled up"
+            chosen = f"Ended at turn {simulation.turn}: {cause}.     " + chosen
         if hovered is None:
             return chosen
         dna = simulation.lineage[hovered]

@@ -100,6 +100,20 @@ class SimulationFlowTests(unittest.TestCase):
 
         self.assertTrue(any("will be lost" in line for line in self.app.dialog.lines))
 
+    def test_when_the_simulation_ends_it_stops_and_shows_the_graph(self):
+        for agent in self.app.simulation.living:
+            if agent.species != "plant":
+                agent.health = 0
+                self.app.simulation._die(agent, "killed")
+        self.app.elapsed = 10
+
+        self.app._tick()
+
+        self.assertTrue(self.app.simulation.ended)
+        self.assertFalse(self.app.playing)
+        self.assertTrue(self.app.show_census)
+        self.assertIn("every animal has died", self.app.message)
+
     def test_the_world_pauses_while_a_dialog_is_open(self):
         turn = self.app.simulation.turn
         self.app._ask_to_leave()
@@ -109,6 +123,24 @@ class SimulationFlowTests(unittest.TestCase):
         self.app.run()
 
         self.assertEqual(self.app.simulation.turn, turn)
+
+
+class ConfigPanelTests(unittest.TestCase):
+    def tearDown(self):
+        pg.display.quit()
+
+    def test_quit_button_leaves_and_the_population_cap_reaches_the_world(self):
+        from display import Window
+        from display.Setup import SETTINGS, SetupScreen
+        setup = SetupScreen(Window.open_window(fullscreen=False),
+                            {"width": 30, "height": 30, "population": 20, "grass_density": 5, "seed": 1})
+        self.assertEqual(setup._click(setup._layout()["quit"].center), "quit")
+        self.assertIsNone(setup.form.values()["population_cap"])  # no limit by default
+
+        setup.form.select([setting.key for setting in SETTINGS].index("population_cap"))
+        setup.form.type_text("250")
+        app = BitzkeyApp(**setup.form.values())
+        self.assertEqual(app.simulation.population_cap, 250)
 
 
 class MainLoopTests(unittest.TestCase):

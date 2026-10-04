@@ -31,6 +31,7 @@ class Setting:
     maximum: int
     step: int
     optional: bool = False  # optional settings may be left blank, meaning "none"
+    blank: str = ""         # what a blank optional setting shows
 
 
 SETTINGS = (
@@ -40,7 +41,9 @@ SETTINGS = (
     Setting("grass_density", "Grass density", "percent of cells with grass at the start; regrowth scales too",
             0, 100, 1),
     Setting("seed", "Random seed", "the same seed replays the same world; blank for a new one",
-            0, 999_999_999, 1, optional=True),
+            0, 999_999_999, 1, optional=True, blank="random"),
+    Setting("population_cap", "Population cap", "most animals alive at once; blank lets crowding alone decide",
+            10, 99_999, 100, optional=True, blank="no limit"),
 )
 MAX_DIGITS = 9
 
@@ -341,9 +344,11 @@ class SetupScreen:
         design.topright = (paste.left - UI(8), section.top)
         box = pg.Rect(section.left, section.top + UI(36), section.width, UI(16 * self.TEXT_LINES + 12))
         start = pg.Rect(0, 0, UI(180), UI(44))
-        start.midbottom = (card.centerx, card.bottom - UI(42))
+        start.bottomleft = (card.centerx + UI(6), card.bottom - UI(42))
+        quit = pg.Rect(0, 0, UI(140), UI(44))
+        quit.bottomright = (card.centerx - UI(6), card.bottom - UI(42))
         return {"card": card, "rows": rows, "box": box, "design": design, "paste": paste, "load": load,
-                "clear": clear, "start": start}
+                "clear": clear, "start": start, "quit": quit}
 
     @staticmethod
     def _buttons(row: pg.Rect) -> tuple[pg.Rect, pg.Rect, pg.Rect]:
@@ -359,6 +364,8 @@ class SetupScreen:
         layout = self._layout()
         if layout["start"].collidepoint(position):
             return "start"
+        if layout["quit"].collidepoint(position):
+            return "quit"
         if layout["design"].collidepoint(position):
             return self._design()
         if layout["paste"].collidepoint(position):
@@ -402,6 +409,10 @@ class SetupScreen:
         pg.draw.rect(self.screen, (131, 205, 143) if ready else (70, 88, 76), start, border_radius=UI(6))
         label = self.bold.render("START", True, (19, 26, 27))
         self.screen.blit(label, label.get_rect(center=start.center))
+        quit = layout["quit"]
+        pg.draw.rect(self.screen, (44, 57, 52), quit, border_radius=UI(6))
+        label = self.bold.render("QUIT", True, (220, 229, 211))
+        self.screen.blit(label, label.get_rect(center=quit.center))
         if pg.time.get_ticks() < self.note_until:
             hint = self.small.render(self.note, True, (238, 183, 110))
         else:
@@ -423,7 +434,7 @@ class SetupScreen:
         pg.draw.rect(self.screen, (19, 26, 27), box, border_radius=UI(4))
         pg.draw.rect(self.screen, (131, 205, 143) if focused else (54, 68, 62), box, 1, border_radius=UI(4))
         text = self.form.texts[setting.key]
-        shown, color = (text, (238, 238, 220)) if text else ("random", (116, 139, 124))
+        shown, color = (text, (238, 238, 220)) if text else (setting.blank, (116, 139, 124))
         if focused and not self.form.fresh and pg.time.get_ticks() // 500 % 2:
             shown += "_"
         label = self.mono.render(shown, True, color)

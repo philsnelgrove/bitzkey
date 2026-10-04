@@ -21,9 +21,11 @@ GRID_SIZE = 100
 INITIAL_POPULATION = 90
 GRASS_DENSITY = 5       # percent of cells that start with grass
 GRASS_REGROWTH = 0.004  # share of the starting grass that grows back each turn
-MAX_POPULATION = 600
+MAX_POPULATION = 600   # the most Bitzkeys spawned at the start; a world's population cap is a setting
+CROWDING_RADIUS = 4    # animals within this many cells count as crowding a would-be parent
+CROWDING_LIMIT = 10    # litters shrink as crowding nears this; at it, an animal doesn't breed
 SPAWN_GROUP = (3, 5)  # Bitzkeys spawn in groups of this many sharing one genome
-MAX_IMPORTED = MAX_POPULATION // SPAWN_GROUP[1]  # imported Bitzkeys, so their groups fit the cap
+MAX_IMPORTED = MAX_POPULATION // SPAWN_GROUP[1]  # imported Bitzkeys, so their groups fit that number
 SPAWN_SPREAD = 2      # a group's members appear within this many cells of each other's centre
 DENSE_HISTORY = 500   # the latest turns are each kept as a snapshot of the world
 CHECKPOINTS = 200     # older turns are kept as at most this many evenly spaced snapshots
@@ -52,6 +54,19 @@ KILL_MEAL_FOR_SIZE = 45
 CARRION_MEAT = 30      # meat a well-fed corpse leaves, plus up to CARRION_MEAT_FOR_SIZE for the largest;
 CARRION_MEAT_FOR_SIZE = 50  # a hungrier body leaves less, and a starved one nothing
 SCAVENGE_BITE = 25     # meat eaten in one go
+GRASS_MEAL = 35        # hunger a tuft of grass sates
+PLANT_MEAL = 45        # hunger a bite of a plant sates, plus up to PLANT_MEAL_FOR_SIZE for the largest
+PLANT_MEAL_FOR_SIZE = 25
+PLANT_BITE = 15        # health a plant loses to each bite
+PLANT_REGROWTH = 0.02  # share of its health pool a plant regrows each turn
+PLANT_RECOVERY = 8     # turns after a bite before a plant can be bitten again
+SEED_CHANCE = (0.03, 0.10)  # a well-fed plant's chance each turn of seeding, from least to most fertile
+SEED_COST = 20         # hunger seeding costs a plant
+SEED_HUNGER = 40       # a plant hungrier than this doesn't seed
+SEEDLING_HUNGER = 50
+SEED_REACH = 5         # how far, in cells, a seed may land from its plant
+PLANT_CROWDING = 3     # a seed doesn't take where more than this many plants grow within two cells
+MAX_PLANTS = 200
 TEMPERAMENT_RELAPSE = 0.005  # share of the gap back to the inborn value closed each turn
 
 # How experiences reshape temperament, in shares of a trait's full range before scaling by
@@ -78,6 +93,7 @@ SIGHT_OFFSETS = sorted(
     key=lambda offset: (abs(offset[0]) + abs(offset[1]), offset),
 )
 SEEN_OFFSETS = [(0, 0), *SIGHT_OFFSETS]
+SEED_OFFSETS = sum(abs(dx) + abs(dy) <= SEED_REACH for dx, dy in SIGHT_OFFSETS)  # the first offsets: those a seed reaches
 
 
 @dataclass
@@ -209,9 +225,11 @@ def _turn_of(snapshot: dict) -> int:
 class Simulation:
     def __init__(self, width: int = GRID_SIZE, height: int = GRID_SIZE,
                  population: int = INITIAL_POPULATION, seed: int | None = None,
-                 grass_density: float = GRASS_DENSITY, imported: Sequence[Imported] = ()):
+                 grass_density: float = GRASS_DENSITY, imported: Sequence[Imported] = (),
+                 population_cap: int | None = None):
         """Spawn `population` random Bitzkeys in groups sharing a genome, plus a group for each
-        `imported` Bitzkey, whose members all start with copies of its saved brain if it has one."""
+        `imported` Bitzkey, whose members all start with copies of its saved brain if it has one.
+        `population_cap` limits living animals; None leaves crowding alone to limit them."""
         if width < 10 or height < 10:
             raise ValueError("World dimensions must both be at least 10 cells.")
         if population < 0:
@@ -236,6 +254,8 @@ class Simulation:
         self._cells: dict[tuple[int, int], list[Bitzkey]] = {}
         self._carrion: dict[tuple[int, int], list[Bitzkey]] = {}
         self._population = 0
+        self.population_cap = population_cap
+        self._plants = 0
         self.grass: dict[tuple[int, int], int] = {}
         initial_grass = round(width * height * grass_density / 100)
         self.grass_regrowth = initial_grass * GRASS_REGROWTH
@@ -360,11 +380,30 @@ class Simulation:
         return True
 
     def advance(self) -> None:
+        """Step one turn: replaying the recorded run, or simulating a new turn, unless the
+        simulation has ended."""
         if self.turn < self.frontier:
             self.seek(self.turn + 1)
             return
+        if self.end_reason:
+            return
         self._take_turn()
         self._record()
+
+    @property
+    def end_reason(self) -> str | None:
+        """Why the simulation is over, if it is: no animals left alive, or no cell left free."""
+        living = self.living
+        if not any(agent.species != "plant" for agent in living):
+            return "extinct"
+        if len({(agent.x, agent.y) for agent in living}) >= self.width * self.height:
+            return "full"
+        return None
+
+    @property
+    def ended(self) -> bool:
+        """At the end of the run: the latest turn, with an end reason."""
+        return self.turn == self.frontier and self.end_reason is not None
 
     def _take_turn(self, replay: bool = False) -> None:
         """One turn. A replay re-simulates a turn already recorded, so the census, which already
@@ -372,7 +411,8 @@ class Simulation:
         self.turn += 1
         self._index_cells()
         order = self.living
-        self._population = len(order)
+        self._plants = sum(agent.species == "plant" for agent in order)
+        self._population = len(order) - self._plants  # animals; plants have their own limit
         self.random.shuffle(order)
         for agent in order:
             if not agent.alive:
@@ -391,7 +431,9 @@ class Simulation:
                 continue
             if agent.species == "plant":
                 agent.hunger = max(0, agent.hunger - 1.5)
+                agent.health = min(agent.max_health, agent.health + agent.max_health * PLANT_REGROWTH)
                 agent.last_action = "photosynthesized"
+                self._seed(agent)
                 continue
             self._settle(agent)
             if agent.hunger >= 80:
@@ -408,6 +450,29 @@ class Simulation:
         self.insights.decay()
         if not replay:
             self._take_census()
+
+    def _seed(self, plant: Bitzkey) -> None:
+        """A well-fed plant may sprout a seedling of its own kind on a free cell up to SEED_REACH away,
+        unless plants already crowd that spot or there are already MAX_PLANTS plants."""
+        if plant.hunger > SEED_HUNGER or self._plants >= MAX_PLANTS:
+            return
+        least, most = SEED_CHANCE
+        if self.random.random() >= least + (most - least) * plant.physique("fertility"):
+            return
+        dx, dy = SIGHT_OFFSETS[self.random.randrange(SEED_OFFSETS)]
+        cell = ((plant.x + dx) % self.width, (plant.y + dy) % self.height)
+        if any(other.alive for other in self._cells.get(cell, ())):
+            return
+        spot = Bitzkey(-1, plant.dna, *cell)
+        if sum(other.species == "plant" for other in self._nearby(spot, 2)) > PLANT_CROWDING:
+            return
+        seedling = self._add_agent(cross(plant.dna, plant.dna, self.random), *cell)
+        seedling.hunger = SEEDLING_HUNGER
+        seedling.generation = plant.generation + 1
+        plant.hunger += SEED_COST
+        plant.children += 1
+        plant.last_action = "seeded"
+        self._plants += 1
 
     def _sow(self, tufts: int) -> None:
         for _ in range(tufts):
@@ -481,18 +546,21 @@ class Simulation:
         grass_here = grazes and self.grass.get((agent.x, agent.y), 0) > 0
         grass = self._nearest_grass(agent, sight) if grazes else None
         carrion = self._nearest_carrion(agent, sight)
-        quarry, hunter, suitor = self._look_around(agent, sight)
+        quarry, hunter, suitor, flora = self._look_around(agent, sight)
 
         available = {"rest", "explore"}
         if grass_here:
             available.add("eat")
         if grass:
             available.add("forage")
+        if flora:
+            available.add("browse")
         if carrion:
             available.add("scavenge")
         if suitor:
             available.add("court")
-        if mate and agent.can_breed and nurseries and self._population < MAX_POPULATION:
+        if (mate and agent.can_breed and nurseries and self._room() > 0
+                and self._crowding(agent, mate) < CROWDING_LIMIT):
             available.add("breed")
         if quarry:
             available.add("hunt")
@@ -519,12 +587,13 @@ class Simulation:
             kin_near=min(3, kin) / 3,
             others_near=min(3, others) / 3,
             carrion_closeness=self._closeness(agent, carrion and (carrion.x, carrion.y), sight),
+            plant_closeness=self._closeness(agent, flora and (flora.x, flora.y), sight),
             age=min(1.0, agent.age / 400),
             **{trait: agent.feeling(trait) for trait in MIND_TRAITS},
         )
         situation = {"mate": mate, "nurseries": nurseries, "prey": target, "threat": threat,
                      "threats": len(threats), "quarry": quarry, "hunter": hunter, "suitor": suitor,
-                     "grass": grass, "grass_here": grass_here, "carrion": carrion, "kin": kin,
+                     "grass": grass, "grass_here": grass_here, "carrion": carrion, "flora": flora, "kin": kin,
                      "others": others}
         return senses, [ACTIONS.index(action) for action in ACTIONS if action in available], situation
 
@@ -569,13 +638,16 @@ class Simulation:
         agent.health = min(agent.health, 0.0)  # whatever the cause, a recorded death leaves it dead
         agent.died_turn = self.turn
         agent.last_action = cause
-        nourished = max(0.0, 1 - agent.hunger / 100)
+        nourished = 0.0 if agent.species == "plant" else max(0.0, 1 - agent.hunger / 100)
         agent.meat = ((CARRION_MEAT + CARRION_MEAT_FOR_SIZE * agent.physique("size")) * nourished
                       * (0.5 if cause == "killed" else 1))
         agent.rot = agent.meat / CORPSE_TURNS
         self._carrion.setdefault((agent.x, agent.y), []).append(agent)
         self.deaths += 1
-        self._population -= 1
+        if agent.species == "plant":
+            self._plants -= 1
+        else:
+            self._population -= 1
 
     # Actions
 
@@ -585,13 +657,15 @@ class Simulation:
             self.grass[cell] -= 1
             if self.grass[cell] == 0:
                 del self.grass[cell]
-            agent.hunger = max(0, agent.hunger - 35)
+            agent.hunger = max(0, agent.hunger - GRASS_MEAL)
             if agent.last_action == "foraged":
                 self._experience(agent, "foraged_meal")
             agent.last_action = "ate"
         elif action == "forage":
             self._move_toward(agent, *situation["grass"])
             agent.last_action = "foraged"
+        elif action == "browse":
+            self._browse(agent, situation["flora"])
         elif action == "scavenge":
             self._scavenge(agent, situation["carrion"])
         elif action == "rest":
@@ -624,6 +698,21 @@ class Simulation:
                            (agent.y + self.random.choice((-1, 0, 1))) % self.height)
             agent.reward += CURIOSITY_JOY * agent.feeling("curiosity")
             agent.last_action = "explored"
+
+    def _browse(self, agent: Bitzkey, plant: Bitzkey) -> None:
+        """Go to the plant and, once alongside, take a bite: far more filling than grass, and more
+        so from a bigger plant. Each bite wounds the plant, and enough of them kill it. A bitten
+        plant can't be bitten again until it has recovered."""
+        self._move_toward(agent, plant.x, plant.y)
+        if abs(plant.x - agent.x) + abs(plant.y - agent.y) > 1 or plant.cooldown:
+            agent.last_action = "sought plants"
+            return
+        agent.hunger = max(0, agent.hunger - PLANT_MEAL - PLANT_MEAL_FOR_SIZE * plant.physique("size"))
+        plant.health -= PLANT_BITE
+        plant.cooldown = PLANT_RECOVERY
+        if not plant.alive:
+            self._die(plant, "eaten")
+        agent.last_action = "browsed"
 
     def _scavenge(self, agent: Bitzkey, corpse: Bitzkey) -> None:
         """Go to the carrion and, once alongside, eat; a carrion-eater's gut gets the most from it."""
@@ -680,13 +769,15 @@ class Simulation:
 
     def _breed(self, first: Bitzkey, second: Bitzkey, cells: list[tuple[int, int]]) -> None:
         """Fertile parents breed cheaply and often. Their litter, 1 to 6 young (bigger for a high
-        litter trait and small bodies, and no more than the free cells around), shares the energy
+        litter trait and small bodies, smaller where animals crowd around, and no more than the
+        free cells around), shares the energy
         both parents give up. Animals only choose to breed when both can afford it, but a parent
         can only give what it has left. Each child inherits a mix of its parents' brains, and
         starts its temperament at its own genes shifted by the average of what experience
         taught its parents."""
         litter = litter_size([(int(parent.body["litter"]), int(parent.body["size"])) for parent in (first, second)])
-        cells = cells[:max(1, min(litter, MAX_POPULATION - self._population))]
+        litter = max(1, int(litter * (1 - self._crowding(first, second) / CROWDING_LIMIT) + 0.5))
+        cells = cells[:max(1, min(litter, self._room()))]
         costs = [parent.breeding_cost for parent in (first, second)]
         given = sum(min(cost, max(0.0, 100 - parent.hunger)) for cost, parent in zip(costs, (first, second)))
         for cell in cells:
@@ -728,6 +819,15 @@ class Simulation:
                         found.append(other)
         return found
 
+    def _room(self) -> float:
+        """How many more animals the population cap allows; unlimited without a cap."""
+        return float("inf") if self.population_cap is None else self.population_cap - self._population
+
+    def _crowding(self, agent: Bitzkey, partner: Bitzkey) -> int:
+        """How many other animals, besides its partner, live within CROWDING_RADIUS cells."""
+        return sum(other.species != "plant" and other is not partner
+                   for other in self._nearby(agent, CROWDING_RADIUS))
+
     def _free_cells_near(self, agent: Bitzkey) -> list[tuple[int, int]]:
         """The empty cells around an animal, sides before corners, where young can be born."""
         cells = []
@@ -758,15 +858,17 @@ class Simulation:
         return None
 
     def _look_around(self, agent: Bitzkey,
-                     sight: int) -> tuple[Bitzkey | None, Bitzkey | None, Bitzkey | None]:
-        """The nearest prey, hunter and willing mate in sight, for the roles this animal can have."""
-        quarry = hunter = suitor = None
+                     sight: int) -> tuple[Bitzkey | None, Bitzkey | None, Bitzkey | None, Bitzkey | None]:
+        """The nearest prey, hunter, willing mate and edible plant in sight, for the roles this
+        animal can have."""
+        quarry = hunter = suitor = flora = None
         hunts = agent.species in ("omnivore", "predator")
         hunted = agent.species in ("grazer", "omnivore")
+        browses = agent.species in ("grazer", "omnivore")
         courts = agent.can_breed
         for dx, dy in SEEN_OFFSETS:
             if abs(dx) + abs(dy) > sight or ((quarry or not hunts) and (hunter or not hunted)
-                                             and (suitor or not courts)):
+                                             and (suitor or not courts) and (flora or not browses)):
                 break
             for other in self._cells.get((agent.x + dx, agent.y + dy), ()):
                 if other is agent or not other.alive:
@@ -775,9 +877,11 @@ class Simulation:
                     quarry = other
                 elif hunter is None and self._is_prey(other, agent):
                     hunter = other
+                elif browses and flora is None and other.species == "plant" and not other.cooldown:
+                    flora = other
                 elif courts and suitor is None and other.can_breed and self._compatible(agent, other):
                     suitor = other
-        return quarry, hunter, suitor
+        return quarry, hunter, suitor, flora
 
     @staticmethod
     def _closeness(agent: Bitzkey, cell: tuple[int, int] | None, sight: int) -> float:
