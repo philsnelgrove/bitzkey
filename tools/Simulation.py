@@ -35,7 +35,11 @@ COMPATIBLE_BITS = 14  # partners' body words (outer rings) may differ in at most
 LITTER_RANGE = (1, 6)  # young per birth, while there is room around the parent
 LITTER_SIZE_WEIGHT = 0.5  # how much of litter size comes from small bodies; the rest from the litter trait
 PLANT_LIFESPAN = 4000
-ANIMAL_LIFESPAN = (250, 900)  # expected turns of life for the smallest and the largest animals
+ANIMAL_LIFESPAN = (250, 900)  # expected turns of life at the fastest and slowest metabolisms
+METABOLISM = (1.6, 0.6)  # metabolic rate of the smallest and the largest bodies
+STOMACH = (0.5, 2.0)     # food a body holds, relative to the middle, from the smallest to the largest;
+                         # hunger is how empty it is, so a meal fills a small stomach more
+SIZE_IN_MIGHT = 0.5      # share of fighting strength and toughness that comes from body size
 AGEING = 0.7  # from this share of its lifespan, an animal may die of old age
 
 DEATH_PENALTY = 2.0
@@ -48,6 +52,8 @@ UNEASE = 0.1           # how much an intolerant animal minds other species close
 EMPATHY_PAIN = 0.15    # how much an empathetic animal feels another's wound; twice that for a death
 OTHER_KIND = 0.4       # how much of that pain reaches it when the victim is of another species
 LEARNING_RATE = 0.045  # at the highest intellect
+STRIKE_EFFORT = 0.2    # food burned for each point of damage a blow deals
+PREDATOR_LITTERS = 0.5  # predators' litters are this share of the usual size, rounded up
 STRIKE_FORCE = 1.5     # scales every blow
 KILL_MEAL = 25         # hunger a kill sates, plus up to KILL_MEAL_FOR_SIZE for the largest prey
 KILL_MEAL_FOR_SIZE = 45
@@ -157,10 +163,41 @@ class Bitzkey:
         return 60.0 + 90 * self.physique("size")
 
     @property
+    def metabolism(self) -> float:
+        """Metabolic rate: fast in small bodies, slow in large ones."""
+        fastest, slowest = METABOLISM
+        return fastest + (slowest - fastest) * self.physique("size")
+
+    @property
+    def stomach(self) -> float:
+        """How much food the body holds: hunger is a share of it, so food needs grow with size."""
+        smallest, largest = STOMACH
+        return smallest + (largest - smallest) * self.physique("size")
+
+    @property
     def burn(self) -> float:
-        """Hunger gained each turn: a bigger, stronger, faster, better-armed body costs more."""
-        return (0.3 + 0.3 * self.physique("size") + 0.18 * self.physique("strength")
-                + 0.24 * self.physique("speed") + 0.12 * (self.physique("weapons") + self.physique("armour")))
+        """Hunger gained each turn, as a share of its stomach: a faster metabolism, and a stronger,
+        faster, better-armed body, empty it sooner."""
+        return self.metabolism * (0.45 + 0.18 * self.physique("strength") + 0.24 * self.physique("speed")
+                                  + 0.12 * (self.physique("weapons") + self.physique("armour")))
+
+    @property
+    def might(self) -> float:
+        """Fighting strength: its strength trait and, strongly, its size."""
+        return (1 - SIZE_IN_MIGHT) * self.physique("strength") + SIZE_IN_MIGHT * self.physique("size")
+
+    @property
+    def toughness(self) -> float:
+        """How well its body turns blows: its armour trait and, strongly, its size."""
+        return (1 - SIZE_IN_MIGHT) * self.physique("armour") + SIZE_IN_MIGHT * self.physique("size")
+
+    def nourish(self, food: float) -> None:
+        """Eat: the same food fills a small stomach more than a large one."""
+        self.hunger = max(0.0, self.hunger - food / self.stomach)
+
+    def heal(self, share: float) -> None:
+        """Heal a share of the health pool, faster with a faster metabolism."""
+        self.health = min(self.max_health, self.health + self.max_health * share * self.metabolism)
 
     @property
     def steps(self) -> int:
@@ -172,11 +209,13 @@ class Bitzkey:
 
     @property
     def lifespan(self) -> float:
-        """Expected turns of life: plants outlive large animals, which outlive small ones."""
+        """Expected turns of life: plants outlive animals, and among animals a slower metabolism,
+        that is a larger body, lives longer."""
         if self.species == "plant":
             return PLANT_LIFESPAN
         shortest, longest = ANIMAL_LIFESPAN
-        return shortest + (longest - shortest) * self.physique("size")
+        fastest, slowest = METABOLISM
+        return shortest + (longest - shortest) * (fastest - self.metabolism) / (fastest - slowest)
 
     @property
     def breeding_cost(self) -> float:
@@ -209,13 +248,15 @@ class Bitzkey:
         return replace(self, brain=self.brain.copy() if self.brain else None, mind=self.mind.copy())
 
 
-def litter_size(parents: Sequence[tuple[int, int]]) -> int:
+def litter_size(parents: Sequence[tuple[int, int]], species: str = "") -> int:
     """Young per birth, before space limits it, from each parent's (litter trait, size): a high
-    litter trait and a small body both make for bigger litters."""
+    litter trait and a small body both make for bigger litters. Predators have half as many,
+    rounded up."""
     smallest, largest = LITTER_RANGE
     tendency = sum((1 - LITTER_SIZE_WEIGHT) * share(litter) + LITTER_SIZE_WEIGHT * (1 - share(size))
                    for litter, size in parents) / len(parents)
-    return smallest + int(tendency * (largest - smallest) + 0.5)
+    litter = smallest + int(tendency * (largest - smallest) + 0.5)
+    return math.ceil(litter * PREDATOR_LITTERS) if species == "predator" else litter
 
 
 def _turn_of(snapshot: dict) -> int:
@@ -422,7 +463,7 @@ class Simulation:
             if agent.cooldown:
                 agent.cooldown -= 1
             if agent.health < agent.max_health and agent.hunger < 65:
-                agent.health = min(agent.max_health, agent.health + agent.max_health * 0.005)
+                agent.heal(0.005)
             if agent.hunger >= 100:
                 self._die(agent, "starved")
                 continue
@@ -657,7 +698,7 @@ class Simulation:
             self.grass[cell] -= 1
             if self.grass[cell] == 0:
                 del self.grass[cell]
-            agent.hunger = max(0, agent.hunger - GRASS_MEAL)
+            agent.nourish(GRASS_MEAL)
             if agent.last_action == "foraged":
                 self._experience(agent, "foraged_meal")
             agent.last_action = "ate"
@@ -670,7 +711,7 @@ class Simulation:
             self._scavenge(agent, situation["carrion"])
         elif action == "rest":
             agent.hunger = max(0, agent.hunger - agent.burn / 2)
-            agent.health = min(agent.max_health, agent.health + agent.max_health * 0.015)
+            agent.heal(0.015)
             agent.last_action = "rested"
         elif action == "court":
             suitor = situation["suitor"]
@@ -707,7 +748,7 @@ class Simulation:
         if abs(plant.x - agent.x) + abs(plant.y - agent.y) > 1 or plant.cooldown:
             agent.last_action = "sought plants"
             return
-        agent.hunger = max(0, agent.hunger - PLANT_MEAL - PLANT_MEAL_FOR_SIZE * plant.physique("size"))
+        agent.nourish(PLANT_MEAL + PLANT_MEAL_FOR_SIZE * plant.physique("size"))
         plant.health -= PLANT_BITE
         plant.cooldown = PLANT_RECOVERY
         if not plant.alive:
@@ -722,22 +763,25 @@ class Simulation:
             return
         bite = min(corpse.meat, SCAVENGE_BITE)
         corpse.meat -= bite
-        agent.hunger = max(0, agent.hunger - bite * agent.digestion)
+        agent.nourish(bite * agent.digestion)
         agent.last_action = "scavenged"
 
     @staticmethod
     def _damage(attacker: Bitzkey, defender: Bitzkey) -> float:
-        """One blow: strength and size, sharpened by weapons, blunted by armour."""
-        force = STRIKE_FORCE * (2 + 6 * attacker.physique("strength") + 3 * attacker.physique("size"))
-        return force * (1 + 0.75 * attacker.physique("weapons")) * (1 - 0.6 * defender.physique("armour"))
+        """One blow: the attacker's might, sharpened by weapons, blunted by the defender's toughness;
+        size counts strongly in both."""
+        force = STRIKE_FORCE * (2 + 9 * attacker.might)
+        return force * (1 + 0.75 * attacker.physique("weapons")) * (1 - 0.6 * defender.toughness)
 
     def _attack(self, agent: Bitzkey, victim: Bitzkey) -> None:
         """A blow. The intolerant enjoy fighting other species most; the empathetic feel their
         victim's pain, and so does any empathetic animal watching, most for its own kind."""
         empathy = agent.feeling("empathy")
         joy = FIGHT_JOY * agent.feeling("aggression") * (1 - 0.6 * empathy) * (1 - 0.75 * agent.feeling("tolerance"))
-        victim.health -= self._damage(agent, victim)
-        agent.hunger = max(0, agent.hunger - 5)
+        damage = self._damage(agent, victim)
+        victim.health -= damage
+        agent.nourish(5)
+        agent.hunger += STRIKE_EFFORT * damage / agent.stomach  # the harder the blow, the more it costs
         agent.reward += joy
         agent.last_action = "attacked"
         self._experience(agent, "hit")
@@ -748,7 +792,7 @@ class Simulation:
             if not any(other.species == victim.species for other in self._nearby(victim, 2)):
                 self._experience(victim, "wounded_alone")
         else:
-            agent.hunger = max(0, agent.hunger - KILL_MEAL - KILL_MEAL_FOR_SIZE * victim.physique("size"))
+            agent.nourish(KILL_MEAL + KILL_MEAL_FOR_SIZE * victim.physique("size"))
             agent.reward += 2 * joy
             self._experience(agent, "kill")
         pain = EMPATHY_PAIN * (2 if killed else 1)
@@ -760,7 +804,7 @@ class Simulation:
         if killed:
             self._die(victim, "killed")
 
-        sting = 4.5 * victim.physique("weapons") * (1 - 0.6 * agent.physique("armour"))
+        sting = 4.5 * victim.physique("weapons") * (1 - 0.6 * agent.toughness)
         if sting > 0:
             agent.health -= sting
             self._experience(agent, "stung")
@@ -775,18 +819,21 @@ class Simulation:
         can only give what it has left. Each child inherits a mix of its parents' brains, and
         starts its temperament at its own genes shifted by the average of what experience
         taught its parents."""
-        litter = litter_size([(int(parent.body["litter"]), int(parent.body["size"])) for parent in (first, second)])
+        litter = litter_size([(int(parent.body["litter"]), int(parent.body["size"])) for parent in (first, second)],
+                             first.species)
         litter = max(1, int(litter * (1 - self._crowding(first, second) / CROWDING_LIMIT) + 0.5))
         cells = cells[:max(1, min(litter, self._room()))]
         costs = [parent.breeding_cost for parent in (first, second)]
-        given = sum(min(cost, max(0.0, 100 - parent.hunger)) for cost, parent in zip(costs, (first, second)))
+        # Energy in absolute terms: a share of each parent's stomach, refilled in the young's.
+        given = sum(min(cost, max(0.0, 100 - parent.hunger)) * parent.stomach
+                    for cost, parent in zip(costs, (first, second)))
         for cell in cells:
             brain = Brain.inherit(first.brain, second.brain, self.random)
             child = self._add_agent(cross(first.dna, second.dna, self.random), *cell, brain=brain)
             for trait in MIND_TRAITS:
                 learned = sum(parent.mind[trait] - parent.inborn[trait] for parent in (first, second)) / 2
                 child.mind[trait] = max(0.0, min(float(TRAIT_MAX), child.inborn[trait] + learned))
-            child.hunger = 100 - given / len(cells)
+            child.hunger = max(0.0, 100 - given / len(cells) / child.stomach)
             child.generation = max(first.generation, second.generation) + 1
             self._population += 1
         for parent, cost in zip((first, second), costs, strict=True):

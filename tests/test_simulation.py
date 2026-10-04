@@ -1,3 +1,4 @@
+import math
 import random
 import unittest
 from unittest.mock import patch
@@ -101,7 +102,7 @@ class SimulationTests(unittest.TestCase):
 
         self.assertEqual((small.max_health, small.health), (60, 60))
         self.assertEqual((large.max_health, large.health), (150, 150))
-        self.assertGreater(large.burn, small.burn)
+        self.assertGreater(large.burn * large.stomach, small.burn * small.stomach)  # eats more a turn
         self.assertEqual((small.steps, large.steps), (1, 4))
 
     def test_mind_starts_inborn_and_copies_independently(self):
@@ -521,6 +522,22 @@ class NewTraitTests(unittest.TestCase):
             self.assertEqual(sizes, sorted(sizes, reverse=True), f"litter trait {litter}")
         self.assertEqual((litter_size([(7, 0)] * 2), litter_size([(0, 7)] * 2)), (6, 1))
         self.assertEqual(litter_size([(7, 0), (0, 7)]), litter_size([(3, 3)] * 2))  # parents average out
+        # predators have half the litters, rounded up
+        self.assertEqual([litter_size([(7, 0)] * 2, species) for species in ("grazer", "omnivore", "predator")],
+                         [6, 6, 3])
+        self.assertEqual(litter_size([(0, 7)] * 2, "predator"), 1)
+        self.assertEqual(litter_size([(4, 3)] * 2, "predator"), math.ceil(litter_size([(4, 3)] * 2) / 2))
+
+    def test_striking_burns_food_by_the_damage_dealt(self):
+        target = self.simulation._add_agent(encode_dna("grazer", size=7), 5, 5)
+        weak = self.simulation._add_agent(encode_dna("predator"), 5, 6)
+        brute = self.simulation._add_agent(encode_dna("predator", strength=7, weapons=7), 6, 5)
+        for attacker in (weak, brute):
+            attacker.hunger = 50
+            damage = self.simulation._damage(attacker, target)
+            self.simulation._attack(attacker, target)
+            self.assertAlmostEqual(attacker.hunger, max(0, 50 - 5 / 0.5) + 0.2 * damage / 0.5)
+        self.assertGreater(brute.hunger, weak.hunger)
 
     def test_a_parent_hemmed_in_has_single_young(self):
         dna = encode_dna("grazer", fertility=7, litter=7)
@@ -542,6 +559,72 @@ class NewTraitTests(unittest.TestCase):
         self.assertGreater(plant.lifespan, large.lifespan)
         self.assertGreater(large.lifespan, small.lifespan)
         self.assertEqual((large.lifespan, small.lifespan), (900, 250))
+
+    def test_small_bodies_run_fast_and_short_lives_large_ones_slow_and_long(self):
+        small = self.simulation._add_agent(encode_dna("grazer", size=0), 1, 1)
+        large = self.simulation._add_agent(encode_dna("grazer", size=7), 2, 2)
+
+        self.assertAlmostEqual(small.metabolism, 1.6)
+        self.assertAlmostEqual(large.metabolism, 0.6)
+        self.assertGreater(small.burn / small.metabolism, 0)
+        self.assertAlmostEqual(small.burn / large.burn, 1.6 / 0.6)  # same build, hungrier sooner
+        self.assertLess(small.lifespan, large.lifespan)
+
+    def test_food_needs_grow_with_size_offset_by_metabolism(self):
+        small = self.simulation._add_agent(encode_dna("grazer", size=0), 1, 1)
+        large = self.simulation._add_agent(encode_dna("grazer", size=7), 2, 2)
+        for animal in (small, large):
+            animal.hunger = 80
+            animal.nourish(20)
+
+        self.assertEqual((small.hunger, large.hunger), (40, 70))  # a meal fills a small stomach more
+        food_per_turn = [animal.burn * animal.stomach for animal in (small, large)]
+        self.assertGreater(food_per_turn[1], food_per_turn[0])  # but a large body eats more each turn
+        self.assertLess(food_per_turn[1], 4 * food_per_turn[0])  # if less than its size alone would ask
+
+    def test_faster_metabolisms_heal_faster(self):
+        small = self.simulation._add_agent(encode_dna("grazer", size=0), 1, 1)
+        large = self.simulation._add_agent(encode_dna("grazer", size=7), 2, 2)
+        for animal in (small, large):
+            animal.health = animal.max_health / 2
+            animal.heal(0.1)
+
+        self.assertAlmostEqual(small.health - small.max_health / 2, small.max_health * 0.16)
+        self.assertAlmostEqual(large.health - large.max_health / 2, large.max_health * 0.06)
+
+    def test_size_strongly_raises_strength_and_armour(self):
+        target = self.simulation._add_agent(encode_dna("grazer"), 1, 1)
+        small_brute = self.simulation._add_agent(encode_dna("predator", strength=7), 2, 2)
+        large_weakling = self.simulation._add_agent(encode_dna("predator", size=7), 3, 3)
+        small_shell = self.simulation._add_agent(encode_dna("grazer", armour=7), 4, 4)
+        large_bare = self.simulation._add_agent(encode_dna("grazer", size=7), 5, 5)
+
+        self.assertEqual(self.simulation._damage(large_weakling, target),
+                         self.simulation._damage(small_brute, target))
+        self.assertEqual(self.simulation._damage(target, large_bare), self.simulation._damage(target, small_shell))
+        self.assertLess(self.simulation._damage(target, large_bare), self.simulation._damage(target, target))
+
+    def test_young_are_fed_in_absolute_energy_shared_by_stomach_size(self):
+        large = [self.simulation._add_agent(encode_dna("grazer", size=7), 5, y) for y in (5, 6)]
+        small = [self.simulation._add_agent(encode_dna("grazer", size=0), 1, y) for y in (1, 2)]
+        mixed = [self.simulation._add_agent(encode_dna("grazer", size=7, sight=1), 9, 9),
+                 self.simulation._add_agent(encode_dna("grazer", size=0, sight=1), 9, 10)]
+        for animal in large + small + mixed:
+            animal.hunger = 0
+        self.simulation._index_cells()
+
+        young = []
+        for parents, cell in ((large, (6, 5)), (small, (2, 1)), (mixed, (10, 9))):
+            self.simulation._breed(*parents, [cell])
+            young.append(self.simulation.agents[-1])
+
+        cost = large[0].breeding_cost
+        # each parent gives a share of its own stomach, refilling the young's stomach (which may
+        # differ, as genes mutate): a large parent gives four times what a small one does
+        for child, parents in zip(young, (large, small, mixed)):
+            given = cost * sum(parent.stomach for parent in parents)
+            self.assertAlmostEqual(child.hunger, max(0.0, 100 - given / child.stomach))
+        self.assertAlmostEqual(large[0].stomach, 4 * small[0].stomach)
 
     def test_old_age_comes_only_late_in_life(self):
         animal = self.simulation._add_agent(encode_dna("grazer", size=0), 1, 1)
@@ -613,13 +696,14 @@ class NewTraitTests(unittest.TestCase):
             while animal.last_action != "scavenged":
                 self.simulation._act(animal, "scavenge", situation)
 
-        self.assertAlmostEqual(picky.hunger, 60 - 25 * 0.2)
-        self.assertAlmostEqual(scavenger.hunger, 60 - 25 * 1.0)
+        # both are small, with half-size stomachs, so each bite fills them twice as much
+        self.assertAlmostEqual(picky.hunger, 60 - 25 * 0.2 / 0.5)
+        self.assertAlmostEqual(scavenger.hunger, 60 - 25 * 1.0 / 0.5)
         self.assertAlmostEqual(corpse.meat, 80 - 50)
 
     def test_grazers_and_omnivores_browse_plants_for_far_more_than_grass(self):
         plant = self.simulation._add_agent(encode_dna("plant", size=7), 5, 5)
-        grazer = self.simulation._add_agent(encode_dna("grazer", sight=7), 5, 9)
+        grazer = self.simulation._add_agent(encode_dna("grazer", size=7, sight=7), 5, 9)
         predator = self.simulation._add_agent(encode_dna("predator", sight=7), 9, 5)
         grazer.hunger = 90
         self.simulation._index_cells()
@@ -630,7 +714,7 @@ class NewTraitTests(unittest.TestCase):
         while grazer.last_action != "browsed":
             self.simulation._act(grazer, "browse", situation)
 
-        self.assertEqual(grazer.hunger, 90 - 70)  # a bite of the largest plant sates 70; grass sates 35
+        self.assertEqual(grazer.hunger, 90 - 70 / 2)  # the largest plant gives 70, into a double stomach
         self.assertEqual(plant.health, plant.max_health - 15)
 
     def test_a_bitten_plant_is_left_alone_until_it_recovers(self):

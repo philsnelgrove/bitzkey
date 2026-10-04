@@ -54,7 +54,7 @@ keys (`Shift` for steps of five), or by typing a digit from 0 to 7. The ring and
 dot hex codes can also be typed whole. A large preview shows the Bitzkey in its
 true colours, at sixteen times its in-world size and proportions, beside it at
 actual size. Below them are the stats that follow from the genome: health,
-energy burn, speed, sight, breeding cost, litter size, how much carrion feeds
+metabolism, stomach, energy burn, speed, sight, breeding cost, litter size, how much carrion feeds
 it, and its lifespan. Species is stored as a value from 0 to 7; each value picks
 a species (value mod 4) and also shades the ring. APPLY (`Enter`) adds the
 design to the bottom of the import box, and CANCEL (`Esc`) leaves it out. RANDOM
@@ -160,18 +160,24 @@ its parents', kept within 0 to 7.
 | Trait | Effect |
 |---|---|
 | species | plant, grazer, omnivore or predator (value mod 4) |
-| size | health pool (60 to 150), dot radius (1px to 5px), some striking force, lifespan, and the meat its corpse leaves |
-| strength | striking force |
-| armour | reduces damage taken by up to 60% |
+| size | health pool (60 to 150), dot radius (1px to 5px), half its striking force and half its toughness, metabolism, stomach, lifespan, and the meat its corpse leaves |
+| strength | the other half of its striking force |
+| armour | the other half of its toughness, which reduces damage taken by up to 60% |
 | weapons | sharpen blows by up to 75%, and spines hurt anyone who attacks |
 | speed | cells moved per step of foraging, fleeing or exploring (1 to 4) |
 | sight | how far it sees (2 to 9 cells) |
 | fertility | high: cheap, frequent breeding and weak, hungry young; low: costly, rare breeding and well-fed young |
-| litter | young per birth: 1 to 6. A high litter trait and a small body both make litters bigger, half each, averaged over both parents, so small animals tend to have large litters and large animals small ones. Each young needs a free cell around the parent (sides first, then corners), and the litter shares the energy its parents give. |
+| litter | young per birth: 1 to 6. A high litter trait and a small body both make litters bigger, half each, averaged over both parents, so small animals tend to have large litters and large animals small ones. Predators have half as many young, rounded up (1 to 3). Each young needs a free cell around the parent (sides first, then corners), and the litter shares the energy its parents give. |
 | carrion | how much of carrion's meat nourishes it: 20% at 0, all of it at 7 |
 
-There is no metabolism gene. A bigger, stronger, faster or better-armed body
-burns more food each turn.
+There is no metabolism gene: size sets it. The smallest bodies run at 1.6 and
+the largest at 0.6. A faster metabolism empties the stomach sooner, heals
+faster, and makes for a shorter life. Size also sets the stomach, from 0.5
+(smallest) to 2.0 (largest). Hunger is how empty the stomach is, so the same
+meal fills a small animal four times as much as a large one, and a large
+animal needs more food in all. Its slower metabolism offsets part of that: a
+bare large body eats about 1.5 times what a bare small one does each turn, not four
+times. Strength, speed, weapons and armour all add to the burn.
 
 Only the outer rings decide who can mate: two animals must be the same species,
 and their body words may differ in at most 14 of 32 bits. A child's ring is a
@@ -229,27 +235,29 @@ trait decides how much of that feeds it. Courting walks toward the nearest
 willing mate in sight, but breeding is still a separate choice once they are
 side by side. Hunting chases the nearest prey in sight. A hunter that reaches
 its prey pounces, striking in the same turn, and attacking strikes prey
-alongside. A kill feeds the hunter 25 hunger, plus up to 45 more for the largest
-prey; a blow that doesn't kill feeds it 5. Fleeing runs from the nearest hunter
+alongside. A kill feeds the hunter 25, plus up to 45 more for the largest prey; a blow
+that doesn't kill feeds it 5. Striking is hard work: each blow burns 0.2 food per point of damage it deals, so a heavy hitter pays more for each blow. Hunger figures for meals are for a middle-sized
+stomach: a small animal gains twice as much, a large one half. Fleeing runs from the nearest hunter
 in sight, and speed decides who wins a chase. Resting halves the hunger a
 Bitzkey gains that turn and heals 1.5% of its health pool, three times the usual
-rate. Better-valued actions are more likely, but no choice is certain. Mind
+rate. Both rates are scaled by metabolism, so small animals heal faster. Better-valued actions are more likely, but no choice is certain. Mind
 traits set what it enjoys and dreads; the brain learns online which actions lead
 there. Death is heavily punished. A child inherits each brain neuron whole from
 one parent or the other, with small mutations, and its parents' learned shifts
 in temperament, so learned habits and moods pass down the generations.
 
-Each parent pays 10 to 25 hunger to breed, less the more fertile it is. Animals
+Each parent pays 10 to 25% of its stomach to breed, less the more fertile it is. Animals
 only breed, or court, when both partners can afford it and still have at least
 10 hunger to spare afterwards, so nothing breeds itself to death. The litter
-shares exactly the energy its parents gave. Each newborn needs a free
+shares exactly the energy its parents gave, so a large parent gives more food
+than a small one, and the same food fills a small newborn more. Each newborn needs a free
 neighbouring cell, and if a population cap is set, the world holds at most that
 many living animals (plants are limited separately, to 200). Crowding also
 limits breeding: for each other animal within four cells of a would-be parent,
 besides its partner, its litter shrinks by a tenth, and with ten or more around,
 it does not breed. Reaching 100% hunger or zero health is fatal, and so, in
 time, is age. Plants live about 4,000 turns, and animals from about 250 (the
-smallest) to 900 (the largest). From 70% of its lifespan, a Bitzkey's chance of
+smallest, fastest metabolism) to 900 (the largest, slowest). From 70% of its lifespan, a Bitzkey's chance of
 dying of old age grows each turn: about half reach their lifespan, and almost
 none live past 1.3 times it. Dying of old age is not held against the brain's
 last choice. A dead Bitzkey is dimmed and crossed through in red until its

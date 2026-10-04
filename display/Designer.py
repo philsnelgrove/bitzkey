@@ -264,8 +264,9 @@ class Designer:
                      f"Lives about {sample.lifespan:.0f} turns."]
         else:
             fertility = sample.physique("fertility")
-            litter = litter_size([(int(body["litter"]), int(body["size"]))] * 2)
-            facts = [f"A {species}.  Health {sample.max_health:.0f}.  Burns {sample.burn:.2f} hunger a turn.",
+            litter = litter_size([(int(body["litter"]), int(body["size"]))] * 2, species)
+            facts = [f"A {species}.  Health {sample.max_health:.0f}.  Metabolism {sample.metabolism:.2f}.",
+                     f"Stomach {sample.stomach:.2f}.  Burns {sample.burn:.2f} hunger a turn.",
                      f"Moves {sample.steps} cell{'s' if sample.steps != 1 else ''} a step.  Sees {sample.sight} cells.",
                      f"Breeding costs each parent {25 - 15 * fertility:.0f} hunger, then",
                      f"{round(20 - 15 * fertility)} turns to recover.  With a like partner, litters of {litter}.",
