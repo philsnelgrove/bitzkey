@@ -2,11 +2,16 @@
 
 import argparse
 from collections import Counter
+from pathlib import Path
 
 import pygame as pg
 
 from config.Globals import Config
+from tools.Brain import ACTIONS
+from tools.Insights import ANIMALS, brain_report
 from tools.Simulation import SPECIES, Simulation
+
+REPORT_DIR = Path(__file__).resolve().parent / "reports"
 
 
 class BitzkeyApp:
@@ -24,6 +29,9 @@ class BitzkeyApp:
         self.seed = seed
         self.simulation = Simulation(width, height, population, seed)
         self.selected_id: int | None = None
+        self.show_insights = False
+        self.message = ""
+        self.message_until = 0
         self.playing = True
         self.clock = pg.time.Clock()
         self.elapsed = 0.0
@@ -51,6 +59,10 @@ class BitzkeyApp:
                     elif event.key == pg.K_r:
                         self.simulation = Simulation(self.width, self.height, self.population, self.seed)
                         self.selected_id = None
+                    elif event.key == pg.K_i:
+                        self.show_insights = not self.show_insights
+                    elif event.key == pg.K_b:
+                        self._save_report()
                 elif event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
                     self._select_at(event.pos)
 
@@ -133,7 +145,7 @@ class BitzkeyApp:
         width = self.screen.get_width() - x - 20
         counts = Counter(agent.species for agent in self.simulation.living)
         self._text(f"TURN  {self.simulation.turn:05d}", (x, 78), (232, 236, 219), self.bold)
-        self._text(f"{len(self.simulation.living)} ALIVE    {len(self.simulation.agents) - len(self.simulation.living)} LOST",
+        self._text(f"{len(self.simulation.living)} ALIVE    {self.simulation.deaths} LOST",
                    (x, 108), (157, 177, 159), self.small)
         pg.draw.line(self.screen, (54, 68, 62), (x, 138), (x + width, 138), 1)
         self._text("POPULATION", (x, 153), (220, 229, 211), self.font)
@@ -143,6 +155,9 @@ class BitzkeyApp:
             self._text(str(counts.get(species, 0)), (x + width - 32, y), (231, 236, 222), self.font)
 
         pg.draw.line(self.screen, (54, 68, 62), (x, 286), (x + width, 286), 1)
+        if self.show_insights:
+            self._draw_insights(x, width)
+            return
         self._text("SELECTED BITZKEY", (x, 301), (220, 229, 211), self.font)
         agent = next((item for item in self.simulation.agents if item.identifier == self.selected_id), None)
         if agent is None:
@@ -159,7 +174,7 @@ class BitzkeyApp:
         traits = agent.traits
         trait_lines = (
             f"metabolism   {traits['metabolism']:>2}",
-            f"aggression   {traits['aggression']:>2} -> {self.simulation.aggression_score(agent):>4.1f}",
+            f"aggression   {traits['aggression']:>2}",
             f"constitution {traits['constitution']:>2}",
             f"fertility    {traits['fertility']:>2}",
             f"sight        {traits['sight']:>2}",
@@ -172,16 +187,66 @@ class BitzkeyApp:
         self._bar(x, 642, width, agent.hunger / 100, (224, 150, 94))
         self._text(f"HEALTH  {agent.health:5.1f}%", (x, 658), (161, 207, 162), self.mono)
         self._bar(x, 680, width, agent.health / 100, (124, 190, 131))
-        self._text(f"AGE {agent.age}    LAST ACTION: {agent.last_action.upper()}",
+        self._text(f"AGE {agent.age}    GENERATION {agent.generation}    CHILDREN {agent.children}",
                    (x, 699), (145, 164, 146), self.small)
+        self._text(f"LAST ACTION: {agent.last_action.upper()}", (x, 717), (145, 164, 146), self.small)
+        if agent.odds:
+            odds = sorted(agent.odds.items(), key=lambda item: -item[1])[:3]
+            self._text("CHANCES  " + "   ".join(f"{action} {chance:.0%}" for action, chance in odds),
+                       (x, 735), (175, 192, 172), self.small)
+
+    def _draw_insights(self, x: int, width: int) -> None:
+        insights = self.simulation.insights
+        self._text("BEHAVIOUR", (x, 301), (220, 229, 211), self.font)
+        self._text("% of chances taken, recent turns", (x, 323), (116, 139, 124), self.small)
+        columns = [x + 96 + index * (width - 96) // len(ANIMALS) for index in range(len(ANIMALS))]
+        for column, species in zip(columns, ANIMALS):
+            self._text(species[:4].upper(), (column, 347), (149, 170, 150), self.small)
+        for row, action in enumerate(ACTIONS):
+            y = 367 + row * 19
+            self._text(action.upper(), (x, y), (149, 170, 150), self.small)
+            for column, species in zip(columns, ANIMALS):
+                share, _ = insights.rate(action, species)
+                self._text("  -" if share is None else f"{share:>4.0%}", (column, y), (231, 236, 222), self.mono)
+
+        blocks = (
+            ("LEAST KEEN TO BREED", insights.extremes("breed", 3, lowest=True)),
+            ("KEENEST TO BREED", insights.extremes("breed", 2, lowest=False)),
+            ("LEAST KEEN TO FIGHT", insights.extremes("attack", 2, lowest=True)),
+        )
+        y = 506
+        for title, groups in blocks:
+            self._text(title, (x, y), (220, 229, 211), self.small)
+            y += 19
+            if not groups:
+                self._text("not enough chances yet", (x, y), (116, 139, 124), self.small)
+                y += 18
+            for label, share, _ in groups:
+                self._text(label, (x, y), (175, 192, 172), self.small)
+                self._text(f"{share:>4.0%}", (x + width - 40, y), (231, 236, 222), self.mono)
+                y += 18
+            y += 8
+        self._text("B saves the full brain report", (x, y + 4), (116, 139, 124), self.small)
+
+    def _save_report(self) -> None:
+        report = brain_report(self.simulation.turn, self.simulation.living, self.simulation.insights)
+        REPORT_DIR.mkdir(exist_ok=True)
+        path = REPORT_DIR / f"brain-report-turn-{self.simulation.turn:05d}.txt"
+        path.write_text(report, encoding="utf-8")
+        print(report)
+        self.message = f"Brain report saved to reports/{path.name}"
+        self.message_until = pg.time.get_ticks() + 5000
 
     def _draw_footer(self) -> None:
         height = self.screen.get_height()
         pg.draw.rect(self.screen, (27, 37, 37), (0, height - 52, self.screen.get_width(), 52))
         history = f"HISTORY  {self.simulation.history_index + 1}/{len(self.simulation.history)}"
         self._text(history, (22, height - 36), (158, 181, 160), self.small)
-        self._text("SPACE  pause/run     LEFT  rewind     RIGHT  step     R  restart     ESC  quit",
-                   (185, height - 36), (187, 199, 181), self.small)
+        if pg.time.get_ticks() < self.message_until:
+            self._text(self.message, (185, height - 36), (238, 183, 110), self.small)
+            return
+        self._text("SPACE  pause/run    LEFT  rewind    RIGHT  step    I  insights    B  brain report    "
+                   "R  restart    ESC  quit", (185, height - 36), (187, 199, 181), self.small)
 
     def _bar(self, x: int, y: int, width: int, value: float, color: tuple[int, int, int]) -> None:
         pg.draw.rect(self.screen, (44, 57, 52), (x, y, width, 7))

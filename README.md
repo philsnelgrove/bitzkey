@@ -25,7 +25,9 @@ python Main.py --width 80 --height 60 --population 120 --seed 42
 - `Left Arrow`: rewind one recorded turn
 - `Right Arrow`: advance one turn while paused, or replay a recorded turn
 - `R`: restart with the same launch settings
-- Click a Bitzkey: inspect its genome and current state
+- `I`: toggle the behaviour insights panel
+- `B`: save a brain report to `reports/`
+- Click a Bitzkey: inspect its genome, current state and the odds of its last choice
 - `Escape`: quit
 
 History retains up to 500 world snapshots. Rewinding and stepping forward replays
@@ -39,23 +41,43 @@ species, fertility, sight, social behavior, and learning. The four species are
 plant, grazer, omnivore, and predator. The four bytes of the genome, from most
 to least significant, are cyan, magenta, yellow, and black; together they
 determine the displayed color. The inspector shows the raw genome, its binary
-words, decoded traits, hunger, health, age, and last action.
+words, decoded traits, hunger, health, age, generation, children, last action,
+and the odds its brain gave each option.
 
-Animals forage, explore, rest, flee, defend, hunt, and attack according to their
-traits and nearby Bitzkeys. Plants stay in place and photosynthesize. Compatible
-animals of the same species can mate; offspring combine parental genomes and
-may mutate. Hunger rises with metabolism, health recovers when conditions
-allow, and reaching 100% hunger or zero health removes a Bitzkey from the living
-population.
+Plants stay in place and photosynthesize. Every animal carries its own small
+neural network, and that brain chooses everything it does. Each turn it senses
+its hunger, health, food underfoot or in sight, a willing mate, nearby prey,
+hunters and kin, and its age. It then picks one of the actions open to it:
+eat, forage, rest, breed, attack, flee or explore. Better-valued actions are
+more likely, but no choice is certain.
 
-Aggression is selected by a shared, one-hidden-layer neural policy. Once per
-turn, it evaluates all living animals with a learning trait of at least 4 in
-one batch using their genome traits, hunger, health, nearby prey and threats,
-and species. Its output adjusts the
-genetic aggression value by up to five points, without changing DNA or color.
-When a learned animal kills or witnesses a kill, the policy records a positive
-or negative training example respectively. It trains with minibatches of 32
-examples; animals below the learning threshold use their genome aggression
-unchanged and do not contribute examples.
-The policy weights and pending examples are part of turn history, so rewind
-and replay preserve the learned behavior.
+The genes set what each animal wants, not what it does:
+
+- metabolism: how fast hunger rises and how much it hurts
+- fertility: the pleasure of breeding
+- aggression: the pleasure of a fight, and more of it for a kill
+- social: the pleasure of company from its own species
+- learning: how fast its brain learns; at 0 it acts only on instinct
+
+Death is heavily punished. The brain learns online, from how each choice turned
+out, to favour actions that lead somewhere it likes. A child inherits each
+brain neuron whole from one parent or the other, with small mutations, so
+learned habits pass down the generations.
+
+Breeding costs each parent 20 hunger, and the newborn holds exactly that energy.
+A newborn needs a free neighbouring cell, and the world holds at most 600 living
+Bitzkeys. Reaching 100% hunger or zero health is fatal. Corpses fade after 30
+turns. Brains, learning and statistics are all part of turn history, so rewind
+and replay are exact.
+
+## What the Bitzkeys Have Learned
+
+Press `I` to swap the inspector for the behaviour panel. For each species, it
+shows how often each action was taken when it was possible, over recent turns.
+It also names the trait groups least and most keen to breed and least keen to
+fight, e.g. "high-metabolism grazers 4%".
+
+Press `B` to save a brain report to `reports/`. The report puts every living
+brain in the same standard situations, such as a fed animal with a willing mate
+beside it or a wounded animal beside a hunter. It averages the chance of each
+action by species and trait group and ranks who is least and most keen.
