@@ -157,7 +157,7 @@ gene values and are then reshaped by experience:
 | patience | how much it values the future (its learning discount) | meals earned by foraging raise it; starving lowers it |
 | intellect | how fast its brain learns, and how much experience can reshape the mind | fixed |
 | empathy | pain at seeing an animal wounded or killed nearby; more for its own kind, double for a death. An empathetic hunter feels some of its victim's pain and enjoys fighting less. | fixed |
-| tolerance | ease among other species: they count as company, hunters are less frightening, and attacking gives less pleasure. The intolerant are uneasy whenever other species are near. | fixed |
+| tolerance | ease among other species: they count as company, hunters are less frightening, and attacking gives less pleasure. The intolerant are uneasy whenever other species are near. The tolerant also accept mates that look less like themselves. | fixed |
 
 A learned shift fades slowly back toward the inborn value. Children inherit
 learned temperament as well as genes and brains: each child's traits start at
@@ -193,8 +193,11 @@ animal needs more food in all. Its slower metabolism offsets part of that: a
 bare large body eats about 1.5 times what a bare small one does each turn, not four
 times. Strength, speed, weapons and armour all add to the burn.
 
-Only the outer rings decide who can mate: two animals must be the same species,
-and their body words may differ in at most 14 of 32 bits. A child's ring is a
+Two animals can mate only if they are the same species and each is willing to
+breed with the other. An animal shuns a partner whose ring colour differs from
+its own by more than 5%, or whose dot colour differs by more than 20% (the mean
+difference of the four CMYK bytes). Tolerance widens both: at the greatest
+tolerance it accepts any ring and any dot of its species. A child's ring is a
 single-point crossover of its parents' rings. A child's dot comes from its
 starting mind (see above), its two spare bits from either parent. With the
 world's body mutation chance (50% by default), one bit of the ring flips.

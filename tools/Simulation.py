@@ -10,7 +10,7 @@ from dataclasses import dataclass, field, replace
 from functools import cached_property
 
 from tools.Brain import ACTIONS, SENSES, Brain, choice_odds, make_senses
-from tools.Genome import (GENOME, MIND_TRAITS, SPECIES, TRAIT_MAX, body_word, color_from_word, cross, inherit_mind, ring_difference,
+from tools.Genome import (GENOME, MIND_TRAITS, SPECIES, TRAIT_MAX, body_word, color_from_word, cross, dot_difference, inherit_mind, ring_difference,
                           BODY_MUTATION_CHANCE, MIND_MUTATION_CHANCE,
                           decode_body, decode_mind, make_dna, mind_word, share)
 from tools.Census import Census
@@ -33,7 +33,10 @@ CHECKPOINTS = 200     # older turns are kept as at most this many evenly spaced 
 CORPSE_FERTILITY = 2   # grass grows this many times as fast on and around a corpse
 CORPSE_TURNS = 30
 BREED_RESERVE = 10  # hunger a parent must still have spare after paying to breed
-COMPATIBLE_BITS = 14  # partners' body words (outer rings) may differ in at most this many bits
+# The most a partner's ring and dot colours may differ from an animal's own before it shuns
+# them, at no tolerance; full tolerance widens both to 1, accepting any partner of its species.
+MATE_RING_DIFFERENCE = 0.05
+MATE_DOT_DIFFERENCE = 0.20
 LITTER_RANGE = (1, 6)  # young per birth, while there is room around the parent
 LITTER_SIZE_WEIGHT = 0.5  # how much of litter size comes from small bodies; the rest from the litter trait
 PLANT_LIFESPAN = 4000
@@ -1061,8 +1064,17 @@ class Simulation:
 
     @staticmethod
     def _compatible(first: Bitzkey, second: Bitzkey) -> bool:
+        """Two animals of one species that are each willing to breed with the other."""
         return (first.species != "plant" and first.species == second.species
-                and (body_word(first.dna) ^ body_word(second.dna)).bit_count() <= COMPATIBLE_BITS)
+                and Simulation._willing(first, second) and Simulation._willing(second, first))
+
+    @staticmethod
+    def _willing(agent: Bitzkey, other: Bitzkey) -> bool:
+        """Whether an animal would breed with another: it shuns a partner whose ring or dot
+        colour differs from its own by more than it accepts, which its tolerance widens."""
+        tolerance = agent.feeling("tolerance")
+        return (ring_difference(agent.dna, other.dna) <= MATE_RING_DIFFERENCE + (1 - MATE_RING_DIFFERENCE) * tolerance
+                and dot_difference(agent.dna, other.dna) <= MATE_DOT_DIFFERENCE + (1 - MATE_DOT_DIFFERENCE) * tolerance)
 
     @staticmethod
     def _same_kind(first: Bitzkey, second: Bitzkey) -> bool:

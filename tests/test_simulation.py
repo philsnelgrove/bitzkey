@@ -151,14 +151,31 @@ class SimulationTests(unittest.TestCase):
             self.simulation._add_agent(encode_dna("plant"), x, y)
         self.assertNotIn(breed, self.simulation._sense(agent)[1])
 
-    def test_compatibility_looks_only_at_outer_rings(self):
-        calm = self.simulation._add_agent(encode_dna("grazer", size=2), 1, 1)
-        wild = self.simulation._add_agent(encode_dna("grazer", size=2) | 0xFFFFFFFF, 2, 2)
-        distant = self.simulation._add_agent(
-            encode_dna("grazer", size=7, strength=7, armour=7, weapons=7, speed=7, sight=7), 3, 3)
+    def test_animals_shun_mates_whose_ring_or_dot_differ_too_far_from_their_own(self):
+        dna = encode_dna("grazer", size=2, fear=3)
+        animal = self.simulation._add_agent(dna, 1, 1)
+        close = self.simulation._add_agent(dna ^ (0x08 << 56) ^ 0x10, 2, 2)  # ring 0.8%, dot 1.6% apart
+        ringed = self.simulation._add_agent(dna ^ (0x40 << 56), 3, 3)        # ring 6.3% apart
+        dotted = self.simulation._add_agent(dna ^ 0xFF, 4, 4)                # dot 25% apart
+        other_species = self.simulation._add_agent(encode_dna("omnivore", size=2, fear=3), 5, 5)
 
-        self.assertTrue(self.simulation._compatible(calm, wild))
-        self.assertFalse(self.simulation._compatible(calm, distant))
+        self.assertTrue(self.simulation._compatible(animal, close))
+        self.assertFalse(self.simulation._compatible(animal, ringed))
+        self.assertFalse(self.simulation._compatible(animal, dotted))
+        self.assertFalse(self.simulation._compatible(animal, other_species))
+
+    def test_tolerance_widens_the_mates_an_animal_accepts_and_both_must_accept(self):
+        dna = encode_dna("grazer", size=2)
+        animal = self.simulation._add_agent(dna, 1, 1)
+        strange = self.simulation._add_agent(dna ^ (0xFF << 56) ^ 0xFF, 2, 2)  # ring and dot 25% apart
+        self.assertFalse(self.simulation._willing(animal, strange))
+        animal.mind["tolerance"] = 7.0  # accepts any ring or dot
+        self.assertTrue(self.simulation._willing(animal, strange))
+        self.assertFalse(self.simulation._compatible(animal, strange))  # but the stranger shuns it
+        strange.mind["tolerance"] = 2.0  # ring limit 32%, dot limit 43%
+        self.assertTrue(self.simulation._compatible(animal, strange))
+        animal.mind["tolerance"] = 0.0
+        self.assertFalse(self.simulation._compatible(animal, strange))
 
     def test_predators_cannot_eat_grass(self):
         predator = self.simulation._add_agent(encode_dna("predator", sight=7), 5, 5)

@@ -102,12 +102,21 @@ def color_from_word(word: int) -> tuple[int, int, int]:
             round((255 - yellow) * (255 - black) / 255))
 
 
-def ring_difference(first: int, second: int) -> float:
-    """How far apart two genomes' ring colours are: the mean difference of their four CMYK
-    bytes, from 0 (the same colour) to 1."""
-    first_word, second_word = body_word(first), body_word(second)
+def colour_difference(first_word: int, second_word: int) -> float:
+    """How far apart two colour words are: the mean difference of their four CMYK bytes, from 0
+    (the same colour) to 1."""
     return sum(abs(((first_word >> shift) & 0xFF) - ((second_word >> shift) & 0xFF))
                for shift in (24, 16, 8, 0)) / (4 * 255)
+
+
+def ring_difference(first: int, second: int) -> float:
+    """How far apart two genomes' ring colours are, from 0 to 1."""
+    return colour_difference(body_word(first), body_word(second))
+
+
+def dot_difference(first: int, second: int) -> float:
+    """How far apart two genomes' dot colours are, from 0 to 1."""
+    return colour_difference(mind_word(first), mind_word(second))
 
 
 def make_dna(species: int | None = None, rng: random.Random | None = None) -> int:
