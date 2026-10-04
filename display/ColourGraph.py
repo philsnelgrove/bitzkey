@@ -1,0 +1,279 @@
+"""The colour graph popup: every Bitzkey alive over time, stacked in its own colour.
+
+Each bar is a moment in the run; each Bitzkey alive then is a slice of it in its exact ring or
+dot colour, sorted so similar colours flow together. Bitzkeys are picked by clicking their slice
+or dragging a box around slices, then copied or saved.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+import pygame as pg
+
+from tools.Census import colour_order
+from tools.Genome import body_word, color_from_word, decode_body, mind_word
+
+if TYPE_CHECKING:
+    from tools.Simulation import Simulation
+
+BAR_PIXELS = 5         # target width of one bar
+DRAG_THRESHOLD = 4     # a press that moves less than this many pixels is a click
+DIM = 0.75             # how far unselected Bitzkeys fade toward the background
+BACKGROUND = (30, 40, 40)
+PARTS = ("ring", "dot")
+
+
+@dataclass
+class Bar:
+    turn: int
+    left: int
+    right: int
+    slices: list[tuple[int, float, float]] = field(default_factory=list)  # (identifier, top, bottom)
+
+
+def colour_of(dna: int, part: str) -> tuple[int, int, int]:
+    return color_from_word(body_word(dna) if part == "ring" else mind_word(dna))
+
+
+def nice_ceiling(value: float) -> float:
+    """The smallest 1, 2 or 5 times a power of ten at or above the value."""
+    scale = 1
+    while True:
+        for step in (1, 2, 5):
+            if step * scale >= value:
+                return step * scale
+        scale *= 10
+
+
+def build_bars(simulation: Simulation, part: str, chart: pg.Rect) -> tuple[list[Bar], float]:
+    """Lay out one bar per stretch of turns, each stacking the Bitzkeys alive at its end. The
+    last bar shows the present exactly. Returns the bars and the population the chart tops at."""
+    turns = simulation.turn + 1
+    count = max(1, min(chart.width // BAR_PIXELS, turns))
+    present = tuple(agent.identifier for agent in simulation.living)
+    lineage = simulation.lineage
+    moments = []
+    for index in range(count):
+        end = (index + 1) * turns // count - 1
+        moments.append((end, present if index == count - 1 else simulation.census.at(end)))
+    peak = nice_ceiling(max(len(members) for _, members in moments))
+    unit = chart.height / peak
+
+    def order(identifier: int) -> tuple:
+        dna = lineage[identifier]
+        return colour_order(colour_of(dna, part)), body_word(dna) if part == "ring" else mind_word(dna), identifier
+
+    bars = []
+    for index, (end, members) in enumerate(moments):
+        bar = Bar(end, chart.left + index * chart.width // count, chart.left + (index + 1) * chart.width // count)
+        bottom = float(chart.bottom)
+        for identifier in sorted(members, key=order):
+            bar.slices.append((identifier, bottom - unit, bottom))
+            bottom -= unit
+        bars.append(bar)
+    return bars, peak
+
+
+def bitzkey_at(bars: list[Bar], point: tuple[int, int]) -> int | None:
+    x, y = point
+    for bar in bars:
+        if bar.left <= x < bar.right:
+            for identifier, top, bottom in bar.slices:
+                if top <= y < bottom:
+                    return identifier
+    return None
+
+
+def bitzkeys_in(bars: list[Bar], box: pg.Rect) -> set[int]:
+    """Every Bitzkey with a slice touching the box, in any bar it spans."""
+    found = set()
+    for bar in bars:
+        if bar.right > box.left and bar.left < box.right:
+            found.update(identifier for identifier, top, bottom in bar.slices
+                         if bottom > box.top and top < box.bottom)
+    return found
+
+
+def updated(selection: set[int], picked: set[int], mode: str) -> set[int]:
+    if mode == "add":
+        return selection | picked
+    if mode == "remove":
+        return selection - picked
+    if mode == "toggle":
+        return selection ^ picked
+    return set(picked)
+
+
+class ColourGraph:
+    def __init__(self, font: pg.font.Font, bold: pg.font.Font, small: pg.font.Font):
+        self.font, self.bold, self.small = font, bold, small
+        self.part = "ring"
+        self.selection: set[int] = set()
+        self._selection_version = 0
+        self._size = (0, 0)
+        self._mouse = (0, 0)
+        self._press: tuple[tuple[int, int], int] | None = None  # where a press began, and its modifiers
+        self._bars: list[Bar] = []
+        self._places: dict[int, list[tuple[int, int, float, float]]] = {}  # where each Bitzkey is drawn
+        self._peak = 1.0
+        self._image: pg.Surface | None = None
+        self._key: tuple | None = None
+
+    def switch_part(self) -> None:
+        self.part = "dot" if self.part == "ring" else "ring"
+
+    def select(self, picked: set[int], mode: str = "replace") -> None:
+        self.selection = updated(self.selection, picked, mode)
+        self._selection_version += 1
+
+    def layout(self) -> dict[str, pg.Rect]:
+        width, height = self._size
+        panel = pg.Rect(0, 0, min(940, width - 60), min(620, height - 90))
+        panel.center = (width // 2, height // 2)
+        chart = pg.Rect(panel.left + 64, panel.top + 92, panel.width - 92, panel.height - 190)
+        buttons = {}
+        right = panel.right - 24
+        for name, label_width in (("save", 76), ("copy", 76), ("clear", 76)):
+            buttons[name] = pg.Rect(right - label_width, panel.top + 18, label_width, 30)
+            right -= label_width + 8
+        return {"panel": panel, "chart": chart, **buttons}
+
+    def handle(self, event: pg.event.Event) -> str | None:
+        """Handle a mouse event; return "copy" or "save" when a button asks for an export."""
+        layout = self.layout()
+        if event.type == pg.MOUSEMOTION:
+            self._mouse = event.pos
+        elif event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
+            for action in ("copy", "save"):
+                if layout[action].collidepoint(event.pos):
+                    return action
+            if layout["clear"].collidepoint(event.pos):
+                self.select(set())
+            elif layout["chart"].collidepoint(event.pos):
+                self._press = (event.pos, pg.key.get_mods())
+        elif event.type == pg.MOUSEBUTTONUP and event.button == 1 and self._press:
+            (start, modifiers), self._press = self._press, None
+            shift, ctrl = modifiers & pg.KMOD_SHIFT, modifiers & pg.KMOD_CTRL
+            if max(abs(event.pos[0] - start[0]), abs(event.pos[1] - start[1])) < DRAG_THRESHOLD:
+                hit = bitzkey_at(self._bars, start)
+                picked = set() if hit is None else {hit}
+                self.select(picked, "remove" if ctrl else "toggle" if shift else "replace")
+            else:
+                box = self._box(start, event.pos).clip(layout["chart"])
+                self.select(bitzkeys_in(self._bars, box), "remove" if ctrl else "add" if shift else "replace")
+        return None
+
+    @staticmethod
+    def _box(start: tuple[int, int], end: tuple[int, int]) -> pg.Rect:
+        return pg.Rect(min(start[0], end[0]), min(start[1], end[1]),
+                       abs(end[0] - start[0]) + 1, abs(end[1] - start[1]) + 1)
+
+    def draw(self, screen: pg.Surface, simulation: Simulation, note: str | None) -> None:
+        self._size = screen.get_size()
+        layout = self.layout()
+        panel, chart = layout["panel"], layout["chart"]
+        shade = pg.Surface(self._size, pg.SRCALPHA)
+        shade.fill((8, 12, 12, 175))
+        screen.blit(shade, (0, 0))
+        pg.draw.rect(screen, BACKGROUND, panel, border_radius=6)
+        pg.draw.rect(screen, (80, 99, 85), panel, 1, border_radius=6)
+        title = "RING / BODY" if self.part == "ring" else "DOT / MIND"
+        self._text(screen, f"COLOUR GRAPH  /  {title}", (panel.left + 24, panel.top + 18), (229, 239, 220), self.bold)
+        self._text(screen, "Every Bitzkey alive over time, in its own colour.    TAB  ring / dot    C  copy    "
+                   "S  save to exports/    G or ESC  close",
+                   (panel.left + 24, panel.top + 54), (144, 170, 151), self.small)
+        for name in ("clear", "copy", "save"):
+            pg.draw.rect(screen, (44, 57, 52), layout[name], border_radius=4)
+            label = self.font.render(name.upper(), True, (220, 229, 211))
+            screen.blit(label, label.get_rect(center=layout[name].center))
+        if note:
+            message = self.small.render(note, True, (238, 183, 110))
+            screen.blit(message, message.get_rect(topright=(panel.right - 24, panel.top + 58)))
+
+        key = (simulation.turn, len(simulation.census.snapshots), len(simulation.agents), simulation.deaths,
+               self.part, chart.size, chart.topleft, self._selection_version, id(simulation))
+        if key != self._key:
+            self._key = key
+            self._bars, self._peak = build_bars(simulation, self.part, chart)
+            self._places = {}
+            for bar in self._bars:
+                for identifier, top, bottom in bar.slices:
+                    self._places.setdefault(identifier, []).append((bar.left, bar.right, top, bottom))
+            self._image = self._render(simulation, chart)
+        screen.blit(self._image, chart.topleft)
+
+        for fraction in (0, 0.5, 1):
+            y = round(chart.bottom - fraction * chart.height)
+            label = self.small.render(f"{self._peak * fraction:g}", True, (149, 170, 150))
+            screen.blit(label, (chart.left - label.get_width() - 8, y - label.get_height() // 2))
+        middle = self._bars[len(self._bars) // 2].turn
+        for turn, x, align in ((0, chart.left, 0), (middle, chart.centerx, 0.5), (simulation.turn, chart.right, 1)):
+            label = self.small.render(f"TURN {turn}", True, (149, 170, 150))
+            screen.blit(label, (x - round(label.get_width() * align), chart.bottom + 6))
+
+        hovered = bitzkey_at(self._bars, self._mouse) if chart.collidepoint(self._mouse) else None
+        for left, right, top, bottom in self._places.get(hovered, ()):
+            pg.draw.rect(screen, (245, 238, 206), (left, round(top) - 1, right - left, max(1, round(bottom - top)) + 2), 1)
+        if self._press:
+            box = self._box(self._press[0], self._mouse).clip(chart)
+            veil = pg.Surface(box.size, pg.SRCALPHA)
+            veil.fill((245, 238, 206, 40))
+            screen.blit(veil, box.topleft)
+            pg.draw.rect(screen, (245, 238, 206), box, 1)
+
+        self._text(screen, self._describe(simulation, hovered), (panel.left + 24, chart.bottom + 30),
+                   (220, 229, 211), self.font)
+        self._text(screen, "Click a Bitzkey or drag a box to select.    SHIFT adds    CTRL removes    "
+                   "With nothing selected, COPY and SAVE take everyone alive.",
+                   (panel.left + 24, panel.bottom - 28), (144, 170, 151), self.small)
+
+    def _describe(self, simulation: Simulation, hovered: int | None) -> str:
+        living = {agent.identifier for agent in simulation.living}
+        alive = len(self.selection & living)
+        chosen = (f"{len(self.selection)} selected ({alive} alive)" if self.selection
+                  else "Nothing selected")
+        if hovered is None:
+            return chosen
+        dna = simulation.lineage[hovered]
+        state = "alive" if hovered in living else "dead"
+        return (f"{chosen}     |     #{hovered:03d}  {decode_body(dna)['species']}  {state}   "
+                f"ring {body_word(dna):08X}   dot {mind_word(dna):08X}")
+
+    def _render(self, simulation: Simulation, chart: pg.Rect) -> pg.Surface:
+        """Draw the bars once into an image; slices too thin to see merge with their neighbours."""
+        image = pg.Surface(chart.size)
+        image.fill(BACKGROUND)
+        for fraction in (0.5, 1):
+            y = round(chart.height - fraction * chart.height)
+            pg.draw.line(image, (54, 68, 62), (0, y), (chart.width, y), 1)
+        pg.draw.line(image, (54, 68, 62), (0, chart.height - 1), (chart.width, chart.height - 1), 1)
+        lineage, choosing = simulation.lineage, bool(self.selection)
+        for bar in self._bars:
+            left, width = bar.left - chart.left, max(1, bar.right - bar.left - (1 if bar.right - bar.left > 3 else 0))
+            run_colour, run_bottom = None, None
+            for identifier, top, bottom in bar.slices:
+                colour = colour_of(lineage[identifier], self.part)
+                if choosing and identifier not in self.selection:
+                    colour = tuple(round(channel + (back - channel) * DIM) for channel, back in zip(colour, BACKGROUND))
+                if colour != run_colour:
+                    if run_colour is not None:
+                        self._fill(image, run_colour, left, width, run_top, run_bottom, chart.top)
+                    run_colour, run_bottom = colour, bottom
+                run_top = top
+            if run_colour is not None:
+                self._fill(image, run_colour, left, width, run_top, run_bottom, chart.top)
+        return image
+
+    @staticmethod
+    def _fill(image: pg.Surface, colour: tuple[int, int, int], left: int, width: int,
+              top: float, bottom: float, offset: int) -> None:
+        top, bottom = round(top) - offset, round(bottom) - offset
+        if bottom > top:
+            pg.draw.rect(image, colour, (left, top, width, bottom - top))
+
+    @staticmethod
+    def _text(screen: pg.Surface, text: str, position: tuple[int, int], colour: tuple[int, int, int],
+              font: pg.font.Font) -> None:
+        screen.blit(font.render(text, True, colour), position)

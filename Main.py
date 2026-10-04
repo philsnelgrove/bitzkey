@@ -9,8 +9,9 @@ import pygame as pg
 from config.Globals import Config
 from display.Setup import EXPORT_DIR, SetupScreen
 from tools.Brain import ACTIONS
-from tools.Census import FAMILIES, SWATCHES, bucket
-from tools.Exchange import Imported, export_bitzkeys
+from display.ColourGraph import ColourGraph
+from tools.Exchange import Imported, bitzkey_record, export_bitzkeys, format_records
+from tools.Genome import genome_record
 from tools.Genome import BODY_TRAITS, MIND_TRAITS, body_word, mind_word
 from tools.Insights import ANIMALS, brain_report
 from tools.Simulation import SPECIES, Bitzkey, Simulation
@@ -39,9 +40,7 @@ class BitzkeyApp:
         self.selected_id: int | None = None
         self.show_insights = False
         self.show_census = False
-        self.census_part = "ring"
-        self.census_selection: set[str] = set()
-        self._census_cache: tuple[tuple | None, list] = (None, [])
+        self.graph = ColourGraph(self.font, self.bold, self.small)
         self.message = ""
         self.message_until = 0
         self.playing = True
@@ -74,6 +73,7 @@ class BitzkeyApp:
                     elif event.key == pg.K_r:
                         self.simulation = self._new_world()
                         self.selected_id = None
+                        self.graph.select(set())
                     elif event.key == pg.K_i:
                         self.show_insights = not self.show_insights
                     elif event.key == pg.K_b:
@@ -81,20 +81,20 @@ class BitzkeyApp:
                     elif event.key == pg.K_g:
                         self.show_census = not self.show_census
                     elif event.key == pg.K_TAB and self.show_census:
-                        self.census_part = "dot" if self.census_part == "ring" else "ring"
-                        self.census_selection.clear()
+                        self.graph.switch_part()
                     elif event.key == pg.K_c:
                         if self.show_census:
-                            self._export_census(to_file=False)
+                            self._export_graph(to_file=False)
                         else:
                             self._copy_selected()
                     elif event.key == pg.K_s and self.show_census:
-                        self._export_census(to_file=True)
+                        self._export_graph(to_file=True)
+                elif self.show_census and event.type in (pg.MOUSEBUTTONDOWN, pg.MOUSEBUTTONUP, pg.MOUSEMOTION):
+                    action = self.graph.handle(event)
+                    if action:
+                        self._export_graph(to_file=action == "save")
                 elif event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
-                    if self.show_census:
-                        self._census_click(event.pos)
-                    else:
-                        self._select_at(event.pos)
+                    self._select_at(event.pos)
 
             if self.playing and self.elapsed >= 0.24:
                 self.simulation.advance()
@@ -135,7 +135,8 @@ class BitzkeyApp:
         self._draw_sidebar()
         self._draw_footer()
         if self.show_census:
-            self._draw_census()
+            note = self.message if pg.time.get_ticks() < self.message_until else None
+            self.graph.draw(self.screen, self.simulation, note)
 
     def _draw_header(self) -> None:
         pg.draw.rect(self.screen, (27, 37, 37), (0, 0, self.screen.get_width(), 62))
@@ -307,22 +308,32 @@ class BitzkeyApp:
             what = "genome and brain" if agent.brain else "genome"
             self._copy(export_bitzkeys([agent]), f"#{agent.identifier:03d}'s {what}")
 
-    def _export_census(self, to_file: bool) -> None:
-        """Export the living Bitzkeys in the chosen colour families, or all of them."""
-        part, chosen = self.census_part, self.census_selection
-        agents = [agent for agent in self.simulation.living
-                  if not chosen or agent.colour_families[part] in chosen]
-        if not agents:
-            self._say("No living Bitzkeys have those colours.")
+    def _export_graph(self, to_file: bool) -> None:
+        """Export the Bitzkeys selected in the colour graph, or everyone alive if none are.
+        The living go with brain and temperament; the dead keep no brain, and the long dead
+        are remembered only by their genome."""
+        chosen = sorted(self.graph.selection)
+        agents = {agent.identifier: agent for agent in self.simulation.agents}
+        if chosen:
+            records = [bitzkey_record(agents[identifier]) if identifier in agents
+                       else genome_record(self.simulation.lineage[identifier]) for identifier in chosen]
+            dead = sum(identifier not in agents or not agents[identifier].alive for identifier in chosen)
+        else:
+            records = [bitzkey_record(agent) for agent in self.simulation.living]
+            dead = 0
+        if not records:
+            self._say("Nobody is alive to export.")
             return
-        names = [name for name in FAMILIES if name in chosen]
-        what = f"{len(agents)} Bitzkey{'s' if len(agents) != 1 else ''} ({part}: {', '.join(names) or 'all'})"
-        text = export_bitzkeys(agents)
+        count = len(records)
+        what = f"{count} {'selected ' if chosen else ''}Bitzkey{'s' if count != 1 else ''}"
+        if dead:
+            what += f" ({dead} dead, so without a brain)"
+        text = format_records(records)
         if not to_file:
             self._copy(text, what)
             return
         EXPORT_DIR.mkdir(exist_ok=True)
-        path = EXPORT_DIR / f"bitzkeys-turn-{self.simulation.turn:05d}-{part}-{'-'.join(names) or 'all'}.json"
+        path = EXPORT_DIR / f"bitzkeys-turn-{self.simulation.turn:05d}-{'selected' if chosen else 'alive'}-{count}.json"
         path.write_text(text + "\n", encoding="utf-8")
         self._say(f"Saved {what} to exports/{path.name}")
 
@@ -336,107 +347,6 @@ class BitzkeyApp:
             return
         self._text("SPACE  pause/run   LEFT  rewind   RIGHT  step   I  insights   B  brain report   "
                    "G  colour graph   R  restart   ESC  quit", (185, height - 36), (187, 199, 181), self.small)
-
-    def _census_layout(self) -> dict:
-        width, height = self.screen.get_size()
-        panel = pg.Rect(0, 0, min(920, width - 60), min(600, height - 100))
-        panel.center = (width // 2, height // 2)
-        chart = pg.Rect(panel.left + 64, panel.top + 88, panel.width - 92, panel.height - 230)
-        save = pg.Rect(0, 0, 84, 30)
-        save.topright = (panel.right - 24, panel.top + 18)
-        copy = pg.Rect(0, 0, 84, 30)
-        copy.topright = (save.left - 8, save.top)
-        columns = 5
-        legend = {name: pg.Rect(chart.left + (index % columns) * (chart.width // columns) - 4,
-                                chart.bottom + 34 + (index // columns) * 22, chart.width // columns - 8, 20)
-                  for index, name in enumerate(FAMILIES)}
-        return {"panel": panel, "chart": chart, "copy": copy, "save": save, "legend": legend}
-
-    def _census_click(self, position: tuple[int, int]) -> None:
-        layout = self._census_layout()
-        if layout["copy"].collidepoint(position):
-            self._export_census(to_file=False)
-        elif layout["save"].collidepoint(position):
-            self._export_census(to_file=True)
-        for name, rect in layout["legend"].items():
-            if rect.collidepoint(position):
-                self.census_selection ^= {name}
-
-    def _draw_census(self) -> None:
-        """A popup over the world: living Bitzkeys per colour family, as stacked bars over time."""
-        width, height = self.screen.get_size()
-        shade = pg.Surface((width, height), pg.SRCALPHA)
-        shade.fill((8, 12, 12, 175))
-        self.screen.blit(shade, (0, 0))
-        layout = self._census_layout()
-        panel, chart = layout["panel"], layout["chart"]
-        pg.draw.rect(self.screen, (30, 40, 40), panel, border_radius=6)
-        pg.draw.rect(self.screen, (80, 99, 85), panel, 1, border_radius=6)
-        part = "RING / BODY" if self.census_part == "ring" else "DOT / MIND"
-        self._text(f"COLOUR CENSUS  /  {part}", (panel.left + 24, panel.top + 18), (229, 239, 220), self.bold)
-        self._text("Living Bitzkeys by colour family over time.     TAB  ring / dot     G or ESC  close",
-                   (panel.left + 24, panel.top + 52), (144, 170, 151), self.small)
-        for name, label in (("copy", "COPY"), ("save", "SAVE")):
-            pg.draw.rect(self.screen, (44, 57, 52), layout[name], border_radius=4)
-            text = self.font.render(label, True, (220, 229, 211))
-            self.screen.blit(text, text.get_rect(center=layout[name].center))
-        if pg.time.get_ticks() < self.message_until:
-            message = self.small.render(self.message, True, (238, 183, 110))
-            self.screen.blit(message, message.get_rect(topright=(panel.right - 24, panel.top + 56)))
-
-        census = self.simulation.census[:self.simulation.turn + 1]
-        key = (self.simulation.turn, len(census), self.census_part, chart.width)
-        if self._census_cache[0] != key:
-            self._census_cache = (key, bucket(census, self.census_part, chart.width // 6))
-        bars = self._census_cache[1]
-        peak = self._nice_ceiling(max(sum(counts.values()) for _, counts in bars))
-        for fraction in (0, 0.5, 1):
-            y = round(chart.bottom - fraction * chart.height)
-            pg.draw.line(self.screen, (54, 68, 62), (chart.left, y), (chart.right, y), 1)
-            label = self.small.render(f"{peak * fraction:g}", True, (149, 170, 150))
-            self.screen.blit(label, (chart.left - label.get_width() - 8, y - label.get_height() // 2))
-
-        bar_width = chart.width / len(bars)
-        gap = 1 if bar_width > 3 else 0
-        for index, (_, counts) in enumerate(bars):
-            left, right = round(chart.left + index * bar_width), round(chart.left + (index + 1) * bar_width) - gap
-            bottom = float(chart.bottom)
-            for name in FAMILIES:
-                top = bottom - counts.get(name, 0) / peak * chart.height
-                if round(top) < round(bottom):
-                    pg.draw.rect(self.screen, SWATCHES[name],
-                                 (left, round(top), max(1, right - left), round(bottom) - round(top)))
-                bottom = top
-
-        middle = bars[len(bars) // 2][0]
-        for turn, x, align in ((0, chart.left, 0), (middle, chart.left + chart.width // 2, 0.5),
-                               (self.simulation.turn, chart.right, 1)):
-            label = self.small.render(f"TURN {turn}", True, (149, 170, 150))
-            self.screen.blit(label, (x - round(label.get_width() * align), chart.bottom + 6))
-
-        latest = census[-1][self.census_part]
-        for name, rect in layout["legend"].items():
-            chosen = name in self.census_selection
-            if chosen:
-                pg.draw.rect(self.screen, (131, 205, 143), rect, 1, border_radius=3)
-            pg.draw.rect(self.screen, SWATCHES[name], (rect.left + 4, rect.top + 4, 12, 12))
-            pg.draw.rect(self.screen, (80, 99, 85), (rect.left + 4, rect.top + 4, 12, 12), 1)
-            color = (232, 236, 219) if chosen else (116, 139, 124) if self.census_selection else (187, 199, 181)
-            self._text(f"{name:<8}{latest.get(name, 0):>4}", (rect.left + 24, rect.top + 2), color, self.mono_small)
-
-        self._text("Click colours to choose who to export; with none chosen, every living Bitzkey is.     "
-                   "C  copy     S  save to exports/", (panel.left + 24, panel.bottom - 28), (144, 170, 151),
-                   self.small)
-
-    @staticmethod
-    def _nice_ceiling(value: float) -> float:
-        """The smallest 1, 2 or 5 times a power of ten at or above the value."""
-        scale = 1
-        while True:
-            for step in (1, 2, 5):
-                if step * scale >= value:
-                    return step * scale
-            scale *= 10
 
     def _bar(self, x: int, y: int, width: int, value: float, color: tuple[int, int, int]) -> None:
         pg.draw.rect(self.screen, (44, 57, 52), (x, y, width, 7))

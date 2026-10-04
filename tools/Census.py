@@ -1,54 +1,52 @@
-"""Colour census: how many living Bitzkeys of each colour family there are, turn by turn."""
+"""Population census for the colour graph: which Bitzkeys were alive, sampled across the whole
+run at an even spacing that widens as the run grows, so it never outgrows memory."""
 
 from __future__ import annotations
 
+import bisect
 import colorsys
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
+
+MAX_SNAPSHOTS = 1000
+
+Snapshot = tuple[int, tuple[int, ...]]  # (turn, identifiers of the Bitzkeys alive then)
 
 
-HUES = ("red", "orange", "yellow", "lime", "green", "spring", "cyan", "azure", "blue", "violet",
-        "magenta", "rose")
-FAMILIES = HUES + ("white", "grey", "black")
-PARTS = ("ring", "dot")
-
-# The colour each family is drawn in: its hue at the middle of its band, or a neutral tone.
-SWATCHES = {
-    **{hue: tuple(round(channel * 255) for channel in colorsys.hsv_to_rgb(index / len(HUES), 0.75, 0.9))
-       for index, hue in enumerate(HUES)},
-    "white": (232, 232, 222),
-    "grey": (138, 140, 136),
-    "black": (14, 14, 14),
-}
-
-
-def family(rgb: tuple[int, int, int]) -> str:
-    """Name the colour family of an RGB colour: a hue band, or white, grey or black."""
+def colour_order(rgb: tuple[int, int, int]) -> tuple[int, float, float]:
+    """A sort key that stacks similar colours together: greys by lightness, then hues round the
+    colour wheel."""
     hue, saturation, value = colorsys.rgb_to_hsv(*(channel / 255 for channel in rgb))
-    if value < 0.2:
-        return "black"
-    if saturation < 0.2:
-        return "white" if value > 0.8 else "grey"
-    return HUES[int(hue * len(HUES) + 0.5) % len(HUES)]
+    if saturation < 0.2 or value < 0.2:
+        return (0, 0.0, value)
+    return (1, hue, value)
 
 
-def tally(families: Iterable[str]) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for name in families:
-        counts[name] = counts.get(name, 0) + 1
-    return counts
+class Census:
+    """Snapshots every `stride` turns, plus the latest turn. When there are too many, the stride
+    doubles and every other snapshot goes, keeping the spacing even."""
 
+    def __init__(self) -> None:
+        self.snapshots: list[Snapshot] = []
+        self.stride = 1
 
-def bucket(census: Sequence[dict[str, dict[str, int]]], part: str,
-           bars: int) -> list[tuple[int, dict[str, float]]]:
-    """Split a census into at most `bars` runs of consecutive turns, each with its average
-    count per family. Returns (first turn, averages) per bar."""
-    bars = max(1, min(bars, len(census)))
-    result = []
-    for index in range(bars):
-        start, end = index * len(census) // bars, (index + 1) * len(census) // bars
-        totals: dict[str, float] = {}
-        for entry in census[start:end]:
-            for name, count in entry[part].items():
-                totals[name] = totals.get(name, 0) + count
-        result.append((start, {name: total / (end - start) for name, total in totals.items()}))
-    return result
+    def record(self, turn: int, identifiers: Iterable[int]) -> None:
+        entry = (turn, tuple(identifiers))
+        if self.snapshots and self.snapshots[-1][0] % self.stride:
+            self.snapshots[-1] = entry  # the last one only stood in for "latest"
+        else:
+            self.snapshots.append(entry)
+        if len(self.snapshots) > MAX_SNAPSHOTS:
+            self.stride *= 2
+            latest = self.snapshots[-1]
+            self.snapshots = [snapshot for snapshot in self.snapshots[:-1]
+                              if snapshot[0] % self.stride == 0] + [latest]
+
+    def forget_from(self, turn: int) -> None:
+        """Drop snapshots of turns from `turn` on: a future abandoned by rewinding."""
+        while self.snapshots and self.snapshots[-1][0] >= turn:
+            self.snapshots.pop()
+
+    def at(self, turn: int) -> tuple[int, ...]:
+        """Who was alive at the latest snapshot on or before `turn`."""
+        index = bisect.bisect_right(self.snapshots, turn, key=lambda snapshot: snapshot[0]) - 1
+        return self.snapshots[index][1] if index >= 0 else ()

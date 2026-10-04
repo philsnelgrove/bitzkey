@@ -1,57 +1,71 @@
 import unittest
+from unittest.mock import patch
 
-from tools.Census import FAMILIES, SWATCHES, bucket, family, tally
+from tools.Census import Census, colour_order
 from tools.Simulation import Simulation
 
 
 class CensusTests(unittest.TestCase):
-    def test_colours_fall_into_families(self):
-        self.assertEqual(family((255, 0, 0)), "red")
-        self.assertEqual(family((250, 20, 40)), "red")
-        self.assertEqual(family((0, 0, 255)), "blue")
-        self.assertEqual(family((255, 255, 0)), "yellow")
-        self.assertEqual(family((250, 250, 245)), "white")
-        self.assertEqual(family((120, 122, 118)), "grey")
-        self.assertEqual(family((30, 0, 0)), "black")
+    def test_similar_colours_sort_together(self):
+        reds = [colour_order((250, 10, 10)), colour_order((200, 30, 20))]
+        blue = colour_order((10, 10, 250))
+        grey = colour_order((128, 128, 128))
 
-    def test_every_family_has_a_swatch_in_its_own_family(self):
-        self.assertEqual(set(SWATCHES), set(FAMILIES))
-        for name, swatch in SWATCHES.items():
-            self.assertEqual(family(swatch), name)
+        self.assertLess(grey, min(reds))
+        self.assertLess(max(reds), blue)
 
-    def test_tally_counts_names(self):
-        self.assertEqual(tally(["red", "blue", "red"]), {"red": 2, "blue": 1})
+    def test_census_remembers_who_was_alive_at_each_turn(self):
+        census = Census()
+        for turn in range(5):
+            census.record(turn, range(turn))
 
-    def test_bucket_averages_consecutive_turns(self):
-        census = [{"ring": {"red": count}, "dot": {}} for count in (2, 4, 6, 8)]
+        self.assertEqual(census.at(3), (0, 1, 2))
+        self.assertEqual(census.at(99), (0, 1, 2, 3))
+        self.assertEqual(census.at(-1), ())
 
-        self.assertEqual(bucket(census, "ring", 2), [(0, {"red": 3.0}), (2, {"red": 7.0})])
-        self.assertEqual(len(bucket(census, "ring", 10)), 4)
+    def test_census_thins_evenly_and_keeps_the_latest_turn(self):
+        census = Census()
+        with patch("tools.Census.MAX_SNAPSHOTS", 10):
+            for turn in range(37):
+                census.record(turn, [turn])
 
-    def test_simulation_counts_living_bitzkeys_each_turn(self):
+        turns = [turn for turn, _ in census.snapshots]
+        self.assertLessEqual(len(turns), 10)
+        self.assertEqual(turns[-1], 36)
+        self.assertTrue(all(turn % census.stride == 0 for turn in turns[:-1]))
+        self.assertEqual(census.at(17), (16,))
+
+    def test_rewinding_forgets_the_abandoned_future(self):
+        census = Census()
+        for turn in range(6):
+            census.record(turn, [turn])
+
+        census.forget_from(3)
+
+        self.assertEqual([turn for turn, _ in census.snapshots], [0, 1, 2])
+
+    def test_simulation_records_who_lives_and_every_genome(self):
         simulation = Simulation(width=20, height=20, population=30, seed=4)
         for _ in range(5):
             simulation.advance()
 
-        self.assertEqual(len(simulation.census), 6)
-        for part in ("ring", "dot"):
-            self.assertEqual(sum(simulation.census[-1][part].values()), len(simulation.living))
+        self.assertEqual(simulation.census.at(simulation.turn),
+                         tuple(agent.identifier for agent in simulation.living))
+        self.assertTrue(all(simulation.lineage[agent.identifier] == agent.dna for agent in simulation.agents))
 
-    def test_new_turn_after_rewind_replaces_the_abandoned_future(self):
+    def test_a_new_turn_after_rewinding_replaces_the_census_future(self):
         simulation = Simulation(width=20, height=20, population=30, seed=4)
         for _ in range(6):
             simulation.advance()
-        recorded = list(simulation.census)
-
         for _ in range(3):
             simulation.rewind()
-        simulation.advance()
-        self.assertEqual(simulation.census, recorded)
 
         simulation.history = simulation.history[:simulation.history_index + 1]
         simulation.advance()
-        self.assertEqual(len(simulation.census), simulation.turn + 1)
-        self.assertEqual(simulation.census[:simulation.turn], recorded[:simulation.turn])
+
+        self.assertEqual(simulation.census.snapshots[-1][0], simulation.turn)
+        self.assertEqual(simulation.census.at(simulation.turn),
+                         tuple(agent.identifier for agent in simulation.living))
 
 
 if __name__ == "__main__":

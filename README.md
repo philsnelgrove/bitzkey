@@ -177,18 +177,30 @@ exact.
 
 ## Colour Graph
 
-Press `G` for the colour census. Every living Bitzkey, plants included, is sorted
-into one of 15 colour families: twelve hues, plus white, grey and black. The
-graph shows time across the bottom, as stacked bars of how many Bitzkeys of each
-family were alive. Each bar averages a run of consecutive turns, and its height
-is the total population. `Tab` switches between ring (body) and dot (mind)
-colours. The census covers the whole run, not just the 500 turns that can be
-rewound.
+Press `G` for the colour graph. Time runs across the bottom. Each bar is a moment
+in the run, and every Bitzkey alive then (plants included) is a slice of it in its
+own exact colour. Slices are sorted by hue, so similar colours flow together from
+bar to bar, and a bar's height is the population. The last bar is the present.
+`Tab` switches between ring (body) and dot (mind) colours. The graph covers the
+whole run, not just the 500 turns that can be rewound. It samples who was alive
+at evenly spaced turns, spacing them further apart as the run grows.
 
-The graph also exports Bitzkeys in bulk. Click legend colours to choose
-families; with none chosen, every living Bitzkey is included. Then press `C`
-or COPY to put them on the clipboard, or `S` or SAVE to write a `.json` file
-into `exports/`.
+Pick Bitzkeys straight from the graph:
+
+- click a slice to select that Bitzkey; click empty space to clear
+- drag a box to select every Bitzkey it touches, in every bar it spans
+- hold `Shift` to add to the selection (`Shift`-click toggles one), or `Ctrl` to
+  remove from it
+
+A selected Bitzkey stays lit in every bar it appears in while the others fade.
+Hovering over a slice names the Bitzkey: its species, whether it is alive, and
+its ring and dot codes.
+
+Then press `C` or COPY to put the selection on the clipboard, or `S` or SAVE to
+write a `.json` file into `exports/`. CLEAR empties the selection. Living
+Bitzkeys export with their temperament and brain. Dead ones have no brain, and
+those no longer on the board export as their genome only. With nothing
+selected, COPY and SAVE take everyone alive.
 
 ## Export Format
 

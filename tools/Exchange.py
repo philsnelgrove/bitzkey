@@ -43,10 +43,15 @@ def bitzkey_record(agent: Bitzkey) -> dict:
 
 def export_bitzkeys(agents: Iterable[Bitzkey]) -> str:
     """One Bitzkey as a JSON object; several as a JSON array, one Bitzkey per line."""
-    records = [json.dumps(bitzkey_record(agent)) for agent in agents]
-    if len(records) == 1:
-        return records[0]
-    return "[\n" + ",\n".join(f"  {record}" for record in records) + "\n]"
+    return format_records(bitzkey_record(agent) for agent in agents)
+
+
+def format_records(records: Iterable[dict]) -> str:
+    """One record as a JSON object; several as a JSON array, one record per line."""
+    lines = [json.dumps(record) for record in records]
+    if len(lines) == 1:
+        return lines[0]
+    return "[\n" + ",\n".join(f"  {line}" for line in lines) + "\n]"
 
 
 def import_bitzkeys(text: str) -> list[Imported]:
