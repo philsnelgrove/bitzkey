@@ -57,9 +57,15 @@ PANIC = (0.3, 1.0)     # chance a fully fearful animal breaks when struck, unhur
                        # its current fear scales it, so the fearless never break
 THORN_FORCE = 15       # a plant's counterblow at full weapons and size, before the defender's toughness
 THORN_SIZE_SHARE = 0.2  # share of that from the plant's size; the rest is its weapons, and strength counts for nothing
-TERRITORY_RADIUS = 6   # a predator's territory: the cells within this many steps
-TERRITORY_LIMIT = (1, 5)  # other predators tolerated in its territory, from the least to the most empathetic
-TERRITORY_RAMP = 3     # each predator past that limit adds a third to rivalry, up to 1
+TERRITORY_RADIUS = 6   # a hunter's territory: the cells within this many steps
+# For each territorial species: how many rivals it tolerates from the least to the most
+# empathetic, and how strongly overcrowding moves it (its rivalry at most). Omnivores are less
+# territorial, and their empathy counts for more. Who counts as a rival is _rival_weight's to say.
+TERRITORY = {
+    "predator": ((1, 5), 1.0),
+    "omnivore": ((2, 10), 0.5),
+}
+TERRITORY_RAMP = 3     # each rival past that limit adds a third of the species' strength to rivalry
 RIVAL_UNEASE = 0.3     # discomfort of a fully overcrowded territory, less for the tolerant
 RIVAL_KILL_JOY = 1.0   # relief at killing a predator in an overcrowded territory
 KIND_DIFFERENCE = 0.05  # predators whose ring colours differ by more than this are different kinds, and prey
@@ -134,7 +140,8 @@ class Bitzkey:
     died_turn: int | None = None
     assailant: int | None = None  # the animal that struck it since it last acted, which it may defend against
     panicked: bool = False  # failed a morale check when struck, so it will flee its assailant
-    rivalry: float = 0.0    # predators: how overcrowded its territory was when it last looked, 0..1
+    rivalry: float = 0.0    # hunters: how overcrowded its territory was with rivals when it last looked
+    own_rivalry: float = 0.0  # the same, counting only its own species: what wears down its reluctance
     meat: float = 0.0  # a corpse's meat left for scavengers
     rot: float = 0.0   # meat lost to rot each turn
     # Current temperament: starts at the inborn values and is reshaped by experience.
@@ -610,8 +617,8 @@ class Simulation:
         self._act(agent, action, situation)
 
     def _sense(self, agent: Bitzkey) -> tuple[list[float], list[int], dict]:
-        if agent.species == "predator":
-            agent.rivalry = self._rivalry(agent)
+        if agent.species in TERRITORY:
+            agent.rivalry, agent.own_rivalry = self._territory(agent)
         neighbors = self._nearby(agent, 1)
         mate = next((other for other in neighbors if self._compatible(agent, other) and other.can_breed), None)
         nurseries = self._free_cells_near(agent)
@@ -850,7 +857,7 @@ class Simulation:
         else:
             agent.nourish(KILL_MEAL + KILL_MEAL_FOR_SIZE * victim.physique("size"))
             agent.reward += 2 * joy
-            if victim.species == "predator":  # one fewer rival for the feeding ground
+            if self._rival_weight(agent, victim) > 0:  # one fewer rival for the feeding ground
                 agent.reward += RIVAL_KILL_JOY * agent.rivalry * (1 - 0.5 * agent.feeling("tolerance"))
             self._experience(agent, "kill")
         pain = EMPATHY_PAIN * (2 if killed else 1)
@@ -1058,24 +1065,46 @@ class Simulation:
         empathetic feel for them, the tolerant bear them, and the patient can wait for other prey."""
         return (predator.feeling("empathy") + predator.feeling("tolerance") + predator.feeling("patience")) / 3
 
-    def _rivalry(self, predator: Bitzkey) -> float:
-        """How overcrowded a predator's territory is: nothing up to the other predators it will
-        tolerate, fewer the less empathetic it is, then rising to 1 over TERRITORY_RAMP more."""
-        fewest, most = TERRITORY_LIMIT
-        tolerated = fewest + (most - fewest) * predator.feeling("empathy")
-        rivals = sum(other.species == "predator" for other in self._nearby(predator, TERRITORY_RADIUS))
-        return min(1.0, max(0.0, rivals - tolerated) / TERRITORY_RAMP)
+    @staticmethod
+    def _rival_weight(hunter: Bitzkey, other: Bitzkey) -> float:
+        """How much another animal counts as a rival for a hunter's feeding ground. Predators
+        count other predators and omnivores; omnivores count other omnivores, and predators
+        too unless they have the greatest empathy."""
+        if hunter.species == "predator":
+            return 1.0 if other.species in ("predator", "omnivore") else 0.0
+        if hunter.species == "omnivore":
+            if other.species == "omnivore":
+                return 1.0
+            return 1 - hunter.feeling("empathy") if other.species == "predator" else 0.0
+        return 0.0
+
+    def _territory(self, hunter: Bitzkey) -> tuple[float, float]:
+        """How overcrowded a hunter's territory is, with all its rivals and with its own species
+        alone: nothing up to the rivals it will tolerate, fewer the less empathetic it is, then
+        rising over TERRITORY_RAMP more to its species' strength of territorial feeling."""
+        (fewest, most), strength = TERRITORY[hunter.species]
+        tolerated = fewest + (most - fewest) * hunter.feeling("empathy")
+        rivals = own = 0.0
+        for other in self._nearby(hunter, TERRITORY_RADIUS):
+            rivals += self._rival_weight(hunter, other)
+            own += other.species == hunter.species
+        return tuple(strength * min(1.0, max(0.0, count - tolerated) / TERRITORY_RAMP) for count in (rivals, own))
 
     @classmethod
     def _is_prey(cls, hunter: Bitzkey, other: Bitzkey) -> bool:
         if hunter.species == "omnivore":
-            return other.species == "grazer"
+            # Grazers, and other omnivores only in an overcrowded territory, once hungry past its
+            # reluctance as that rivalry wears it down.
+            return other.species == "grazer" or (
+                other.species == "omnivore" and hunter.own_rivalry > 0
+                and hunter.hunger / 100 > cls.cannibal_reluctance(hunter) * (1 - hunter.own_rivalry))
         if hunter.species != "predator":
             return False
         if other.species in ("grazer", "omnivore"):
             return True
         if other.species != "predator":
             return False
-        # Its own kind only when hungry past its reluctance, which an overcrowded territory wears away.
+        # Its own kind only when hungry past its reluctance, which a territory overcrowded with
+        # predators wears away.
         return (not cls._same_kind(hunter, other)
-                or hunter.hunger / 100 > cls.cannibal_reluctance(hunter) * (1 - hunter.rivalry))
+                or hunter.hunger / 100 > cls.cannibal_reluctance(hunter) * (1 - hunter.own_rivalry))

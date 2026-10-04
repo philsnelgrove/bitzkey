@@ -30,7 +30,7 @@ SENSES = (
     "plant_closeness",    # 1 when a plant stands alongside, falling to 0 beyond sight (grazers and omnivores)
     "assailant_near",     # 1 when the animal that just struck it is still alongside
     "counter_frailty",    # share of that assailant's health one counterblow would take
-    "rivalry",            # predators only: how overcrowded its territory is with other predators, 0..1
+    "rivalry",            # predators and omnivores: how overcrowded its territory is with rivals, 0..1
     "age",             # 0 at birth, 1 at 400 turns or older
 ) + MIND_TRAITS        # then its current temperament, each trait 0..7 scaled to 0..1
 ACTIONS = ("eat", "forage", "browse", "scavenge", "rest", "court", "breed", "hunt", "attack", "defend", "flee", "explore")

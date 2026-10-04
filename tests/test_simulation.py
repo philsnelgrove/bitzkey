@@ -686,10 +686,10 @@ class NewTraitTests(unittest.TestCase):
             simulation._add_agent(encode_dna("predator"), x, 15)
             simulation._add_agent(encode_dna("grazer"), x, 16)  # other animals don't count
             simulation._index_cells()
-            self.assertAlmostEqual(simulation._rivalry(predator), max(0, count - 1) / 3)
+            self.assertAlmostEqual(simulation._territory(predator)[0], max(0, count - 1) / 3)
         simulation._add_agent(encode_dna("predator"), 15, 25)  # beyond its territory
         simulation._index_cells()
-        self.assertEqual(simulation._rivalry(predator), 1)
+        self.assertEqual(simulation._territory(predator)[0], 1)
         self.assertEqual(simulation._sense(predator)[0][SENSES.index("rivalry")], 1)
 
     def test_the_more_empathetic_a_predator_the_more_rivals_it_tolerates(self):
@@ -700,17 +700,72 @@ class NewTraitTests(unittest.TestCase):
             simulation._add_agent(encode_dna("predator"), x, 15)
         simulation._index_cells()
         # each sees the other and four more: five rivals
-        self.assertEqual(simulation._rivalry(callous), 1)    # tolerates one: four too many
-        self.assertEqual(simulation._rivalry(caring), 0)     # tolerates five
+        self.assertEqual(simulation._territory(callous)[0], 1)    # tolerates one: four too many
+        self.assertEqual(simulation._territory(caring)[0], 0)     # tolerates five
         caring.mind["empathy"] = 3.5                         # learned callousness: tolerates three
-        self.assertAlmostEqual(simulation._rivalry(caring), 2 / 3)
+        self.assertAlmostEqual(simulation._territory(caring)[0], 2 / 3)
+
+    def test_predators_count_omnivores_as_rivals_for_their_territory(self):
+        simulation = Simulation(width=30, height=30, population=0, seed=3)
+        predator = simulation._add_agent(encode_dna("predator", empathy=0), 15, 15)  # tolerates one rival
+        for x in (12, 13, 17):
+            simulation._add_agent(encode_dna("omnivore"), x, 15)
+        simulation._add_agent(encode_dna("grazer"), 18, 15)  # grazers are prey, not rivals
+        simulation._index_cells()
+        self.assertAlmostEqual(simulation._territory(predator)[0], 2 / 3)
+
+    def test_omnivores_are_territorial_at_half_strength_and_more_by_empathy(self):
+        simulation = Simulation(width=30, height=30, population=0, seed=3)
+        callous = simulation._add_agent(encode_dna("omnivore", empathy=0), 15, 15)   # tolerates two
+        caring = simulation._add_agent(encode_dna("omnivore", empathy=7), 15, 16)    # tolerates ten
+        for x in (10, 11, 12, 18, 19, 20):
+            simulation._add_agent(encode_dna("omnivore"), x, 15)
+        simulation._index_cells()
+        self.assertEqual(simulation._territory(callous)[0], 0.5)  # seven rivals: five too many, at half strength
+        self.assertEqual(simulation._territory(caring)[0], 0)
+
+    def test_omnivores_fight_their_own_only_in_an_overcrowded_territory(self):
+        ruthless = self.simulation._add_agent(encode_dna("omnivore", empathy=0, tolerance=0, patience=0), 1, 1)
+        other = self.simulation._add_agent(encode_dna("omnivore"), 2, 1)
+        ruthless.hunger = 50
+        self.assertFalse(self.simulation._is_prey(ruthless, other))
+        ruthless.own_rivalry = 0.5
+        self.assertTrue(self.simulation._is_prey(ruthless, other))
+        gentle = self.simulation._add_agent(encode_dna("omnivore", empathy=7, tolerance=7, patience=7), 3, 3)
+        gentle.hunger, gentle.own_rivalry = 60, 0.5  # reluctance only halved, to a half
+        self.assertTrue(self.simulation._is_prey(gentle, other))
+        gentle.hunger = 40
+        self.assertFalse(self.simulation._is_prey(gentle, other))
+
+    def test_omnivores_crowding_a_predator_unsettle_it_but_dont_turn_it_on_its_kin(self):
+        simulation = Simulation(width=30, height=30, population=0, seed=3)
+        predator = simulation._add_agent(encode_dna("predator", empathy=0), 15, 15)
+        for x in (11, 12, 13, 17, 18, 19):
+            simulation._add_agent(encode_dna("omnivore"), x, 15)
+        simulation._index_cells()
+        self.assertEqual(simulation._territory(predator), (1.0, 0.0))  # fully crowded, but not by predators
+        gentle = simulation._add_agent(encode_dna("predator", empathy=7, tolerance=7, patience=7), 20, 20)
+        gentle.rivalry, gentle.hunger = 1.0, 30
+        self.assertFalse(simulation._is_prey(gentle, simulation._add_agent(gentle.dna, 20, 21)))
+
+    def test_omnivores_count_predators_as_rivals_unless_utterly_empathetic(self):
+        simulation = Simulation(width=30, height=30, population=0, seed=3)
+        omnivore = simulation._add_agent(encode_dna("omnivore", empathy=0), 15, 15)  # tolerates two
+        for x in (11, 12, 13, 17, 18):
+            simulation._add_agent(encode_dna("predator"), x, 15)
+        simulation._index_cells()
+        self.assertEqual(simulation._territory(omnivore), (0.5, 0.0))  # five rivals, none its own species
+        omnivore.mind["empathy"] = 7.0  # now tolerates ten, and no predator is a rival
+        self.assertEqual(simulation._rival_weight(omnivore, simulation.agents[1]), 0)
+        omnivore.mind["empathy"] = 3.5
+        self.assertEqual(simulation._rival_weight(omnivore, simulation.agents[1]), 0.5)
 
     def test_an_overcrowded_territory_turns_even_gentle_predators_on_their_kin(self):
         gentle = self.simulation._add_agent(encode_dna("predator", empathy=7, tolerance=7, patience=7), 1, 1)
         kin = self.simulation._add_agent(gentle.dna, 2, 1)
         gentle.hunger = 30
         self.assertFalse(self.simulation._is_prey(gentle, kin))
-        gentle.rivalry = 0.8  # reluctance worn down to a fifth
+        gentle.own_rivalry = 0.8  # reluctance worn down to a fifth
         self.assertTrue(self.simulation._is_prey(gentle, kin))
 
     def test_crowded_territory_is_uncomfortable_and_killing_a_rival_a_relief(self):
