@@ -1,5 +1,6 @@
 import os
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")  # no real window during tests
 
@@ -156,6 +157,21 @@ class ConfigPanelTests(unittest.TestCase):
         setup.form.type_text("250")
         app = BitzkeyApp(**setup.form.values())
         self.assertEqual(app.simulation.population_cap, 250)
+
+    def test_quitting_the_configuration_panel_asks_first(self):
+        from display import Window
+        from display.Setup import SetupScreen
+        setup = SetupScreen(Window.open_window(fullscreen=False),
+                            {"width": 30, "height": 30, "population": 20, "grass_density": 5, "seed": 1})
+        quit_button = setup._layout()["quit"].center
+        # Esc asks, Esc again cancels; the QUIT button asks, and QUIT (Enter) confirms
+        for event in (key(pg.K_ESCAPE), key(pg.K_ESCAPE),
+                      pg.event.Event(pg.MOUSEBUTTONDOWN, button=1, pos=quit_button), key(pg.K_RETURN)):
+            pg.event.post(event)
+        with patch.object(SetupScreen, "_ask_to_quit", wraps=setup._ask_to_quit) as asked:
+            self.assertIsNone(setup.run())
+        self.assertEqual(asked.call_count, 2)
+        self.assertEqual(setup.dialog.title, "Quit Bitzkey?")
 
 
 class MainLoopTests(unittest.TestCase):

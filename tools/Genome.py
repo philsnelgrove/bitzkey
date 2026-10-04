@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import random
 import re
+from collections.abc import Mapping
 
 
 GENOME_VERSION = 2
@@ -26,7 +27,11 @@ BODY_TRAITS = ("species", "size", "strength", "armour", "weapons", "speed", "sig
                "carrion")
 WORD = 0xFFFFFFFF
 GENOME = (1 << 64) - 1
-MUTATION_CHANCE = 0.2  # per word, per birth: one bit flips
+# Default chances, per birth, of a mutation; a world can set its own.
+MIND_MUTATION_CHANCE = 0.5  # for each of MIND_MUTATION_ROLLS: one mind trait steps one up or down
+MIND_MUTATION_ROLLS = 3     # mind mutations a birth may carry, each with the mind mutation chance
+BODY_MUTATION_CHANCE = 0.5  # one bit of the ring flips
+SPARE_BITS = 0xC0000000  # the dot's two bits that hold no trait
 HEX_WORD = re.compile(r"#?([0-9A-Fa-f]{8})")
 
 # Version 1 held the first eight traits of each word, four bits each. Converted genomes start
@@ -113,26 +118,55 @@ def make_dna(species: int | None = None, rng: random.Random | None = None) -> in
     return dna
 
 
-def cross(first: int, second: int, rng: random.Random) -> int:
-    """Make a child's genome, then give each word a chance of one flipped bit.
+def inherit_mind(first: Mapping[str, float], second: Mapping[str, float], rng: random.Random,
+                 chance: float | None = None) -> dict[str, float]:
+    """A child's starting temperament: the average of its parents' temperaments. Then, up to
+    MIND_MUTATION_ROLLS times, each with `chance` (MIND_MUTATION_CHANCE by default), a random
+    trait mutates, stepping one up or down, or the other way where that would leave 0 to 7."""
+    chance = MIND_MUTATION_CHANCE if chance is None else chance
+    mind = {trait: (first[trait] + second[trait]) / 2 for trait in MIND_TRAITS}
+    for _ in range(MIND_MUTATION_ROLLS):
+        if rng.random() >= chance:
+            continue
+        trait = rng.choice(MIND_TRAITS)
+        step = rng.choice((-1, 1))
+        if not 0 <= mind[trait] + step <= TRAIT_MAX:
+            step = -step
+        mind[trait] = max(0.0, min(float(TRAIT_MAX), mind[trait] + step))
+    return mind
 
-    The ring (body) is a single-point crossover of the parents' body words. The dot
-    (mind) is the average of the parents' dot colours, CMYK byte by byte; an odd
-    half rounds up or down at random so blending carries no drift.
+
+def write_mind(spare: int, mind: Mapping[str, float], rng: random.Random) -> int:
+    """A dot word for a temperament, so the dot shows the mind it holds: each trait's fraction
+    rounds up with a chance equal to it, so writing carries no drift. `spare` gives the two
+    spare bits."""
+    word = spare & SPARE_BITS
+    for index, trait in enumerate(MIND_TRAITS):
+        whole, fraction = divmod(mind[trait], 1)
+        value = min(TRAIT_MAX, int(whole) + (1 if fraction and rng.random() < fraction else 0))
+        word |= value << (TRAIT_BITS * index)
+    return word
+
+
+def cross(first: int, second: int, rng: random.Random, mind: Mapping[str, float] | None = None,
+          mind_chance: float | None = None, body_chance: float | None = None) -> int:
+    """Make a child's genome.
+
+    The ring (body) is a single-point crossover of the parents' body words, with a
+    `body_chance` (BODY_MUTATION_CHANCE by default) of one flipped bit. The dot (mind) is
+    written from the child's starting temperament: `mind` if given, which a living child has
+    from its parents' current minds, or else the average of its parents' inborn traits, with a
+    `mind_chance` of a mutation. Its two spare bits come from either parent.
     """
+    body_chance = BODY_MUTATION_CHANCE if body_chance is None else body_chance
     mask = (1 << rng.randrange(1, 32)) - 1
     body = (body_word(first) & mask) | (body_word(second) & ~mask & WORD)
-    mind = 0
-    for shift in (0, 8, 16, 24):
-        byte, odd = divmod(((first >> shift) & 0xFF) + ((second >> shift) & 0xFF), 2)
-        if odd and rng.random() < 0.5:
-            byte += 1
-        mind |= byte << shift
-    dna = (body << 32) | mind
-    for offset in (0, 32):
-        if rng.random() < MUTATION_CHANCE:
-            dna ^= 1 << (offset + rng.randrange(32))
-    return dna
+    if rng.random() < body_chance:
+        body ^= 1 << rng.randrange(32)
+    if mind is None:
+        mind = inherit_mind(decode_mind(first), decode_mind(second), rng, mind_chance)
+    spare = mind_word(rng.choice((first, second)))
+    return (body << 32) | write_mind(spare, mind, rng)
 
 
 # A genome is written as its layout version and two colour words in hex:

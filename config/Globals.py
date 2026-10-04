@@ -19,6 +19,8 @@ class Config(object):
     GRID_HEIGHT = 100
     INITIAL_POPULATION = 90
     GRASS_DENSITY = 50
+    MIND_MUTATION = 50  # percent chance a birth mutates the child's mind
+    BODY_MUTATION = 50  # and its body
     FULLSCREEN = True  # start fullscreen; F11 or --windowed for a window of the size below
     WINDOW_WIDTH = 1200
     WINDOW_HEIGHT = 820

@@ -310,15 +310,18 @@ class SimulationTests(unittest.TestCase):
         second.mind.update(fear=3.0, curiosity=5.0, libido=7.0)
         self.simulation._index_cells()
 
-        with patch("tools.Genome.MUTATION_CHANCE", 0):
-            self.simulation._breed(first, second, [(5, 4)])
+        self.simulation.mind_mutation = 0
+        self.simulation._breed(first, second, [(5, 4)])
 
         child = self.simulation.agents[-1]
-        self.assertEqual(child.inborn["fear"], 2)
-        self.assertEqual(child.mind["fear"], 3.5)        # genes 2, parents learned +2 and +1
-        self.assertEqual(child.mind["curiosity"], 4.0)   # genes 5, parents learned -2 and 0
-        self.assertEqual(child.mind["libido"], 7.0)      # genes 6 + 1, within the 7 limit
-        self.assertEqual(child.mind["patience"], 0.0)    # nothing learned, so the gene value
+        # its mind starts at the average of its parents' current minds, not their genes
+        self.assertEqual(child.mind["fear"], 3.5)
+        self.assertEqual(child.mind["curiosity"], 4.0)
+        self.assertEqual(child.mind["libido"], 7.0)
+        self.assertEqual(child.mind["patience"], 0.0)
+        # and its dot shows it, the half rounding either way
+        self.assertIn(child.inborn["fear"], (3, 4))
+        self.assertEqual((child.inborn["curiosity"], child.inborn["libido"]), (4, 7))
 
     def test_a_parent_gives_its_young_no_more_energy_than_it_has_left(self):
         dna = encode_dna("grazer", fertility=7)
@@ -796,6 +799,22 @@ class NewTraitTests(unittest.TestCase):
         self.simulation._index_cells()
         self.simulation._browse(omnivore, plant)
         self.assertEqual(omnivore.hunger, 90 - 70 / 2 / 2)
+
+    def test_a_world_sets_its_own_mutation_chances(self):
+        stable = Simulation(width=12, height=12, population=0, seed=3, mind_mutation=0, body_mutation=0)
+        dna = encode_dna("grazer", fertility=7, fear=3, size=2)
+        first, second = stable._add_agent(dna, 5, 5), stable._add_agent(dna, 5, 6)
+        stable._index_cells()
+        for _ in range(20):
+            first.hunger = second.hunger = first.cooldown = second.cooldown = 0
+            first.mind = dict(second.mind)  # alike, so the child's mind is exactly theirs
+            before = dict(first.mind)  # breeding itself shifts the parents' minds
+            stable._breed(first, second, [(5, 4)])
+            child = stable.agents.pop()
+            self.assertEqual(child.mind, before)
+            self.assertEqual(child.body, first.body)
+        with self.assertRaises(ValueError):
+            Simulation(width=12, height=12, population=0, mind_mutation=101)
 
     def test_striking_burns_food_by_the_damage_dealt(self):
         target = self.simulation._add_agent(encode_dna("grazer", size=7), 5, 5)

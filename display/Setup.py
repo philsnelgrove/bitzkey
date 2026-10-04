@@ -13,6 +13,7 @@ from config.Globals import Config
 from display import Window
 from display.Ui import UI
 from display.Designer import Designer
+from display.Dialog import Dialog
 from tools.Exchange import Imported, format_records, import_bitzkeys
 from tools.Genome import decode_body, genome_record
 from tools.Simulation import MAX_IMPORTED, MAX_POPULATION, SPAWN_GROUP
@@ -44,6 +45,10 @@ SETTINGS = (
             0, 999_999_999, 1, optional=True, blank="random"),
     Setting("population_cap", "Population cap", "most animals alive at once; blank lets crowding alone decide",
             10, 99_999, 100, optional=True, blank="no limit"),
+    Setting("mind_mutation", "Mind mutation", "mind mutations a birth carries: 0 none, 50 about 1.5, 100 three",
+            0, 100, 5),
+    Setting("body_mutation", "Body mutation", "percent chance a birth flips one body gene: 0 stable, 100 always",
+            0, 100, 5),
 )
 MAX_DIGITS = 9
 
@@ -175,7 +180,7 @@ def import_summary(bitzkeys: list[Imported]) -> str:
 class SetupScreen:
     """Draws the form and handles input until the user starts a world or quits."""
 
-    ROW_HEIGHT = 56
+    ROW_HEIGHT = 50
     IMPORT_HEIGHT = 170
     TEXT_LINES = 5
 
@@ -185,6 +190,7 @@ class SetupScreen:
         self.clock = pg.time.Clock()
         self.note = ""
         self.note_until = 0
+        self.dialog: Dialog | None = None  # the quit confirmation, while it is open
         self.last_design: int | None = None  # the designer reopens on the last design applied
 
     # Fonts are sized for the 1200x820 design and scaled to the screen.
@@ -224,12 +230,18 @@ class SetupScreen:
                     return None
                 if event.type == pg.VIDEORESIZE:
                     self.screen = Window.resize(event)
+                elif self.dialog:
+                    choice = self.dialog.handle(event, self.screen.get_size())
+                    if choice == "quit":
+                        return None
+                    if choice:
+                        self.dialog = None
                 elif event.type == pg.DROPFILE:
                     self._load(event.file)
                 elif event.type == pg.KEYDOWN:
                     if event.key == pg.K_ESCAPE:
-                        return None
-                    if event.key == pg.K_F11:
+                        self._ask_to_quit()
+                    elif event.key == pg.K_F11:
                         self.screen = Window.toggle_fullscreen()
                     elif event.key in (pg.K_RETURN, pg.K_KP_ENTER):
                         if self._ready():
@@ -241,11 +253,15 @@ class SetupScreen:
                 elif event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
                     action = self._click(event.pos)
                     if action == "quit":
-                        return None
+                        self._ask_to_quit()
                     if action == "start" and self._ready():
                         return self.form.values()
             self._draw()
             pg.display.flip()
+
+    def _ask_to_quit(self) -> None:
+        self.dialog = Dialog("Quit Bitzkey?", ["The application will close."],
+                             [("stay", "CANCEL"), ("quit", "QUIT")], cancel="stay")
 
     def _ready(self) -> bool:
         if not self.form.can_start:
@@ -419,13 +435,15 @@ class SetupScreen:
             hint = self.small.render("UP/DOWN  choose   LEFT/RIGHT  adjust (SHIFT x10)   CTRL+V  paste   "
                                      "ENTER  start   F11  window   ESC  quit", True, (130, 152, 136))
         self.screen.blit(hint, hint.get_rect(midbottom=(card.centerx, card.bottom - UI(14))))
+        if self.dialog:
+            self.dialog.draw(self.screen)
 
     def _draw_setting(self, setting: Setting, row: pg.Rect, focused: bool) -> None:
         pg.draw.rect(self.screen, (36, 49, 47) if focused else (31, 42, 41), row, border_radius=UI(5))
         if focused:
             pg.draw.rect(self.screen, (131, 205, 143), row, 1, border_radius=UI(5))
-        self._text(setting.label.upper(), (row.left + UI(16), row.top + UI(7)), (232, 236, 219), self.font)
-        self._text(setting.hint, (row.left + UI(16), row.top + UI(28)), (130, 152, 136), self.small)
+        self._text(setting.label.upper(), (row.left + UI(16), row.top + UI(5)), (232, 236, 219), self.font)
+        self._text(setting.hint, (row.left + UI(16), row.top + UI(25)), (130, 152, 136), self.small)
         minus, box, plus = self._buttons(row)
         for button, sign in ((minus, "-"), (plus, "+")):
             pg.draw.rect(self.screen, (44, 57, 52), button, border_radius=UI(4))

@@ -32,15 +32,22 @@ A configuration panel opens first. Set:
   for a new one.
 - an optional population cap: the most animals alive at once. Leave it blank,
   the default, for no limit, and crowding alone decides.
+- the mind mutation chance (0 to 100, default 50). A birth has three chances,
+  each this percent, to change one of the child's mind traits by one step: about
+  1.5 mind mutations a birth at 50, and three at 100. At 0 minds are
+  genetically stable.
+- the body mutation chance (0 to 100, default 50): the percent chance that a
+  birth flips one bit of the child's ring. At 100 every child carries one body
+  mutation.
 
 Click a row or use Up/Down to choose a setting. Adjust it with its - and +
 buttons or Left/Right (hold Shift for steps of ten), or type a number. Press
-Enter or click START to begin, or QUIT (or Esc) to close the application.
+Enter or click START to begin, or QUIT (or Esc) to close the application, after confirming.
 
 Launch options fill in the panel's starting values:
 
 ```powershell
-python Main.py --width 80 --height 60 --population 120 --grass-density 8 --seed 42 --population-cap 500
+python Main.py --width 80 --height 60 --population 120 --grass-density 8 --seed 42 --population-cap 500 --mind-mutation 80 --body-mutation 20
 ```
 
 The panel can also import Bitzkeys, to add to the random ones. Paste exported
@@ -154,8 +161,13 @@ gene values and are then reshaped by experience:
 
 A learned shift fades slowly back toward the inborn value. Children inherit
 learned temperament as well as genes and brains: each child's traits start at
-its own gene values, shifted by the average of how far experience had moved
-its parents', kept within 0 to 7.
+the average of its parents' current traits, as experience has left them, not
+their inborn ones. Then three times, each with the world's mind mutation
+chance (50% by default), a random trait mutates a step up or down, within 0
+to 7. The child's dot is written from that starting mind, each
+fraction rounding up with a chance equal to it, so its colour shows the
+temperament it was born with, and what its parents lived through shows in
+their young.
 
 **Outer ring: the body.**
 
@@ -183,11 +195,10 @@ times. Strength, speed, weapons and armour all add to the burn.
 
 Only the outer rings decide who can mate: two animals must be the same species,
 and their body words may differ in at most 14 of 32 bits. A child's ring is a
-single-point crossover of its parents' rings. A child's dot is the average of
-its parents' dot colours, CMYK byte by byte; an odd half rounds up or down at
-random. Then each word has a 20% chance of one flipped bit. Because minds
-blend, a lineage's temperament converges, and mutation is the only source of
-new mental variety.
+single-point crossover of its parents' rings. A child's dot comes from its
+starting mind (see above), its two spare bits from either parent. With the
+world's body mutation chance (50% by default), one bit of the ring flips.
+Minds blend, but experience and mind mutations keep them varied.
 
 This is genome version 2. Version 1 held eight four-bit traits (0 to 15) per
 word, before empathy, tolerance, litter and carrion existed. Older exports,

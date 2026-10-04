@@ -10,7 +10,8 @@ from dataclasses import dataclass, field, replace
 from functools import cached_property
 
 from tools.Brain import ACTIONS, SENSES, Brain, choice_odds, make_senses
-from tools.Genome import (GENOME, MIND_TRAITS, SPECIES, TRAIT_MAX, body_word, color_from_word, cross, ring_difference,
+from tools.Genome import (GENOME, MIND_TRAITS, SPECIES, TRAIT_MAX, body_word, color_from_word, cross, inherit_mind, ring_difference,
+                          BODY_MUTATION_CHANCE, MIND_MUTATION_CHANCE,
                           decode_body, decode_mind, make_dna, mind_word, share)
 from tools.Census import Census
 from tools.Exchange import Imported
@@ -299,16 +300,21 @@ class Simulation:
     def __init__(self, width: int = GRID_SIZE, height: int = GRID_SIZE,
                  population: int = INITIAL_POPULATION, seed: int | None = None,
                  grass_density: float = GRASS_DENSITY, imported: Sequence[Imported] = (),
-                 population_cap: int | None = None):
+                 population_cap: int | None = None, mind_mutation: float = 100 * MIND_MUTATION_CHANCE,
+                 body_mutation: float = 100 * BODY_MUTATION_CHANCE):
         """Spawn `population` random Bitzkeys in groups sharing a genome, plus a group for each
         `imported` Bitzkey, whose members all start with copies of its saved brain if it has one.
-        `population_cap` limits living animals; None leaves crowding alone to limit them."""
+        `population_cap` limits living animals; None leaves crowding alone to limit them.
+        `mind_mutation` and `body_mutation` are the percent chances that a birth mutates the
+        child's mind or body."""
         if width < 10 or height < 10:
             raise ValueError("World dimensions must both be at least 10 cells.")
         if population < 0:
             raise ValueError("Population cannot be negative.")
         if not 0 <= grass_density <= 100:
             raise ValueError("Grass density must be between 0 and 100 percent.")
+        if not (0 <= mind_mutation <= 100 and 0 <= body_mutation <= 100):
+            raise ValueError("Mutation chances must be between 0 and 100 percent.")
         self.width = width
         self.height = height
         self.random = random.Random(seed)
@@ -328,6 +334,8 @@ class Simulation:
         self._carrion: dict[tuple[int, int], list[Bitzkey]] = {}
         self._population = 0
         self.population_cap = population_cap
+        self.mind_mutation = mind_mutation / 100
+        self.body_mutation = body_mutation / 100
         self._plants = 0
         self.grass: dict[tuple[int, int], int] = {}
         initial_grass = round(width * height * grass_density / 100)
@@ -539,7 +547,8 @@ class Simulation:
         spot = Bitzkey(-1, plant.dna, *cell)
         if sum(other.species == "plant" for other in self._nearby(spot, 2)) > PLANT_CROWDING:
             return
-        seedling = self._add_agent(cross(plant.dna, plant.dna, self.random), *cell)
+        seedling = self._add_agent(cross(plant.dna, plant.dna, self.random, None, self.mind_mutation,
+                                         self.body_mutation), *cell)
         seedling.hunger = SEEDLING_HUNGER
         seedling.generation = plant.generation + 1
         plant.hunger += SEED_COST
@@ -910,8 +919,8 @@ class Simulation:
         free cells around), shares the energy
         both parents give up. Animals only choose to breed when both can afford it, but a parent
         can only give what it has left. Each child inherits a mix of its parents' brains, and
-        starts its temperament at its own genes shifted by the average of what experience
-        taught its parents."""
+        starts its temperament at the average of its parents' current temperaments, which its
+        dot then shows."""
         litter = litter_size([(int(parent.body["litter"]), int(parent.body["size"])) for parent in (first, second)],
                              first.species)
         litter = max(1, int(litter * (1 - self._crowding(first, second) / CROWDING_LIMIT) + 0.5))
@@ -922,10 +931,12 @@ class Simulation:
                     for cost, parent in zip(costs, (first, second)))
         for cell in cells:
             brain = Brain.inherit(first.brain, second.brain, self.random)
-            child = self._add_agent(cross(first.dna, second.dna, self.random), *cell, brain=brain)
-            for trait in MIND_TRAITS:
-                learned = sum(parent.mind[trait] - parent.inborn[trait] for parent in (first, second)) / 2
-                child.mind[trait] = max(0.0, min(float(TRAIT_MAX), child.inborn[trait] + learned))
+            # The child's mind starts at the average of its parents' current minds, mutated, and
+            # its dot is written from that mind, so experience is inherited and shows.
+            mind = inherit_mind(first.mind, second.mind, self.random, self.mind_mutation)
+            child = self._add_agent(cross(first.dna, second.dna, self.random, mind, body_chance=self.body_mutation),
+                                    *cell, brain=brain)
+            child.mind = mind
             child.hunger = max(0.0, 100 - given / len(cells) / child.stomach)
             child.generation = max(first.generation, second.generation) + 1
             self._population += 1

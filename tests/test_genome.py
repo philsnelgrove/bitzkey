@@ -2,9 +2,9 @@ import random
 import unittest
 from unittest.mock import patch
 
-from tools.Genome import (BODY_TRAITS, MIND_TRAITS, TRAIT_MAX, body_word, color_from_word, convert_v1, cross,
-                          decode_body, decode_mind, encode_dna, genome_from_record, genome_record, make_dna,
-                          mind_word)
+from tools.Genome import (BODY_TRAITS, MIND_MUTATION_CHANCE, MIND_MUTATION_ROLLS, MIND_TRAITS, SPARE_BITS, TRAIT_MAX, body_word,
+                          color_from_word, convert_v1, cross, decode_body, decode_mind, encode_dna,
+                          genome_from_record, genome_record, inherit_mind, make_dna, mind_word)
 
 
 class GenomeTests(unittest.TestCase):
@@ -47,38 +47,85 @@ class GenomeTests(unittest.TestCase):
 
         self.assertTrue(all(decode_body(make_dna(2, rng))["species"] == "omnivore" for _ in range(20)))
 
-    def test_child_of_identical_parents_differs_by_at_most_one_bit_per_word(self):
+    def test_child_of_identical_parents_differs_by_one_ring_bit_and_mind_steps(self):
         rng = random.Random(5)
         parent = make_dna(1, rng)
 
         for _ in range(50):
             child = cross(parent, parent, rng)
-            self.assertLessEqual((mind_word(child) ^ mind_word(parent)).bit_count(), 1)
             self.assertLessEqual((body_word(child) ^ body_word(parent)).bit_count(), 1)
+            self.assertLessEqual(((mind_word(child) ^ mind_word(parent)) & SPARE_BITS).bit_count(), 1)
+            for trait, value in decode_mind(child).items():
+                self.assertLessEqual(abs(value - decode_mind(parent)[trait]), 1)
 
-    def test_child_dot_is_the_average_of_its_parents_dot_colours(self):
+    def test_child_dot_holds_the_average_of_its_parents_traits(self):
         rng = random.Random(2)
-        first, second = 0x10204080, 0x30604020
+        first = encode_dna("grazer", fear=2, curiosity=6, empathy=7)
+        second = encode_dna("grazer", fear=4, curiosity=0, empathy=7)
 
-        with patch("tools.Genome.MUTATION_CHANCE", 0):
-            child = cross(first, second, rng)
+        with patch("tools.Genome.MIND_MUTATION_CHANCE", 0):
+            child = decode_mind(cross(first, second, rng))
 
-        self.assertEqual(mind_word(child), 0x20404050)
+        self.assertEqual((child["fear"], child["curiosity"], child["empathy"]), (3, 3, 7))
 
-    def test_odd_halves_round_either_way(self):
+    def test_a_given_mind_is_written_into_the_dot_rounding_fractions_by_chance(self):
         rng = random.Random(2)
+        mind = {trait: 0.0 for trait in MIND_TRAITS} | {"fear": 3.25, "libido": 7.0}
 
-        with patch("tools.Genome.MUTATION_CHANCE", 0):
-            bytes_seen = {mind_word(cross(0x00, 0x01, rng)) for _ in range(40)}
+        fears = [decode_mind(cross(0, 0, rng, mind))["fear"] for _ in range(2000)]
 
-        self.assertEqual(bytes_seen, {0x00, 0x01})
+        self.assertEqual(set(fears), {3, 4})
+        self.assertAlmostEqual(sum(fears) / len(fears), 3.25, delta=0.04)  # no drift
+        self.assertEqual(decode_mind(cross(0, 0, rng, mind))["libido"], 7)
+
+    def test_a_birth_carries_up_to_three_mind_mutations_each_with_the_chance_given(self):
+        rng = random.Random(3)
+        mind = {trait: 3.0 for trait in MIND_TRAITS}
+        mutations = []
+        for chance in (0.0, 0.5, 1.0):
+            counted = []
+            for _ in range(3000):
+                child = inherit_mind(mind, mind, rng, chance)
+                steps = [abs(child[trait] - 3) for trait in MIND_TRAITS]
+                self.assertLessEqual(max(steps), 3)
+                counted.append(sum(steps))
+            mutations.append(sum(counted) / len(counted))
+        self.assertEqual(mutations[0], 0)
+        # three rolls: about 1.5 mutations a birth at 50, three at 100 (less a few that cancel out)
+        self.assertAlmostEqual(mutations[1], 1.5 * 0.9, delta=0.15)
+        self.assertAlmostEqual(mutations[2], 3 * 0.9, delta=0.2)
+        self.assertEqual((MIND_MUTATION_CHANCE, MIND_MUTATION_ROLLS), (0.5, 3))
+
+    def test_a_certain_mutation_steps_away_from_the_limits(self):
+        rng = random.Random(4)
+        for value in (0.0, 7.0):
+            mind = {trait: value for trait in MIND_TRAITS}
+            for _ in range(50):
+                child = inherit_mind(mind, mind, rng, 1.0)
+                self.assertTrue(all(0 <= child[trait] <= 7 for trait in MIND_TRAITS))
+                self.assertGreater(sum(abs(child[trait] - value) for trait in MIND_TRAITS), 0)
+
+    def test_the_body_mutates_with_the_chance_given(self):
+        rng = random.Random(6)
+        parent = make_dna(1, rng)
+        for chance, expected in ((0.0, 0), (1.0, 1)):
+            for _ in range(30):
+                child = cross(parent, parent, rng, body_chance=chance, mind_chance=0.0)
+                self.assertEqual((body_word(child) ^ body_word(parent)).bit_count(), expected)
+                self.assertEqual(mind_word(child), mind_word(parent))
+
+    def test_a_childs_mind_starts_at_its_parents_current_average(self):
+        with patch("tools.Genome.MIND_MUTATION_CHANCE", 0):
+            mind = inherit_mind({trait: 6.5 for trait in MIND_TRAITS}, {trait: 2.0 for trait in MIND_TRAITS},
+                                random.Random(1))
+        self.assertEqual(set(mind.values()), {4.25})
 
     def test_child_ring_takes_each_bit_from_a_parent(self):
         rng = random.Random(4)
         first, second = make_dna(1, rng), make_dna(1, rng)
         agreed = ~(body_word(first) ^ body_word(second)) & 0xFFFFFFFF
 
-        with patch("tools.Genome.MUTATION_CHANCE", 0):
+        with patch("tools.Genome.BODY_MUTATION_CHANCE", 0):
             for _ in range(20):
                 child = cross(first, second, rng)
                 self.assertEqual(body_word(child) & agreed, body_word(first) & agreed)
