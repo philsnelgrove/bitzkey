@@ -9,6 +9,7 @@ from functools import cached_property
 from tools.Brain import ACTIONS, SENSES, Brain, choice_odds, make_senses
 from tools.Genome import (GENOME, MIND_TRAITS, SPECIES, body_word, color_from_word, cross, decode_body,
                           decode_mind, make_dna, mind_word)
+from tools.Census import PARTS, family, tally
 from tools.Insights import Insights
 
 
@@ -131,6 +132,11 @@ class Bitzkey:
     def ring_color(self) -> tuple[int, int, int]:
         return color_from_word(body_word(self.dna))
 
+    @cached_property
+    def colour_families(self) -> dict[str, str]:
+        """The colour family of the ring and of the dot."""
+        return {"ring": family(self.ring_color), "dot": family(self.dot_color)}
+
     def copy(self) -> Bitzkey:
         return replace(self, brain=self.brain.copy() if self.brain else None, mind=self.mind.copy())
 
@@ -146,6 +152,9 @@ class Simulation:
         self.height = height
         self.random = random.Random(seed)
         self.insights = Insights()
+        # Living Bitzkeys per colour family, for ring and dot, indexed by turn. It outlives the
+        # rewind history; replaying reads it, and a new turn discards any abandoned future.
+        self.census: list[dict[str, dict[str, int]]] = []
         self.turn = 0
         self.deaths = 0
         self.next_identifier = 0
@@ -161,6 +170,7 @@ class Simulation:
                             self.random.randrange(width), self.random.randrange(height))
         self.history: list[dict] = []
         self.history_index = 0
+        self._take_census()
         self._record()
 
     @property
@@ -220,6 +230,7 @@ class Simulation:
 
     def _take_turn(self) -> None:
         self.turn += 1
+        del self.census[self.turn:]
         self._index_cells()
         order = self.living
         self._population = len(order)
@@ -251,6 +262,11 @@ class Simulation:
         self.agents = [agent for agent in self.agents
                        if agent.died_turn is None or self.turn - agent.died_turn < CORPSE_TURNS]
         self.insights.decay()
+        self._take_census()
+
+    def _take_census(self) -> None:
+        living = self.living
+        self.census.append({part: tally(agent.colour_families[part] for agent in living) for part in PARTS})
 
     # Temperament
 

@@ -13,11 +13,21 @@ python -m pip install -r requirements.txt
 python Main.py
 ```
 
-Choose a different world size, population, or repeatable random seed at launch:
+A configuration panel opens first. Set the grid width and height (10 to 250
+cells), the number of Bitzkeys spawned (up to 600), and an optional random seed.
+The same seed replays the same world; leave it blank for a new one. Click a row
+or use Up/Down to choose a setting. Adjust it with its - and + buttons or
+Left/Right (hold Shift for steps of ten), or type a number. Press Enter or
+click START to begin, or Esc to quit.
+
+Launch options fill in the panel's starting values:
 
 ```powershell
 python Main.py --width 80 --height 60 --population 120 --seed 42
 ```
+
+To add a setting, add a `Setting` to `SETTINGS` in `display/Setup.py` and a
+parameter with the same name to `BitzkeyApp`.
 
 ## Controls
 
@@ -27,8 +37,9 @@ python Main.py --width 80 --height 60 --population 120 --seed 42
 - `R`: restart with the same launch settings
 - `I`: toggle the behaviour insights panel
 - `B`: save a brain report to `reports/`
+- `G`: open or close the colour graph; `Tab` switches it between rings and dots
 - Click a Bitzkey: inspect its genome, current state and the odds of its last choice
-- `Escape`: quit
+- `Escape`: close the colour graph, or quit
 
 History retains up to 500 world snapshots. Rewinding and stepping forward replays
 the recorded future exactly; advancing from an earlier point replaces that
@@ -128,6 +139,16 @@ cell, and the world holds at most 600 living Bitzkeys. Reaching 100% hunger or
 zero health is fatal. Corpses fade after 30 turns. Brains, temperament,
 learning and statistics are all part of turn history, so rewind and replay are
 exact.
+
+## Colour Graph
+
+Press `G` for the colour census. Every living Bitzkey, plants included, is sorted
+into one of 15 colour families: twelve hues, plus white, grey and black. The
+graph shows time across the bottom, as stacked bars of how many Bitzkeys of each
+family were alive. Each bar averages a run of consecutive turns, and its height
+is the total population. `Tab` switches between ring (body) and dot (mind)
+colours. The census covers the whole run, not just the 500 turns that can be
+rewound.
 
 ## What the Bitzkeys Have Learned
 

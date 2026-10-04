@@ -7,7 +7,9 @@ from pathlib import Path
 import pygame as pg
 
 from config.Globals import Config
+from display.Setup import SetupScreen
 from tools.Brain import ACTIONS
+from tools.Census import FAMILIES, SWATCHES, bucket
 from tools.Genome import BODY_TRAITS, MIND_TRAITS, body_word, mind_word
 from tools.Insights import ANIMALS, brain_report
 from tools.Simulation import SPECIES, Bitzkey, Simulation
@@ -18,9 +20,7 @@ RING_WIDTH = 3
 
 class BitzkeyApp:
     def __init__(self, width: int, height: int, population: int, seed: int | None):
-        pg.init()
-        self.screen = pg.display.set_mode((Config.WINDOW_WIDTH, Config.WINDOW_HEIGHT), pg.RESIZABLE)
-        pg.display.set_caption("Bitzkey | An artificial ecology")
+        self.screen = open_window()
         self.font = pg.font.SysFont("segoeui", 15)
         self.bold = pg.font.SysFont("segoeui", 22, bold=True)
         self.mono = pg.font.SysFont("consolas", 14)
@@ -33,6 +33,9 @@ class BitzkeyApp:
         self.simulation = Simulation(width, height, population, seed)
         self.selected_id: int | None = None
         self.show_insights = False
+        self.show_census = False
+        self.census_part = "ring"
+        self._census_cache: tuple[tuple | None, list] = (None, [])
         self.message = ""
         self.message_until = 0
         self.playing = True
@@ -50,7 +53,10 @@ class BitzkeyApp:
                     self.screen = pg.display.set_mode((max(860, event.w), max(760, event.h)), pg.RESIZABLE)
                 elif event.type == pg.KEYDOWN:
                     if event.key == pg.K_ESCAPE:
-                        running = False
+                        if self.show_census:
+                            self.show_census = False
+                        else:
+                            running = False
                     elif event.key == pg.K_SPACE:
                         self.playing = not self.playing
                     elif event.key == pg.K_RIGHT:
@@ -66,7 +72,11 @@ class BitzkeyApp:
                         self.show_insights = not self.show_insights
                     elif event.key == pg.K_b:
                         self._save_report()
-                elif event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
+                    elif event.key == pg.K_g:
+                        self.show_census = not self.show_census
+                    elif event.key == pg.K_TAB and self.show_census:
+                        self.census_part = "dot" if self.census_part == "ring" else "ring"
+                elif event.type == pg.MOUSEBUTTONDOWN and event.button == 1 and not self.show_census:
                     self._select_at(event.pos)
 
             if self.playing and self.elapsed >= 0.24:
@@ -107,6 +117,8 @@ class BitzkeyApp:
         self._draw_world()
         self._draw_sidebar()
         self._draw_footer()
+        if self.show_census:
+            self._draw_census()
 
     def _draw_header(self) -> None:
         pg.draw.rect(self.screen, (27, 37, 37), (0, 0, self.screen.get_width(), 62))
@@ -260,8 +272,73 @@ class BitzkeyApp:
         if pg.time.get_ticks() < self.message_until:
             self._text(self.message, (185, height - 36), (238, 183, 110), self.small)
             return
-        self._text("SPACE  pause/run    LEFT  rewind    RIGHT  step    I  insights    B  brain report    "
-                   "R  restart    ESC  quit", (185, height - 36), (187, 199, 181), self.small)
+        self._text("SPACE  pause/run   LEFT  rewind   RIGHT  step   I  insights   B  brain report   "
+                   "G  colour graph   R  restart   ESC  quit", (185, height - 36), (187, 199, 181), self.small)
+
+    def _draw_census(self) -> None:
+        """A popup over the world: living Bitzkeys per colour family, as stacked bars over time."""
+        width, height = self.screen.get_size()
+        shade = pg.Surface((width, height), pg.SRCALPHA)
+        shade.fill((8, 12, 12, 175))
+        self.screen.blit(shade, (0, 0))
+        panel = pg.Rect(0, 0, min(920, width - 60), min(580, height - 120))
+        panel.center = (width // 2, height // 2)
+        pg.draw.rect(self.screen, (30, 40, 40), panel, border_radius=6)
+        pg.draw.rect(self.screen, (80, 99, 85), panel, 1, border_radius=6)
+        part = "RING / BODY" if self.census_part == "ring" else "DOT / MIND"
+        self._text(f"COLOUR CENSUS  /  {part}", (panel.left + 24, panel.top + 18), (229, 239, 220), self.bold)
+        self._text("Living Bitzkeys by colour family over time.     TAB  ring / dot     G or ESC  close",
+                   (panel.left + 24, panel.top + 52), (144, 170, 151), self.small)
+
+        chart = pg.Rect(panel.left + 64, panel.top + 88, panel.width - 92, panel.height - 210)
+        census = self.simulation.census[:self.simulation.turn + 1]
+        key = (self.simulation.turn, len(census), self.census_part, chart.width)
+        if self._census_cache[0] != key:
+            self._census_cache = (key, bucket(census, self.census_part, chart.width // 6))
+        bars = self._census_cache[1]
+        peak = self._nice_ceiling(max(sum(counts.values()) for _, counts in bars))
+        for fraction in (0, 0.5, 1):
+            y = round(chart.bottom - fraction * chart.height)
+            pg.draw.line(self.screen, (54, 68, 62), (chart.left, y), (chart.right, y), 1)
+            label = self.small.render(f"{peak * fraction:g}", True, (149, 170, 150))
+            self.screen.blit(label, (chart.left - label.get_width() - 8, y - label.get_height() // 2))
+
+        bar_width = chart.width / len(bars)
+        gap = 1 if bar_width > 3 else 0
+        for index, (_, counts) in enumerate(bars):
+            left, right = round(chart.left + index * bar_width), round(chart.left + (index + 1) * bar_width) - gap
+            bottom = float(chart.bottom)
+            for name in FAMILIES:
+                top = bottom - counts.get(name, 0) / peak * chart.height
+                if round(top) < round(bottom):
+                    pg.draw.rect(self.screen, SWATCHES[name],
+                                 (left, round(top), max(1, right - left), round(bottom) - round(top)))
+                bottom = top
+
+        middle = bars[len(bars) // 2][0]
+        for turn, x, align in ((0, chart.left, 0), (middle, chart.left + chart.width // 2, 0.5),
+                               (self.simulation.turn, chart.right, 1)):
+            label = self.small.render(f"TURN {turn}", True, (149, 170, 150))
+            self.screen.blit(label, (x - round(label.get_width() * align), chart.bottom + 6))
+
+        latest = census[-1][self.census_part]
+        columns = 5
+        for index, name in enumerate(FAMILIES):
+            x = chart.left + (index % columns) * (chart.width // columns)
+            y = chart.bottom + 36 + (index // columns) * 22
+            pg.draw.rect(self.screen, SWATCHES[name], (x, y + 2, 12, 12))
+            pg.draw.rect(self.screen, (80, 99, 85), (x, y + 2, 12, 12), 1)
+            self._text(f"{name:<8}{latest.get(name, 0):>4}", (x + 20, y), (187, 199, 181), self.mono_small)
+
+    @staticmethod
+    def _nice_ceiling(value: float) -> float:
+        """The smallest 1, 2 or 5 times a power of ten at or above the value."""
+        scale = 1
+        while True:
+            for step in (1, 2, 5):
+                if step * scale >= value:
+                    return step * scale
+            scale *= 10
 
     def _bar(self, x: int, y: int, width: int, value: float, color: tuple[int, int, int]) -> None:
         pg.draw.rect(self.screen, (44, 57, 52), (x, y, width, 7))
@@ -270,6 +347,16 @@ class BitzkeyApp:
     def _text(self, text: str, position: tuple[int, int], color: tuple[int, int, int],
               font: pg.font.Font) -> None:
         self.screen.blit(font.render(text, True, color), position)
+
+
+def open_window() -> pg.Surface:
+    """Return the app window, opening it if the configuration panel has not already."""
+    pg.init()
+    screen = pg.display.get_surface()
+    if screen is None:
+        screen = pg.display.set_mode((Config.WINDOW_WIDTH, Config.WINDOW_HEIGHT), pg.RESIZABLE)
+        pg.display.set_caption("Bitzkey | An artificial ecology")
+    return screen
 
 
 def parse_args() -> argparse.Namespace:
@@ -283,4 +370,8 @@ def parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
     options = parse_args()
-    BitzkeyApp(options.width, options.height, options.population, options.seed).run()
+    settings = SetupScreen(open_window(), vars(options)).run()
+    if settings is None:
+        pg.quit()
+    else:
+        BitzkeyApp(**settings).run()
