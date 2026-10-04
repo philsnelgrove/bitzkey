@@ -51,13 +51,13 @@ keys (`Shift` for steps of five), or by typing a digit from 0 to 7. The ring and
 dot hex codes can also be typed whole. A large preview shows the Bitzkey in its
 true colours, at sixteen times its in-world size and proportions, beside it at
 actual size. Below them are the stats that follow from the genome: health,
-energy burn, speed, sight, breeding cost, litter size and how much carrion feeds
-it. Species is stored as a value from 0 to 7; each value picks a species (value
-mod 4) and also shades the ring. APPLY (`Enter`) adds the design to the bottom
-of the import box, and CANCEL (`Esc`) leaves it out. RANDOM rolls a new genome.
-Reopening the designer starts from the last design applied, so variations are
-quick to build. A designed Bitzkey starts with a fresh brain and its genes'
-temperament.
+energy burn, speed, sight, breeding cost, litter size, how much carrion feeds
+it, and its lifespan. Species is stored as a value from 0 to 7; each value picks
+a species (value mod 4) and also shades the ring. APPLY (`Enter`) adds the
+design to the bottom of the import box, and CANCEL (`Esc`) leaves it out. RANDOM
+rolls a new genome. Reopening the designer starts from the last design applied,
+so variations are quick to build. A designed Bitzkey starts with a fresh brain
+and its genes' temperament.
 
 Each imported genome spawns as a group of 3 to
 5 Bitzkeys at a random spot, with fresh brains, so it arrives with mates. Up to
@@ -148,14 +148,14 @@ its parents', kept within 0 to 7.
 | Trait | Effect |
 |---|---|
 | species | plant, grazer, omnivore or predator (value mod 4) |
-| size | health pool (60 to 150), dot radius (1px to 5px), some striking force, and the meat its corpse leaves |
+| size | health pool (60 to 150), dot radius (1px to 5px), some striking force, lifespan, and the meat its corpse leaves |
 | strength | striking force |
 | armour | reduces damage taken by up to 60% |
 | weapons | sharpen blows by up to 75%, and spines hurt anyone who attacks |
 | speed | cells moved per step of foraging, fleeing or exploring (1 to 4) |
 | sight | how far it sees (2 to 9 cells) |
 | fertility | high: cheap, frequent breeding and weak, hungry young; low: costly, rare breeding and well-fed young |
-| litter | young per birth: 1 to 4, from both parents' litter traits, with a free cell beside the parent for each; the litter shares the energy its parents give |
+| litter | young per birth: 1 to 6. A high litter trait and a small body both make litters bigger, half each, averaged over both parents, so small animals tend to have large litters and large animals small ones. Each young needs a free cell around the parent (sides first, then corners), and the litter shares the energy its parents give. |
 | carrion | how much of carrion's meat nourishes it: 20% at 0, all of it at 7 |
 
 There is no metabolism gene. A bigger, stronger, faster or better-armed body
@@ -178,8 +178,9 @@ Their colours change, because the bits move.
 The inspector shows both words in hex and every trait. Mind traits appear
 inborn and as they are now, coloured green where experience has raised them
 and amber where it has lowered them. It also shows the body's energy burn,
-hunger, health, age, generation, children, last action, the odds its brain
-gave each option, and for a corpse, the meat left on it.
+hunger, health, age against expected lifespan, generation, children, last
+action, the odds its brain gave each option, and for a corpse, the meat left on
+it.
 
 ## Behaviour
 
@@ -216,10 +217,17 @@ Death is heavily punished. A child inherits each brain neuron whole from one
 parent or the other, with small mutations, and its parents' learned shifts in
 temperament, so learned habits and moods pass down the generations.
 
-Each parent pays 10 to 25 hunger to breed, less the more fertile it is, but can
-only give what it has left. The litter shares exactly the energy its parents
+Each parent pays 10 to 25 hunger to breed, less the more fertile it is. Animals
+only breed, or court, when both partners can afford it and still have at least
+10 hunger to spare afterwards, so nothing breeds itself to death. The litter shares exactly the energy its parents
 gave. Each newborn needs a free neighbouring cell, and the world holds at most
-600 living Bitzkeys. Reaching 100% hunger or zero health is fatal. A corpse
+600 living Bitzkeys. Reaching 100% hunger or zero health is fatal, and so, in
+time, is age. Plants live about 4,000 turns, and animals from about 250 (the
+smallest) to 900 (the largest). From 70% of its lifespan, a Bitzkey's chance of
+dying of old age grows each turn: about half reach their lifespan, and almost
+none live past 1.3 times it. Dying of old age is not held against the brain's
+last choice. A dead Bitzkey is dimmed and crossed through in red until its
+corpse fades. A corpse
 holds the energy its body had left: up to 30 meat, plus up to 50 more for the
 largest. A starved body leaves nothing, and a killed one half, as the killer has
 already eaten. The meat rots away over the 30 turns before the corpse fades.

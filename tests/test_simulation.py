@@ -5,7 +5,7 @@ from unittest.mock import patch
 from tools.Brain import ACTIONS, Brain
 from tools.Exchange import Imported
 from tools.Genome import encode_dna
-from tools.Simulation import CORPSE_TURNS, Simulation
+from tools.Simulation import CORPSE_TURNS, Simulation, litter_size
 
 
 class SimulationTests(unittest.TestCase):
@@ -144,7 +144,7 @@ class SimulationTests(unittest.TestCase):
         mate.cooldown = 3
         self.assertNotIn(breed, self.simulation._sense(agent)[1])
         mate.cooldown = 0
-        for x, y in ((5, 4), (4, 5), (6, 5)):
+        for x, y in ((5, 4), (4, 5), (6, 5), (4, 4), (6, 4), (4, 6), (6, 6)):  # every cell around but the mate's
             self.simulation._add_agent(encode_dna("plant"), x, y)
         self.assertNotIn(breed, self.simulation._sense(agent)[1])
 
@@ -217,6 +217,31 @@ class SimulationTests(unittest.TestCase):
         self.simulation._act(grazer, "flee", situation)
         self.assertGreater(abs(grazer.y - predator.y), 4)
         self.assertNotIn(ACTIONS.index("flee"), self.simulation._sense(predator)[1])
+
+    def test_only_animals_that_can_afford_it_breed(self):
+        dna = encode_dna("grazer", fertility=7)  # breeding costs it 10 hunger
+        agent = self.simulation._add_agent(dna, 5, 5)
+        mate = self.simulation._add_agent(dna, 5, 6)
+        breed = ACTIONS.index("breed")
+        self.simulation._index_cells()
+
+        agent.hunger = 80  # 80 + 10 leaves exactly the 10 to spare
+        self.assertIn(breed, self.simulation._sense(agent)[1])
+        agent.hunger = 81
+        self.assertNotIn(breed, self.simulation._sense(agent)[1])
+        agent.hunger, mate.hunger = 0, 85
+        self.assertNotIn(breed, self.simulation._sense(agent)[1])
+
+    def test_nobody_courts_a_partner_who_cannot_afford_to_breed(self):
+        dna = encode_dna("grazer", sight=7, fertility=7)
+        suitor = self.simulation._add_agent(dna, 2, 2)
+        mate = self.simulation._add_agent(dna, 2, 7)
+        mate.hunger = 95
+        self.simulation._index_cells()
+
+        self.assertNotIn(ACTIONS.index("court"), self.simulation._sense(suitor)[1])
+        mate.hunger = 0
+        self.assertIn(ACTIONS.index("court"), self.simulation._sense(suitor)[1])
 
     def test_population_cap_withdraws_breeding(self):
         dna = encode_dna("grazer")
@@ -432,12 +457,13 @@ class NewTraitTests(unittest.TestCase):
         self.simulation._breed(first, second, cells)
 
         young = self.simulation.agents[2:]
-        self.assertEqual(len(young), 3)  # a litter of four, but only three free cells beside the parent
-        self.assertTrue(all(child.hunger == 100 - 20 / 3 for child in young))
-        self.assertEqual((first.children, second.children), (3, 3))
+        self.assertEqual(len(cells), 7)  # every cell around the parent but its mate's
+        self.assertEqual(len(young), 6)
+        self.assertTrue(all(child.hunger == 100 - 20 / 6 for child in young))
+        self.assertEqual((first.children, second.children), (6, 6))
 
-    def test_a_small_litter_trait_gives_single_young(self):
-        dna = encode_dna("grazer", fertility=7, litter=1)
+    def test_large_bodies_with_a_low_litter_trait_have_single_young(self):
+        dna = encode_dna("grazer", fertility=7, litter=0, size=7)
         first = self.simulation._add_agent(dna, 5, 5)
         second = self.simulation._add_agent(dna, 5, 6)
         self.simulation._index_cells()
@@ -445,6 +471,73 @@ class NewTraitTests(unittest.TestCase):
         self.simulation._breed(first, second, self.simulation._free_cells_near(first))
 
         self.assertEqual(len(self.simulation.agents), 3)
+
+    def test_smaller_bodies_have_bigger_litters(self):
+        for litter in range(8):
+            sizes = [litter_size([(litter, size)] * 2) for size in range(8)]
+            self.assertEqual(sizes, sorted(sizes, reverse=True), f"litter trait {litter}")
+        self.assertEqual((litter_size([(7, 0)] * 2), litter_size([(0, 7)] * 2)), (6, 1))
+        self.assertEqual(litter_size([(7, 0), (0, 7)]), litter_size([(3, 3)] * 2))  # parents average out
+
+    def test_a_parent_hemmed_in_has_single_young(self):
+        dna = encode_dna("grazer", fertility=7, litter=7)
+        first = self.simulation._add_agent(dna, 5, 5)
+        second = self.simulation._add_agent(dna, 5, 6)
+        for x, y in ((4, 5), (6, 5), (4, 4), (6, 4), (4, 6), (6, 6)):
+            self.simulation._add_agent(encode_dna("plant"), x, y)
+        self.simulation._index_cells()
+
+        self.simulation._breed(first, second, self.simulation._free_cells_near(first))
+
+        self.assertEqual([(agent.x, agent.y) for agent in self.simulation.agents[8:]], [(5, 4)])
+
+    def test_plants_outlive_large_animals_which_outlive_small_ones(self):
+        plant = self.simulation._add_agent(encode_dna("plant", size=0), 1, 1)
+        large = self.simulation._add_agent(encode_dna("grazer", size=7), 2, 2)
+        small = self.simulation._add_agent(encode_dna("predator", size=0), 3, 3)
+
+        self.assertGreater(plant.lifespan, large.lifespan)
+        self.assertGreater(large.lifespan, small.lifespan)
+        self.assertEqual((large.lifespan, small.lifespan), (900, 250))
+
+    def test_old_age_comes_only_late_in_life(self):
+        animal = self.simulation._add_agent(encode_dna("grazer", size=0), 1, 1)
+
+        with patch.object(self.simulation.random, "random", return_value=0.0):
+            animal.age = int(0.7 * animal.lifespan)
+            self.assertFalse(self.simulation._dies_of_age(animal))
+            animal.age += 1
+            self.assertTrue(self.simulation._dies_of_age(animal))
+        with patch.object(self.simulation.random, "random", return_value=0.04):  # the chance each turn rises with age
+            animal.age = int(animal.lifespan)
+            self.assertFalse(self.simulation._dies_of_age(animal))
+            animal.age = int(1.6 * animal.lifespan)
+            self.assertTrue(self.simulation._dies_of_age(animal))
+
+    def test_about_half_live_to_their_lifespan(self):
+        simulation = Simulation(width=12, height=12, population=0, seed=8)
+        animal = simulation._add_agent(encode_dna("grazer", size=0), 1, 1)
+        survivors = 0
+        for _ in range(400):
+            alive = True
+            for age in range(int(0.7 * animal.lifespan), int(animal.lifespan)):
+                animal.age = age
+                if simulation._dies_of_age(animal):
+                    alive = False
+                    break
+            survivors += alive
+
+        self.assertAlmostEqual(survivors / 400, 0.5, delta=0.08)
+
+    def test_a_very_old_bitzkey_dies_of_old_age(self):
+        animal = self.simulation._add_agent(encode_dna("grazer", size=0), 5, 5)
+        animal.age = 10 * int(animal.lifespan)
+
+        self.simulation._take_turn()
+        self.assertEqual((animal.alive, animal.last_action, animal.brain), (False, "old age", None))
+
+        self.simulation._take_turn()  # and it stays dead
+        self.assertEqual(animal.last_action, "old age")
 
     def test_corpses_hold_the_energy_their_body_had_left_and_rot(self):
         small = self.simulation._add_agent(encode_dna("grazer", size=0), 2, 2)

@@ -369,12 +369,13 @@ class BitzkeyApp:
                        (175, 192, 172), self.mono_small)
         self._text(f"{'burn':<7}{agent.burn:>5.2f}", (body_x, UI(424 + 9 * 16)), (175, 192, 172), self.mono_small)
 
-        self._text(f"HUNGER  {agent.hunger:5.1f}%", (x, UI(590)), (224, 177, 118), self.mono)
+        self._text(f"HUNGER  {min(100.0, agent.hunger):5.1f}%", (x, UI(590)), (224, 177, 118), self.mono)
         self._bar(x, UI(609), width, agent.hunger / 100, (224, 150, 94))
         self._text(f"HEALTH  {max(0.0, agent.health):5.1f} / {agent.max_health:.0f}", (x, UI(619)),
                    (161, 207, 162), self.mono)
         self._bar(x, UI(638), width, agent.health / agent.max_health, (124, 190, 131))
-        self._text(f"AGE {agent.age}    GENERATION {agent.generation}    CHILDREN {agent.children}",
+        self._text(f"AGE {agent.age} / ~{agent.lifespan:.0f}    GENERATION {agent.generation}    "
+                   f"CHILDREN {agent.children}",
                    (x, UI(651)), (145, 164, 146), self.small)
         state = f"LAST ACTION: {agent.last_action.upper()}"
         if not agent.alive:

@@ -12,7 +12,7 @@ from display.Look import RING_WIDTH, dot_radius, draw_bitzkey
 from display.Ui import UI
 from tools.Genome import (BODY_TRAITS, GENOME, MIND_TRAITS, SPECIES, TRAIT_BITS, TRAIT_MAX, WORD, body_word,
                           decode_body, mind_word)
-from tools.Simulation import MAX_LITTER, Bitzkey
+from tools.Simulation import Bitzkey, litter_size
 
 FIELDS = (tuple(("mind", trait) for trait in MIND_TRAITS) + tuple(("body", trait) for trait in BODY_TRAITS)
           + (("hex", "ring"), ("hex", "dot")))
@@ -260,15 +260,16 @@ class Designer:
         body = decode_body(form.dna)
         sample = Bitzkey(0, form.dna, 0, 0)
         if species == "plant":
-            facts = ["A plant: it photosynthesises and never moves,", "thinks, breeds or eats."]
+            facts = ["A plant: it photosynthesises and never moves,", "thinks, breeds or eats.",
+                     f"Lives about {sample.lifespan:.0f} turns."]
         else:
             fertility = sample.physique("fertility")
-            litter = 1 + int(body["litter"]) * (MAX_LITTER - 1) // TRAIT_MAX
+            litter = litter_size([(int(body["litter"]), int(body["size"]))] * 2)
             facts = [f"A {species}.  Health {sample.max_health:.0f}.  Burns {sample.burn:.2f} hunger a turn.",
                      f"Moves {sample.steps} cell{'s' if sample.steps != 1 else ''} a step.  Sees {sample.sight} cells.",
                      f"Breeding costs each parent {25 - 15 * fertility:.0f} hunger, then",
                      f"{round(20 - 15 * fertility)} turns to recover.  With a like partner, litters of {litter}.",
-                     f"Carrion gives it {sample.digestion:.0%} of its meat."]
+                     f"Carrion gives it {sample.digestion:.0%} of its meat.  Lives about {sample.lifespan:.0f} turns."]
         for index, fact in enumerate(facts):
             self._text(fact, (preview.left, layout["codes"]["dot"].bottom + UI(20 + index * 22)), (187, 199, 181),
                        self.small)

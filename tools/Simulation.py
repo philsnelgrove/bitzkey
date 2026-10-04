@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import bisect
+import math
 import random
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
@@ -27,8 +28,13 @@ SPAWN_SPREAD = 2      # a group's members appear within this many cells of each 
 DENSE_HISTORY = 500   # the latest turns are each kept as a snapshot of the world
 CHECKPOINTS = 200     # older turns are kept as at most this many evenly spaced snapshots
 CORPSE_TURNS = 30
+BREED_RESERVE = 10  # hunger a parent must still have spare after paying to breed
 COMPATIBLE_BITS = 14  # partners' body words (outer rings) may differ in at most this many bits
-MAX_LITTER = 4
+LITTER_RANGE = (1, 6)  # young per birth, while there is room around the parent
+LITTER_SIZE_WEIGHT = 0.5  # how much of litter size comes from small bodies; the rest from the litter trait
+PLANT_LIFESPAN = 4000
+ANIMAL_LIFESPAN = (250, 900)  # expected turns of life for the smallest and the largest animals
+AGEING = 0.7  # from this share of its lifespan, an animal may die of old age
 
 DEATH_PENALTY = 2.0
 BREED_JOY = 1.0
@@ -149,6 +155,24 @@ class Bitzkey:
         return 2 + int(self.body["sight"])
 
     @property
+    def lifespan(self) -> float:
+        """Expected turns of life: plants outlive large animals, which outlive small ones."""
+        if self.species == "plant":
+            return PLANT_LIFESPAN
+        shortest, longest = ANIMAL_LIFESPAN
+        return shortest + (longest - shortest) * self.physique("size")
+
+    @property
+    def breeding_cost(self) -> float:
+        """Hunger it pays to breed: less the more fertile it is."""
+        return 25 - 15 * self.physique("fertility")
+
+    @property
+    def can_breed(self) -> bool:
+        """Ready, and able to pay for breeding with energy to spare."""
+        return self.cooldown == 0 and self.hunger + self.breeding_cost <= 100 - BREED_RESERVE
+
+    @property
     def digestion(self) -> float:
         """How much of the meat in carrion nourishes it."""
         return 0.2 + 0.8 * self.physique("carrion")
@@ -167,6 +191,15 @@ class Bitzkey:
 
     def copy(self) -> Bitzkey:
         return replace(self, brain=self.brain.copy() if self.brain else None, mind=self.mind.copy())
+
+
+def litter_size(parents: Sequence[tuple[int, int]]) -> int:
+    """Young per birth, before space limits it, from each parent's (litter trait, size): a high
+    litter trait and a small body both make for bigger litters."""
+    smallest, largest = LITTER_RANGE
+    tendency = sum((1 - LITTER_SIZE_WEIGHT) * share(litter) + LITTER_SIZE_WEIGHT * (1 - share(size))
+                   for litter, size in parents) / len(parents)
+    return smallest + int(tendency * (largest - smallest) + 0.5)
 
 
 def _turn_of(snapshot: dict) -> int:
@@ -353,6 +386,9 @@ class Simulation:
             if agent.hunger >= 100:
                 self._die(agent, "starved")
                 continue
+            if self._dies_of_age(agent):
+                self._die(agent, "old age")
+                continue
             if agent.species == "plant":
                 agent.hunger = max(0, agent.hunger - 1.5)
                 agent.last_action = "photosynthesized"
@@ -431,8 +467,7 @@ class Simulation:
 
     def _sense(self, agent: Bitzkey) -> tuple[list[float], list[int], dict]:
         neighbors = self._nearby(agent, 1)
-        mate = next((other for other in neighbors
-                     if self._compatible(agent, other) and other.cooldown == 0), None)
+        mate = next((other for other in neighbors if self._compatible(agent, other) and other.can_breed), None)
         nurseries = self._free_cells_near(agent)
         prey = [other for other in neighbors if self._is_prey(agent, other)]
         threats = [other for other in neighbors if self._is_prey(other, agent)]
@@ -457,7 +492,7 @@ class Simulation:
             available.add("scavenge")
         if suitor:
             available.add("court")
-        if mate and agent.cooldown == 0 and nurseries and self._population < MAX_POPULATION:
+        if mate and agent.can_breed and nurseries and self._population < MAX_POPULATION:
             available.add("breed")
         if quarry:
             available.add("hunt")
@@ -514,12 +549,24 @@ class Simulation:
     def _learn(self, agent: Bitzkey, target: float) -> None:
         agent.brain.learn(agent.last_senses, agent.last_choice, target, LEARNING_RATE * agent.feeling("intellect"))
 
+    def _dies_of_age(self, agent: Bitzkey) -> bool:
+        """Past AGEING of its lifespan, the chance of dying each turn grows with age, so that about
+        half live to their lifespan and almost none beyond 1.3 times it."""
+        onset = AGEING * agent.lifespan
+        if agent.age <= onset:
+            return False
+        steepness = 2 * math.log(2) / (agent.lifespan - onset) ** 2
+        return self.random.random() < steepness * (agent.age - onset)
+
     def _die(self, agent: Bitzkey, cause: str) -> None:
         """Record a death. The body becomes carrion holding the energy it had left: a starved body
-        leaves nothing, and a killed one half, as the killer has already eaten."""
+        leaves nothing, and a killed one half, as the killer has already eaten. Dying of old age
+        is not held against the brain's last choice."""
         if agent.brain is not None and agent.last_senses is not None:
-            self._learn(agent, agent.reward + self._wellbeing(agent) - agent.last_wellbeing - DEATH_PENALTY)
+            penalty = 0.0 if cause == "old age" else DEATH_PENALTY
+            self._learn(agent, agent.reward + self._wellbeing(agent) - agent.last_wellbeing - penalty)
         agent.brain = None
+        agent.health = min(agent.health, 0.0)  # whatever the cause, a recorded death leaves it dead
         agent.died_turn = self.turn
         agent.last_action = cause
         nourished = max(0.0, 1 - agent.hunger / 100)
@@ -632,14 +679,15 @@ class Simulation:
                 self._die(agent, "killed")
 
     def _breed(self, first: Bitzkey, second: Bitzkey, cells: list[tuple[int, int]]) -> None:
-        """Fertile parents breed cheaply and often. Their litter, 1 to 4 young by their average
-        litter trait and the free cells around, shares the energy both parents give up; a parent
+        """Fertile parents breed cheaply and often. Their litter, 1 to 6 young (bigger for a high
+        litter trait and small bodies, and no more than the free cells around), shares the energy
+        both parents give up. Animals only choose to breed when both can afford it, but a parent
         can only give what it has left. Each child inherits a mix of its parents' brains, and
         starts its temperament at its own genes shifted by the average of what experience
         taught its parents."""
-        litter = 1 + (int(first.body["litter"]) + int(second.body["litter"])) * (MAX_LITTER - 1) // (2 * TRAIT_MAX)
+        litter = litter_size([(int(parent.body["litter"]), int(parent.body["size"])) for parent in (first, second)])
         cells = cells[:max(1, min(litter, MAX_POPULATION - self._population))]
-        costs = [25 - 15 * parent.physique("fertility") for parent in (first, second)]
+        costs = [parent.breeding_cost for parent in (first, second)]
         given = sum(min(cost, max(0.0, 100 - parent.hunger)) for cost, parent in zip(costs, (first, second)))
         for cell in cells:
             brain = Brain.inherit(first.brain, second.brain, self.random)
@@ -681,9 +729,9 @@ class Simulation:
         return found
 
     def _free_cells_near(self, agent: Bitzkey) -> list[tuple[int, int]]:
-        """The empty cells beside an animal, where young can be born."""
+        """The empty cells around an animal, sides before corners, where young can be born."""
         cells = []
-        for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0)):
+        for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0), (1, -1), (1, 1), (-1, 1), (-1, -1)):
             cell = ((agent.x + dx) % self.width, (agent.y + dy) % self.height)
             if not any(other.alive for other in self._cells.get(cell, ())):
                 cells.append(cell)
@@ -715,7 +763,7 @@ class Simulation:
         quarry = hunter = suitor = None
         hunts = agent.species in ("omnivore", "predator")
         hunted = agent.species in ("grazer", "omnivore")
-        courts = agent.cooldown == 0
+        courts = agent.can_breed
         for dx, dy in SEEN_OFFSETS:
             if abs(dx) + abs(dy) > sight or ((quarry or not hunts) and (hunter or not hunted)
                                              and (suitor or not courts)):
@@ -727,8 +775,7 @@ class Simulation:
                     quarry = other
                 elif hunter is None and self._is_prey(other, agent):
                     hunter = other
-                elif (courts and suitor is None and other.cooldown == 0
-                      and self._compatible(agent, other)):
+                elif courts and suitor is None and other.can_breed and self._compatible(agent, other):
                     suitor = other
         return quarry, hunter, suitor
 
