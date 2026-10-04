@@ -10,7 +10,8 @@ from pathlib import Path
 import pygame as pg
 
 from config.Globals import Config
-from tools.Genome import decode_body, import_genomes
+from tools.Exchange import Imported, import_bitzkeys
+from tools.Genome import decode_body
 from tools.Simulation import MAX_IMPORTED, MAX_POPULATION, SPAWN_GROUP
 
 EXPORT_DIR = Config.APP_DIR / "exports"
@@ -75,7 +76,7 @@ class SetupForm:
         """The genomes in the import text, and an error message if it cannot all be read."""
         if self._parsed[0] != self.import_text:
             try:
-                self._parsed = (self.import_text, import_genomes(self.import_text), None)
+                self._parsed = (self.import_text, import_bitzkeys(self.import_text), None)
             except ValueError as error:
                 self._parsed = (self.import_text, [], str(error))
         return self._parsed[1], self._parsed[2]
@@ -146,15 +147,18 @@ class SetupForm:
         self.texts[setting.key] = "" if value is None else str(value)
 
 
-def import_summary(genomes: list[int]) -> str:
-    kept = genomes[:MAX_IMPORTED]
-    species = Counter(str(decode_body(dna)["species"]) for dna in kept)
+def import_summary(bitzkeys: list[Imported]) -> str:
+    kept = bitzkeys[:MAX_IMPORTED]
+    species = Counter(str(decode_body(bitzkey.dna)["species"]) for bitzkey in kept)
     parts = ", ".join(f"{count} {name}{'s' if count != 1 else ''}" for name, count in sorted(species.items()))
+    brains = sum(bitzkey.brain is not None for bitzkey in kept)
+    minds = sum(bitzkey.mind is not None for bitzkey in kept)
     smallest, largest = SPAWN_GROUP
-    summary = (f"{len(kept)} genome{'s' if len(kept) != 1 else ''} ready to import ({parts}); "
-               f"each spawns as a group of {smallest}-{largest}")
-    if len(genomes) > MAX_IMPORTED:
-        summary += f". Only the first {MAX_IMPORTED} of {len(genomes)} are used"
+    summary = (f"{len(kept)} Bitzkey{'s' if len(kept) != 1 else ''} ready to import ({parts}; "
+               f"{brains} with saved brains, {minds} with saved temperaments), "
+               f"each spawning as a group of {smallest}-{largest}")
+    if len(bitzkeys) > MAX_IMPORTED:
+        summary += f". Only the first {MAX_IMPORTED} of {len(bitzkeys)} are used"
     return summary
 
 

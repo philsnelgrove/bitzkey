@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import random
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from tools.Genome import MIND_TRAITS
 
@@ -32,6 +32,7 @@ INPUT_SIZE = len(SENSES)
 HIDDEN_SIZE = 12
 TEMPERATURE = 0.2
 MUTATION = 0.05
+RECORD_DIGITS = 6  # decimal places kept when a brain is exported
 
 
 def make_senses(**values: float) -> list[float]:
@@ -133,6 +134,48 @@ class Brain:
     def copy(self) -> Brain:
         return Brain([weights.copy() for weights in self.hidden_weights], self.hidden_biases.copy(),
                      [weights.copy() for weights in self.output_weights], self.output_biases.copy())
+
+    def to_record(self) -> dict:
+        """The brain's weights for export, labelled with the senses and actions they belong to."""
+        def rounded(values: Sequence[float]) -> list[float]:
+            return [round(value, RECORD_DIGITS) for value in values]
+        return {
+            "senses": list(SENSES),
+            "actions": list(ACTIONS),
+            "hidden_weights": [rounded(weights) for weights in self.hidden_weights],
+            "hidden_biases": rounded(self.hidden_biases),
+            "output_weights": [rounded(weights) for weights in self.output_weights],
+            "output_biases": rounded(self.output_biases),
+        }
+
+    @classmethod
+    def from_record(cls, record: Mapping) -> Brain:
+        """Rebuild an exported brain. Weights are matched to senses and actions by name, so a
+        brain saved before a sense or action was added still loads; what it never had starts
+        neutral (zero) and what this version no longer has is dropped. Raises ValueError."""
+        try:
+            senses = [str(name) for name in record["senses"]]
+            actions = [str(name) for name in record["actions"]]
+            hidden_weights = [[float(weight) for weight in row] for row in record["hidden_weights"]]
+            hidden_biases = [float(bias) for bias in record["hidden_biases"]]
+            output_weights = [[float(weight) for weight in row] for row in record["output_weights"]]
+            output_biases = [float(bias) for bias in record["output_biases"]]
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(f"The brain is incomplete or not numeric ({error}).") from None
+        if len(hidden_weights) != HIDDEN_SIZE or len(hidden_biases) != HIDDEN_SIZE:
+            raise ValueError(f"The brain has {len(hidden_weights)} hidden neurons; this version uses {HIDDEN_SIZE}.")
+        if (any(len(row) != len(senses) for row in hidden_weights) or len(output_weights) != len(actions)
+                or len(output_biases) != len(actions) or any(len(row) != HIDDEN_SIZE for row in output_weights)):
+            raise ValueError("The brain's weights don't match its listed senses and actions.")
+
+        sense_at = {name: index for index, name in enumerate(senses)}
+        action_at = {name: index for index, name in enumerate(actions)}
+        return cls(
+            [[row[sense_at[name]] if name in sense_at else 0.0 for name in SENSES] for row in hidden_weights],
+            hidden_biases,
+            [output_weights[action_at[name]] if name in action_at else [0.0] * HIDDEN_SIZE for name in ACTIONS],
+            [output_biases[action_at[name]] if name in action_at else 0.0 for name in ACTIONS],
+        )
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, Brain) and (

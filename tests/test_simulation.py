@@ -1,7 +1,9 @@
+import random
 import unittest
 from unittest.mock import patch
 
-from tools.Brain import ACTIONS
+from tools.Brain import ACTIONS, Brain
+from tools.Exchange import Imported
 from tools.Genome import encode_dna
 from tools.Simulation import CORPSE_TURNS, Simulation
 
@@ -44,7 +46,8 @@ class SimulationTests(unittest.TestCase):
     def test_each_imported_genome_spawns_as_a_clustered_group(self):
         genomes = [encode_dna("predator", size=9), encode_dna("grazer", fear=4)]
 
-        simulation = Simulation(width=20, height=20, population=10, seed=1, imported=genomes)
+        simulation = Simulation(width=20, height=20, population=10, seed=1,
+                                imported=[Imported(dna) for dna in genomes])
 
         imported = simulation.agents[10:]
         for dna in genomes:
@@ -53,6 +56,28 @@ class SimulationTests(unittest.TestCase):
             self.assertLessEqual(max(agent.x for agent in members) - min(agent.x for agent in members), 4)
             self.assertTrue(all(agent.brain is not None for agent in members))
         self.assertEqual(len(imported), sum(agent.dna in genomes for agent in imported))
+
+    def test_imported_brains_are_copied_to_every_member_of_the_group(self):
+        trained = Brain.random(random.Random(5))
+
+        simulation = Simulation(width=20, height=20, population=0, seed=1,
+                                imported=[Imported(encode_dna("predator"), trained)])
+
+        brains = [agent.brain for agent in simulation.agents]
+        self.assertTrue(all(brain == trained for brain in brains))
+        self.assertEqual(len({id(brain) for brain in brains + [trained]}), len(brains) + 1)
+
+    def test_imported_temperament_is_given_to_every_member_of_the_group(self):
+        saved = {"fear": 13.5, "curiosity": 1.25}
+
+        simulation = Simulation(width=20, height=20, population=0, seed=1,
+                                imported=[Imported(encode_dna("grazer", fear=2, patience=7), mind=saved)])
+
+        for agent in simulation.agents:
+            self.assertEqual((agent.mind["fear"], agent.mind["curiosity"]), (13.5, 1.25))
+            self.assertEqual(agent.mind["patience"], 7.0)
+            self.assertEqual(agent.inborn["fear"], 2)
+        self.assertEqual(len({id(agent.mind) for agent in simulation.agents}), len(simulation.agents))
 
     def test_animals_get_brains_and_plants_do_not(self):
         plant = self.simulation._add_agent(encode_dna("plant"), 1, 1)
@@ -233,6 +258,38 @@ class SimulationTests(unittest.TestCase):
         self.assertEqual((first.last_action, first.died_turn, first.brain), ("bred to death", 0, None))
         self.assertEqual(self.simulation.deaths, 1)
         self.assertTrue(second.alive)
+
+    def test_child_brain_is_built_from_its_parents_brains(self):
+        dna = encode_dna("grazer", fertility=15)
+        first = self.simulation._add_agent(dna, 5, 5)
+        second = self.simulation._add_agent(dna, 5, 6)
+        self.simulation._index_cells()
+
+        self.simulation._breed(first, second, (5, 4))
+
+        child = self.simulation.agents[-1]
+        for index, weights in enumerate(child.brain.hidden_weights):
+            nearest = min(max(abs(a - b) for a, b in zip(weights, parent.brain.hidden_weights[index]))
+                          for parent in (first, second))
+            self.assertLess(nearest, 0.3)  # one parent's neuron, plus small mutations
+
+    def test_child_inherits_what_experience_taught_its_parents(self):
+        dna = encode_dna("grazer", fertility=15, fear=5, curiosity=10, libido=14)
+        first = self.simulation._add_agent(dna, 5, 5)
+        second = self.simulation._add_agent(dna, 5, 6)
+        first.mind.update(fear=9.0, curiosity=6.0, libido=15.0)
+        second.mind.update(fear=7.0, curiosity=10.0, libido=15.0)
+        self.simulation._index_cells()
+
+        with patch("tools.Genome.MUTATION_CHANCE", 0):
+            self.simulation._breed(first, second, (5, 4))
+
+        child = self.simulation.agents[-1]
+        self.assertEqual(child.inborn["fear"], 5)
+        self.assertEqual(child.mind["fear"], 8.0)        # genes 5, parents learned +4 and +2
+        self.assertEqual(child.mind["curiosity"], 8.0)   # genes 10, parents learned -4 and 0
+        self.assertEqual(child.mind["libido"], 15.0)     # genes 14 + 1, within the 15 limit
+        self.assertEqual(child.mind["patience"], 0.0)    # nothing learned, so the gene value
 
     def test_intellect_decides_whether_brain_learns(self):
         slow = self.simulation._add_agent(encode_dna("grazer", intellect=0), 1, 1)

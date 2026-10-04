@@ -8,10 +8,8 @@ read as four CMYK bytes, sets the colour of its part of the Bitzkey.
 
 from __future__ import annotations
 
-import json
 import random
 import re
-from collections.abc import Iterable
 
 
 SPECIES = ("plant", "grazer", "omnivore", "predator")
@@ -95,50 +93,18 @@ def cross(first: int, second: int, rng: random.Random) -> int:
     return dna
 
 
-# Export and import. A genome is written as its two colour words in hex:
-# {"ring": "7421FF41", "dot": "637E4B01"}. Several genomes form a JSON array.
+# A genome is written as its two colour words in hex: {"ring": "7421FF41", "dot": "637E4B01"}.
 
 def genome_record(dna: int) -> dict[str, str]:
     return {"ring": f"{body_word(dna):08X}", "dot": f"{mind_word(dna):08X}"}
 
 
-def export_genomes(dnas: Iterable[int]) -> str:
-    """One genome as a JSON object; several as a JSON array, one genome per line."""
-    records = [json.dumps(genome_record(dna)) for dna in dnas]
-    if len(records) == 1:
-        return records[0]
-    return "[\n" + ",\n".join(f"  {record}" for record in records) + "\n]"
-
-
-def import_genomes(text: str) -> list[int]:
-    """Read every genome in the text: exported objects, arrays of them, or several pasted one
-    after another. Raises ValueError, naming the problem, if any part cannot be read."""
-    decoder = json.JSONDecoder()
-    genomes: list[int] = []
-    position = 0
-    while True:
-        while position < len(text) and (text[position].isspace() or text[position] == ","):
-            position += 1
-        if position == len(text):
-            return genomes
-        try:
-            value, position = decoder.raw_decode(text, position)
-        except json.JSONDecodeError as error:
-            raise ValueError(f"Not valid JSON at line {error.lineno}, column {error.colno}.") from None
-        genomes.extend(_genomes_in(value))
-
-
-def _genomes_in(value: object) -> list[int]:
-    if isinstance(value, list):
-        return [dna for item in value for dna in _genomes_in(item)]
-    if isinstance(value, dict) and "bitzkeys" in value:
-        return _genomes_in(value["bitzkeys"])
-    if isinstance(value, dict) and {"ring", "dot"} <= set(value):
-        words = []
-        for part in ("ring", "dot"):
-            match = HEX_WORD.fullmatch(str(value[part]).strip())
-            if match is None:
-                raise ValueError(f'"{part}" must be eight hex digits, not "{value[part]}".')
-            words.append(int(match.group(1), 16))
-        return [(words[0] << 32) | words[1]]
-    raise ValueError(f"Expected a genome with \"ring\" and \"dot\", found: {json.dumps(value)[:60]}")
+def genome_from_record(record: dict) -> int:
+    """Read the genome from a record's "ring" and "dot" hex words. Raises ValueError."""
+    words = []
+    for part in ("ring", "dot"):
+        match = HEX_WORD.fullmatch(str(record[part]).strip())
+        if match is None:
+            raise ValueError(f'"{part}" must be eight hex digits, not "{record[part]}".')
+        words.append(int(match.group(1), 16))
+    return (words[0] << 32) | words[1]

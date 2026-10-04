@@ -1,7 +1,7 @@
 import random
 import unittest
 
-from tools.Brain import ACTIONS, INPUT_SIZE, Brain, choice_odds, make_senses
+from tools.Brain import ACTIONS, INPUT_SIZE, SENSES, Brain, choice_odds, make_senses
 
 
 class BrainTests(unittest.TestCase):
@@ -51,6 +51,38 @@ class BrainTests(unittest.TestCase):
         brain.learn([1.0] * INPUT_SIZE, 0, 5.0, learning_rate=0.1)
 
         self.assertNotEqual(brain, duplicate)
+
+    def test_exported_brain_loads_back_with_the_same_values(self):
+        brain = Brain.random(random.Random(7))
+        brain.learn([0.3] * INPUT_SIZE, 2, 1.5, learning_rate=0.05)
+
+        loaded = Brain.from_record(brain.to_record())
+
+        senses = [0.4] * INPUT_SIZE
+        for original, restored in zip(brain.values(senses), loaded.values(senses), strict=True):
+            self.assertAlmostEqual(original, restored, places=4)
+
+    def test_brain_weights_are_matched_by_sense_and_action_name(self):
+        record = Brain.random(random.Random(7)).to_record()
+        record["senses"] = ["smell"] + record["senses"][1:]  # an unknown sense replaces "hunger"
+        record["hidden_weights"] = [[9.0] + row[1:] for row in record["hidden_weights"]]
+        record["actions"] = list(reversed(record["actions"]))
+        record["output_biases"] = list(reversed(record["output_biases"]))
+        record["output_weights"] = list(reversed(record["output_weights"]))
+        original = Brain.random(random.Random(7))
+
+        loaded = Brain.from_record(record)
+
+        self.assertTrue(all(row[SENSES.index("hunger")] == 0.0 for row in loaded.hidden_weights))
+        self.assertEqual(loaded.output_biases, [round(bias, 6) for bias in original.output_biases])
+
+    def test_malformed_brains_are_rejected(self):
+        record = Brain.random(random.Random(7)).to_record()
+        for broken in ({**record, "hidden_weights": record["hidden_weights"][:3]},
+                       {**record, "hidden_biases": "lots"},
+                       {key: value for key, value in record.items() if key != "actions"}):
+            with self.assertRaises(ValueError):
+                Brain.from_record(broken)
 
     def test_wrong_input_size_is_rejected(self):
         with self.assertRaises(ValueError):

@@ -10,17 +10,19 @@ from config.Globals import Config
 from display.Setup import EXPORT_DIR, SetupScreen
 from tools.Brain import ACTIONS
 from tools.Census import FAMILIES, SWATCHES, bucket
-from tools.Genome import BODY_TRAITS, MIND_TRAITS, body_word, export_genomes, mind_word
+from tools.Exchange import Imported, export_bitzkeys
+from tools.Genome import BODY_TRAITS, MIND_TRAITS, body_word, mind_word
 from tools.Insights import ANIMALS, brain_report
 from tools.Simulation import SPECIES, Bitzkey, Simulation
 
 REPORT_DIR = Config.APP_DIR / "reports"
-RING_WIDTH = 3
+RING_WIDTH = 2
+DOT_RADIUS_RANGE = (1, 5)  # dot radius in pixels at size 0 and size 15; bigger cells raise the top
 
 
 class BitzkeyApp:
     def __init__(self, width: int, height: int, population: int, grass_density: int, seed: int | None,
-                 imported: Sequence[int] = ()):
+                 imported: Sequence[Imported] = ()):
         self.screen = open_window()
         self.font = pg.font.SysFont("segoeui", 15)
         self.bold = pg.font.SysFont("segoeui", 22, bold=True)
@@ -151,10 +153,11 @@ class BitzkeyApp:
             point = (round(board.left + (x + 0.5) * cell_width),
                      round(board.top + (y + 0.5) * cell_height))
             pg.draw.circle(self.screen, (117, 166, 111), point, max(1, round(min(cell_width, cell_height) * 0.18)))
+        largest = max(DOT_RADIUS_RANGE[1], round(min(cell_width, cell_height) * 0.45))
         for agent in self.simulation.agents:
             point = (round(board.left + (agent.x + 0.5) * cell_width),
                      round(board.top + (agent.y + 0.5) * cell_height))
-            radius = self._dot_radius(agent, max(2, min(5, round(min(cell_width, cell_height) * 0.38))))
+            radius = self._dot_radius(agent, largest)
             self._draw_bitzkey(agent, point, radius)
             if agent.identifier == self.selected_id:
                 pg.draw.circle(self.screen, (245, 238, 206), point, radius + RING_WIDTH + 3, 1)
@@ -194,7 +197,7 @@ class BitzkeyApp:
             self._text("Living: click its current position.", (x, 352), (116, 139, 124), self.small)
             return
 
-        self._draw_bitzkey(agent, (x + 10, 343), 4)
+        self._draw_bitzkey(agent, (x + 10, 343), self._dot_radius(agent))
         self._text(f"#{agent.identifier:03d}  {agent.species.upper()}", (x + 28, 332), (238, 238, 220), self.font)
         self._text(f"DOT / MIND   {mind_word(agent.dna):08X}", (x, 360), (211, 219, 201), self.mono)
         self._text(f"RING / BODY  {body_word(agent.dna):08X}", (x, 379), (211, 219, 201), self.mono)
@@ -224,12 +227,14 @@ class BitzkeyApp:
             odds = sorted(agent.odds.items(), key=lambda item: -item[1])[:3]
             self._text("CHANCES  " + "   ".join(f"{action} {chance:.0%}" for action, chance in odds),
                        (x, 678), (175, 192, 172), self.small)
-        self._text("C  copy this genome as JSON", (x, 700), (116, 139, 124), self.small)
+        self._text("C  copy this genome and brain as JSON", (x, 700), (116, 139, 124), self.small)
 
     @staticmethod
-    def _dot_radius(agent: Bitzkey, base: int) -> int:
-        """Bigger bodies have bigger dots."""
-        return max(2, round(base * (0.8 + 0.8 * int(agent.body["size"]) / 15)))
+    def _dot_radius(agent: Bitzkey, largest: int = DOT_RADIUS_RANGE[1]) -> int:
+        """The dot's radius shows the body's size: from the smallest radius at size 0 up to
+        `largest` at size 15."""
+        smallest = DOT_RADIUS_RANGE[0]
+        return round(smallest + (largest - smallest) * int(agent.body["size"]) / 15)
 
     def _draw_bitzkey(self, agent: Bitzkey, point: tuple[int, int], radius: int) -> None:
         """The inner dot shows the mind word's colour; the ring around it shows the body word's."""
@@ -299,7 +304,8 @@ class BitzkeyApp:
         if agent is None:
             self._say("Click a Bitzkey first, then press C to copy its genome.")
         else:
-            self._copy(export_genomes([agent.dna]), f"#{agent.identifier:03d}'s genome")
+            what = "genome and brain" if agent.brain else "genome"
+            self._copy(export_bitzkeys([agent]), f"#{agent.identifier:03d}'s {what}")
 
     def _export_census(self, to_file: bool) -> None:
         """Export the living Bitzkeys in the chosen colour families, or all of them."""
@@ -311,7 +317,7 @@ class BitzkeyApp:
             return
         names = [name for name in FAMILIES if name in chosen]
         what = f"{len(agents)} Bitzkey{'s' if len(agents) != 1 else ''} ({part}: {', '.join(names) or 'all'})"
-        text = export_genomes(agent.dna for agent in agents)
+        text = export_bitzkeys(agents)
         if not to_file:
             self._copy(text, what)
             return

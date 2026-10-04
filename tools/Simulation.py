@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import random
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from functools import cached_property
 
@@ -11,6 +11,7 @@ from tools.Brain import ACTIONS, SENSES, Brain, choice_odds, make_senses
 from tools.Genome import (GENOME, MIND_TRAITS, SPECIES, body_word, color_from_word, cross, decode_body,
                           decode_mind, make_dna, mind_word)
 from tools.Census import PARTS, family, tally
+from tools.Exchange import Imported
 from tools.Insights import Insights
 
 
@@ -20,7 +21,7 @@ GRASS_DENSITY = 5       # percent of cells that start with grass
 GRASS_REGROWTH = 0.004  # share of the starting grass that grows back each turn
 MAX_POPULATION = 600
 SPAWN_GROUP = (3, 5)  # Bitzkeys spawn in groups of this many sharing one genome
-MAX_IMPORTED = MAX_POPULATION // SPAWN_GROUP[1]  # imported genomes, so their groups fit the cap
+MAX_IMPORTED = MAX_POPULATION // SPAWN_GROUP[1]  # imported Bitzkeys, so their groups fit the cap
 SPAWN_SPREAD = 2      # a group's members appear within this many cells of each other's centre
 MAX_HISTORY = 500
 CORPSE_TURNS = 30
@@ -148,9 +149,9 @@ class Bitzkey:
 class Simulation:
     def __init__(self, width: int = GRID_SIZE, height: int = GRID_SIZE,
                  population: int = INITIAL_POPULATION, seed: int | None = None,
-                 grass_density: float = GRASS_DENSITY, imported: Sequence[int] = ()):
-        """Spawn `population` random Bitzkeys in groups sharing a genome, plus a group of each
-        `imported` genome."""
+                 grass_density: float = GRASS_DENSITY, imported: Sequence[Imported] = ()):
+        """Spawn `population` random Bitzkeys in groups sharing a genome, plus a group for each
+        `imported` Bitzkey, whose members all start with copies of its saved brain if it has one."""
         if width < 10 or height < 10:
             raise ValueError("World dimensions must both be at least 10 cells.")
         if population < 0:
@@ -176,8 +177,8 @@ class Simulation:
         self._sow(initial_grass)
         for size in self._group_sizes(population):
             self._spawn_group(make_dna(self.random.randrange(len(SPECIES)), self.random), size)
-        for dna in imported:
-            self._spawn_group(dna, self.random.randint(*SPAWN_GROUP))
+        for bitzkey in imported:
+            self._spawn_group(bitzkey.dna, self.random.randint(*SPAWN_GROUP), bitzkey.brain, bitzkey.mind)
         self.history: list[dict] = []
         self.history_index = 0
         self._take_census()
@@ -201,18 +202,24 @@ class Simulation:
             sizes.append(remaining)
         return sizes
 
-    def _spawn_group(self, dna: int, size: int) -> None:
+    def _spawn_group(self, dna: int, size: int, brain: Brain | None = None,
+                     mind: Mapping[str, float] | None = None) -> None:
         """Place `size` Bitzkeys of one genome around a random centre, kept clear of the edges
-        so the group is never split across them."""
+        so the group is never split across them. Each gets its own copy of `brain` and starts
+        with the temperament in `mind`, if given."""
         x = self.random.randrange(SPAWN_SPREAD, self.width - SPAWN_SPREAD)
         y = self.random.randrange(SPAWN_SPREAD, self.height - SPAWN_SPREAD)
         for _ in range(size):
             self._add_agent(dna, x + self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD),
-                            y + self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD))
+                            y + self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD),
+                            brain=brain.copy() if brain else None, mind=mind)
 
-    def _add_agent(self, dna: int, x: int, y: int, brain: Brain | None = None) -> Bitzkey:
+    def _add_agent(self, dna: int, x: int, y: int, brain: Brain | None = None,
+                   mind: Mapping[str, float] | None = None) -> Bitzkey:
         agent = Bitzkey(self.next_identifier, dna & GENOME, x, y)
         agent.health = agent.max_health
+        if mind:
+            agent.mind.update({trait: mind[trait] for trait in MIND_TRAITS if trait in mind})
         if agent.species != "plant":
             agent.brain = brain or Brain.random(self.random)
         self.next_identifier += 1
@@ -514,10 +521,15 @@ class Simulation:
                 self._die(agent, "killed")
 
     def _breed(self, first: Bitzkey, second: Bitzkey, cell: tuple[int, int]) -> None:
-        """Fertile parents breed cheaply and often; each gives its newborn the energy it spends."""
+        """Fertile parents breed cheaply and often; each gives its newborn the energy it spends.
+        The child inherits a mix of its parents' brains, and starts its temperament at its own
+        genes shifted by the average of what experience taught its parents."""
         costs = [25 - int(parent.body["fertility"]) for parent in (first, second)]
         brain = Brain.inherit(first.brain, second.brain, self.random)
         child = self._add_agent(cross(first.dna, second.dna, self.random), *cell, brain=brain)
+        for trait in MIND_TRAITS:
+            learned = sum(parent.mind[trait] - parent.inborn[trait] for parent in (first, second)) / 2
+            child.mind[trait] = max(0.0, min(15.0, child.inborn[trait] + learned))
         child.hunger = 100 - sum(costs)
         child.generation = max(first.generation, second.generation) + 1
         self._population += 1

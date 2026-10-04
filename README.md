@@ -70,7 +70,7 @@ folder you can write to. The first launch takes a few seconds while it unpacks.
 - `I`: toggle the behaviour insights panel
 - `B`: save a brain report to `reports/`
 - `G`: open or close the colour graph; `Tab` switches it between rings and dots
-- `C`: copy the selected Bitzkey's genome to the clipboard as JSON
+- `C`: copy the selected Bitzkey's genome and brain to the clipboard as JSON
 - Click a Bitzkey: inspect its genome, current state and the odds of its last choice
 - `Escape`: close the colour graph, or quit
 
@@ -80,7 +80,7 @@ future with a new branch.
 
 ## Genome
 
-Each Bitzkey is drawn as an inner dot inside a 3px ring. Its 64-bit genome is
+Each Bitzkey is drawn as an inner dot inside a 2px ring. Its 64-bit genome is
 the two colour words together. The low 32 bits colour the dot and shape the
 mind; the high 32 bits colour the ring and shape the body. In each word, the
 four bytes from most to least significant are cyan, magenta, yellow and black.
@@ -102,14 +102,16 @@ gene values and are then reshaped by experience:
 | intellect | how fast its brain learns, and how much experience can reshape the mind | fixed |
 
 A learned shift fades slowly back toward the inborn value. Children inherit
-genes and brains, not learned temperament.
+learned temperament as well as genes and brains: each child's traits start at
+its own gene values, shifted by the average of how far experience had moved
+its parents', kept within 0 to 15.
 
 **Outer ring: the body.**
 
 | Trait | Effect |
 |---|---|
 | species | plant, grazer, omnivore or predator |
-| size | health pool (60 + 6 × size), dot size and some striking force |
+| size | health pool (60 + 6 × size), dot radius (1px at size 0 to 5px at size 15) and some striking force |
 | strength | striking force |
 | armour | reduces damage taken by up to 60% |
 | weapons | sharpen blows by up to 75%, and spines hurt anyone who attacks |
@@ -163,8 +165,8 @@ turn and heals 1.5% of its health pool, three times the usual rate.
 Better-valued actions are more likely, but no choice is certain. Mind traits set
 what it enjoys and dreads; the brain learns online which actions lead there.
 Death is heavily punished. A child inherits each brain neuron whole from one
-parent or the other, with small mutations, so learned habits pass down the
-generations.
+parent or the other, with small mutations, and its parents' learned shifts in
+temperament, so learned habits and moods pass down the generations.
 
 Each parent pays 25 − fertility hunger to breed, and the newborn holds
 exactly the energy both parents gave. A newborn needs a free neighbouring
@@ -188,17 +190,33 @@ families; with none chosen, every living Bitzkey is included. Then press `C`
 or COPY to put them on the clipboard, or `S` or SAVE to write a `.json` file
 into `exports/`.
 
-## Genome Export Format
+## Export Format
 
-A genome is written as its two colour words in hex, ring then dot:
+A Bitzkey is written as its genome's two colour words in hex, ring then dot.
+Animals also carry their current temperament and their brain, so they pick up
+in the next simulation where they left off:
 
 ```json
-{"ring": "7421FF41", "dot": "637E4B01"}
+{"ring": "7421FF41", "dot": "637E4B01",
+ "mind": {"aggression": 9.412, "libido": 3.0, ...},
+ "brain": {"senses": ["hunger", ...], "actions": ["eat", ...],
+           "hidden_weights": [[...], ...], "hidden_biases": [...],
+           "output_weights": [[...], ...], "output_biases": [...]}}
 ```
 
-Several genomes form a JSON array, one per line. Import accepts single objects,
-arrays, several blocks pasted one after another, and `#`-prefixed or lowercase
-hex.
+Plants have no brain or changing temperament, so they export only their colours. Several Bitzkeys form a
+JSON array, one per line; an animal with its brain takes about 5 KB.
+
+Import accepts single objects, arrays, several blocks pasted one after another,
+and `#`-prefixed or lowercase hex. A record without a brain gets a fresh one.
+Brain weights are matched to senses and actions by name, so exports from an
+earlier version still load: senses or actions they lack start neutral, and ones
+this version no longer has are dropped. Every member of an imported group starts
+with its own copy of the saved brain and the saved temperament, and their
+children inherit both as usual. Temperament is read for the known traits only,
+kept within 0 to 15; a trait it lacks starts at the gene's value. As in life, a
+restored temperament slowly drifts back toward the genes unless experience
+keeps it shifted.
 
 ## What the Bitzkeys Have Learned
 

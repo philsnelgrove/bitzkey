@@ -3,8 +3,13 @@ import unittest
 
 from display.Setup import SETTINGS, SetupForm, import_summary
 from Main import BitzkeyApp
-from tools.Genome import encode_dna, export_genomes
-from tools.Simulation import MAX_IMPORTED, MAX_POPULATION
+from tools.Exchange import Imported, export_bitzkeys
+from tools.Genome import encode_dna
+from tools.Simulation import MAX_IMPORTED, MAX_POPULATION, Bitzkey
+
+
+def exported(*dnas: int) -> str:
+    return export_bitzkeys(Bitzkey(0, dna, 0, 0) for dna in dnas)
 
 
 DEFAULTS = {"width": 100, "height": 100, "population": 90, "grass_density": 5, "seed": None}
@@ -72,13 +77,14 @@ class SetupFormTests(unittest.TestCase):
         form = SetupForm(DEFAULTS)
         grazer, predator = encode_dna("grazer", size=4), encode_dna("predator", fear=2)
 
-        form.paste(export_genomes([grazer]))
-        form.paste(export_genomes([predator, predator]))
+        form.paste(exported(grazer))
+        form.paste(exported(predator, predator))
 
         self.assertTrue(form.on_import)
-        self.assertEqual(form.values()["imported"], [grazer, predator, predator])
+        self.assertEqual([item.dna for item in form.values()["imported"]], [grazer, predator, predator])
         self.assertEqual(import_summary(form.imports[0]),
-                         "3 genomes ready to import (1 grazer, 2 predators); each spawns as a group of 3-5")
+                         "3 Bitzkeys ready to import (1 grazer, 2 predators; 0 with saved brains, "
+                         "3 with saved temperaments), each spawning as a group of 3-5")
 
     def test_typing_in_the_import_box_edits_its_text(self):
         form = SetupForm(DEFAULTS)
@@ -87,16 +93,16 @@ class SetupFormTests(unittest.TestCase):
         form.type_text('{"ring": "00000001", "dot": "00000000"}x')
         form.backspace()
 
-        self.assertEqual(form.values()["imported"], [1 << 32])
+        self.assertEqual(form.values()["imported"], [Imported(1 << 32)])
         self.assertEqual(form.values()["width"], 100)
 
     def test_loading_a_file_replaces_the_import_text(self):
         form = SetupForm(DEFAULTS)
         form.paste("not json")
 
-        form.load(export_genomes([encode_dna("grazer")]))
+        form.load(exported(encode_dna("grazer")))
 
-        self.assertEqual(form.values()["imported"], [encode_dna("grazer")])
+        self.assertEqual([item.dna for item in form.values()["imported"]], [encode_dna("grazer")])
 
     def test_unreadable_import_blocks_the_start_until_cleared(self):
         form = SetupForm(DEFAULTS)
@@ -109,7 +115,7 @@ class SetupFormTests(unittest.TestCase):
 
     def test_imports_whose_groups_could_pass_the_population_cap_are_dropped(self):
         form = SetupForm(DEFAULTS)
-        form.paste(export_genomes([encode_dna("grazer")] * (MAX_IMPORTED + 5)))
+        form.paste(exported(*[encode_dna("grazer")] * (MAX_IMPORTED + 5)))
 
         self.assertEqual(len(form.values()["imported"]), MAX_IMPORTED)
         self.assertLessEqual(MAX_IMPORTED * 5, MAX_POPULATION)
