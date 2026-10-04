@@ -7,10 +7,10 @@ import math
 import random
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from functools import cached_property
+from functools import cache, cached_property, lru_cache
 
 from tools.Brain import ACTIONS, SENSES, Brain, choice_odds, make_senses
-from tools.Genome import (GENOME, MIND_TRAITS, SPECIES, TRAIT_MAX, body_word, color_from_word, cross, inherit_mind,
+from tools.Genome import (GENOME, MIND_TRAITS, SPECIES, TRAIT_MAX, body_word, color_from_word, cross, dot_difference, inherit_mind, ring_difference,
                           BODY_MUTATION_CHANCE, MIND_MUTATION_CHANCE,
                           decode_body, decode_mind, make_dna, mind_word, share)
 from tools.Census import Census
@@ -134,6 +134,24 @@ SIGHT_OFFSETS = sorted(
     key=lambda offset: (abs(offset[0]) + abs(offset[1]), offset),
 )
 SEEN_OFFSETS = [(0, 0), *SIGHT_OFFSETS]
+# The same offsets cut off at each distance, so scans need no distance checks.
+SIGHT_WITHIN = [[offset for offset in SIGHT_OFFSETS if abs(offset[0]) + abs(offset[1]) <= reach]
+                for reach in range(MAX_SIGHT + 1)]
+SEEN_WITHIN = [[(0, 0), *offsets] for offsets in SIGHT_WITHIN]
+
+
+@cache
+def nearby_offsets(radius: int) -> tuple[tuple[int, int], ...]:
+    """The offsets within `radius` steps, the animal's own cell among them, column by column."""
+    return tuple((dx, dy) for dx in range(-radius, radius + 1)
+                 for dy in range(-(radius - abs(dx)), radius - abs(dx) + 1))
+
+
+@lru_cache(maxsize=1 << 16)
+def looks_apart(first: int, second: int) -> tuple[float, float]:
+    """How far two genomes' ring and dot colours are apart, each from 0 to 1. Groups share
+    genomes, so the same pairs come up again and again."""
+    return ring_difference(first, second), dot_difference(first, second)
 SEED_OFFSETS = sum(abs(dx) + abs(dy) <= SEED_REACH for dx, dy in SIGHT_OFFSETS)  # the first offsets: those a seed reaches
 
 
@@ -181,18 +199,11 @@ class Bitzkey:
     def body(self) -> dict[str, int | str]:
         return decode_body(self.dna)
 
-    @cached_property
-    def colour_bytes(self) -> tuple[tuple[int, ...], tuple[int, ...]]:
-        """Its ring's and dot's four CMYK bytes, for quick comparisons of looks."""
-        return tuple(tuple((word >> shift) & 0xFF for shift in (24, 16, 8, 0))
-                     for word in (body_word(self.dna), self.dna & 0xFFFFFFFF))
-
     def looks_apart(self, other: Bitzkey) -> tuple[float, float]:
         """How far its ring and dot colours are from another's, each from 0 to 1."""
-        return tuple(sum(abs(a - b) for a, b in zip(mine, theirs)) / (4 * 255)
-                     for mine, theirs in zip(self.colour_bytes, other.colour_bytes))
+        return looks_apart(self.dna, other.dna)
 
-    @property
+    @cached_property
     def species(self) -> str:
         return str(self.body["species"])
 
@@ -1040,11 +1051,11 @@ class Simulation:
 
     def _nearby(self, agent: Bitzkey, radius: int) -> list[Bitzkey]:
         found = []
-        for dx in range(-radius, radius + 1):
-            for dy in range(-(radius - abs(dx)), radius - abs(dx) + 1):
-                for other in self._cells.get((agent.x + dx, agent.y + dy), ()):
-                    if other is not agent and other.alive:
-                        found.append(other)
+        cells, x, y = self._cells, agent.x, agent.y
+        for dx, dy in nearby_offsets(radius):
+            for other in cells.get((x + dx, y + dy), ()):
+                if other is not agent and other.alive:
+                    found.append(other)
         return found
 
     def _room(self) -> float:
@@ -1066,21 +1077,19 @@ class Simulation:
         return cells
 
     def _nearest_grass(self, agent: Bitzkey, sight: int) -> tuple[int, int] | None:
-        for dx, dy in SIGHT_OFFSETS:
-            if abs(dx) + abs(dy) > sight:
-                return None
-            cell = (agent.x + dx, agent.y + dy)
-            if self.grass.get(cell, 0) > 0:
+        grass, x, y = self.grass, agent.x, agent.y
+        for dx, dy in SIGHT_WITHIN[sight]:
+            cell = (x + dx, y + dy)
+            if grass.get(cell, 0) > 0:
                 return cell
         return None
 
     def _nearest_carrion(self, agent: Bitzkey, sight: int) -> Bitzkey | None:
         if not self._carrion:
             return None
-        for dx, dy in SEEN_OFFSETS:
-            if abs(dx) + abs(dy) > sight:
-                return None
-            for corpse in self._carrion.get((agent.x + dx, agent.y + dy), ()):
+        carrion, x, y = self._carrion, agent.x, agent.y
+        for dx, dy in SEEN_WITHIN[sight]:
+            for corpse in carrion.get((x + dx, y + dy), ()):
                 if corpse.meat > 0:
                     return corpse
         return None
@@ -1094,11 +1103,12 @@ class Simulation:
         hunted = agent.species != "plant"
         browses = agent.species in ("grazer", "omnivore")
         courts = agent.can_breed
-        for dx, dy in SEEN_OFFSETS:
-            if abs(dx) + abs(dy) > sight or ((quarry or not hunts) and (hunter or not hunted)
-                                             and (suitor or not courts) and (flora or not browses)):
+        cells, x, y = self._cells, agent.x, agent.y
+        for dx, dy in SEEN_WITHIN[sight]:
+            if ((quarry or not hunts) and (hunter or not hunted)
+                    and (suitor or not courts) and (flora or not browses)):
                 break
-            for other in self._cells.get((agent.x + dx, agent.y + dy), ()):
+            for other in cells.get((x + dx, y + dy), ()):
                 if other is agent or not other.alive:
                     continue
                 if quarry is None and self._is_prey(agent, other):

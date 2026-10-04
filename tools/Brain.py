@@ -6,6 +6,8 @@ import math
 import random
 from collections.abc import Mapping, Sequence
 
+import numpy as np
+
 from tools.Genome import MIND_TRAITS
 
 
@@ -65,14 +67,16 @@ class Brain:
 
     It learns online from temporal-difference targets and is inherited neuron by
     neuron, so a child keeps whole learned features from one parent or the other.
+    Its weights are NumPy arrays: hidden weights are one row per hidden neuron, output
+    weights one row per action.
     """
 
-    def __init__(self, hidden_weights: list[list[float]], hidden_biases: list[float],
-                 output_weights: list[list[float]], output_biases: list[float]):
-        self.hidden_weights = hidden_weights
-        self.hidden_biases = hidden_biases
-        self.output_weights = output_weights
-        self.output_biases = output_biases
+    def __init__(self, hidden_weights: Sequence, hidden_biases: Sequence,
+                 output_weights: Sequence, output_biases: Sequence):
+        self.hidden_weights = np.array(hidden_weights, dtype=float)
+        self.hidden_biases = np.array(hidden_biases, dtype=float)
+        self.output_weights = np.array(output_weights, dtype=float)
+        self.output_biases = np.array(output_biases, dtype=float)
 
     @classmethod
     def random(cls, rng: random.Random) -> Brain:
@@ -89,65 +93,49 @@ class Brain:
     def inherit(cls, first: Brain, second: Brain, rng: random.Random,
                 mutation: float = MUTATION) -> Brain:
         """Take each hidden neuron, with its outgoing weights, from one parent, then mutate."""
-        donors = [first if rng.random() < 0.5 else second for _ in range(HIDDEN_SIZE)]
+        from_first = np.array([rng.random() < 0.5 for _ in range(HIDDEN_SIZE)])
+        bias_from_first = np.array([rng.random() < 0.5 for _ in ACTIONS])
         child = cls(
-            [donor.hidden_weights[index].copy() for index, donor in enumerate(donors)],
-            [donor.hidden_biases[index] for index, donor in enumerate(donors)],
-            [[donor.output_weights[action][index] for index, donor in enumerate(donors)]
-             for action in range(len(ACTIONS))],
-            [(first if rng.random() < 0.5 else second).output_biases[action]
-             for action in range(len(ACTIONS))],
+            np.where(from_first[:, None], first.hidden_weights, second.hidden_weights),
+            np.where(from_first, first.hidden_biases, second.hidden_biases),
+            np.where(from_first[None, :], first.output_weights, second.output_weights),
+            np.where(bias_from_first, first.output_biases, second.output_biases),
         )
         if mutation:
-            for row in child.hidden_weights + child.output_weights:
-                for index in range(len(row)):
-                    row[index] += rng.gauss(0, mutation)
-            for biases in (child.hidden_biases, child.output_biases):
-                for index in range(len(biases)):
-                    biases[index] += rng.gauss(0, mutation)
+            for weights in (child.hidden_weights, child.output_weights, child.hidden_biases, child.output_biases):
+                weights += np.array([rng.gauss(0, mutation) for _ in range(weights.size)]).reshape(weights.shape)
         return child
 
-    def _forward(self, inputs: Sequence[float]) -> tuple[list[float], list[float]]:
-        if len(inputs) != INPUT_SIZE:
-            raise ValueError(f"Expected {INPUT_SIZE} inputs, got {len(inputs)}.")
-        hidden = [
-            math.tanh(sum(weight * value for weight, value in zip(weights, inputs, strict=True)) + bias)
-            for weights, bias in zip(self.hidden_weights, self.hidden_biases, strict=True)
-        ]
-        values = [
-            sum(weight * activation for weight, activation in zip(weights, hidden, strict=True)) + bias
-            for weights, bias in zip(self.output_weights, self.output_biases, strict=True)
-        ]
-        return hidden, values
+    def _forward(self, inputs: Sequence[float]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        inputs = np.asarray(inputs, dtype=float)
+        if inputs.shape != (INPUT_SIZE,):
+            raise ValueError(f"Expected {INPUT_SIZE} inputs, got {inputs.size}.")
+        hidden = np.tanh(self.hidden_weights @ inputs + self.hidden_biases)
+        return inputs, hidden, self.output_weights @ hidden + self.output_biases
 
     def values(self, inputs: Sequence[float]) -> list[float]:
         """Return the estimated value of every action in this situation."""
-        return self._forward(inputs)[1]
+        return self._forward(inputs)[2].tolist()
 
     def learn(self, inputs: Sequence[float], action: int, target: float, learning_rate: float) -> None:
         """Move one action's value toward a target, with the error clipped for stability."""
         if learning_rate <= 0:
             return
-        hidden, values = self._forward(inputs)
-        error = max(-1.0, min(1.0, values[action] - target))
-        output_weights = self.output_weights[action]
-        for index, activation in enumerate(hidden):
-            hidden_delta = error * output_weights[index] * (1 - activation * activation)
-            output_weights[index] -= learning_rate * error * activation
-            self.hidden_biases[index] -= learning_rate * hidden_delta
-            weights = self.hidden_weights[index]
-            for input_index, value in enumerate(inputs):
-                weights[input_index] -= learning_rate * hidden_delta * value
+        inputs, hidden, values = self._forward(inputs)
+        error = max(-1.0, min(1.0, float(values[action]) - target))
+        hidden_delta = error * self.output_weights[action] * (1 - hidden * hidden)
+        self.output_weights[action] -= learning_rate * error * hidden
+        self.hidden_biases -= learning_rate * hidden_delta
+        self.hidden_weights -= learning_rate * np.outer(hidden_delta, inputs)
         self.output_biases[action] -= learning_rate * error
 
     def copy(self) -> Brain:
-        return Brain([weights.copy() for weights in self.hidden_weights], self.hidden_biases.copy(),
-                     [weights.copy() for weights in self.output_weights], self.output_biases.copy())
+        return Brain(self.hidden_weights, self.hidden_biases, self.output_weights, self.output_biases)
 
     def to_record(self) -> dict:
         """The brain's weights for export, labelled with the senses and actions they belong to."""
-        def rounded(values: Sequence[float]) -> list[float]:
-            return [round(value, RECORD_DIGITS) for value in values]
+        def rounded(values: np.ndarray) -> list[float]:
+            return [round(value, RECORD_DIGITS) for value in values.tolist()]
         return {
             "senses": list(SENSES),
             "actions": list(ACTIONS),
@@ -187,6 +175,7 @@ class Brain:
         )
 
     def __eq__(self, other: object) -> bool:
-        return isinstance(other, Brain) and (
-            (self.hidden_weights, self.hidden_biases, self.output_weights, self.output_biases)
-            == (other.hidden_weights, other.hidden_biases, other.output_weights, other.output_biases))
+        return isinstance(other, Brain) and all(
+            np.array_equal(mine, theirs) for mine, theirs in
+            ((self.hidden_weights, other.hidden_weights), (self.hidden_biases, other.hidden_biases),
+             (self.output_weights, other.output_weights), (self.output_biases, other.output_biases)))

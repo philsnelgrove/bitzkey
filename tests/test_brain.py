@@ -37,9 +37,9 @@ class BrainTests(unittest.TestCase):
 
         child = Brain.inherit(mother, father, rng, mutation=0)
 
-        for index, weights in enumerate(child.hidden_weights):
-            donor = mother if weights == mother.hidden_weights[index] else father
-            self.assertEqual(weights, donor.hidden_weights[index])
+        for index, weights in enumerate(child.hidden_weights.tolist()):
+            donor = mother if weights == mother.hidden_weights[index].tolist() else father
+            self.assertEqual(weights, donor.hidden_weights[index].tolist())
             self.assertEqual(child.hidden_biases[index], donor.hidden_biases[index])
             for action in range(len(ACTIONS)):
                 self.assertEqual(child.output_weights[action][index], donor.output_weights[action][index])
@@ -74,7 +74,7 @@ class BrainTests(unittest.TestCase):
         loaded = Brain.from_record(record)
 
         self.assertTrue(all(row[SENSES.index("hunger")] == 0.0 for row in loaded.hidden_weights))
-        self.assertEqual(loaded.output_biases, [round(bias, 6) for bias in original.output_biases])
+        self.assertEqual(loaded.output_biases.tolist(), [round(bias, 6) for bias in original.output_biases.tolist()])
 
     def test_malformed_brains_are_rejected(self):
         record = Brain.random(random.Random(7)).to_record()
