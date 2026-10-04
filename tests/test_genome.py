@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import patch
 
 from tools.Genome import (BODY_TRAITS, MIND_TRAITS, body_word, color_from_word, cross, decode_body,
-                          decode_mind, encode_dna, make_dna, mind_word)
+                          decode_mind, encode_dna, export_genomes, import_genomes, make_dna, mind_word)
 
 
 class GenomeTests(unittest.TestCase):
@@ -72,6 +72,28 @@ class GenomeTests(unittest.TestCase):
             for _ in range(20):
                 child = cross(first, second, rng)
                 self.assertEqual(body_word(child) & agreed, body_word(first) & agreed)
+
+    def test_one_genome_exports_as_its_two_hex_colour_words(self):
+        dna = (0x7421FF41 << 32) | 0x637E4B01
+
+        self.assertEqual(export_genomes([dna]), '{"ring": "7421FF41", "dot": "637E4B01"}')
+
+    def test_exports_import_back_whether_single_listed_or_pasted_together(self):
+        rng = random.Random(8)
+        first, second, third = (make_dna(1, rng) for _ in range(3))
+        text = export_genomes([first, second]) + "\n" + export_genomes([third])
+
+        self.assertEqual(import_genomes(text), [first, second, third])
+        self.assertEqual(import_genomes('{"bitzkeys": [{"ring": "#00000001", "dot": "abcdef01"}]}'),
+                         [(1 << 32) | 0xABCDEF01])
+        self.assertEqual(import_genomes("  "), [])
+
+    def test_unreadable_imports_say_what_is_wrong(self):
+        for text, problem in (('{"ring": "12", "dot": "00000000"}', "eight hex digits"),
+                              ('{"ring": "00000000"', "Not valid JSON"),
+                              ('[{"colour": "red"}]', 'with "ring" and "dot"')):
+            with self.assertRaisesRegex(ValueError, problem):
+                import_genomes(text)
 
 
 if __name__ == "__main__":

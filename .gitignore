@@ -130,3 +130,6 @@ dmypy.json
 
 # Bitzkey brain reports
 reports/
+
+# Exported Bitzkey genomes
+exports/

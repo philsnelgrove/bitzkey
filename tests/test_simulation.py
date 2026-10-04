@@ -11,6 +11,49 @@ class SimulationTests(unittest.TestCase):
         self.simulation = Simulation(width=10, height=10, population=0, seed=3)
         self.simulation.grass.clear()
 
+    def test_grass_density_sets_starting_grass_and_regrowth(self):
+        sparse = Simulation(width=20, height=20, population=0, seed=1, grass_density=5)
+        lush = Simulation(width=20, height=20, population=0, seed=1, grass_density=50)
+
+        self.assertEqual(sum(sparse.grass.values()), 20)
+        self.assertEqual(sum(lush.grass.values()), 200)
+        self.assertAlmostEqual(lush.grass_regrowth, 10 * sparse.grass_regrowth)
+        for _ in range(100):
+            lush._take_turn()
+        self.assertAlmostEqual(sum(lush.grass.values()), 200 + 100 * lush.grass_regrowth, delta=8)
+
+    def test_random_population_spawns_in_clustered_groups_of_three_to_five(self):
+        for population in (3, 7, 90, 101):
+            simulation = Simulation(width=50, height=50, population=population, seed=population)
+            groups = {}
+            for agent in simulation.agents:
+                groups.setdefault(agent.dna, []).append(agent)
+
+            self.assertEqual(len(simulation.agents), population)
+            for members in groups.values():
+                self.assertIn(len(members), (3, 4, 5))
+                self.assertLessEqual(max(agent.x for agent in members) - min(agent.x for agent in members), 4)
+                self.assertLessEqual(max(agent.y for agent in members) - min(agent.y for agent in members), 4)
+
+    def test_a_population_too_small_for_a_group_spawns_together(self):
+        simulation = Simulation(width=20, height=20, population=2, seed=1)
+
+        self.assertEqual(len({agent.dna for agent in simulation.agents}), 1)
+        self.assertEqual(len(simulation.agents), 2)
+
+    def test_each_imported_genome_spawns_as_a_clustered_group(self):
+        genomes = [encode_dna("predator", size=9), encode_dna("grazer", fear=4)]
+
+        simulation = Simulation(width=20, height=20, population=10, seed=1, imported=genomes)
+
+        imported = simulation.agents[10:]
+        for dna in genomes:
+            members = [agent for agent in imported if agent.dna == dna]
+            self.assertIn(len(members), (3, 4, 5))
+            self.assertLessEqual(max(agent.x for agent in members) - min(agent.x for agent in members), 4)
+            self.assertTrue(all(agent.brain is not None for agent in members))
+        self.assertEqual(len(imported), sum(agent.dna in genomes for agent in imported))
+
     def test_animals_get_brains_and_plants_do_not(self):
         plant = self.simulation._add_agent(encode_dna("plant"), 1, 1)
         grazer = self.simulation._add_agent(encode_dna("grazer"), 2, 2)

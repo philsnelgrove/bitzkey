@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from functools import cached_property
 
@@ -15,9 +16,12 @@ from tools.Insights import Insights
 
 GRID_SIZE = 100
 INITIAL_POPULATION = 90
-INITIAL_GRASS = 500
-GRASS_PER_TURN = 2
+GRASS_DENSITY = 5       # percent of cells that start with grass
+GRASS_REGROWTH = 0.004  # share of the starting grass that grows back each turn
 MAX_POPULATION = 600
+SPAWN_GROUP = (3, 5)  # Bitzkeys spawn in groups of this many sharing one genome
+MAX_IMPORTED = MAX_POPULATION // SPAWN_GROUP[1]  # imported genomes, so their groups fit the cap
+SPAWN_SPREAD = 2      # a group's members appear within this many cells of each other's centre
 MAX_HISTORY = 500
 CORPSE_TURNS = 30
 COMPATIBLE_BITS = 14  # partners' body words (outer rings) may differ in at most this many bits
@@ -143,11 +147,16 @@ class Bitzkey:
 
 class Simulation:
     def __init__(self, width: int = GRID_SIZE, height: int = GRID_SIZE,
-                 population: int = INITIAL_POPULATION, seed: int | None = None):
+                 population: int = INITIAL_POPULATION, seed: int | None = None,
+                 grass_density: float = GRASS_DENSITY, imported: Sequence[int] = ()):
+        """Spawn `population` random Bitzkeys in groups sharing a genome, plus a group of each
+        `imported` genome."""
         if width < 10 or height < 10:
             raise ValueError("World dimensions must both be at least 10 cells.")
         if population < 0:
             raise ValueError("Population cannot be negative.")
+        if not 0 <= grass_density <= 100:
+            raise ValueError("Grass density must be between 0 and 100 percent.")
         self.width = width
         self.height = height
         self.random = random.Random(seed)
@@ -162,12 +171,13 @@ class Simulation:
         self._cells: dict[tuple[int, int], list[Bitzkey]] = {}
         self._population = 0
         self.grass: dict[tuple[int, int], int] = {}
-        for _ in range(INITIAL_GRASS):
-            cell = (self.random.randrange(width), self.random.randrange(height))
-            self.grass[cell] = self.grass.get(cell, 0) + 1
-        for _ in range(population):
-            self._add_agent(make_dna(self.random.randrange(len(SPECIES)), self.random),
-                            self.random.randrange(width), self.random.randrange(height))
+        initial_grass = round(width * height * grass_density / 100)
+        self.grass_regrowth = initial_grass * GRASS_REGROWTH
+        self._sow(initial_grass)
+        for size in self._group_sizes(population):
+            self._spawn_group(make_dna(self.random.randrange(len(SPECIES)), self.random), size)
+        for dna in imported:
+            self._spawn_group(dna, self.random.randint(*SPAWN_GROUP))
         self.history: list[dict] = []
         self.history_index = 0
         self._take_census()
@@ -176,6 +186,29 @@ class Simulation:
     @property
     def living(self) -> list[Bitzkey]:
         return [agent for agent in self.agents if agent.alive]
+
+    def _group_sizes(self, population: int) -> list[int]:
+        """Random group sizes adding up to the population, never leaving a group too small.
+        Only a population below the smallest group size spawns as one smaller group."""
+        smallest, largest = SPAWN_GROUP
+        sizes = []
+        remaining = population
+        while remaining > largest:
+            size = self.random.randint(smallest, min(largest, remaining - smallest))
+            sizes.append(size)
+            remaining -= size
+        if remaining:
+            sizes.append(remaining)
+        return sizes
+
+    def _spawn_group(self, dna: int, size: int) -> None:
+        """Place `size` Bitzkeys of one genome around a random centre, kept clear of the edges
+        so the group is never split across them."""
+        x = self.random.randrange(SPAWN_SPREAD, self.width - SPAWN_SPREAD)
+        y = self.random.randrange(SPAWN_SPREAD, self.height - SPAWN_SPREAD)
+        for _ in range(size):
+            self._add_agent(dna, x + self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD),
+                            y + self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD))
 
     def _add_agent(self, dna: int, x: int, y: int, brain: Brain | None = None) -> Bitzkey:
         agent = Bitzkey(self.next_identifier, dna & GENOME, x, y)
@@ -256,13 +289,17 @@ class Simulation:
                 self._experience(agent, "starving")
             self._think(agent)
 
-        for _ in range(GRASS_PER_TURN):
-            cell = (self.random.randrange(self.width), self.random.randrange(self.height))
-            self.grass[cell] = self.grass.get(cell, 0) + 1
+        whole, fraction = divmod(self.grass_regrowth, 1)
+        self._sow(int(whole) + (1 if fraction and self.random.random() < fraction else 0))
         self.agents = [agent for agent in self.agents
                        if agent.died_turn is None or self.turn - agent.died_turn < CORPSE_TURNS]
         self.insights.decay()
         self._take_census()
+
+    def _sow(self, tufts: int) -> None:
+        for _ in range(tufts):
+            cell = (self.random.randrange(self.width), self.random.randrange(self.height))
+            self.grass[cell] = self.grass.get(cell, 0) + 1
 
     def _take_census(self) -> None:
         living = self.living

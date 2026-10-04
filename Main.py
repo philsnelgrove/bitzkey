@@ -2,15 +2,16 @@
 
 import argparse
 from collections import Counter
+from collections.abc import Sequence
 from pathlib import Path
 
 import pygame as pg
 
 from config.Globals import Config
-from display.Setup import SetupScreen
+from display.Setup import EXPORT_DIR, SetupScreen
 from tools.Brain import ACTIONS
 from tools.Census import FAMILIES, SWATCHES, bucket
-from tools.Genome import BODY_TRAITS, MIND_TRAITS, body_word, mind_word
+from tools.Genome import BODY_TRAITS, MIND_TRAITS, body_word, export_genomes, mind_word
 from tools.Insights import ANIMALS, brain_report
 from tools.Simulation import SPECIES, Bitzkey, Simulation
 
@@ -19,7 +20,8 @@ RING_WIDTH = 3
 
 
 class BitzkeyApp:
-    def __init__(self, width: int, height: int, population: int, seed: int | None):
+    def __init__(self, width: int, height: int, population: int, grass_density: int, seed: int | None,
+                 imported: Sequence[int] = ()):
         self.screen = open_window()
         self.font = pg.font.SysFont("segoeui", 15)
         self.bold = pg.font.SysFont("segoeui", 22, bold=True)
@@ -29,12 +31,15 @@ class BitzkeyApp:
         self.width = width
         self.height = height
         self.population = population
+        self.grass_density = grass_density
         self.seed = seed
-        self.simulation = Simulation(width, height, population, seed)
+        self.imported = list(imported)
+        self.simulation = self._new_world()
         self.selected_id: int | None = None
         self.show_insights = False
         self.show_census = False
         self.census_part = "ring"
+        self.census_selection: set[str] = set()
         self._census_cache: tuple[tuple | None, list] = (None, [])
         self.message = ""
         self.message_until = 0
@@ -66,7 +71,7 @@ class BitzkeyApp:
                         self.playing = False
                         self.simulation.rewind()
                     elif event.key == pg.K_r:
-                        self.simulation = Simulation(self.width, self.height, self.population, self.seed)
+                        self.simulation = self._new_world()
                         self.selected_id = None
                     elif event.key == pg.K_i:
                         self.show_insights = not self.show_insights
@@ -76,8 +81,19 @@ class BitzkeyApp:
                         self.show_census = not self.show_census
                     elif event.key == pg.K_TAB and self.show_census:
                         self.census_part = "dot" if self.census_part == "ring" else "ring"
-                elif event.type == pg.MOUSEBUTTONDOWN and event.button == 1 and not self.show_census:
-                    self._select_at(event.pos)
+                        self.census_selection.clear()
+                    elif event.key == pg.K_c:
+                        if self.show_census:
+                            self._export_census(to_file=False)
+                        else:
+                            self._copy_selected()
+                    elif event.key == pg.K_s and self.show_census:
+                        self._export_census(to_file=True)
+                elif event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
+                    if self.show_census:
+                        self._census_click(event.pos)
+                    else:
+                        self._select_at(event.pos)
 
             if self.playing and self.elapsed >= 0.24:
                 self.simulation.advance()
@@ -209,6 +225,7 @@ class BitzkeyApp:
             odds = sorted(agent.odds.items(), key=lambda item: -item[1])[:3]
             self._text("CHANCES  " + "   ".join(f"{action} {chance:.0%}" for action, chance in odds),
                        (x, 678), (175, 192, 172), self.small)
+        self._text("C  copy this genome as JSON", (x, 700), (116, 139, 124), self.small)
 
     @staticmethod
     def _dot_radius(agent: Bitzkey, base: int) -> int:
@@ -261,8 +278,48 @@ class BitzkeyApp:
         path = REPORT_DIR / f"brain-report-turn-{self.simulation.turn:05d}.txt"
         path.write_text(report, encoding="utf-8")
         print(report)
-        self.message = f"Brain report saved to reports/{path.name}"
+        self._say(f"Brain report saved to reports/{path.name}")
+
+    def _new_world(self) -> Simulation:
+        return Simulation(self.width, self.height, self.population, self.seed, self.grass_density, self.imported)
+
+    def _say(self, message: str) -> None:
+        self.message = message
         self.message_until = pg.time.get_ticks() + 5000
+
+    def _copy(self, text: str, what: str) -> None:
+        try:
+            pg.scrap.put_text(text)
+        except pg.error as error:
+            self._say(f"Couldn't copy {what} to the clipboard: {error}")
+        else:
+            self._say(f"Copied {what} to the clipboard.")
+
+    def _copy_selected(self) -> None:
+        agent = next((item for item in self.simulation.agents if item.identifier == self.selected_id), None)
+        if agent is None:
+            self._say("Click a Bitzkey first, then press C to copy its genome.")
+        else:
+            self._copy(export_genomes([agent.dna]), f"#{agent.identifier:03d}'s genome")
+
+    def _export_census(self, to_file: bool) -> None:
+        """Export the living Bitzkeys in the chosen colour families, or all of them."""
+        part, chosen = self.census_part, self.census_selection
+        agents = [agent for agent in self.simulation.living
+                  if not chosen or agent.colour_families[part] in chosen]
+        if not agents:
+            self._say("No living Bitzkeys have those colours.")
+            return
+        names = [name for name in FAMILIES if name in chosen]
+        what = f"{len(agents)} Bitzkey{'s' if len(agents) != 1 else ''} ({part}: {', '.join(names) or 'all'})"
+        text = export_genomes(agent.dna for agent in agents)
+        if not to_file:
+            self._copy(text, what)
+            return
+        EXPORT_DIR.mkdir(exist_ok=True)
+        path = EXPORT_DIR / f"bitzkeys-turn-{self.simulation.turn:05d}-{part}-{'-'.join(names) or 'all'}.json"
+        path.write_text(text + "\n", encoding="utf-8")
+        self._say(f"Saved {what} to exports/{path.name}")
 
     def _draw_footer(self) -> None:
         height = self.screen.get_height()
@@ -275,22 +332,53 @@ class BitzkeyApp:
         self._text("SPACE  pause/run   LEFT  rewind   RIGHT  step   I  insights   B  brain report   "
                    "G  colour graph   R  restart   ESC  quit", (185, height - 36), (187, 199, 181), self.small)
 
+    def _census_layout(self) -> dict:
+        width, height = self.screen.get_size()
+        panel = pg.Rect(0, 0, min(920, width - 60), min(600, height - 100))
+        panel.center = (width // 2, height // 2)
+        chart = pg.Rect(panel.left + 64, panel.top + 88, panel.width - 92, panel.height - 230)
+        save = pg.Rect(0, 0, 84, 30)
+        save.topright = (panel.right - 24, panel.top + 18)
+        copy = pg.Rect(0, 0, 84, 30)
+        copy.topright = (save.left - 8, save.top)
+        columns = 5
+        legend = {name: pg.Rect(chart.left + (index % columns) * (chart.width // columns) - 4,
+                                chart.bottom + 34 + (index // columns) * 22, chart.width // columns - 8, 20)
+                  for index, name in enumerate(FAMILIES)}
+        return {"panel": panel, "chart": chart, "copy": copy, "save": save, "legend": legend}
+
+    def _census_click(self, position: tuple[int, int]) -> None:
+        layout = self._census_layout()
+        if layout["copy"].collidepoint(position):
+            self._export_census(to_file=False)
+        elif layout["save"].collidepoint(position):
+            self._export_census(to_file=True)
+        for name, rect in layout["legend"].items():
+            if rect.collidepoint(position):
+                self.census_selection ^= {name}
+
     def _draw_census(self) -> None:
         """A popup over the world: living Bitzkeys per colour family, as stacked bars over time."""
         width, height = self.screen.get_size()
         shade = pg.Surface((width, height), pg.SRCALPHA)
         shade.fill((8, 12, 12, 175))
         self.screen.blit(shade, (0, 0))
-        panel = pg.Rect(0, 0, min(920, width - 60), min(580, height - 120))
-        panel.center = (width // 2, height // 2)
+        layout = self._census_layout()
+        panel, chart = layout["panel"], layout["chart"]
         pg.draw.rect(self.screen, (30, 40, 40), panel, border_radius=6)
         pg.draw.rect(self.screen, (80, 99, 85), panel, 1, border_radius=6)
         part = "RING / BODY" if self.census_part == "ring" else "DOT / MIND"
         self._text(f"COLOUR CENSUS  /  {part}", (panel.left + 24, panel.top + 18), (229, 239, 220), self.bold)
         self._text("Living Bitzkeys by colour family over time.     TAB  ring / dot     G or ESC  close",
                    (panel.left + 24, panel.top + 52), (144, 170, 151), self.small)
+        for name, label in (("copy", "COPY"), ("save", "SAVE")):
+            pg.draw.rect(self.screen, (44, 57, 52), layout[name], border_radius=4)
+            text = self.font.render(label, True, (220, 229, 211))
+            self.screen.blit(text, text.get_rect(center=layout[name].center))
+        if pg.time.get_ticks() < self.message_until:
+            message = self.small.render(self.message, True, (238, 183, 110))
+            self.screen.blit(message, message.get_rect(topright=(panel.right - 24, panel.top + 56)))
 
-        chart = pg.Rect(panel.left + 64, panel.top + 88, panel.width - 92, panel.height - 210)
         census = self.simulation.census[:self.simulation.turn + 1]
         key = (self.simulation.turn, len(census), self.census_part, chart.width)
         if self._census_cache[0] != key:
@@ -322,13 +410,18 @@ class BitzkeyApp:
             self.screen.blit(label, (x - round(label.get_width() * align), chart.bottom + 6))
 
         latest = census[-1][self.census_part]
-        columns = 5
-        for index, name in enumerate(FAMILIES):
-            x = chart.left + (index % columns) * (chart.width // columns)
-            y = chart.bottom + 36 + (index // columns) * 22
-            pg.draw.rect(self.screen, SWATCHES[name], (x, y + 2, 12, 12))
-            pg.draw.rect(self.screen, (80, 99, 85), (x, y + 2, 12, 12), 1)
-            self._text(f"{name:<8}{latest.get(name, 0):>4}", (x + 20, y), (187, 199, 181), self.mono_small)
+        for name, rect in layout["legend"].items():
+            chosen = name in self.census_selection
+            if chosen:
+                pg.draw.rect(self.screen, (131, 205, 143), rect, 1, border_radius=3)
+            pg.draw.rect(self.screen, SWATCHES[name], (rect.left + 4, rect.top + 4, 12, 12))
+            pg.draw.rect(self.screen, (80, 99, 85), (rect.left + 4, rect.top + 4, 12, 12), 1)
+            color = (232, 236, 219) if chosen else (116, 139, 124) if self.census_selection else (187, 199, 181)
+            self._text(f"{name:<8}{latest.get(name, 0):>4}", (rect.left + 24, rect.top + 2), color, self.mono_small)
+
+        self._text("Click colours to choose who to export; with none chosen, every living Bitzkey is.     "
+                   "C  copy     S  save to exports/", (panel.left + 24, panel.bottom - 28), (144, 170, 151),
+                   self.small)
 
     @staticmethod
     def _nice_ceiling(value: float) -> float:
@@ -364,6 +457,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--width", type=int, default=Config.GRID_WIDTH, help="world width in cells (default: 100)")
     parser.add_argument("--height", type=int, default=Config.GRID_HEIGHT, help="world height in cells (default: 100)")
     parser.add_argument("--population", type=int, default=Config.INITIAL_POPULATION)
+    parser.add_argument("--grass-density", type=int, default=Config.GRASS_DENSITY,
+                        help="percent of cells with grass at the start (default: 5)")
     parser.add_argument("--seed", type=int, default=None, help="seed the world for repeatable experiments")
     return parser.parse_args()
 

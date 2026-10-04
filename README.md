@@ -13,9 +13,16 @@ python -m pip install -r requirements.txt
 python Main.py
 ```
 
-A configuration panel opens first. Set the grid width and height (10 to 250
-cells), the number of Bitzkeys spawned (up to 600), and an optional random seed.
-The same seed replays the same world; leave it blank for a new one. Click a row
+A configuration panel opens first. Set:
+
+- the grid width and height (10 to 250 cells)
+- the number of Bitzkeys spawned (up to 600). They appear in groups of 3 to 5
+  sharing one genome, each group within two cells of a random spot.
+- the grass density: the percent of cells with grass at the start (default 5).
+  Each turn, 0.4% of that starting amount grows back, so density means the
+  same at any grid size.
+- an optional random seed. The same seed replays the same world; leave it blank
+  for a new one. Click a row
 or use Up/Down to choose a setting. Adjust it with its - and + buttons or
 Left/Right (hold Shift for steps of ten), or type a number. Press Enter or
 click START to begin, or Esc to quit.
@@ -23,8 +30,18 @@ click START to begin, or Esc to quit.
 Launch options fill in the panel's starting values:
 
 ```powershell
-python Main.py --width 80 --height 60 --population 120 --seed 42
+python Main.py --width 80 --height 60 --population 120 --grass-density 8 --seed 42
 ```
+
+The panel can also import Bitzkeys, to add to the random ones. Paste exported
+genomes into its text box with Ctrl+V or PASTE. Alternatively, load a file with
+LOAD FILE, or drag the file onto the window. Several pasted blocks, one after
+another, are all read. The line under the box says how many genomes of each
+species are ready, or what can't be read; START waits until the text reads
+cleanly or is cleared. Each imported genome spawns as a group of 3 to
+5 Bitzkeys at a random spot, with fresh brains, so it arrives with mates. Up to
+120 genomes are used, keeping their groups within the 600 population cap. Set
+"Bitzkeys" to 0 to start with only your imports.
 
 To add a setting, add a `Setting` to `SETTINGS` in `display/Setup.py` and a
 parameter with the same name to `BitzkeyApp`.
@@ -38,6 +55,7 @@ parameter with the same name to `BitzkeyApp`.
 - `I`: toggle the behaviour insights panel
 - `B`: save a brain report to `reports/`
 - `G`: open or close the colour graph; `Tab` switches it between rings and dots
+- `C`: copy the selected Bitzkey's genome to the clipboard as JSON
 - Click a Bitzkey: inspect its genome, current state and the odds of its last choice
 - `Escape`: close the colour graph, or quit
 
@@ -149,6 +167,23 @@ family were alive. Each bar averages a run of consecutive turns, and its height
 is the total population. `Tab` switches between ring (body) and dot (mind)
 colours. The census covers the whole run, not just the 500 turns that can be
 rewound.
+
+The graph also exports Bitzkeys in bulk. Click legend colours to choose
+families; with none chosen, every living Bitzkey is included. Then press `C`
+or COPY to put them on the clipboard, or `S` or SAVE to write a `.json` file
+into `exports/`.
+
+## Genome Export Format
+
+A genome is written as its two colour words in hex, ring then dot:
+
+```json
+{"ring": "7421FF41", "dot": "637E4B01"}
+```
+
+Several genomes form a JSON array, one per line. Import accepts single objects,
+arrays, several blocks pasted one after another, and `#`-prefixed or lowercase
+hex.
 
 ## What the Bitzkeys Have Learned
 
