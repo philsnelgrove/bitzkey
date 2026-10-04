@@ -86,6 +86,21 @@ class SimulationFlowTests(unittest.TestCase):
 
         self.assertEqual(self.app.run(), "configure")
 
+    def test_leaving_greys_out_the_button_and_frees_the_history(self):
+        for _ in range(5):
+            self.app.simulation.advance()
+        history = self.app.simulation.history
+        for event in (key(pg.K_ESCAPE), key(pg.K_RETURN)):
+            pg.event.post(event)
+
+        self.assertEqual(self.app.run(), "configure")
+        dialog = self.app.dialog
+        self.assertEqual(dialog.busy, "leave")
+        self.assertIn(("leave", "Leaving, please be patient"), dialog.buttons)
+        self.assertEqual(dialog.caption, "Cleaning up messy neural networks...")
+        self.assertIsNone(dialog.handle(key(pg.K_RETURN), self.app.screen.get_size()))  # nothing more to press
+        self.assertEqual(history, [])
+
     def test_escape_then_stay_keeps_the_simulation_running(self):
         pg.event.post(key(pg.K_ESCAPE))
         pg.event.post(key(pg.K_ESCAPE))

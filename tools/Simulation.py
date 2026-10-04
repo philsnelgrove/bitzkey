@@ -10,7 +10,7 @@ from dataclasses import dataclass, field, replace
 from functools import cached_property
 
 from tools.Brain import ACTIONS, SENSES, Brain, choice_odds, make_senses
-from tools.Genome import (GENOME, MIND_TRAITS, SPECIES, TRAIT_MAX, body_word, color_from_word, cross,
+from tools.Genome import (GENOME, MIND_TRAITS, SPECIES, TRAIT_MAX, body_word, color_from_word, cross, ring_difference,
                           decode_body, decode_mind, make_dna, mind_word, share)
 from tools.Census import Census
 from tools.Exchange import Imported
@@ -19,7 +19,7 @@ from tools.Insights import Insights
 
 GRID_SIZE = 100
 INITIAL_POPULATION = 90
-GRASS_DENSITY = 5       # percent of cells that start with grass
+GRASS_DENSITY = 50      # percent of cells that start with grass
 GRASS_REGROWTH = 0.004  # share of the starting grass that grows back each turn
 MAX_POPULATION = 600   # the most Bitzkeys spawned at the start; a world's population cap is a setting
 CROWDING_RADIUS = 4    # animals within this many cells count as crowding a would-be parent
@@ -29,6 +29,7 @@ MAX_IMPORTED = MAX_POPULATION // SPAWN_GROUP[1]  # imported Bitzkeys, so their g
 SPAWN_SPREAD = 2      # a group's members appear within this many cells of each other's centre
 DENSE_HISTORY = 500   # the latest turns are each kept as a snapshot of the world
 CHECKPOINTS = 200     # older turns are kept as at most this many evenly spaced snapshots
+CORPSE_FERTILITY = 2   # grass grows this many times as fast on and around a corpse
 CORPSE_TURNS = 30
 BREED_RESERVE = 10  # hunger a parent must still have spare after paying to breed
 COMPATIBLE_BITS = 14  # partners' body words (outer rings) may differ in at most this many bits
@@ -52,6 +53,16 @@ UNEASE = 0.1           # how much an intolerant animal minds other species close
 EMPATHY_PAIN = 0.15    # how much an empathetic animal feels another's wound; twice that for a death
 OTHER_KIND = 0.4       # how much of that pain reaches it when the victim is of another species
 LEARNING_RATE = 0.045  # at the highest intellect
+PANIC = (0.3, 1.0)     # chance a fully fearful animal breaks when struck, unhurt and near death;
+                       # its current fear scales it, so the fearless never break
+THORN_FORCE = 15       # a plant's counterblow at full weapons and size, before the defender's toughness
+THORN_SIZE_SHARE = 0.2  # share of that from the plant's size; the rest is its weapons, and strength counts for nothing
+TERRITORY_RADIUS = 6   # a predator's territory: the cells within this many steps
+TERRITORY_LIMIT = (1, 5)  # other predators tolerated in its territory, from the least to the most empathetic
+TERRITORY_RAMP = 3     # each predator past that limit adds a third to rivalry, up to 1
+RIVAL_UNEASE = 0.3     # discomfort of a fully overcrowded territory, less for the tolerant
+RIVAL_KILL_JOY = 1.0   # relief at killing a predator in an overcrowded territory
+KIND_DIFFERENCE = 0.05  # predators whose ring colours differ by more than this are different kinds, and prey
 STRIKE_EFFORT = 0.2    # food burned for each point of damage a blow deals
 PREDATOR_LITTERS = 0.5  # predators' litters are this share of the usual size, rounded up
 STRIKE_FORCE = 1.5     # scales every blow
@@ -60,6 +71,8 @@ KILL_MEAL_FOR_SIZE = 45
 CARRION_MEAT = 30      # meat a well-fed corpse leaves, plus up to CARRION_MEAT_FOR_SIZE for the largest;
 CARRION_MEAT_FOR_SIZE = 50  # a hungrier body leaves less, and a starved one nothing
 SCAVENGE_BITE = 25     # meat eaten in one go
+GRAZER_SPEED = 1.5     # grazers move this many times as far a step, rounded half up
+GRAZING = {"grazer": 1.0, "omnivore": 0.5}  # share of grass and plant food each species gets
 GRASS_MEAL = 35        # hunger a tuft of grass sates
 PLANT_MEAL = 45        # hunger a bite of a plant sates, plus up to PLANT_MEAL_FOR_SIZE for the largest
 PLANT_MEAL_FOR_SIZE = 25
@@ -89,6 +102,8 @@ EXPERIENCES = {
     "foraged_meal": {"patience": 0.0067},
     "discovery": {"curiosity": 0.01},
     "ambushed": {"curiosity": -0.02, "fear": 0.0133},
+    "defended": {"fear": -0.0133, "aggression": 0.0067},
+    "panicked": {"fear": 0.0067},
 }
 
 GRASS_SEEN = SENSES.index("grass_seen")
@@ -117,6 +132,9 @@ class Bitzkey:
     generation: int = 0
     children: int = 0
     died_turn: int | None = None
+    assailant: int | None = None  # the animal that struck it since it last acted, which it may defend against
+    panicked: bool = False  # failed a morale check when struck, so it will flee its assailant
+    rivalry: float = 0.0    # predators: how overcrowded its territory was when it last looked, 0..1
     meat: float = 0.0  # a corpse's meat left for scavengers
     rot: float = 0.0   # meat lost to rot each turn
     # Current temperament: starts at the inborn values and is reshaped by experience.
@@ -201,7 +219,14 @@ class Bitzkey:
 
     @property
     def steps(self) -> int:
-        return 1 + int(self.body["speed"]) * 3 // TRAIT_MAX
+        """Cells moved a step: 1 to 4 by speed, and half as many again for grazers."""
+        steps = 1 + int(self.body["speed"]) * 3 // TRAIT_MAX
+        return int(steps * GRAZER_SPEED + 0.5) if self.species == "grazer" else steps
+
+    @property
+    def grazing(self) -> float:
+        """How much of grass and plant food nourishes it: grazers are far better at it than omnivores."""
+        return GRAZING.get(self.species, 0.0)
 
     @property
     def sight(self) -> int:
@@ -516,9 +541,13 @@ class Simulation:
         self._plants += 1
 
     def _sow(self, tufts: int) -> None:
+        """Scatter new grass at random; on and around a corpse, it grows CORPSE_FERTILITY times as fast."""
+        fertile = {((corpse.x + dx) % self.width, (corpse.y + dy) % self.height)
+                   for corpse in self.agents if corpse.died_turn is not None
+                   for dx in (-1, 0, 1) for dy in (-1, 0, 1)}
         for _ in range(tufts):
             cell = (self.random.randrange(self.width), self.random.randrange(self.height))
-            self.grass[cell] = self.grass.get(cell, 0) + 1
+            self.grass[cell] = self.grass.get(cell, 0) + (CORPSE_FERTILITY if cell in fertile else 1)
 
     def _take_census(self) -> None:
         self.census.record(self.turn, (agent.identifier for agent in self.living))
@@ -554,6 +583,12 @@ class Simulation:
             discount = 0.7 + 0.27 * agent.feeling("patience")
             self._learn(agent, reward + discount * max(values[option] for option in options))
 
+        if agent.panicked and situation["assailant"]:
+            # Fight or flight, decided by fear: it breaks off and flees its assailant.
+            situation["hunter"] = situation["assailant"]
+            situation["panic"] = True
+            options = [ACTIONS.index("flee")]
+
         odds = choice_odds(values, options)
         roll = self.random.random()
         choice = options[-1]
@@ -563,15 +598,20 @@ class Simulation:
                 choice = option
                 break
         action = ACTIONS[choice]
-        self.insights.record(agent.species, agent.profile, (ACTIONS[option] for option in options), action)
+        if not situation.get("panic"):  # a panicked flight was no choice
+            self.insights.record(agent.species, agent.profile, (ACTIONS[option] for option in options), action)
         agent.odds = {ACTIONS[option]: chance for option, chance in odds.items()}
         agent.last_senses = senses
         agent.last_choice = choice
         agent.last_wellbeing = self._wellbeing(agent)
         agent.reward = 0.0
+        agent.assailant = None  # the chance to strike back, or need to flee, passes with this turn's choice
+        agent.panicked = False
         self._act(agent, action, situation)
 
     def _sense(self, agent: Bitzkey) -> tuple[list[float], list[int], dict]:
+        if agent.species == "predator":
+            agent.rivalry = self._rivalry(agent)
         neighbors = self._nearby(agent, 1)
         mate = next((other for other in neighbors if self._compatible(agent, other) and other.can_breed), None)
         nurseries = self._free_cells_near(agent)
@@ -588,6 +628,7 @@ class Simulation:
         grass = self._nearest_grass(agent, sight) if grazes else None
         carrion = self._nearest_carrion(agent, sight)
         quarry, hunter, suitor, flora = self._look_around(agent, sight)
+        assailant = next((other for other in neighbors if other.identifier == agent.assailant), None)
 
         available = {"rest", "explore"}
         if grass_here:
@@ -609,6 +650,8 @@ class Simulation:
             available.add("attack")
         if hunter:
             available.add("flee")
+        if assailant:
+            available.add("defend")
 
         senses = make_senses(
             hunger=min(1.0, agent.hunger / 100),
@@ -629,12 +672,15 @@ class Simulation:
             others_near=min(3, others) / 3,
             carrion_closeness=self._closeness(agent, carrion and (carrion.x, carrion.y), sight),
             plant_closeness=self._closeness(agent, flora and (flora.x, flora.y), sight),
+            assailant_near=float(assailant is not None),
+            rivalry=agent.rivalry,
+            counter_frailty=0.0 if assailant is None else min(1.0, self._damage(agent, assailant) / assailant.health),
             age=min(1.0, agent.age / 400),
             **{trait: agent.feeling(trait) for trait in MIND_TRAITS},
         )
         situation = {"mate": mate, "nurseries": nurseries, "prey": target, "threat": threat,
                      "threats": len(threats), "quarry": quarry, "hunter": hunter, "suitor": suitor,
-                     "grass": grass, "grass_here": grass_here, "carrion": carrion, "flora": flora, "kin": kin,
+                     "grass": grass, "grass_here": grass_here, "carrion": carrion, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
                      "others": others}
         return senses, [ACTIONS.index(action) for action in ACTIONS if action in available], situation
 
@@ -654,7 +700,8 @@ class Simulation:
         company = COMPANY_JOY * agent.feeling("sociability") * company_around / 3
         dread = FEAR_DREAD * agent.feeling("fear") * (1 - 0.5 * tolerance) * min(2, situation["threats"]) / 2
         unease = UNEASE * (1 - tolerance) * min(3, situation["others"]) / 3
-        return company - dread - unease
+        crowded = RIVAL_UNEASE * (1 - 0.5 * tolerance) * situation.get("rivalry", 0.0)
+        return company - dread - unease - crowded
 
     def _learn(self, agent: Bitzkey, target: float) -> None:
         agent.brain.learn(agent.last_senses, agent.last_choice, target, LEARNING_RATE * agent.feeling("intellect"))
@@ -698,7 +745,7 @@ class Simulation:
             self.grass[cell] -= 1
             if self.grass[cell] == 0:
                 del self.grass[cell]
-            agent.nourish(GRASS_MEAL)
+            agent.nourish(GRASS_MEAL * agent.grazing)
             if agent.last_action == "foraged":
                 self._experience(agent, "foraged_meal")
             agent.last_action = "ate"
@@ -730,9 +777,11 @@ class Simulation:
                     agent.last_action = "pounced"
         elif action == "attack":
             self._attack(agent, situation["prey"])
+        elif action == "defend":
+            self._defend(agent, situation["assailant"])
         elif action == "flee":
             self._move_away(agent, situation["hunter"])
-            agent.last_action = "fled"
+            agent.last_action = "panicked" if situation.get("panic") else "fled"
         else:
             for _ in range(agent.steps):
                 self._move(agent, (agent.x + self.random.choice((-1, 0, 1))) % self.width,
@@ -748,12 +797,14 @@ class Simulation:
         if abs(plant.x - agent.x) + abs(plant.y - agent.y) > 1 or plant.cooldown:
             agent.last_action = "sought plants"
             return
-        agent.nourish(PLANT_MEAL + PLANT_MEAL_FOR_SIZE * plant.physique("size"))
+        agent.nourish((PLANT_MEAL + PLANT_MEAL_FOR_SIZE * plant.physique("size")) * agent.grazing)
         plant.health -= PLANT_BITE
         plant.cooldown = PLANT_RECOVERY
+        agent.last_action = "browsed"
         if not plant.alive:
             self._die(plant, "eaten")
-        agent.last_action = "browsed"
+        elif plant.physique("weapons") > 0:
+            self._defend(plant, agent)  # a plant can't flee, but an armed one strikes back
 
     def _scavenge(self, agent: Bitzkey, corpse: Bitzkey) -> None:
         """Go to the carrion and, once alongside, eat; a carrion-eater's gut gets the most from it."""
@@ -769,7 +820,11 @@ class Simulation:
     @staticmethod
     def _damage(attacker: Bitzkey, defender: Bitzkey) -> float:
         """One blow: the attacker's might, sharpened by weapons, blunted by the defender's toughness;
-        size counts strongly in both."""
+        size counts strongly in both. A plant's thorns are mostly its weapons, a little its size,
+        and owe nothing to strength."""
+        if attacker.species == "plant":
+            thorns = THORN_SIZE_SHARE * attacker.physique("size") + (1 - THORN_SIZE_SHARE) * attacker.physique("weapons")
+            return THORN_FORCE * thorns * (1 - 0.6 * defender.toughness)
         force = STRIKE_FORCE * (2 + 9 * attacker.might)
         return force * (1 + 0.75 * attacker.physique("weapons")) * (1 - 0.6 * defender.toughness)
 
@@ -788,15 +843,18 @@ class Simulation:
         killed = not victim.alive
         if not killed:
             victim.last_action = "wounded"
+            self._struck(victim, agent)
             self._experience(victim, "wounded")
             if not any(other.species == victim.species for other in self._nearby(victim, 2)):
                 self._experience(victim, "wounded_alone")
         else:
             agent.nourish(KILL_MEAL + KILL_MEAL_FOR_SIZE * victim.physique("size"))
             agent.reward += 2 * joy
+            if victim.species == "predator":  # one fewer rival for the feeding ground
+                agent.reward += RIVAL_KILL_JOY * agent.rivalry * (1 - 0.5 * agent.feeling("tolerance"))
             self._experience(agent, "kill")
         pain = EMPATHY_PAIN * (2 if killed else 1)
-        agent.reward -= pain * empathy * OTHER_KIND
+        agent.reward -= pain * empathy * (1.0 if self._same_kind(agent, victim) else OTHER_KIND)
         for witness in self._nearby(victim, 2):
             if witness is not agent and witness.brain is not None:
                 kinship = 1.0 if witness.species == victim.species else OTHER_KIND
@@ -810,6 +868,34 @@ class Simulation:
             self._experience(agent, "stung")
             if not agent.alive:
                 self._die(agent, "killed")
+
+    def _defend(self, agent: Bitzkey, assailant: Bitzkey) -> None:
+        """Strike back at the animal that just struck it, or, for a plant, browsed it, with the
+        usual force of might and weapons against the assailant's toughness. The blow costs effort
+        like any other, and feeds the defender nothing, but it can kill, and a struck assailant
+        must check its own morale."""
+        damage = self._damage(agent, assailant)
+        assailant.health -= damage
+        agent.hunger += STRIKE_EFFORT * damage / agent.stomach
+        self._experience(assailant, "stung")
+        if agent.species != "plant":
+            agent.reward += FIGHT_JOY * agent.feeling("aggression") * (1 - 0.6 * agent.feeling("empathy"))
+            agent.last_action = "defended"
+            self._experience(agent, "defended")
+        if not assailant.alive:
+            self._die(assailant, "killed")
+        elif assailant.species != "plant":
+            self._struck(assailant, agent)
+
+    def _struck(self, victim: Bitzkey, striker: Bitzkey) -> None:
+        """A struck animal may strike back on its next turn, unless it fails a morale check
+        against its current fear, more likely the more hurt it is, and so must flee instead."""
+        victim.assailant = striker.identifier
+        unhurt, dying = PANIC
+        hurt = 1 - max(0.0, victim.health) / victim.max_health
+        if self.random.random() < victim.feeling("fear") * (unhurt + (dying - unhurt) * hurt):
+            victim.panicked = True
+            self._experience(victim, "panicked")
 
     def _breed(self, first: Bitzkey, second: Bitzkey, cells: list[tuple[int, int]]) -> None:
         """Fertile parents breed cheaply and often. Their litter, 1 to 6 young (bigger for a high
@@ -910,7 +996,7 @@ class Simulation:
         animal can have."""
         quarry = hunter = suitor = flora = None
         hunts = agent.species in ("omnivore", "predator")
-        hunted = agent.species in ("grazer", "omnivore")
+        hunted = agent.species != "plant"
         browses = agent.species in ("grazer", "omnivore")
         courts = agent.can_breed
         for dx, dy in SEEN_OFFSETS:
@@ -961,6 +1047,35 @@ class Simulation:
                 and (body_word(first.dna) ^ body_word(second.dna)).bit_count() <= COMPATIBLE_BITS)
 
     @staticmethod
-    def _is_prey(hunter: Bitzkey, other: Bitzkey) -> bool:
-        return ((hunter.species == "predator" and other.species in ("grazer", "omnivore"))
-                or (hunter.species == "omnivore" and other.species == "grazer"))
+    def _same_kind(first: Bitzkey, second: Bitzkey) -> bool:
+        """Of one kind: the same species, and, for predators, ring colours within KIND_DIFFERENCE."""
+        return first.species == second.species and (
+            first.species != "predator" or ring_difference(first.dna, second.dna) <= KIND_DIFFERENCE)
+
+    @staticmethod
+    def cannibal_reluctance(predator: Bitzkey) -> float:
+        """How hungry, as a share, a predator must be before it will hunt its own kind: the
+        empathetic feel for them, the tolerant bear them, and the patient can wait for other prey."""
+        return (predator.feeling("empathy") + predator.feeling("tolerance") + predator.feeling("patience")) / 3
+
+    def _rivalry(self, predator: Bitzkey) -> float:
+        """How overcrowded a predator's territory is: nothing up to the other predators it will
+        tolerate, fewer the less empathetic it is, then rising to 1 over TERRITORY_RAMP more."""
+        fewest, most = TERRITORY_LIMIT
+        tolerated = fewest + (most - fewest) * predator.feeling("empathy")
+        rivals = sum(other.species == "predator" for other in self._nearby(predator, TERRITORY_RADIUS))
+        return min(1.0, max(0.0, rivals - tolerated) / TERRITORY_RAMP)
+
+    @classmethod
+    def _is_prey(cls, hunter: Bitzkey, other: Bitzkey) -> bool:
+        if hunter.species == "omnivore":
+            return other.species == "grazer"
+        if hunter.species != "predator":
+            return False
+        if other.species in ("grazer", "omnivore"):
+            return True
+        if other.species != "predator":
+            return False
+        # Its own kind only when hungry past its reluctance, which an overcrowded territory wears away.
+        return (not cls._same_kind(hunter, other)
+                or hunter.hunger / 100 > cls.cannibal_reluctance(hunter) * (1 - hunter.rivalry))

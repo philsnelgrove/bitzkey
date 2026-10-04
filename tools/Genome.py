@@ -97,6 +97,14 @@ def color_from_word(word: int) -> tuple[int, int, int]:
             round((255 - yellow) * (255 - black) / 255))
 
 
+def ring_difference(first: int, second: int) -> float:
+    """How far apart two genomes' ring colours are: the mean difference of their four CMYK
+    bytes, from 0 (the same colour) to 1."""
+    first_word, second_word = body_word(first), body_word(second)
+    return sum(abs(((first_word >> shift) & 0xFF) - ((second_word >> shift) & 0xFF))
+               for shift in (24, 16, 8, 0)) / (4 * 255)
+
+
 def make_dna(species: int | None = None, rng: random.Random | None = None) -> int:
     """A random genome; given a species, the species trait is set to pick it (value mod 4)."""
     dna = (rng or random).getrandbits(64)

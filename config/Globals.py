@@ -18,7 +18,7 @@ class Config(object):
     GRID_WIDTH = 100
     GRID_HEIGHT = 100
     INITIAL_POPULATION = 90
-    GRASS_DENSITY = 5
+    GRASS_DENSITY = 50
     FULLSCREEN = True  # start fullscreen; F11 or --windowed for a window of the size below
     WINDOW_WIDTH = 1200
     WINDOW_HEIGHT = 820

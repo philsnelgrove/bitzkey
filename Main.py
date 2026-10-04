@@ -1,6 +1,8 @@
 """PyGame interface for the Bitzkey ecology experiment."""
 
 import argparse
+import os
+import sys
 from collections import Counter
 from collections.abc import Sequence
 
@@ -84,8 +86,10 @@ class BitzkeyApp:
                 if event.type == pg.VIDEORESIZE:
                     self.screen = Window.resize(event)
                 elif self.dialog:
-                    choice = self.dialog.handle(event, self.screen.get_size())
+                    dialog = self.dialog
+                    choice = dialog.handle(event, self.screen.get_size())
                     if choice and self._answer(choice) == "leave":
+                        self._leave(dialog)
                         return "configure"
                 elif event.type == pg.KEYDOWN:
                     if event.key == pg.K_ESCAPE:
@@ -202,6 +206,20 @@ class BitzkeyApp:
             self.export_list.clear()
             self._say(f"Cleared {count} Bitzkey{'s' if count != 1 else ''} from the export list.")
         return None
+
+    def _leave(self, dialog: Dialog) -> None:
+        """Say that it's leaving, then let go of the world's history a piece at a time, keeping the
+        window responsive while its brains are freed."""
+        dialog.start("leave", "Leaving, please be patient", "Cleaning up messy neural networks...")
+        self.dialog = dialog
+        self.playing = False
+        self._draw()
+        pg.display.flip()
+        history = self.simulation.history
+        while history:
+            del history[-25:]
+            pg.event.pump()
+        self.simulation = None
 
     def _ask_to_leave(self) -> None:
         lines = ["You'll return to the configuration panel to set up a new world.",
@@ -584,3 +602,8 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+    # Quitting ends the process at once, rather than waiting on Python to tidy away every last
+    # brain the session made.
+    if sys.stdout:
+        sys.stdout.flush()
+    os._exit(0)

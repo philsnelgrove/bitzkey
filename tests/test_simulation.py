@@ -3,7 +3,7 @@ import random
 import unittest
 from unittest.mock import patch
 
-from tools.Brain import ACTIONS, Brain
+from tools.Brain import ACTIONS, SENSES, Brain
 from tools.Exchange import Imported
 from tools.Genome import encode_dna
 from tools.Simulation import CORPSE_TURNS, Simulation, litter_size
@@ -103,7 +103,9 @@ class SimulationTests(unittest.TestCase):
         self.assertEqual((small.max_health, small.health), (60, 60))
         self.assertEqual((large.max_health, large.health), (150, 150))
         self.assertGreater(large.burn * large.stomach, small.burn * small.stomach)  # eats more a turn
-        self.assertEqual((small.steps, large.steps), (1, 4))
+        self.assertEqual((small.steps, large.steps), (2, 6))  # grazers: 1 and 4, half as far again
+        predator = self.simulation._add_agent(encode_dna("predator", speed=7), 3, 3)
+        self.assertEqual(predator.steps, 4)
 
     def test_mind_starts_inborn_and_copies_independently(self):
         agent = self.simulation._add_agent(encode_dna("grazer", fear=3), 1, 1)
@@ -179,7 +181,7 @@ class SimulationTests(unittest.TestCase):
         self.assertIn(court, options)
         self.assertNotIn(ACTIONS.index("breed"), options)
         self.simulation._act(suitor, "court", situation)
-        self.assertEqual((suitor.x, suitor.y), (2, 3))
+        self.assertEqual((suitor.x, suitor.y), (2, 4))  # a grazer's two cells a step
         mate.cooldown = 4
         self.assertNotIn(court, self.simulation._sense(suitor)[1])
         mate.cooldown, suitor.cooldown = 0, 4
@@ -503,7 +505,8 @@ class NewTraitTests(unittest.TestCase):
         young = self.simulation.agents[2:]
         self.assertEqual(len(cells), 7)  # every cell around the parent but its mate's
         self.assertEqual(len(young), 6)
-        self.assertTrue(all(child.hunger == 100 - 20 / 6 for child in young))
+        for child in young:  # the parents give 10% of their small stomachs each, shared six ways
+            self.assertAlmostEqual(child.hunger, 100 - 2 * 10 * 0.5 / 6 / child.stomach)
         self.assertEqual((first.children, second.children), (6, 6))
 
     def test_large_bodies_with_a_low_litter_trait_have_single_young(self):
@@ -527,6 +530,217 @@ class NewTraitTests(unittest.TestCase):
                          [6, 6, 3])
         self.assertEqual(litter_size([(0, 7)] * 2, "predator"), 1)
         self.assertEqual(litter_size([(4, 3)] * 2, "predator"), math.ceil(litter_size([(4, 3)] * 2) / 2))
+
+    def test_a_struck_animal_can_defend_against_its_assailant_alongside(self):
+        grazer = self.simulation._add_agent(encode_dna("grazer", size=7, strength=7), 5, 5)
+        bystander = self.simulation._add_agent(encode_dna("predator"), 4, 5)
+        predator = self.simulation._add_agent(encode_dna("predator", size=7, strength=7, armour=7), 5, 6)
+        self.simulation._index_cells()
+        self.assertNotIn(ACTIONS.index("defend"), self.simulation._sense(grazer)[1])
+
+        self.simulation._attack(predator, grazer)
+        senses, options, situation = self.simulation._sense(grazer)
+        self.assertIn(ACTIONS.index("defend"), options)
+        self.assertIs(situation["assailant"], predator)  # not the bystander, which never struck
+        self.assertEqual(senses[SENSES.index("assailant_near")], 1)
+
+        health, hunger = predator.health, grazer.hunger
+        damage = self.simulation._damage(grazer, predator)
+        self.simulation._act(grazer, "defend", situation)
+        self.assertAlmostEqual(predator.health, health - damage)
+        self.assertGreater(grazer.hunger, hunger)  # striking back costs effort, and feeds nothing
+        self.assertEqual(grazer.last_action, "defended")
+
+    def test_a_counterblow_scales_with_size_and_strength_and_can_kill(self):
+        attacker = self.simulation._add_agent(encode_dna("predator"), 5, 5)
+        small = self.simulation._add_agent(encode_dna("grazer"), 5, 6)
+        large = self.simulation._add_agent(encode_dna("grazer", size=7, strength=7), 6, 5)
+        self.assertGreater(self.simulation._damage(large, attacker), 2 * self.simulation._damage(small, attacker))
+
+        attacker.health = 1
+        self.simulation._index_cells()
+        self.simulation._defend(large, attacker)
+        self.assertFalse(attacker.alive)
+
+    def test_the_chance_to_defend_passes_once_the_animal_has_chosen(self):
+        grazer = self.simulation._add_agent(encode_dna("grazer"), 5, 5)
+        predator = self.simulation._add_agent(encode_dna("predator", weapons=0), 5, 6)
+        self.simulation._index_cells()
+        self.simulation._attack(predator, grazer)
+        self.assertEqual(grazer.assailant, predator.identifier)
+
+        self.simulation._think(grazer)
+        self.assertIsNone(grazer.assailant)
+
+    def test_the_fearless_never_break_and_the_fearful_flee_their_assailant(self):
+        brave = self.simulation._add_agent(encode_dna("grazer", fear=0), 5, 5)
+        timid = self.simulation._add_agent(encode_dna("grazer", fear=7), 2, 2)
+        brute = self.simulation._add_agent(encode_dna("predator", weapons=0), 5, 6)
+        bully = self.simulation._add_agent(encode_dna("predator", weapons=0), 2, 3)
+        self.simulation._index_cells()
+        self.simulation._attack(brute, brave)
+        self.assertFalse(brave.panicked)
+
+        timid.health = 1  # all but dead, and fully fearful: certain to break
+        self.simulation._struck(timid, bully)
+        self.assertTrue(timid.panicked)
+        senses, options, situation = self.simulation._sense(timid)
+        self.assertIn(ACTIONS.index("defend"), options)  # it could have fought, but fear decides
+        self.simulation._think(timid)
+        self.assertEqual(timid.last_action, "panicked")
+        self.assertGreater(abs(timid.x - bully.x) + abs(timid.y - bully.y), 1)
+        self.assertFalse(timid.panicked)
+
+    def test_morale_breaks_more_often_the_more_hurt_and_afraid(self):
+        striker = self.simulation._add_agent(encode_dna("predator"), 1, 1)
+        def breaks(fear, health_share):
+            victim = self.simulation._add_agent(encode_dna("grazer", fear=fear), 3, 3)
+            victim.health = victim.max_health * health_share
+            broke = 0
+            for _ in range(2000):
+                victim.panicked = False
+                self.simulation._struck(victim, striker)
+                broke += victim.panicked
+                victim.mind["fear"] = float(fear)  # undo what panicking taught it
+            return broke / 2000
+        self.assertAlmostEqual(breaks(7, 1.0), 0.3, delta=0.04)
+        self.assertGreater(breaks(7, 0.2), 0.8)
+        self.assertLess(breaks(2, 0.2), 0.35)
+
+    def test_armed_plants_strike_back_at_browsers_and_unarmed_ones_cannot(self):
+        thorny = self.simulation._add_agent(encode_dna("plant", size=7, strength=7, weapons=7), 5, 5)
+        bare = self.simulation._add_agent(encode_dna("plant", size=7, strength=7, weapons=0), 9, 9)
+        first = self.simulation._add_agent(encode_dna("grazer"), 5, 6)
+        second = self.simulation._add_agent(encode_dna("grazer"), 9, 10)
+        self.simulation._index_cells()
+
+        self.simulation._browse(first, thorny)
+        self.simulation._browse(second, bare)
+        self.assertAlmostEqual(first.max_health - first.health, self.simulation._damage(thorny, first))
+        self.assertEqual(second.health, second.max_health)
+        self.assertEqual(thorny.last_action, "new")  # a plant has no brain to reward
+
+    def test_a_plants_thorns_come_mostly_from_its_weapons_and_never_from_strength(self):
+        grazer = self.simulation._add_agent(encode_dna("grazer"), 1, 1)
+        def thorns(**traits):
+            return self.simulation._damage(self.simulation._add_agent(encode_dna("plant", **traits), 5, 5), grazer)
+        self.assertEqual(thorns(weapons=4, strength=0), thorns(weapons=4, strength=7))
+        self.assertGreater(thorns(weapons=7, size=0), 3 * thorns(weapons=0, size=7))
+        self.assertAlmostEqual(thorns(weapons=7, size=7), 15)
+
+    def test_predators_of_another_kind_are_prey_judged_by_ring_colour(self):
+        dna = encode_dna("predator", size=3)
+        hunter = self.simulation._add_agent(dna, 1, 1)
+        near = self.simulation._add_agent(dna ^ (0x05 << 56), 2, 2)  # cyan byte off by 5: 0.5% apart
+        far = self.simulation._add_agent(dna ^ (0xFF << 56), 3, 3)   # cyan byte inverted: 25% apart
+        self.assertTrue(self.simulation._same_kind(hunter, near))
+        self.assertFalse(self.simulation._same_kind(hunter, far))
+        self.assertTrue(self.simulation._is_prey(hunter, far))
+        self.assertTrue(self.simulation._is_prey(far, hunter))  # and so each hunts, and flees, the other
+        self.simulation._index_cells()
+        self.assertIs(self.simulation._look_around(far, 5)[1], hunter)
+
+    def test_cannibalism_waits_on_hunger_past_empathy_tolerance_and_patience(self):
+        gentle = self.simulation._add_agent(encode_dna("predator", empathy=7, tolerance=7, patience=7), 1, 1)
+        ruthless = self.simulation._add_agent(encode_dna("predator", empathy=0, tolerance=0, patience=0), 2, 2)
+        middling = self.simulation._add_agent(encode_dna("predator", empathy=7, tolerance=0, patience=0), 3, 3)
+        kin = self.simulation._add_agent(gentle.dna, 4, 4)
+        for predator in (gentle, ruthless, middling):
+            predator.hunger = 50
+        self.assertFalse(self.simulation._is_prey(gentle, kin))
+        self.assertTrue(self.simulation._is_prey(ruthless, kin))
+        self.assertTrue(self.simulation._is_prey(middling, kin))  # reluctant only to a third
+        middling.hunger = 30
+        self.assertFalse(self.simulation._is_prey(middling, kin))
+        gentle.hunger = 99
+        self.assertFalse(self.simulation._is_prey(gentle, kin))  # never, short of starving to death
+
+    def test_killing_its_own_kind_pains_an_empathetic_predator_most(self):
+        dna = encode_dna("predator", empathy=7, aggression=0, strength=7, size=7)
+        hunter = self.simulation._add_agent(dna, 5, 5)
+        kin = self.simulation._add_agent(dna, 5, 6)
+        stranger = self.simulation._add_agent(dna ^ (0xFF << 56), 6, 5)
+        self.simulation._index_cells()
+        for victim in (kin, stranger):
+            hunter.reward = 0
+            self.simulation._attack(hunter, victim)
+            if victim is kin:
+                kin_pain = -hunter.reward
+        self.assertGreater(kin_pain, -hunter.reward)
+
+    def test_grass_grows_twice_as_fast_on_and_around_corpses(self):
+        corpse = self.simulation._add_agent(encode_dna("grazer"), 0, 0)
+        corpse.health = 0
+        self.simulation._die(corpse, "wounded")
+        self.simulation.grass.clear()
+        self.simulation._sow(20000)
+        around = [((dx % 12), (dy % 12)) for dx in (-1, 0, 1) for dy in (-1, 0, 1)]  # wrapping round the edge
+        fertile = sum(self.simulation.grass.get(cell, 0) for cell in around) / len(around)
+        elsewhere = (sum(self.simulation.grass.values()) - fertile * len(around)) / (144 - len(around))
+        self.assertAlmostEqual(fertile / elsewhere, 2, delta=0.35)
+
+    def test_a_predators_territory_grows_rivalrous_past_a_few_other_predators(self):
+        simulation = Simulation(width=30, height=30, population=0, seed=3)
+        predator = simulation._add_agent(encode_dna("predator", empathy=0), 15, 15)  # tolerates just one other
+        for count, x in enumerate((10, 11, 12, 18), start=1):
+            simulation._add_agent(encode_dna("predator"), x, 15)
+            simulation._add_agent(encode_dna("grazer"), x, 16)  # other animals don't count
+            simulation._index_cells()
+            self.assertAlmostEqual(simulation._rivalry(predator), max(0, count - 1) / 3)
+        simulation._add_agent(encode_dna("predator"), 15, 25)  # beyond its territory
+        simulation._index_cells()
+        self.assertEqual(simulation._rivalry(predator), 1)
+        self.assertEqual(simulation._sense(predator)[0][SENSES.index("rivalry")], 1)
+
+    def test_the_more_empathetic_a_predator_the_more_rivals_it_tolerates(self):
+        simulation = Simulation(width=30, height=30, population=0, seed=3)
+        callous = simulation._add_agent(encode_dna("predator", empathy=0), 15, 15)
+        caring = simulation._add_agent(encode_dna("predator", empathy=7), 15, 16)
+        for x in (12, 13, 17, 18):
+            simulation._add_agent(encode_dna("predator"), x, 15)
+        simulation._index_cells()
+        # each sees the other and four more: five rivals
+        self.assertEqual(simulation._rivalry(callous), 1)    # tolerates one: four too many
+        self.assertEqual(simulation._rivalry(caring), 0)     # tolerates five
+        caring.mind["empathy"] = 3.5                         # learned callousness: tolerates three
+        self.assertAlmostEqual(simulation._rivalry(caring), 2 / 3)
+
+    def test_an_overcrowded_territory_turns_even_gentle_predators_on_their_kin(self):
+        gentle = self.simulation._add_agent(encode_dna("predator", empathy=7, tolerance=7, patience=7), 1, 1)
+        kin = self.simulation._add_agent(gentle.dna, 2, 1)
+        gentle.hunger = 30
+        self.assertFalse(self.simulation._is_prey(gentle, kin))
+        gentle.rivalry = 0.8  # reluctance worn down to a fifth
+        self.assertTrue(self.simulation._is_prey(gentle, kin))
+
+    def test_crowded_territory_is_uncomfortable_and_killing_a_rival_a_relief(self):
+        hunter = self.simulation._add_agent(encode_dna("predator", strength=7, size=7, aggression=0, empathy=0),
+                                            5, 5)
+        situation = {"kin": 0, "others": 0, "threats": 0}
+        calm = self.simulation._comfort(hunter, {**situation, "rivalry": 0.0})
+        self.assertLess(self.simulation._comfort(hunter, {**situation, "rivalry": 1.0}), calm)
+
+        rival = self.simulation._add_agent(encode_dna("predator") ^ (0xFF << 56), 5, 6)
+        rival.health = 1
+        self.simulation._index_cells()
+        hunter.rivalry, hunter.reward = 1.0, 0.0
+        self.simulation._attack(hunter, rival)
+        self.assertGreater(hunter.reward, 0.4)  # all relief: it takes no joy in fighting itself
+
+    def test_grazers_get_twice_what_omnivores_do_from_grass_and_plants(self):
+        grazer = self.simulation._add_agent(encode_dna("grazer", size=7), 1, 1)
+        omnivore = self.simulation._add_agent(encode_dna("omnivore", size=7), 5, 5)
+        for animal in (grazer, omnivore):
+            self.simulation.grass[(animal.x, animal.y)] = 1
+            animal.hunger = 90
+            self.simulation._act(animal, "eat", {})
+        self.assertEqual((grazer.hunger, omnivore.hunger), (90 - 35 / 2, 90 - 35 / 2 / 2))
+
+        plant = self.simulation._add_agent(encode_dna("plant", size=7), 8, 8)
+        omnivore.x, omnivore.y, omnivore.hunger = 8, 9, 90
+        self.simulation._index_cells()
+        self.simulation._browse(omnivore, plant)
+        self.assertEqual(omnivore.hunger, 90 - 70 / 2 / 2)
 
     def test_striking_burns_food_by_the_damage_dealt(self):
         target = self.simulation._add_agent(encode_dna("grazer", size=7), 5, 5)
@@ -657,7 +871,7 @@ class NewTraitTests(unittest.TestCase):
 
     def test_a_very_old_bitzkey_dies_of_old_age(self):
         animal = self.simulation._add_agent(encode_dna("grazer", size=0), 5, 5)
-        animal.age = 10 * int(animal.lifespan)
+        animal.age = 100 * int(animal.lifespan)  # certain death
 
         self.simulation._take_turn()
         self.assertEqual((animal.alive, animal.last_action, animal.brain), (False, "old age", None))
@@ -786,6 +1000,7 @@ class NewTraitTests(unittest.TestCase):
         for x in range(0, 12, 3):
             self.simulation._add_agent(encode_dna("plant"), x, 0)
         self.simulation.population_cap = 3
+        agent.cooldown = mate.cooldown = 50  # no breeding during the recount turn
         self.simulation._take_turn()  # recounts: 2 animals, 4 plants
         self.assertEqual((self.simulation._population, self.simulation._plants), (2, 4))
         for animal, y in ((agent, 5), (mate, 6)):  # side by side again, ready to breed

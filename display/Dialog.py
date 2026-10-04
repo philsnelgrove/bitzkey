@@ -16,9 +16,18 @@ class Dialog:
     lines: list[str]
     buttons: list[tuple[str, str]]  # (choice, label), left to right; the last is the default
     cancel: str                     # the choice Esc makes
+    busy: str | None = None         # a choice under way: its button greys out and nothing can be pressed
+    caption: str | None = None      # shown beneath the dialog while busy
+
+    def start(self, choice: str, label: str, caption: str) -> None:
+        """Show that a choice is under way: relabel and grey out its button, and add a caption."""
+        self.buttons = [(name, label if name == choice else text) for name, text in self.buttons]
+        self.busy, self.caption = choice, caption
 
     def handle(self, event: pg.event.Event, size: tuple[int, int]) -> str | None:
         """Return the choice an event makes, if any."""
+        if self.busy:
+            return None
         if event.type == pg.KEYDOWN:
             if event.key == pg.K_ESCAPE:
                 return self.cancel
@@ -58,7 +67,13 @@ class Dialog:
         labels = dict(self.buttons)
         for choice, rect in layout["buttons"].items():
             default = choice == self.buttons[-1][0]
-            pg.draw.rect(screen, (131, 205, 143) if default else (44, 57, 52), rect, border_radius=UI(6))
-            text = UI.font("segoeui", 13, bold=True).render(labels[choice], True,
-                                                            (19, 26, 27) if default else (220, 229, 211))
+            if self.busy:
+                fill, ink = (52, 58, 56), (128, 138, 132) if choice == self.busy else (92, 102, 96)
+            else:
+                fill, ink = ((131, 205, 143), (19, 26, 27)) if default else ((44, 57, 52), (220, 229, 211))
+            pg.draw.rect(screen, fill, rect, border_radius=UI(6))
+            text = UI.font("segoeui", 13, bold=True).render(labels[choice], True, ink)
             screen.blit(text, text.get_rect(center=rect.center))
+        if self.busy and self.caption:
+            caption = UI.font("segoeui", 16).render(self.caption, True, (144, 170, 151))
+            screen.blit(caption, caption.get_rect(midtop=(panel.centerx, panel.bottom + UI(22))))

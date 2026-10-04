@@ -25,7 +25,7 @@ A configuration panel opens first. Set:
 - the grid width and height (10 to 250 cells)
 - the number of Bitzkeys spawned (up to 600). They appear in groups of 3 to 5
   sharing one genome, each group within two cells of a random spot.
-- the grass density: the percent of cells with grass at the start (default 5).
+- the grass density: the percent of cells with grass at the start (default 50).
   Each turn, 0.4% of that starting amount grows back, so density means the
   same at any grid size.
 - an optional random seed. The same seed replays the same world; leave it blank
@@ -35,7 +35,7 @@ A configuration panel opens first. Set:
 
 Click a row or use Up/Down to choose a setting. Adjust it with its - and +
 buttons or Left/Right (hold Shift for steps of ten), or type a number. Press
-Enter or click START to begin, or QUIT (or Esc) to leave.
+Enter or click START to begin, or QUIT (or Esc) to close the application.
 
 Launch options fill in the panel's starting values:
 
@@ -112,7 +112,9 @@ folder you can write to. The first launch takes a few seconds while it unpacks.
   were when added, brain included. The dialog can also clear the list.
 - Click a Bitzkey: inspect its genome, current state and the odds of its last choice
 - `F11`: switch between fullscreen and a window
-- `Escape`: close the colour graph; otherwise ask whether to leave the simulation
+- `Escape`: close the colour graph; otherwise ask whether to leave the simulation.
+  Leaving greys out the button ("Leaving, please be patient") while the world's
+  recorded history and brains are freed, which can take a few seconds for a long run
   and return to the configuration panel. The panel keeps its settings and import
   list, ready for a new world. Bitzkeys on the export list are lost unless
   exported first, and the dialog warns about them. Closing the window quits.
@@ -164,7 +166,7 @@ its parents', kept within 0 to 7.
 | strength | the other half of its striking force |
 | armour | the other half of its toughness, which reduces damage taken by up to 60% |
 | weapons | sharpen blows by up to 75%, and spines hurt anyone who attacks |
-| speed | cells moved per step of foraging, fleeing or exploring (1 to 4) |
+| speed | cells moved per step of foraging, fleeing or exploring (1 to 4; grazers move half as far again, rounded up: 2, 3, 5 or 6) |
 | sight | how far it sees (2 to 9 cells) |
 | fertility | high: cheap, frequent breeding and weak, hungry young; low: costly, rare breeding and well-fed young |
 | litter | young per birth: 1 to 6. A high litter trait and a small body both make litters bigger, half each, averaged over both parents, so small animals tend to have large litters and large animals small ones. Predators have half as many young, rounded up (1 to 3). Each young needs a free cell around the parent (sides first, then corners), and the litter shares the energy its parents give. |
@@ -202,7 +204,9 @@ it.
 
 ## Behaviour
 
-Grass is sown at random, and regrows each turn (see grass density above).
+Grass is sown at random, and regrows each turn (see grass density above). On and around a corpse, the
+cell it lies on and the eight cells next to it, grass grows twice as fast
+while the body remains.
 Grazers and omnivores eat grass, and browse plants; predators can do neither.
 Any animal may eat carrion.
 
@@ -215,12 +219,13 @@ neural network, and that brain chooses everything it does. Each turn it senses:
 - a willing mate beside it, and how close the nearest one in sight is
 - prey in sight, how close the nearest is, and how hard it could hit prey beside it
 - hunters in sight, how close the nearest is, and how dangerous one beside it is
+- whether the animal that just struck it is still beside it, and how hard it could strike back
 - its own kind and other species close by, and its own age
 - its current temperament
 
 It then picks one of the actions open to it: eat, forage, browse, scavenge,
-rest, court, breed, hunt, attack, flee or explore. Foraging walks toward the
-nearest grass in sight; a tuft sates 35 hunger. Browsing walks to the nearest
+rest, court, breed, hunt, attack, defend, flee or explore. Foraging walks toward the
+nearest grass in sight; a tuft sates 35 hunger. Grazers get all the food in grass and plants; omnivores, half. Browsing walks to the nearest
 plant in sight and, once alongside, takes a bite: 45 hunger, up to 70 from the
 largest plants, far more than grass. Each bite costs the plant 15 health, and
 plants regrow 2% of their health each turn. A bitten plant can't be bitten again
@@ -233,11 +238,11 @@ grow within two cells, and plants are capped at 200. Scavenging walks to the
 nearest carrion in sight and, once alongside, eats up to 25 meat; the carrion
 trait decides how much of that feeds it. Courting walks toward the nearest
 willing mate in sight, but breeding is still a separate choice once they are
-side by side. Hunting chases the nearest prey in sight. A hunter that reaches
+side by side. Hunting chases the nearest prey in sight. Omnivores prey on grazers; predators prey on grazers, omnivores and other predators. Predators whose ring colours differ by more than 5% (the mean difference of the ring's four CMYK bytes) are different kinds, and hunt one another freely. Hunting their own kind is cannibalism: a predator only sees its own kind as prey once its hunger, as a share, exceeds its reluctance, the average of its current empathy, tolerance and patience. The ruthless will eat kin at any hunger; the gentlest never will. Killing its own kind pains an empathetic predator as much as its own species' pain, rather than the reduced pain it feels for others. Predators are territorial: a predator's territory is the cells within six steps of it. How many other predators it will share that with depends on its current empathy: one for the least empathetic, rising to five for the most. Each predator beyond that raises its rivalry by a third, up to full rivalry three past its limit. A predator senses its rivalry, finds an overcrowded territory uncomfortable (less so if tolerant), and feels relief, as well as any joy in fighting, at killing another predator there. Rivalry also wears down its reluctance to turn on its own kind: in a fully overcrowded territory, even the gentlest will fight kin for the feeding ground. A hunter that reaches
 its prey pounces, striking in the same turn, and attacking strikes prey
 alongside. A kill feeds the hunter 25, plus up to 45 more for the largest prey; a blow
 that doesn't kill feeds it 5. Striking is hard work: each blow burns 0.2 food per point of damage it deals, so a heavy hitter pays more for each blow. Hunger figures for meals are for a middle-sized
-stomach: a small animal gains twice as much, a large one half. Fleeing runs from the nearest hunter
+stomach: a small animal gains twice as much, a large one half. Defending is open only to an animal struck since its last turn whose assailant is still beside it: it strikes back with the usual force of its size, strength and weapons against the assailant's size and armour. It costs effort like any blow and feeds the defender nothing, but it can kill. Fight or flight: whenever an animal is struck, by an attack or a counterblow, it checks its morale against its current fear. A fully fearful animal breaks 30% of the time when barely hurt, rising to certainty near death; the fearless never break. One that breaks loses its chance to defend: on its next turn it flees its assailant, whatever its brain would have chosen, and grows a little more fearful. Plants can't flee, so their only answer is to fight: a plant with any weapons strikes back at each animal that browses it. Its thorns come mostly from its weapons (80%) and a little from its size (20%), never its strength: at most 15 damage, less against a large or armoured browser. Fleeing runs from the nearest hunter
 in sight, and speed decides who wins a chase. Resting halves the hunger a
 Bitzkey gains that turn and heals 1.5% of its health pool, three times the usual
 rate. Both rates are scaled by metabolism, so small animals heal faster. Better-valued actions are more likely, but no choice is certain. Mind

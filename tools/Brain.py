@@ -28,9 +28,12 @@ SENSES = (
     "others_near",     # animals of other species within two cells, 0..3 scaled to 0..1
     "carrion_closeness",  # 1 when meat lies alongside, falling to 0 beyond sight; 0 when none is seen
     "plant_closeness",    # 1 when a plant stands alongside, falling to 0 beyond sight (grazers and omnivores)
+    "assailant_near",     # 1 when the animal that just struck it is still alongside
+    "counter_frailty",    # share of that assailant's health one counterblow would take
+    "rivalry",            # predators only: how overcrowded its territory is with other predators, 0..1
     "age",             # 0 at birth, 1 at 400 turns or older
 ) + MIND_TRAITS        # then its current temperament, each trait 0..7 scaled to 0..1
-ACTIONS = ("eat", "forage", "browse", "scavenge", "rest", "court", "breed", "hunt", "attack", "flee", "explore")
+ACTIONS = ("eat", "forage", "browse", "scavenge", "rest", "court", "breed", "hunt", "attack", "defend", "flee", "explore")
 INPUT_SIZE = len(SENSES)
 HIDDEN_SIZE = 12
 TEMPERATURE = 0.2
