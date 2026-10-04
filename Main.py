@@ -105,7 +105,7 @@ class BitzkeyApp:
                     elif event.key == pg.K_r:
                         self.simulation = self._new_world()
                         self.selected_id = None
-                        self.graph.select(set())
+                        self.graph.reset()
                     elif event.key == pg.K_i:
                         self.show_insights = not self.show_insights
                     elif event.key == pg.K_b:
@@ -125,9 +125,12 @@ class BitzkeyApp:
                         self._toggle_export()
                     elif event.key == pg.K_e:
                         self._open_export_dialog()
-                elif self.show_census and event.type in (pg.MOUSEBUTTONDOWN, pg.MOUSEBUTTONUP, pg.MOUSEMOTION):
+                elif self.show_census and event.type in (pg.MOUSEBUTTONDOWN, pg.MOUSEBUTTONUP, pg.MOUSEMOTION,
+                                                         pg.MOUSEWHEEL):
                     action = self.graph.handle(event)
-                    if action:
+                    if action == "seek":
+                        self._seek(self.graph.seek_turn)
+                    elif action:
                         self._export_graph(to_file=action == "save")
                 elif event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
                     self._click(event.pos)
@@ -137,6 +140,16 @@ class BitzkeyApp:
                 self.elapsed = 0
             self._draw()
             pg.display.flip()
+
+    def _seek(self, turn: int) -> None:
+        """Pause and move the world to a turn already simulated. A long replay says so first."""
+        self.playing = False
+        if self.simulation.replay_cost(turn) > 30:
+            self._say(f"Replaying to turn {turn}...")
+            self._draw()
+            pg.display.flip()
+        self.simulation.seek(turn)
+        self._say(f"Moved to turn {turn}.")
 
     def _click(self, position: tuple[int, int]) -> None:
         if self._add_button and self._add_button.collidepoint(position):
@@ -348,27 +361,30 @@ class BitzkeyApp:
         self._text("BODY", (body_x, UI(406)), (149, 170, 150), self.small)
         for index, trait in enumerate(MIND_TRAITS):
             born, now = agent.inborn[trait], agent.mind[trait]
-            color = ((175, 192, 172) if abs(now - born) < 0.5
+            color = ((175, 192, 172) if abs(now - born) < 0.25
                      else (131, 205, 143) if now > born else (238, 183, 110))
-            self._text(f"{trait:<11}{born:>3}{now:>6.1f}", (x, UI(425 + index * 18)), color, self.mono_small)
+            self._text(f"{trait:<11}{born:>3}{now:>6.1f}", (x, UI(424 + index * 16)), color, self.mono_small)
         for index, trait in enumerate(BODY_TRAITS[1:]):
-            self._text(f"{trait:<9}{agent.body[trait]:>3}", (body_x, UI(425 + index * 18)),
+            self._text(f"{trait:<9}{agent.body[trait]:>3}", (body_x, UI(424 + index * 16)),
                        (175, 192, 172), self.mono_small)
-        self._text(f"{'burn':<7}{agent.burn:>5.2f}", (body_x, UI(425 + 7 * 18)), (175, 192, 172), self.mono_small)
+        self._text(f"{'burn':<7}{agent.burn:>5.2f}", (body_x, UI(424 + 9 * 16)), (175, 192, 172), self.mono_small)
 
-        self._text(f"HUNGER  {agent.hunger:5.1f}%", (x, UI(574)), (224, 177, 118), self.mono)
-        self._bar(x, UI(594), width, agent.hunger / 100, (224, 150, 94))
-        self._text(f"HEALTH  {max(0.0, agent.health):5.1f} / {agent.max_health:.0f}", (x, UI(606)),
+        self._text(f"HUNGER  {agent.hunger:5.1f}%", (x, UI(590)), (224, 177, 118), self.mono)
+        self._bar(x, UI(609), width, agent.hunger / 100, (224, 150, 94))
+        self._text(f"HEALTH  {max(0.0, agent.health):5.1f} / {agent.max_health:.0f}", (x, UI(619)),
                    (161, 207, 162), self.mono)
-        self._bar(x, UI(626), width, agent.health / agent.max_health, (124, 190, 131))
+        self._bar(x, UI(638), width, agent.health / agent.max_health, (124, 190, 131))
         self._text(f"AGE {agent.age}    GENERATION {agent.generation}    CHILDREN {agent.children}",
-                   (x, UI(642)), (145, 164, 146), self.small)
-        self._text(f"LAST ACTION: {agent.last_action.upper()}", (x, UI(660)), (145, 164, 146), self.small)
+                   (x, UI(651)), (145, 164, 146), self.small)
+        state = f"LAST ACTION: {agent.last_action.upper()}"
+        if not agent.alive:
+            state += f"     MEAT LEFT {agent.meat:.0f}"
+        self._text(state, (x, UI(667)), (145, 164, 146), self.small)
         if agent.odds:
             odds = sorted(agent.odds.items(), key=lambda item: -item[1])[:3]
             self._text("CHANCES  " + "   ".join(f"{action} {chance:.0%}" for action, chance in odds),
-                       (x, UI(678)), (175, 192, 172), self.small)
-        self._text("C  copy as JSON      A  add to / remove from export", (x, UI(700)), (116, 139, 124), self.small)
+                       (x, UI(683)), (175, 192, 172), self.small)
+        self._text("C  copy as JSON      A  add to / remove from export", (x, UI(702)), (116, 139, 124), self.small)
         chosen = agent.identifier in self.export_list
         self._add_button = pg.Rect(x, UI(722), width, UI(30))
         pg.draw.rect(self.screen, (44, 57, 52), self._add_button, border_radius=UI(5))
@@ -393,7 +409,7 @@ class BitzkeyApp:
         for column, species in zip(columns, ANIMALS):
             self._text(species[:4].upper(), (column, UI(347)), (149, 170, 150), self.small)
         for row, action in enumerate(ACTIONS):
-            y = UI(367 + row * 19)
+            y = UI(367 + row * 17)
             self._text(action.upper(), (x, y), (149, 170, 150), self.small)
             for column, species in zip(columns, ANIMALS):
                 share, _ = insights.rate(action, species)
@@ -404,7 +420,7 @@ class BitzkeyApp:
             ("KEENEST TO BREED", insights.extremes("breed", 2, lowest=False)),
             ("LEAST KEEN TO FIGHT", insights.extremes("attack", 2, lowest=True)),
         )
-        y = 367 + len(ACTIONS) * 19 + 6
+        y = 367 + len(ACTIONS) * 17 + 6
         for title, groups in blocks:
             self._text(title, (x, UI(y)), (220, 229, 211), self.small)
             y += 19
@@ -480,7 +496,7 @@ class BitzkeyApp:
     def _draw_footer(self) -> None:
         height = self.screen.get_height()
         pg.draw.rect(self.screen, (27, 37, 37), (0, height - UI(52), self.screen.get_width(), UI(52)))
-        history = f"HISTORY  {self.simulation.history_index + 1}/{len(self.simulation.history)}"
+        history = f"HISTORY  {self.simulation.turn}/{self.simulation.frontier}"
         self._text(history, (UI(22), height - UI(36)), (158, 181, 160), self.small)
         label = UI.font("segoeui", 13, bold=True).render(f"EXPORT ALL SELECTED ({len(self.export_list)})", True,
                                                          (19, 26, 27) if self.export_list else (220, 229, 211))

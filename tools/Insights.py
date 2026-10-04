@@ -35,6 +35,9 @@ SCENARIOS = (
     ("Hungry, grass in sight",
      {"hunger": 0.6, "health": 1, "grass_seen": 1, "grass_closeness": 0.6, "age": 0.2},
      ("forage", "rest", "explore"), GRAZERS),
+    ("Hungry, carrion in sight",
+     {"hunger": 0.6, "health": 1, "carrion_closeness": 0.6, "age": 0.2},
+     ("scavenge", "rest", "explore"), ANIMALS),
     ("Peckish, prey in sight",
      {"hunger": 0.5, "health": 1, "prey_closeness": 0.6, "age": 0.2},
      ("hunt", "rest", "explore"), ("omnivore", "predator")),
@@ -55,8 +58,9 @@ SCENARIOS = (
 
 
 def band(value: float) -> str:
+    """Trait values 0-7 in three bands: low 0-2, mid 3-4, high 5-7."""
     value = round(value)
-    return "low" if value <= 4 else "mid" if value <= 10 else "high"
+    return "low" if value <= 2 else "mid" if value <= 4 else "high"
 
 
 def group_label(species: str, trait: str | None = None, level: str | None = None) -> str:
@@ -136,7 +140,7 @@ def brain_report(turn: int, animals: Iterable[Bitzkey], insights: Insights) -> s
         for animal in thinkers:
             if animal.species not in species_list:
                 continue
-            senses = make_senses(**situation, **{trait: animal.mind[trait] / 15 for trait in MIND_TRAITS})
+            senses = make_senses(**situation, **{trait: animal.feeling(trait) for trait in MIND_TRAITS})
             odds = choice_odds(animal.brain.values(senses), options)
             named = {ACTIONS[option]: chance for option, chance in odds.items()}
             for group in _groups(animal.species, animal.profile):
@@ -160,7 +164,7 @@ def brain_report(turn: int, animals: Iterable[Bitzkey], insights: Insights) -> s
             lines.append(f"  Least keen to {headline}: " + _join(ranked[:3]))
             lines.append(f"  Most keen to {headline}:  " + _join(ranked[::-1][:3]))
 
-    lines += ["", "Temperament shaped by experience (average shift from inborn values, 0..15 scale)",
+    lines += ["", "Temperament shaped by experience (average shift from inborn values, 0..7 scale)",
               "  " + " " * 10 + "".join(f"{trait[:5]:>7}" for trait in MIND_TRAITS)]
     for species in ANIMALS:
         members = [animal for animal in thinkers if animal.species == species]

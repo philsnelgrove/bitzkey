@@ -90,7 +90,7 @@ class SetupFormTests(unittest.TestCase):
         form = SetupForm(DEFAULTS)
         form.select(len(SETTINGS))
 
-        form.type_text('{"ring": "00000001", "dot": "00000000"}x')
+        form.type_text('{"version": 2, "ring": "00000001", "dot": "00000000"}x')
         form.backspace()
 
         self.assertEqual(form.values()["imported"], [Imported(1 << 32)])

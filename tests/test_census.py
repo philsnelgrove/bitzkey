@@ -53,20 +53,18 @@ class CensusTests(unittest.TestCase):
                          tuple(agent.identifier for agent in simulation.living))
         self.assertTrue(all(simulation.lineage[agent.identifier] == agent.dna for agent in simulation.agents))
 
-    def test_a_new_turn_after_rewinding_replaces_the_census_future(self):
+    def test_seeking_back_and_forth_leaves_the_census_as_recorded(self):
         simulation = Simulation(width=20, height=20, population=30, seed=4)
-        for _ in range(6):
+        for _ in range(12):
             simulation.advance()
+        recorded = list(simulation.census.snapshots)
+
+        simulation.seek(3)
+        simulation.seek(9)
         for _ in range(3):
-            simulation.rewind()
+            simulation.advance()
 
-        simulation.history = simulation.history[:simulation.history_index + 1]
-        simulation.advance()
-
-        self.assertEqual(simulation.census.snapshots[-1][0], simulation.turn)
-        self.assertEqual(simulation.census.at(simulation.turn),
-                         tuple(agent.identifier for agent in simulation.living))
-
+        self.assertEqual(simulation.census.snapshots, recorded)
 
 if __name__ == "__main__":
     unittest.main()

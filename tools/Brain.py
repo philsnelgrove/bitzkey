@@ -25,9 +25,11 @@ SENSES = (
     "threat_danger",   # share of the animal's own health the worst adjacent hunter's blow would take
     "threat_closeness",  # 1 when a hunter is adjacent, falling to 0 beyond sight; 0 when none is seen
     "kin_near",        # same-species animals within two cells, 0..3 scaled to 0..1
+    "others_near",     # animals of other species within two cells, 0..3 scaled to 0..1
+    "carrion_closeness",  # 1 when meat lies alongside, falling to 0 beyond sight; 0 when none is seen
     "age",             # 0 at birth, 1 at 400 turns or older
-) + MIND_TRAITS        # then its current temperament, each trait 0..15 scaled to 0..1
-ACTIONS = ("eat", "forage", "rest", "court", "breed", "hunt", "attack", "flee", "explore")
+) + MIND_TRAITS        # then its current temperament, each trait 0..7 scaled to 0..1
+ACTIONS = ("eat", "forage", "scavenge", "rest", "court", "breed", "hunt", "attack", "flee", "explore")
 INPUT_SIZE = len(SENSES)
 HIDDEN_SIZE = 12
 TEMPERATURE = 0.2

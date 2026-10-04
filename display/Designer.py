@@ -10,8 +10,9 @@ import pygame as pg
 from display import Window
 from display.Look import RING_WIDTH, dot_radius, draw_bitzkey
 from display.Ui import UI
-from tools.Genome import BODY_TRAITS, GENOME, MIND_TRAITS, SPECIES, WORD, body_word, decode_body, mind_word
-from tools.Simulation import Bitzkey
+from tools.Genome import (BODY_TRAITS, GENOME, MIND_TRAITS, SPECIES, TRAIT_BITS, TRAIT_MAX, WORD, body_word,
+                          decode_body, mind_word)
+from tools.Simulation import MAX_LITTER, Bitzkey
 
 FIELDS = (tuple(("mind", trait) for trait in MIND_TRAITS) + tuple(("body", trait) for trait in BODY_TRAITS)
           + (("hex", "ring"), ("hex", "dot")))
@@ -21,7 +22,8 @@ PREVIEW_ZOOM = 16  # the preview is the in-world look, this many times larger
 
 def _shift(field: tuple[str, str]) -> int:
     kind, name = field
-    return 4 * MIND_TRAITS.index(name) if kind == "mind" else 32 + 4 * BODY_TRAITS.index(name)
+    index = MIND_TRAITS.index(name) if kind == "mind" else BODY_TRAITS.index(name)
+    return TRAIT_BITS * index + (0 if kind == "mind" else 32)
 
 
 class DesignerForm:
@@ -37,12 +39,12 @@ class DesignerForm:
         return FIELDS[self.focus]
 
     def value(self, field: tuple[str, str]) -> int:
-        """A trait's four-bit value; for species, the raw value that picks it (value mod 4)."""
-        return (self.dna >> _shift(field)) & 0xF
+        """A trait's value, 0 to 7; for species, the raw value that picks it (value mod 4)."""
+        return (self.dna >> _shift(field)) & TRAIT_MAX
 
     def set_value(self, field: tuple[str, str], value: int) -> None:
         shift = _shift(field)
-        self.dna = (self.dna & ~(0xF << shift) & GENOME) | (max(0, min(15, value)) << shift)
+        self.dna = (self.dna & ~(TRAIT_MAX << shift) & GENOME) | (max(0, min(TRAIT_MAX, value)) << shift)
 
     def word(self, part: str) -> int:
         return body_word(self.dna) if part == "ring" else mind_word(self.dna)
@@ -75,20 +77,17 @@ class DesignerForm:
                 self._set_word(part, int(self.typed, 16))
                 self.typed = None
             return
-        for digit in filter(str.isdigit, text):
-            self.typed = (self.typed or "") + digit
-            self.set_value(self.focused, int(self.typed))
-            if len(self.typed) == 2:
-                self.typed = None
+        for digit in filter(str.isdigit, text):  # values are single digits, so each one replaces
+            self.set_value(self.focused, int(digit))
+            self.typed = None
 
     def backspace(self) -> None:
         kind, part = self.focused
         if kind == "hex":
             self.typed = (self.code(part))[:-1]
         else:
-            value = self.value(self.focused) // 10
-            self.set_value(self.focused, value)
-            self.typed = str(value) if value else None
+            self.set_value(self.focused, 0)
+            self.typed = None
 
     def randomise(self, rng: random.Random) -> None:
         self.dna = rng.getrandbits(64)
@@ -182,10 +181,11 @@ class Designer:
                  for index, part in enumerate(("ring", "dot"))}
         column_width = (card.right - UI(24) - (preview.right + UI(32)) - UI(24)) // 2
         rows = {}
-        for index, field in enumerate(FIELDS[:16]):
-            column, row = divmod(index, 8)
+        traits = len(MIND_TRAITS) + len(BODY_TRAITS)
+        for index, field in enumerate(FIELDS[:traits]):
+            column, row = divmod(index, len(MIND_TRAITS))
             left = preview.right + UI(32) + column * (column_width + UI(24))
-            rows[field] = pg.Rect(left, card.top + UI(124 + row * 52), column_width, UI(44))
+            rows[field] = pg.Rect(left, card.top + UI(124 + row * 50), column_width, UI(42))
         buttons = {}
         right = card.right - UI(24)
         for name, button_width in (("apply", 120), ("cancel", 120)):
@@ -262,18 +262,19 @@ class Designer:
         if species == "plant":
             facts = ["A plant: it photosynthesises and never moves,", "thinks, breeds or eats."]
         else:
-            fertility = int(body["fertility"])
+            fertility = sample.physique("fertility")
+            litter = 1 + int(body["litter"]) * (MAX_LITTER - 1) // TRAIT_MAX
             facts = [f"A {species}.  Health {sample.max_health:.0f}.  Burns {sample.burn:.2f} hunger a turn.",
-                     f"Moves {sample.steps} cell{'s' if sample.steps != 1 else ''} a step.  "
-                     f"Sees {2 + int(body['sight']) // 2} cells.",
-                     f"Breeding costs each parent {25 - fertility} hunger,",
-                     f"then {20 - fertility} turns before it can breed again."]
+                     f"Moves {sample.steps} cell{'s' if sample.steps != 1 else ''} a step.  Sees {sample.sight} cells.",
+                     f"Breeding costs each parent {25 - 15 * fertility:.0f} hunger, then",
+                     f"{round(20 - 15 * fertility)} turns to recover.  With a like partner, litters of {litter}.",
+                     f"Carrion gives it {sample.digestion:.0%} of its meat."]
         for index, fact in enumerate(facts):
             self._text(fact, (preview.left, layout["codes"]["dot"].bottom + UI(20 + index * 22)), (187, 199, 181),
                        self.small)
 
         # The trait rows: mind on the left, body on the right.
-        first_rows = (layout["rows"][FIELDS[0]], layout["rows"][FIELDS[8]])
+        first_rows = (layout["rows"][FIELDS[0]], layout["rows"][FIELDS[len(MIND_TRAITS)]])
         for row, heading in zip(first_rows, ("MIND  /  INNER DOT", "BODY  /  OUTER RING")):
             self._text(heading, (row.left, row.top - UI(28)), (220, 229, 211), self.font)
         for field, row in layout["rows"].items():
@@ -298,7 +299,8 @@ class Designer:
         self._text(field[1], (row.left + UI(12), row.top + UI(6)), (232, 236, 219), self.font)
         meter = pg.Rect(row.left + UI(12), row.bottom - UI(11), minus.left - row.left - UI(28), UI(4))
         pg.draw.rect(self.screen, (44, 57, 52), meter)
-        pg.draw.rect(self.screen, (131, 205, 143), (meter.left, meter.top, round(meter.width * value / 15), meter.height))
+        pg.draw.rect(self.screen, (131, 205, 143),
+                     (meter.left, meter.top, round(meter.width * value / TRAIT_MAX), meter.height))
         for button, sign in ((minus, "-"), (plus, "+")):
             pg.draw.rect(self.screen, (44, 57, 52), button, border_radius=UI(4))
             label = self.bold.render(sign, True, (220, 229, 211))

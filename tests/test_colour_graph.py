@@ -2,7 +2,9 @@ import unittest
 
 import pygame as pg
 
-from display.ColourGraph import BAR_PIXELS, Bar, bitzkey_at, bitzkeys_in, build_bars, nice_ceiling, updated
+from display.ColourGraph import (BAR_PIXELS, MIN_VIEW, Bar, ColourGraph, bitzkey_at, bitzkeys_in, build_bars,
+                                 nice_ceiling, updated)
+from display.Ui import UI
 from tools.Simulation import Simulation
 
 
@@ -66,6 +68,79 @@ class PickingTests(unittest.TestCase):
 
     def test_chart_tops_at_a_round_number(self):
         self.assertEqual([nice_ceiling(value) for value in (0, 1, 3, 7, 12, 260)], [1, 1, 5, 10, 20, 500])
+
+
+class TimeTravelTests(unittest.TestCase):
+    def setUp(self):
+        pg.font.init()
+        UI.fit((1200, 820))
+        self.simulation = Simulation(width=30, height=30, population=30, seed=6)
+        for _ in range(100):
+            self.simulation.advance()
+        self.graph = ColourGraph()
+        self.graph._size = (1200, 820)
+        self.graph._now, self.graph._frontier = self.simulation.turn, self.simulation.frontier
+        layout = self.graph.layout()
+        self.chart, self.timeline = layout["chart"], layout["timeline"]
+
+    def click(self, kind, x, y, button=1):
+        return self.graph.handle(pg.event.Event(kind, pos=(x, y), button=button))
+
+    def test_dragging_the_timeline_seeks_where_it_is_let_go(self):
+        y = self.timeline.centery
+        self.click(pg.MOUSEBUTTONDOWN, self.chart.left + 5, y)
+        self.graph.handle(pg.event.Event(pg.MOUSEMOTION, pos=(self.chart.centerx, y), rel=(0, 0), buttons=(1, 0, 0)))
+        action = self.click(pg.MOUSEBUTTONUP, self.chart.centerx, y)
+
+        self.assertEqual(action, "seek")
+        self.assertEqual(self.graph.seek_turn, self.graph.turn_at(self.chart.centerx))
+        self.assertAlmostEqual(self.graph.seek_turn, 50, delta=1)
+
+    def test_right_clicking_the_graph_seeks_that_turn(self):
+        self.assertEqual(self.click(pg.MOUSEBUTTONDOWN, self.chart.left + 1, self.chart.centery, button=3), "seek")
+        self.assertEqual(self.graph.seek_turn, 0)
+
+    def test_the_wheel_zooms_around_the_cursor_and_back_out_to_the_whole_run(self):
+        x = self.graph.x_of(80)
+        self.graph.zoom(3, x)
+        first, last = self.graph.window()
+        self.assertLess(last - first + 1, 101)
+        self.assertLessEqual(first, 80)
+        self.assertGreaterEqual(last, 80)
+        self.assertAlmostEqual(self.graph.turn_at(x), 80, delta=1)
+
+        self.graph.zoom(40, x)
+        self.assertEqual(self.graph.window()[1] - self.graph.window()[0] + 1, MIN_VIEW)
+        self.graph.zoom(-60, x)
+        self.assertIsNone(self.graph.view)
+        self.assertEqual(self.graph.window(), (0, 100))
+
+    def test_panning_slides_a_zoomed_view_within_the_run(self):
+        self.graph.zoom(5, self.graph.x_of(50))
+        first, last = self.graph.window()
+
+        self.graph.pan(1)
+        self.assertGreater(self.graph.window()[0], first)
+        self.graph.pan(-1000)
+        self.assertEqual(self.graph.window()[0], 0)
+        self.assertEqual(self.graph.window()[1] - self.graph.window()[0], last - first)
+
+    def test_after_rewinding_the_later_turns_show_as_the_future(self):
+        self.simulation.seek(40)
+
+        bars, _ = build_bars(self.simulation, "ring", CHART)
+
+        present = next(bar for bar in bars if bar.turn >= 40)
+        self.assertEqual(sorted(identifier for identifier, _, _ in present.slices),
+                         sorted(agent.identifier for agent in self.simulation.living))
+        self.assertTrue(all(bar.future for bar in bars if bar.turn > present.turn))
+        self.assertFalse(any(bar.future for bar in bars if bar.turn <= present.turn))
+        self.assertEqual(bars[-1].turn, 100)
+
+    def test_a_zoomed_graph_draws_only_the_turns_in_view(self):
+        bars, _ = build_bars(self.simulation, "ring", CHART, 20, 29)
+
+        self.assertEqual([bar.turn for bar in bars], list(range(20, 30)))
 
 
 if __name__ == "__main__":

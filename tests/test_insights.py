@@ -21,7 +21,7 @@ class InsightsTests(unittest.TestCase):
     def test_extremes_rank_trait_groups(self):
         insights = Insights()
         for _ in range(10):
-            insights.record("grazer", profile(libido=14.6), ("breed", "rest"), "breed")
+            insights.record("grazer", profile(libido=6.6), ("breed", "rest"), "breed")
             insights.record("grazer", profile(), ("breed", "rest"), "rest")
 
         self.assertEqual(insights.extremes("breed", 1, lowest=True)[0][:2], ("low-libido grazers", 0.0))
