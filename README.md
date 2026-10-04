@@ -234,11 +234,13 @@ neural network, and that brain chooses everything it does. Each turn it senses:
 - prey in sight, how close the nearest is, and how hard it could hit prey beside it
 - hunters in sight, how close the nearest is, and how dangerous one beside it is
 - whether the animal that just struck it is still beside it, and how hard it could strike back
+- its herd: how many herd-mates are close by, how near it is to the herd's middle,
+  and whether a herd-mate close by has just been struck
 - its own kind and other species close by, and its own age
 - its current temperament
 
 It then picks one of the actions open to it: eat, forage, browse, scavenge,
-rest, court, breed, hunt, attack, defend, flee or explore. Foraging walks toward the
+rest, court, breed, hunt, attack, defend, flee, herd or explore. Foraging walks toward the
 nearest grass in sight; a tuft sates 35 hunger. Grazers get all the food in grass and plants; omnivores, half. Browsing walks to the nearest
 plant in sight and, once alongside, takes a bite: 45 hunger, up to 70 from the
 largest plants, far more than grass. Each bite costs the plant 15 health, and
@@ -285,6 +287,33 @@ up to 50 more for the largest. A starved body leaves nothing, and a killed one
 half, as the killer has already eaten. The meat rots away over the 30 turns
 before the corpse fades. Brains, temperament, learning and statistics are all
 part of turn history, so rewind and replay are exact.
+
+### Herds and Packs
+
+Grazers, omnivores and predators can all herd. An animal's herd instinct is the
+lower of its current empathy and patience, so only animals high in both herd
+strongly, and every herd effect scales smoothly with it. Its herd-mates are
+animals of its own species that it would accept as mates, so tolerant animals
+herd with other kinds of their species. Predators only form packs with their
+own kind. Herd-mates are sought within four cells.
+
+- Herding: the herd action moves an animal toward the middle of its herd-mates
+  in range. The brain learns when to use it.
+- Comfort: a herd animal enjoys having herd-mates close by, and is uneasy with
+  none in range.
+- Safety in numbers: herd-mates close by calm its fear of hunters and steady its
+  morale. With three close by, a full-instinct animal is 60% less likely to break.
+- Alarm: when a herd-mate within two cells is struck, the animal senses the alarm,
+  and may flee whatever struck it even if it can't see a hunter of its own.
+- Mutual defence: a herd-mate beside the attacker may defend the struck animal,
+  striking back as if it had been struck itself, and enjoys defending its herd.
+- Packs: a hunter strikes prey half as hard again, at full instinct, when a
+  pack-mate is also beside the prey.
+
+Herding never overrides territory. Pack-mates still count as rivals, so a pack
+bigger than a predator will tolerate still crowds it, and still wears down its
+reluctance to turn on its own kind. Herding never spares prey either: a predator
+still hunts other predator kinds and omnivores as before.
 
 ## Colour Graph
 

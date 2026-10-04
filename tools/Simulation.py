@@ -10,7 +10,7 @@ from dataclasses import dataclass, field, replace
 from functools import cached_property
 
 from tools.Brain import ACTIONS, SENSES, Brain, choice_odds, make_senses
-from tools.Genome import (GENOME, MIND_TRAITS, SPECIES, TRAIT_MAX, body_word, color_from_word, cross, dot_difference, inherit_mind, ring_difference,
+from tools.Genome import (GENOME, MIND_TRAITS, SPECIES, TRAIT_MAX, body_word, color_from_word, cross, inherit_mind,
                           BODY_MUTATION_CHANCE, MIND_MUTATION_CHANCE,
                           decode_body, decode_mind, make_dna, mind_word, share)
 from tools.Census import Census
@@ -72,6 +72,15 @@ TERRITORY = {
 TERRITORY_RAMP = 3     # each rival past that limit adds a third of the species' strength to rivalry
 RIVAL_UNEASE = 0.3     # discomfort of a fully overcrowded territory, less for the tolerant
 RIVAL_KILL_JOY = 1.0   # relief at killing a predator in an overcrowded territory
+# Herding: an animal's herd instinct is the lower of its current empathy and patience, 0..1, and
+# scales every effect below. Its herd-mates are animals of its species, and for predators its kind,
+# that it would accept as mates (tolerance widens that).
+HERD_RADIUS = 4        # herd-mates are sought within this many steps
+HERD_JOY = 0.15        # pleasure of being among three or more herd-mates
+HERD_LONELINESS = 0.1  # unease at having no herd-mate in range
+HERD_SAFETY = 0.6      # how much three herd-mates close by calm fear and steady morale
+HERD_DEFEND_JOY = 0.5  # pleasure of striking back at whatever struck a herd-mate alongside
+PACK_BONUS = 0.5       # extra force of a blow at prey that a herd-mate is also alongside
 KIND_DIFFERENCE = 0.05  # predators whose ring colours differ by more than this are different kinds, and prey
 STRIKE_EFFORT = 0.2    # food burned for each point of damage a blow deals
 PREDATOR_LITTERS = 0.5  # predators' litters are this share of the usual size, rounded up
@@ -146,6 +155,8 @@ class Bitzkey:
     panicked: bool = False  # failed a morale check when struck, so it will flee its assailant
     rivalry: float = 0.0    # hunters: how overcrowded its territory was with rivals when it last looked
     own_rivalry: float = 0.0  # the same, counting only its own species: what wears down its reluctance
+    alarm: int | None = None  # what struck a herd-mate close by since it last acted
+    herd_assailant: int | None = None  # what struck a herd-mate close by, from alongside it: it may defend against it
     meat: float = 0.0  # a corpse's meat left for scavengers
     rot: float = 0.0   # meat lost to rot each turn
     # Current temperament: starts at the inborn values and is reshaped by experience.
@@ -169,6 +180,17 @@ class Bitzkey:
     def body(self) -> dict[str, int | str]:
         return decode_body(self.dna)
 
+    @cached_property
+    def colour_bytes(self) -> tuple[tuple[int, ...], tuple[int, ...]]:
+        """Its ring's and dot's four CMYK bytes, for quick comparisons of looks."""
+        return tuple(tuple((word >> shift) & 0xFF for shift in (24, 16, 8, 0))
+                     for word in (body_word(self.dna), self.dna & 0xFFFFFFFF))
+
+    def looks_apart(self, other: Bitzkey) -> tuple[float, float]:
+        """How far its ring and dot colours are from another's, each from 0 to 1."""
+        return tuple(sum(abs(a - b) for a, b in zip(mine, theirs)) / (4 * 255)
+                     for mine, theirs in zip(self.colour_bytes, other.colour_bytes))
+
     @property
     def species(self) -> str:
         return str(self.body["species"])
@@ -182,6 +204,11 @@ class Bitzkey:
     def physique(self, trait: str) -> float:
         """A body trait as a share of its full range."""
         return share(int(self.body[trait]))
+
+    @property
+    def herd_instinct(self) -> float:
+        """How strongly it herds: the lower of its current empathy and patience, 0 to 1."""
+        return min(self.feeling("empathy"), self.feeling("patience"))
 
     def feeling(self, trait: str) -> float:
         """A temperament trait, as it is now, as a share of its full range."""
@@ -626,6 +653,7 @@ class Simulation:
         agent.reward = 0.0
         agent.assailant = None  # the chance to strike back, or need to flee, passes with this turn's choice
         agent.panicked = False
+        agent.alarm = agent.herd_assailant = None
         self._act(agent, action, situation)
 
     def _sense(self, agent: Bitzkey) -> tuple[list[float], list[int], dict]:
@@ -648,6 +676,14 @@ class Simulation:
         carrion = self._nearest_carrion(agent, sight)
         quarry, hunter, suitor, flora = self._look_around(agent, sight)
         assailant = next((other for other in neighbors if other.identifier == agent.assailant), None)
+        herd_assailant = next((other for other in neighbors if other.identifier == agent.herd_assailant), None)
+        defend_target = assailant or herd_assailant
+        herd, herd_near, herd_middle = self._herd(agent)
+        alarm_source = None
+        if agent.alarm is not None:
+            alarm_source = next((other for other in self._nearby(agent, 3) if other.identifier == agent.alarm), None)
+            if hunter is None and alarm_source is not None:
+                hunter = alarm_source  # the herd's alarm: flight from whatever struck a herd-mate
 
         available = {"rest", "explore"}
         if grass_here:
@@ -669,8 +705,10 @@ class Simulation:
             available.add("attack")
         if hunter:
             available.add("flee")
-        if assailant:
+        if defend_target:
             available.add("defend")
+        if herd_middle is not None and herd_middle != (agent.x, agent.y):
+            available.add("herd")
 
         senses = make_senses(
             hunger=min(1.0, agent.hunger / 100),
@@ -693,14 +731,20 @@ class Simulation:
             plant_closeness=self._closeness(agent, flora and (flora.x, flora.y), sight),
             assailant_near=float(assailant is not None),
             rivalry=agent.rivalry,
-            counter_frailty=0.0 if assailant is None else min(1.0, self._damage(agent, assailant) / assailant.health),
+            counter_frailty=(0.0 if defend_target is None
+                             else min(1.0, self._damage(agent, defend_target) / defend_target.health)),
+            herd_near=min(3, herd_near) / 3,
+            herd_closeness=(0.0 if herd_middle is None else
+                            max(0.0, 1 - (abs(herd_middle[0] - agent.x) + abs(herd_middle[1] - agent.y)) / HERD_RADIUS)),
+            alarm=float(agent.alarm is not None),
             age=min(1.0, agent.age / 400),
             **{trait: agent.feeling(trait) for trait in MIND_TRAITS},
         )
         situation = {"mate": mate, "nurseries": nurseries, "prey": target, "threat": threat,
                      "threats": len(threats), "quarry": quarry, "hunter": hunter, "suitor": suitor,
                      "grass": grass, "grass_here": grass_here, "carrion": carrion, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
-                     "others": others}
+                     "others": others, "defend_target": defend_target, "for_herd": assailant is None,
+                     "herd": herd, "herd_near": herd_near, "herd_middle": herd_middle}
         return senses, [ACTIONS.index(action) for action in ACTIONS if action in available], situation
 
     def _wellbeing(self, agent: Bitzkey) -> float:
@@ -712,15 +756,22 @@ class Simulation:
     @staticmethod
     def _comfort(agent: Bitzkey, situation: dict) -> float:
         """Company pleases the sociable, and the tolerant count other species as company.
-        Hunters close by frighten the fearful, less so the tolerant; the intolerant are
-        uneasy around anything unlike them."""
+        Hunters close by frighten the fearful, less so the tolerant and those among their herd; the
+        intolerant are uneasy around anything unlike them. Herd animals enjoy their herd's company
+        and are uneasy with none of it in range."""
         tolerance = agent.feeling("tolerance")
+        instinct = agent.herd_instinct
+        herd_near = min(3, situation.get("herd_near", 0)) / 3
         company_around = min(3.0, situation["kin"] + tolerance * situation["others"])
         company = COMPANY_JOY * agent.feeling("sociability") * company_around / 3
-        dread = FEAR_DREAD * agent.feeling("fear") * (1 - 0.5 * tolerance) * min(2, situation["threats"]) / 2
+        dread = (FEAR_DREAD * agent.feeling("fear") * (1 - 0.5 * tolerance) * min(2, situation["threats"]) / 2
+                 * (1 - HERD_SAFETY * instinct * herd_near))
         unease = UNEASE * (1 - tolerance) * min(3, situation["others"]) / 3
         crowded = RIVAL_UNEASE * (1 - 0.5 * tolerance) * situation.get("rivalry", 0.0)
-        return company - dread - unease - crowded
+        herding = HERD_JOY * instinct * herd_near
+        if not situation.get("herd", True):
+            herding -= HERD_LONELINESS * instinct
+        return company - dread - unease - crowded + herding
 
     def _learn(self, agent: Bitzkey, target: float) -> None:
         agent.brain.learn(agent.last_senses, agent.last_choice, target, LEARNING_RATE * agent.feeling("intellect"))
@@ -797,7 +848,10 @@ class Simulation:
         elif action == "attack":
             self._attack(agent, situation["prey"])
         elif action == "defend":
-            self._defend(agent, situation["assailant"])
+            self._defend(agent, situation["defend_target"], for_herd=situation["for_herd"])
+        elif action == "herd":
+            self._move_toward(agent, *situation["herd_middle"])
+            agent.last_action = "herded"
         elif action == "flee":
             self._move_away(agent, situation["hunter"])
             agent.last_action = "panicked" if situation.get("panic") else "fled"
@@ -853,6 +907,8 @@ class Simulation:
         empathy = agent.feeling("empathy")
         joy = FIGHT_JOY * agent.feeling("aggression") * (1 - 0.6 * empathy) * (1 - 0.75 * agent.feeling("tolerance"))
         damage = self._damage(agent, victim)
+        if any(self._herd_mate(agent, other) for other in self._nearby(victim, 1) if other is not agent):
+            damage *= 1 + PACK_BONUS * agent.herd_instinct  # hunting as a pack
         victim.health -= damage
         agent.nourish(5)
         agent.hunger += STRIKE_EFFORT * damage / agent.stomach  # the harder the blow, the more it costs
@@ -888,17 +944,20 @@ class Simulation:
             if not agent.alive:
                 self._die(agent, "killed")
 
-    def _defend(self, agent: Bitzkey, assailant: Bitzkey) -> None:
-        """Strike back at the animal that just struck it, or, for a plant, browsed it, with the
-        usual force of might and weapons against the assailant's toughness. The blow costs effort
-        like any other, and feeds the defender nothing, but it can kill, and a struck assailant
-        must check its own morale."""
+    def _defend(self, agent: Bitzkey, assailant: Bitzkey, for_herd: bool = False) -> None:
+        """Strike back at the animal that just struck it, or a herd-mate alongside it, or, for a
+        plant, browsed it, with the usual force of might and weapons against the assailant's
+        toughness. The blow costs effort like any other, and feeds the defender nothing, but it
+        can kill, and a struck assailant must check its own morale. Defending its herd pleases a
+        herd animal."""
         damage = self._damage(agent, assailant)
         assailant.health -= damage
         agent.hunger += STRIKE_EFFORT * damage / agent.stomach
         self._experience(assailant, "stung")
         if agent.species != "plant":
             agent.reward += FIGHT_JOY * agent.feeling("aggression") * (1 - 0.6 * agent.feeling("empathy"))
+            if for_herd:
+                agent.reward += HERD_DEFEND_JOY * agent.herd_instinct
             agent.last_action = "defended"
             self._experience(agent, "defended")
         if not assailant.alive:
@@ -908,11 +967,23 @@ class Simulation:
 
     def _struck(self, victim: Bitzkey, striker: Bitzkey) -> None:
         """A struck animal may strike back on its next turn, unless it fails a morale check
-        against its current fear, more likely the more hurt it is, and so must flee instead."""
+        against its current fear, more likely the more hurt it is and less among its herd, and so
+        must flee instead. Its herd-mates close by are alarmed, and those alongside the striker may
+        defend it."""
         victim.assailant = striker.identifier
+        herd_near = 0
+        for other in self._nearby(victim, 2):
+            if other is striker or other.brain is None:
+                continue
+            herd_near += self._herd_mate(victim, other)
+            if self._herd_mate(other, victim):
+                other.alarm = striker.identifier
+                if abs(other.x - striker.x) + abs(other.y - striker.y) <= 1:
+                    other.herd_assailant = striker.identifier
         unhurt, dying = PANIC
         hurt = 1 - max(0.0, victim.health) / victim.max_health
-        if self.random.random() < victim.feeling("fear") * (unhurt + (dying - unhurt) * hurt):
+        steadied = 1 - HERD_SAFETY * victim.herd_instinct * min(3, herd_near) / 3
+        if self.random.random() < victim.feeling("fear") * (unhurt + (dying - unhurt) * hurt) * steadied:
             victim.panicked = True
             self._experience(victim, "panicked")
 
@@ -1073,14 +1144,15 @@ class Simulation:
         """Whether an animal would breed with another: it shuns a partner whose ring or dot
         colour differs from its own by more than it accepts, which its tolerance widens."""
         tolerance = agent.feeling("tolerance")
-        return (ring_difference(agent.dna, other.dna) <= MATE_RING_DIFFERENCE + (1 - MATE_RING_DIFFERENCE) * tolerance
-                and dot_difference(agent.dna, other.dna) <= MATE_DOT_DIFFERENCE + (1 - MATE_DOT_DIFFERENCE) * tolerance)
+        ring, dot = agent.looks_apart(other)
+        return (ring <= MATE_RING_DIFFERENCE + (1 - MATE_RING_DIFFERENCE) * tolerance
+                and dot <= MATE_DOT_DIFFERENCE + (1 - MATE_DOT_DIFFERENCE) * tolerance)
 
     @staticmethod
     def _same_kind(first: Bitzkey, second: Bitzkey) -> bool:
         """Of one kind: the same species, and, for predators, ring colours within KIND_DIFFERENCE."""
         return first.species == second.species and (
-            first.species != "predator" or ring_difference(first.dna, second.dna) <= KIND_DIFFERENCE)
+            first.species != "predator" or first.looks_apart(second)[0] <= KIND_DIFFERENCE)
 
     @staticmethod
     def cannibal_reluctance(predator: Bitzkey) -> float:
@@ -1100,6 +1172,22 @@ class Simulation:
                 return 1.0
             return 1 - hunter.feeling("empathy") if other.species == "predator" else 0.0
         return 0.0
+
+    def _herd_mate(self, agent: Bitzkey, other: Bitzkey) -> bool:
+        """Whether an animal counts another as one of its herd: its species, and its kind for a
+        predator, alive, and close enough in looks for it to accept as a mate."""
+        return (other is not agent and other.alive and agent.species != "plant" and other.species == agent.species
+                and (agent.species != "predator" or self._same_kind(agent, other)) and self._willing(agent, other))
+
+    def _herd(self, agent: Bitzkey) -> tuple[bool, int, tuple[int, int] | None]:
+        """Its herd: whether any herd-mate is within HERD_RADIUS, how many are within two
+        cells, and the cell at the middle of those in range."""
+        mates = [other for other in self._nearby(agent, HERD_RADIUS) if self._herd_mate(agent, other)]
+        if not mates:
+            return False, 0, None
+        close = sum(abs(other.x - agent.x) + abs(other.y - agent.y) <= 2 for other in mates)
+        middle = (round(sum(other.x for other in mates) / len(mates)), round(sum(other.y for other in mates) / len(mates)))
+        return True, close, middle
 
     def _territory(self, hunter: Bitzkey) -> tuple[float, float]:
         """How overcrowded a hunter's territory is, with all its rivals and with its own species

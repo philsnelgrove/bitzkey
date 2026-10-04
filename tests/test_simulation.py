@@ -833,6 +833,118 @@ class NewTraitTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             Simulation(width=12, height=12, population=0, mind_mutation=101)
 
+    def test_herd_instinct_is_the_lower_of_empathy_and_patience(self):
+        animal = self.simulation._add_agent(encode_dna("grazer", empathy=7, patience=2), 1, 1)
+        self.assertAlmostEqual(animal.herd_instinct, 2 / 7)
+        animal.mind["patience"] = 7.0
+        self.assertEqual(animal.herd_instinct, 1)
+
+    def test_herd_mates_are_its_species_and_kind_that_it_would_accept_as_mates(self):
+        dna = encode_dna("grazer", empathy=7, patience=7)
+        animal = self.simulation._add_agent(dna, 5, 5)
+        mate = self.simulation._add_agent(dna, 5, 7)
+        stranger = self.simulation._add_agent(dna ^ (0xFF << 56), 7, 5)  # ring 25% apart
+        omnivore = self.simulation._add_agent(encode_dna("omnivore", empathy=7, patience=7), 3, 5)
+        self.assertTrue(self.simulation._herd_mate(animal, mate))
+        self.assertFalse(self.simulation._herd_mate(animal, stranger))
+        self.assertFalse(self.simulation._herd_mate(animal, omnivore))
+        animal.mind["tolerance"] = 7.0  # the tolerant herd with other kinds of their species
+        self.assertTrue(self.simulation._herd_mate(animal, stranger))
+        predator = self.simulation._add_agent(encode_dna("predator", tolerance=7), 9, 9)
+        other_kind = self.simulation._add_agent(encode_dna("predator", tolerance=7) ^ (0xFF << 56), 9, 10)
+        self.assertFalse(self.simulation._herd_mate(predator, other_kind))  # packs keep to their kind
+
+    def test_the_herd_action_moves_toward_the_middle_of_the_herd(self):
+        dna = encode_dna("grazer", empathy=7, patience=7)
+        animal = self.simulation._add_agent(dna, 2, 5)
+        for x, y in ((5, 4), (5, 6), (6, 5)):
+            self.simulation._add_agent(dna, x, y)
+        self.simulation._index_cells()
+        senses, options, situation = self.simulation._sense(animal)
+        self.assertIn(ACTIONS.index("herd"), options)
+        self.assertEqual(situation["herd_middle"], (5, 5))
+        self.simulation._act(animal, "herd", situation)
+        self.assertEqual((animal.x, animal.y, animal.last_action), (4, 5, "herded"))  # two cells a step
+
+    def test_herd_animals_enjoy_their_herd_and_feel_its_absence(self):
+        herder = self.simulation._add_agent(encode_dna("grazer", empathy=7, patience=7), 1, 1)
+        loner = self.simulation._add_agent(encode_dna("grazer", empathy=0, patience=7), 3, 3)
+        among = {"kin": 0, "others": 0, "threats": 0, "herd": True, "herd_near": 3}
+        alone = {**among, "herd": False, "herd_near": 0}
+        self.assertGreater(self.simulation._comfort(herder, among), self.simulation._comfort(herder, alone))
+        self.assertLess(self.simulation._comfort(herder, alone), 0)
+        self.assertEqual(self.simulation._comfort(loner, among), self.simulation._comfort(loner, alone))
+
+    def test_a_herd_calms_fear_of_hunters(self):
+        herder = self.simulation._add_agent(encode_dna("grazer", empathy=7, patience=7, fear=7), 1, 1)
+        threatened = {"kin": 0, "others": 0, "threats": 2, "herd": True}
+        self.assertGreater(self.simulation._comfort(herder, {**threatened, "herd_near": 3}),
+                           self.simulation._comfort(herder, {**threatened, "herd_near": 0}))
+
+    def test_a_herd_steadies_morale(self):
+        simulation = Simulation(width=30, height=30, population=0, seed=3)
+        dna = encode_dna("grazer", empathy=7, patience=7, fear=7)
+        striker = simulation._add_agent(encode_dna("predator"), 20, 20)
+        alone = simulation._add_agent(dna, 5, 5)
+        herded = simulation._add_agent(dna, 15, 15)
+        for x, y in ((14, 15), (16, 15), (15, 16)):
+            simulation._add_agent(dna, x, y)
+        simulation._index_cells()
+        def breaks(victim):
+            broke = 0
+            for _ in range(2000):
+                victim.panicked = False
+                simulation._struck(victim, striker)
+                broke += victim.panicked
+                victim.mind["fear"] = 7.0
+            return broke / 2000
+        self.assertAlmostEqual(breaks(alone), 0.3, delta=0.04)
+        self.assertAlmostEqual(breaks(herded), 0.3 * (1 - 0.6), delta=0.04)
+
+    def test_striking_a_herd_mate_alarms_the_herd_and_rouses_those_beside_the_attacker_to_defend(self):
+        dna = encode_dna("grazer", empathy=7, patience=7, sight=7)
+        victim = self.simulation._add_agent(dna, 5, 5)
+        beside = self.simulation._add_agent(dna, 6, 6)  # alongside the attacker, two cells from the victim
+        near = self.simulation._add_agent(dna, 3, 5)
+        far = self.simulation._add_agent(dna, 9, 9)
+        predator = self.simulation._add_agent(encode_dna("predator", weapons=0), 6, 5)
+        self.simulation._index_cells()
+        self.simulation._attack(predator, victim)
+        self.assertEqual((beside.alarm, near.alarm, far.alarm), (predator.identifier, predator.identifier, None))
+        self.assertEqual((beside.herd_assailant, near.herd_assailant), (predator.identifier, None))
+
+        senses, options, situation = self.simulation._sense(beside)
+        self.assertEqual(senses[SENSES.index("alarm")], 1)
+        self.assertIn(ACTIONS.index("defend"), options)
+        beside.reward = 0
+        self.simulation._act(beside, "defend", situation)
+        self.assertGreater(beside.reward, 0.4)  # defending its herd pleases it
+        senses, options, situation = self.simulation._sense(near)
+        self.assertIn(ACTIONS.index("flee"), options)  # the alarm: flight from the attacker
+        self.assertIs(situation["hunter"], predator)
+        self.simulation._think(near)
+        self.assertIsNone(near.alarm)
+
+    def test_a_pack_strikes_harder_but_still_counts_as_rivals(self):
+        simulation = Simulation(width=30, height=30, population=0, seed=3)
+        dna = encode_dna("predator", empathy=7, patience=7)
+        hunter = simulation._add_agent(dna, 10, 10)
+        prey = simulation._add_agent(encode_dna("grazer", size=7), 10, 11)
+        simulation._index_cells()
+        alone = simulation._damage(hunter, prey)
+        prey.health = prey.max_health
+        simulation._attack(hunter, prey)
+        self.assertAlmostEqual(prey.max_health - prey.health, alone)
+        simulation._add_agent(dna, 11, 11)  # a pack-mate alongside the prey
+        simulation._index_cells()
+        prey.health = prey.max_health
+        simulation._attack(hunter, prey)
+        self.assertAlmostEqual(prey.max_health - prey.health, alone * 1.5)
+        for x in range(4, 9):
+            simulation._add_agent(dna, x, 10)
+        simulation._index_cells()
+        self.assertGreater(simulation._territory(hunter)[1], 0)  # an overgrown pack still crowds it
+
     def test_striking_burns_food_by_the_damage_dealt(self):
         target = self.simulation._add_agent(encode_dna("grazer", size=7), 5, 5)
         weak = self.simulation._add_agent(encode_dna("predator"), 5, 6)
