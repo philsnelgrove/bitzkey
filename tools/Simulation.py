@@ -76,6 +76,7 @@ RIVAL_KILL_JOY = 1.0   # relief at killing a predator in an overcrowded territor
 # scales every effect below. Its herd-mates are animals of its species, and for predators its kind,
 # that it would accept as mates (tolerance widens that).
 HERD_RADIUS = 4        # herd-mates are sought within this many steps
+HERD_SPREAD = 3        # how far from its herd's middle a fearless animal is content; the fearful want the middle
 HERD_JOY = 0.15        # pleasure of being among three or more herd-mates
 HERD_LONELINESS = 0.1  # unease at having no herd-mate in range
 HERD_SAFETY = 0.6      # how much three herd-mates close by calm fear and steady morale
@@ -707,8 +708,9 @@ class Simulation:
             available.add("flee")
         if defend_target:
             available.add("defend")
-        if herd_middle is not None and herd_middle != (agent.x, agent.y):
-            available.add("herd")
+        if herd_middle is not None and (abs(herd_middle[0] - agent.x) + abs(herd_middle[1] - agent.y)
+                                        > HERD_SPREAD * (1 - agent.feeling("fear"))):
+            available.add("herd")  # the more fearful it is, the closer it keeps to the herd's middle
 
         senses = make_senses(
             hunger=min(1.0, agent.hunger / 100),
@@ -758,7 +760,7 @@ class Simulation:
         """Company pleases the sociable, and the tolerant count other species as company.
         Hunters close by frighten the fearful, less so the tolerant and those among their herd; the
         intolerant are uneasy around anything unlike them. Herd animals enjoy their herd's company
-        and are uneasy with none of it in range."""
+        and are uneasy with none of it in range, the more so the more fearful they are."""
         tolerance = agent.feeling("tolerance")
         instinct = agent.herd_instinct
         herd_near = min(3, situation.get("herd_near", 0)) / 3
@@ -771,6 +773,7 @@ class Simulation:
         herding = HERD_JOY * instinct * herd_near
         if not situation.get("herd", True):
             herding -= HERD_LONELINESS * instinct
+        herding *= 0.5 + agent.feeling("fear")  # the fearful feel their herd, and its absence, most
         return company - dread - unease - crowded + herding
 
     def _learn(self, agent: Bitzkey, target: float) -> None:

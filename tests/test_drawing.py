@@ -1,11 +1,12 @@
 import unittest
+from unittest.mock import MagicMock
 
 import pygame as pg
 
 from display.Look import CROSS, draw_bitzkey
 from Main import DOT_RADIUS_RANGE, BitzkeyApp
 from tools.Genome import encode_dna
-from tools.Simulation import Bitzkey
+from tools.Simulation import CORPSE_TURNS, Bitzkey
 
 
 def bitzkey(size: int) -> Bitzkey:
@@ -38,6 +39,29 @@ class DeadCrossTests(unittest.TestCase):
             draw_bitzkey(surface, dna, (20, 20), 10, alive=alive)
             corner = surface.get_at((14, 14))[:3]
             self.assertEqual(corner == CROSS, not alive)
+
+
+class CorpseFadeTests(unittest.TestCase):
+    def test_a_corpse_fades_as_it_decays_until_it_vanishes(self):
+        dna = encode_dna("grazer", size=7)
+        seen = []
+        for opacity in (1.0, 0.5, 0.0):
+            surface = pg.Surface((40, 40))
+            surface.fill((0, 0, 0))
+            draw_bitzkey(surface, dna, (20, 20), 10, alive=False, opacity=opacity)
+            seen.append(surface.get_at((14, 14))[0])  # the red of the cross
+        self.assertEqual(seen[0], CROSS[0])
+        self.assertAlmostEqual(seen[1], CROSS[0] / 2, delta=3)
+        self.assertEqual(seen[2], 0)
+
+    def test_corpse_opacity_falls_from_death_to_the_corpse_fading(self):
+        app = MagicMock(simulation=MagicMock(turn=115))
+        living, corpse = bitzkey(3), bitzkey(3)
+        corpse.died_turn = 100
+        self.assertEqual(BitzkeyApp._corpse_opacity(app, living), 1)
+        self.assertAlmostEqual(BitzkeyApp._corpse_opacity(app, corpse), 1 - 15 / CORPSE_TURNS)
+        app.simulation.turn = 100 + CORPSE_TURNS
+        self.assertEqual(BitzkeyApp._corpse_opacity(app, corpse), 0)
 
 
 if __name__ == "__main__":

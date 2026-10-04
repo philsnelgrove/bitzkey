@@ -20,8 +20,18 @@ def dot_radius(size: int, largest: int = DOT_RADIUS_RANGE[1]) -> int:
 
 
 def draw_bitzkey(surface: pg.Surface, dna: int, point: tuple[int, int], radius: int,
-                 ring_width: int = RING_WIDTH, alive: bool = True) -> None:
-    """The dot inside its ring; a dead Bitzkey is dimmed and crossed through in red."""
+                 ring_width: int = RING_WIDTH, alive: bool = True, opacity: float = 1.0) -> None:
+    """The dot inside its ring; a dead Bitzkey is dimmed and crossed through in red. With
+    `opacity` below 1, all of it is drawn that faint, as a decaying corpse fades away."""
+    if opacity <= 0:
+        return
+    if opacity < 1:
+        reach = radius + ring_width + 1
+        layer = pg.Surface((2 * reach + 1, 2 * reach + 1), pg.SRCALPHA)
+        draw_bitzkey(layer, dna, (reach, reach), radius, ring_width, alive)
+        layer.set_alpha(round(255 * opacity))
+        surface.blit(layer, (point[0] - reach, point[1] - reach))
+        return
     dot, ring = color_from_word(mind_word(dna)), color_from_word(body_word(dna))
     if not alive:
         dot, ring = (tuple(channel // 3 for channel in dot), tuple(channel // 3 for channel in ring))

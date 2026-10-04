@@ -856,7 +856,7 @@ class NewTraitTests(unittest.TestCase):
 
     def test_the_herd_action_moves_toward_the_middle_of_the_herd(self):
         dna = encode_dna("grazer", empathy=7, patience=7)
-        animal = self.simulation._add_agent(dna, 2, 5)
+        animal = self.simulation._add_agent(encode_dna("grazer", empathy=7, patience=7, fear=7), 2, 5)
         for x, y in ((5, 4), (5, 6), (6, 5)):
             self.simulation._add_agent(dna, x, y)
         self.simulation._index_cells()
@@ -865,6 +865,26 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(situation["herd_middle"], (5, 5))
         self.simulation._act(animal, "herd", situation)
         self.assertEqual((animal.x, animal.y, animal.last_action), (4, 5, "herded"))  # two cells a step
+
+    def test_the_fearful_keep_to_the_middle_of_the_herd_and_the_fearless_roam_its_edge(self):
+        dna = encode_dna("grazer", empathy=7, patience=7)
+        for x, y in ((6, 4), (6, 6), (7, 5)):
+            self.simulation._add_agent(dna, x, y)
+        fearful = self.simulation._add_agent(encode_dna("grazer", empathy=7, patience=7, fear=7), 5, 5)
+        fearless = self.simulation._add_agent(encode_dna("grazer", empathy=7, patience=7, fear=0), 4, 5)
+        self.simulation._index_cells()
+        herd = ACTIONS.index("herd")
+        self.assertIn(herd, self.simulation._sense(fearful)[1])       # one step from the middle is too far
+        self.assertNotIn(herd, self.simulation._sense(fearless)[1])   # two steps out is near enough
+        fearless.x = 1
+        self.simulation._index_cells()
+        self.assertIn(herd, self.simulation._sense(fearless)[1])      # but not five
+
+    def test_the_fearful_feel_their_herd_most(self):
+        fearful = self.simulation._add_agent(encode_dna("grazer", empathy=7, patience=7, fear=7), 1, 1)
+        fearless = self.simulation._add_agent(encode_dna("grazer", empathy=7, patience=7, fear=0), 3, 3)
+        among = {"kin": 0, "others": 0, "threats": 0, "herd": True, "herd_near": 3}
+        self.assertAlmostEqual(self.simulation._comfort(fearful, among), 3 * self.simulation._comfort(fearless, among))
 
     def test_herd_animals_enjoy_their_herd_and_feel_its_absence(self):
         herder = self.simulation._add_agent(encode_dna("grazer", empathy=7, patience=7), 1, 1)

@@ -20,7 +20,7 @@ from tools.Exchange import Imported, bitzkey_record, export_bitzkeys, format_rec
 from tools.Genome import genome_record
 from tools.Genome import BODY_TRAITS, MIND_TRAITS, body_word, mind_word
 from tools.Insights import ANIMALS, brain_report
-from tools.Simulation import SPECIES, Bitzkey, Simulation
+from tools.Simulation import CORPSE_TURNS, SPECIES, Bitzkey, Simulation
 
 REPORT_DIR = Config.APP_DIR / "reports"
 
@@ -356,7 +356,7 @@ class BitzkeyApp:
             point = (round(board.left + (agent.x + 0.5) * cell_width),
                      round(board.top + (agent.y + 0.5) * cell_height))
             radius = self._dot_radius(agent, largest)
-            self._draw_bitzkey(agent, point, radius)
+            self._draw_bitzkey(agent, point, radius, self._corpse_opacity(agent))
             if agent.identifier == self.selected_id:
                 pg.draw.circle(self.screen, (245, 238, 206), point, radius + RING_WIDTH + UI(3), max(1, UI(1)))
             if agent.identifier in self.export_list:
@@ -446,8 +446,15 @@ class BitzkeyApp:
     def _dot_radius(agent: Bitzkey, largest: int = DOT_RADIUS_RANGE[1]) -> int:
         return dot_radius(int(agent.body["size"]), largest)
 
-    def _draw_bitzkey(self, agent: Bitzkey, point: tuple[int, int], radius: int) -> None:
-        draw_bitzkey(self.screen, agent.dna, point, radius, alive=agent.alive)
+    def _draw_bitzkey(self, agent: Bitzkey, point: tuple[int, int], radius: int, opacity: float = 1.0) -> None:
+        draw_bitzkey(self.screen, agent.dna, point, radius, alive=agent.alive, opacity=opacity)
+
+    def _corpse_opacity(self, agent: Bitzkey) -> float:
+        """How visible a Bitzkey is: fully while alive, then fading as its corpse decays, gone
+        when the corpse is."""
+        if agent.died_turn is None:
+            return 1.0
+        return max(0.0, 1 - (self.simulation.turn - agent.died_turn) / CORPSE_TURNS)
 
     def _draw_insights(self, x: int, width: int) -> None:
         insights = self.simulation.insights

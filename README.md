@@ -281,8 +281,8 @@ time, is age. Plants live about 4,000 turns, and animals from about 250 (the
 smallest, fastest metabolism) to 900 (the largest, slowest). From 70% of its lifespan, a Bitzkey's chance of
 dying of old age grows each turn: about half reach their lifespan, and almost
 none live past 1.3 times it. Dying of old age is not held against the brain's
-last choice. A dead Bitzkey is dimmed and crossed through in red until its
-corpse fades. A corpse holds the energy its body had left: up to 30 meat, plus
+last choice. A dead Bitzkey is dimmed and crossed through in red, and fades
+away as its corpse decays, vanishing when the corpse is gone. A corpse holds the energy its body had left: up to 30 meat, plus
 up to 50 more for the largest. A starved body leaves nothing, and a killed one
 half, as the killer has already eaten. The meat rots away over the 30 turns
 before the corpse fades. Brains, temperament, learning and statistics are all
@@ -298,9 +298,11 @@ herd with other kinds of their species. Predators only form packs with their
 own kind. Herd-mates are sought within four cells.
 
 - Herding: the herd action moves an animal toward the middle of its herd-mates
-  in range. The brain learns when to use it.
+  in range. The brain learns when to use it. Fear sets how close it keeps: a
+  fearless animal is content up to three cells from the middle, and a fully
+  fearful one only at the middle itself, so frightened herds bunch tightly.
 - Comfort: a herd animal enjoys having herd-mates close by, and is uneasy with
-  none in range.
+  none in range; the more fearful it is, the more it feels both.
 - Safety in numbers: herd-mates close by calm its fear of hunters and steady its
   morale. With three close by, a full-instinct animal is 60% less likely to break.
 - Alarm: when a herd-mate within two cells is struck, the animal senses the alarm,
