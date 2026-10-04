@@ -6,23 +6,30 @@ import math
 import random
 from collections.abc import Sequence
 
+from tools.Genome import MIND_TRAITS
+
 
 SENSES = (
     "hunger",          # 0..1
     "health",          # 0..1
-    "food_here",       # 1 when food lies on the animal's own cell
-    "food_seen",       # 1 when food is visible elsewhere
-    "food_closeness",  # 1 next to the nearest visible food, falling to 0 at the edge of sight
+    "grass_here",       # 1 when grass lies on the animal's own cell
+    "grass_seen",       # 1 when grass is visible elsewhere
+    "grass_closeness",  # 1 next to the nearest visible grass, falling to 0 at the edge of sight
     "mate_near",       # 1 when a compatible, ready mate is adjacent
+    "mate_closeness",  # 1 when a willing mate is adjacent, falling to 0 beyond sight; 0 when none is seen
     "ready_to_breed",  # 1 when the animal's breeding cooldown has passed
     "prey_near",       # adjacent prey, 0..4 scaled to 0..1
+    "prey_frailty",    # share of the frailest adjacent prey's health one blow would take
+    "prey_closeness",  # 1 when prey is adjacent, falling to 0 beyond sight; 0 when none is seen
     "threat_near",     # adjacent hunters, 0..4 scaled to 0..1
+    "threat_danger",   # share of the animal's own health the worst adjacent hunter's blow would take
+    "threat_closeness",  # 1 when a hunter is adjacent, falling to 0 beyond sight; 0 when none is seen
     "kin_near",        # same-species animals within two cells, 0..3 scaled to 0..1
     "age",             # 0 at birth, 1 at 400 turns or older
-)
-ACTIONS = ("eat", "forage", "rest", "breed", "attack", "flee", "explore")
+) + MIND_TRAITS        # then its current temperament, each trait 0..15 scaled to 0..1
+ACTIONS = ("eat", "forage", "rest", "court", "breed", "hunt", "attack", "flee", "explore")
 INPUT_SIZE = len(SENSES)
-HIDDEN_SIZE = 10
+HIDDEN_SIZE = 12
 TEMPERATURE = 0.2
 MUTATION = 0.05
 

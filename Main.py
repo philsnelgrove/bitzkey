@@ -8,10 +8,12 @@ import pygame as pg
 
 from config.Globals import Config
 from tools.Brain import ACTIONS
+from tools.Genome import BODY_TRAITS, MIND_TRAITS, body_word, mind_word
 from tools.Insights import ANIMALS, brain_report
-from tools.Simulation import SPECIES, Simulation
+from tools.Simulation import SPECIES, Bitzkey, Simulation
 
 REPORT_DIR = Path(__file__).resolve().parent / "reports"
+RING_WIDTH = 3
 
 
 class BitzkeyApp:
@@ -22,6 +24,7 @@ class BitzkeyApp:
         self.font = pg.font.SysFont("segoeui", 15)
         self.bold = pg.font.SysFont("segoeui", 22, bold=True)
         self.mono = pg.font.SysFont("consolas", 14)
+        self.mono_small = pg.font.SysFont("consolas", 12)
         self.small = pg.font.SysFont("segoeui", 12)
         self.width = width
         self.height = height
@@ -117,18 +120,17 @@ class BitzkeyApp:
     def _draw_world(self) -> None:
         board, cell_width, cell_height = self._board_geometry()
         pg.draw.rect(self.screen, (29, 39, 38), board)
-        for x, y in self.simulation.food:
+        for x, y in self.simulation.grass:
             point = (round(board.left + (x + 0.5) * cell_width),
                      round(board.top + (y + 0.5) * cell_height))
             pg.draw.circle(self.screen, (117, 166, 111), point, max(1, round(min(cell_width, cell_height) * 0.18)))
         for agent in self.simulation.agents:
             point = (round(board.left + (agent.x + 0.5) * cell_width),
                      round(board.top + (agent.y + 0.5) * cell_height))
-            color = agent.color if agent.alive else tuple(channel // 3 for channel in agent.color)
-            radius = max(2, min(5, round(min(cell_width, cell_height) * 0.38)))
-            pg.draw.circle(self.screen, color, point, radius)
+            radius = self._dot_radius(agent, max(2, min(5, round(min(cell_width, cell_height) * 0.38))))
+            self._draw_bitzkey(agent, point, radius)
             if agent.identifier == self.selected_id:
-                pg.draw.circle(self.screen, (245, 238, 206), point, radius + 3, 1)
+                pg.draw.circle(self.screen, (245, 238, 206), point, radius + RING_WIDTH + 3, 1)
         for x in range(0, self.width + 1, 10):
             px = round(board.left + x * cell_width)
             pg.draw.line(self.screen, (46, 58, 54), (px, board.top), (px, board.bottom), 1)
@@ -165,35 +167,49 @@ class BitzkeyApp:
             self._text("Living: click its current position.", (x, 352), (116, 139, 124), self.small)
             return
 
-        pg.draw.circle(self.screen, agent.color, (x + 8, 382), 7)
-        self._text(f"#{agent.identifier:03d}  {agent.species.upper()}", (x + 23, 372), (238, 238, 220), self.font)
-        self._text(f"DNA / CMYK   {agent.dna:08X}", (x, 405), (211, 219, 201), self.mono)
-        binary = f"{agent.dna:032b}"
-        self._text(" ".join(binary[i:i + 4] for i in range(0, 32, 4)),
-                   (x, 430), (151, 183, 154), self.mono)
-        traits = agent.traits
-        trait_lines = (
-            f"metabolism   {traits['metabolism']:>2}",
-            f"aggression   {traits['aggression']:>2}",
-            f"constitution {traits['constitution']:>2}",
-            f"fertility    {traits['fertility']:>2}",
-            f"sight        {traits['sight']:>2}",
-            f"social       {traits['social']:>2}",
-            f"learning     {traits['learning']:>2}",
-        )
-        for index, line in enumerate(trait_lines):
-            self._text(line, (x, 466 + index * 20), (175, 192, 172), self.mono)
-        self._text(f"HUNGER  {agent.hunger:5.1f}%", (x, 620), (224, 177, 118), self.mono)
-        self._bar(x, 642, width, agent.hunger / 100, (224, 150, 94))
-        self._text(f"HEALTH  {agent.health:5.1f}%", (x, 658), (161, 207, 162), self.mono)
-        self._bar(x, 680, width, agent.health / 100, (124, 190, 131))
+        self._draw_bitzkey(agent, (x + 10, 343), 4)
+        self._text(f"#{agent.identifier:03d}  {agent.species.upper()}", (x + 28, 332), (238, 238, 220), self.font)
+        self._text(f"DOT / MIND   {mind_word(agent.dna):08X}", (x, 360), (211, 219, 201), self.mono)
+        self._text(f"RING / BODY  {body_word(agent.dna):08X}", (x, 379), (211, 219, 201), self.mono)
+
+        body_x = x + min(168, width // 2 + 18)
+        self._text("MIND      born   now", (x, 406), (149, 170, 150), self.small)
+        self._text("BODY", (body_x, 406), (149, 170, 150), self.small)
+        for index, trait in enumerate(MIND_TRAITS):
+            born, now = agent.inborn[trait], agent.mind[trait]
+            color = ((175, 192, 172) if abs(now - born) < 0.5
+                     else (131, 205, 143) if now > born else (238, 183, 110))
+            self._text(f"{trait:<11}{born:>3}{now:>6.1f}", (x, 425 + index * 18), color, self.mono_small)
+        for index, trait in enumerate(BODY_TRAITS[1:]):
+            self._text(f"{trait:<9}{agent.body[trait]:>3}", (body_x, 425 + index * 18),
+                       (175, 192, 172), self.mono_small)
+        self._text(f"{'burn':<7}{agent.burn:>5.2f}", (body_x, 425 + 7 * 18), (175, 192, 172), self.mono_small)
+
+        self._text(f"HUNGER  {agent.hunger:5.1f}%", (x, 574), (224, 177, 118), self.mono)
+        self._bar(x, 594, width, agent.hunger / 100, (224, 150, 94))
+        self._text(f"HEALTH  {max(0.0, agent.health):5.1f} / {agent.max_health:.0f}", (x, 606), (161, 207, 162),
+                   self.mono)
+        self._bar(x, 626, width, agent.health / agent.max_health, (124, 190, 131))
         self._text(f"AGE {agent.age}    GENERATION {agent.generation}    CHILDREN {agent.children}",
-                   (x, 699), (145, 164, 146), self.small)
-        self._text(f"LAST ACTION: {agent.last_action.upper()}", (x, 717), (145, 164, 146), self.small)
+                   (x, 642), (145, 164, 146), self.small)
+        self._text(f"LAST ACTION: {agent.last_action.upper()}", (x, 660), (145, 164, 146), self.small)
         if agent.odds:
             odds = sorted(agent.odds.items(), key=lambda item: -item[1])[:3]
             self._text("CHANCES  " + "   ".join(f"{action} {chance:.0%}" for action, chance in odds),
-                       (x, 735), (175, 192, 172), self.small)
+                       (x, 678), (175, 192, 172), self.small)
+
+    @staticmethod
+    def _dot_radius(agent: Bitzkey, base: int) -> int:
+        """Bigger bodies have bigger dots."""
+        return max(2, round(base * (0.8 + 0.8 * int(agent.body["size"]) / 15)))
+
+    def _draw_bitzkey(self, agent: Bitzkey, point: tuple[int, int], radius: int) -> None:
+        """The inner dot shows the mind word's colour; the ring around it shows the body word's."""
+        dot, ring = agent.dot_color, agent.ring_color
+        if not agent.alive:
+            dot, ring = (tuple(channel // 3 for channel in dot), tuple(channel // 3 for channel in ring))
+        pg.draw.circle(self.screen, ring, point, radius + RING_WIDTH)
+        pg.draw.circle(self.screen, dot, point, radius)
 
     def _draw_insights(self, x: int, width: int) -> None:
         insights = self.simulation.insights
@@ -214,7 +230,7 @@ class BitzkeyApp:
             ("KEENEST TO BREED", insights.extremes("breed", 2, lowest=False)),
             ("LEAST KEEN TO FIGHT", insights.extremes("attack", 2, lowest=True)),
         )
-        y = 506
+        y = 367 + len(ACTIONS) * 19 + 6
         for title, groups in blocks:
             self._text(title, (x, y), (220, 229, 211), self.small)
             y += 19
@@ -226,7 +242,6 @@ class BitzkeyApp:
                 self._text(f"{share:>4.0%}", (x + width - 40, y), (231, 236, 222), self.mono)
                 y += 18
             y += 8
-        self._text("B saves the full brain report", (x, y + 4), (116, 139, 124), self.small)
 
     def _save_report(self) -> None:
         report = brain_report(self.simulation.turn, self.simulation.living, self.simulation.insights)

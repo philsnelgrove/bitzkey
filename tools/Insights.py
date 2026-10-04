@@ -6,40 +6,56 @@ from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING
 
 from tools.Brain import ACTIONS, choice_odds, make_senses
+from tools.Genome import BODY_TRAITS, MIND_TRAITS
 
 if TYPE_CHECKING:
     from tools.Simulation import Bitzkey
 
 
 ANIMALS = ("grazer", "omnivore", "predator")
-TRAITS = ("metabolism", "aggression", "constitution", "fertility", "sight", "social", "learning")
+GRAZERS = ("grazer", "omnivore")  # the animals that eat grass
+TRAITS = MIND_TRAITS + BODY_TRAITS[1:]
 DECAY = 0.99
 MIN_SAMPLE = 5.0
 
-# Situations used to probe brains: (title, senses, actions possible, species it can arise for).
+# Situations used to probe brains: (title, situation senses, actions possible, species it can
+# arise for). Each animal is probed with its own current temperament added to the situation.
 SCENARIOS = (
     ("Fed and safe, a willing mate beside them",
-     make_senses(hunger=0.2, health=1, mate_near=1, ready_to_breed=1, kin_near=1 / 3, age=0.2),
-     ("breed", "rest", "explore"), ANIMALS),
-    ("Hungry, food underfoot, a willing mate beside them",
-     make_senses(hunger=0.6, health=1, food_here=1, mate_near=1, ready_to_breed=1, kin_near=1 / 3, age=0.2),
-     ("eat", "breed", "rest", "explore"), ANIMALS),
-    ("Hungry, food in sight",
-     make_senses(hunger=0.6, health=1, food_seen=1, food_closeness=0.6, age=0.2),
-     ("forage", "rest", "explore"), ANIMALS),
-    ("Wounded, a hunter beside them",
-     make_senses(hunger=0.3, health=0.4, threat_near=0.25, age=0.2),
+     {"hunger": 0.2, "health": 1, "mate_near": 1, "mate_closeness": 1, "ready_to_breed": 1, "kin_near": 1 / 3,
+      "age": 0.2},
+     ("breed", "court", "rest", "explore"), ANIMALS),
+    ("Fed and safe, a willing mate in sight",
+     {"hunger": 0.2, "health": 1, "ready_to_breed": 1, "mate_closeness": 0.6, "age": 0.2},
+     ("court", "rest", "explore"), ANIMALS),
+    ("Hungry, grass underfoot, a willing mate beside them",
+     {"hunger": 0.6, "health": 1, "grass_here": 1, "mate_near": 1, "mate_closeness": 1, "ready_to_breed": 1,
+      "kin_near": 1 / 3, "age": 0.2},
+     ("eat", "breed", "court", "rest", "explore"), GRAZERS),
+    ("Hungry, grass in sight",
+     {"hunger": 0.6, "health": 1, "grass_seen": 1, "grass_closeness": 0.6, "age": 0.2},
+     ("forage", "rest", "explore"), GRAZERS),
+    ("Peckish, prey in sight",
+     {"hunger": 0.5, "health": 1, "prey_closeness": 0.6, "age": 0.2},
+     ("hunt", "rest", "explore"), ("omnivore", "predator")),
+    ("A hunter in sight",
+     {"hunger": 0.3, "health": 1, "threat_closeness": 0.6, "age": 0.2},
      ("flee", "rest", "explore"), ("grazer", "omnivore")),
-    ("Peckish, prey beside them",
-     make_senses(hunger=0.5, health=1, prey_near=0.25, age=0.2),
-     ("attack", "rest", "explore"), ("omnivore", "predator")),
+    ("Wounded, a dangerous hunter beside them",
+     {"hunger": 0.3, "health": 0.4, "threat_near": 0.25, "threat_danger": 0.4, "threat_closeness": 1,
+      "age": 0.2},
+     ("flee", "rest", "explore"), ("grazer", "omnivore")),
+    ("Peckish, frail prey beside them",
+     {"hunger": 0.5, "health": 1, "prey_near": 0.25, "prey_frailty": 0.5, "prey_closeness": 1, "age": 0.2},
+     ("attack", "hunt", "rest", "explore"), ("omnivore", "predator")),
     ("Nothing around",
-     make_senses(hunger=0.3, health=1, age=0.2),
+     {"hunger": 0.3, "health": 1, "age": 0.2},
      ("rest", "explore"), ANIMALS),
 )
 
 
-def band(value: int) -> str:
+def band(value: float) -> str:
+    value = round(value)
     return "low" if value <= 4 else "mid" if value <= 10 else "high"
 
 
@@ -47,8 +63,8 @@ def group_label(species: str, trait: str | None = None, level: str | None = None
     return f"{species}s" if trait is None else f"{level}-{trait} {species}s"
 
 
-def _groups(species: str, traits: Mapping[str, int | str]) -> list[tuple[str, str | None, str | None]]:
-    return [(species, None, None)] + [(species, trait, band(int(traits[trait]))) for trait in TRAITS]
+def _groups(species: str, traits: Mapping[str, float]) -> list[tuple[str, str | None, str | None]]:
+    return [(species, None, None)] + [(species, trait, band(traits[trait])) for trait in TRAITS]
 
 
 class Insights:
@@ -59,7 +75,7 @@ class Insights:
         self.offered: dict[tuple, float] = {}
         self.chosen: dict[tuple, float] = {}
 
-    def record(self, species: str, traits: Mapping[str, int | str],
+    def record(self, species: str, traits: Mapping[str, float],
                options: Iterable[str], choice: str) -> None:
         options = tuple(options)
         for group in _groups(species, traits):
@@ -113,16 +129,17 @@ def brain_report(turn: int, animals: Iterable[Bitzkey], insights: Insights) -> s
         "Figures are the average chance an animal would pick each action in the situation.",
         "Groups smaller than 5 animals are left out.",
     ]
-    for title, senses, actions, species_list in SCENARIOS:
+    for title, situation, actions, species_list in SCENARIOS:
         options = [ACTIONS.index(action) for action in actions]
         headline = actions[0]
         per_group: dict[tuple, list[dict[str, float]]] = {}
         for animal in thinkers:
             if animal.species not in species_list:
                 continue
+            senses = make_senses(**situation, **{trait: animal.mind[trait] / 15 for trait in MIND_TRAITS})
             odds = choice_odds(animal.brain.values(senses), options)
             named = {ACTIONS[option]: chance for option, chance in odds.items()}
-            for group in _groups(animal.species, animal.traits):
+            for group in _groups(animal.species, animal.profile):
                 per_group.setdefault(group, []).append(named)
 
         lines += ["", title, "  " + " " * 18 + "".join(f"{action:>9}" for action in actions)]
@@ -142,6 +159,17 @@ def brain_report(turn: int, animals: Iterable[Bitzkey], insights: Insights) -> s
         if ranked:
             lines.append(f"  Least keen to {headline}: " + _join(ranked[:3]))
             lines.append(f"  Most keen to {headline}:  " + _join(ranked[::-1][:3]))
+
+    lines += ["", "Temperament shaped by experience (average shift from inborn values, 0..15 scale)",
+              "  " + " " * 10 + "".join(f"{trait[:5]:>7}" for trait in MIND_TRAITS)]
+    for species in ANIMALS:
+        members = [animal for animal in thinkers if animal.species == species]
+        if not members:
+            continue
+        shifts = "".join(
+            f"{sum(animal.mind[trait] - animal.inborn[trait] for animal in members) / len(members):>+7.2f}"
+            for trait in MIND_TRAITS)
+        lines.append(f"  {species:<10}{shifts}")
 
     lines += ["", "Observed behaviour, recent turns (share of chances taken)",
               "  " + " " * 10 + "".join(f"{action:>9}" for action in ACTIONS)]

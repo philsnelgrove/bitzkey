@@ -4,67 +4,58 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass, field, replace
+from functools import cached_property
 
-from tools.Brain import ACTIONS, Brain, choice_odds, make_senses
+from tools.Brain import ACTIONS, SENSES, Brain, choice_odds, make_senses
+from tools.Genome import (GENOME, MIND_TRAITS, SPECIES, body_word, color_from_word, cross, decode_body,
+                          decode_mind, make_dna, mind_word)
 from tools.Insights import Insights
 
 
 GRID_SIZE = 100
 INITIAL_POPULATION = 90
-INITIAL_FOOD = 500
-FOOD_PER_TURN = 2
+INITIAL_GRASS = 500
+GRASS_PER_TURN = 2
 MAX_POPULATION = 600
 MAX_HISTORY = 500
 CORPSE_TURNS = 30
-SPECIES = ("plant", "grazer", "omnivore", "predator")
+COMPATIBLE_BITS = 14  # partners' body words (outer rings) may differ in at most this many bits
 
-DISCOUNT = 0.9
 DEATH_PENALTY = 2.0
 BREED_JOY = 1.0
 FIGHT_JOY = 0.5
 COMPANY_JOY = 0.1
+CURIOSITY_JOY = 0.15
+FEAR_DREAD = 0.3
 LEARNING_RATE_PER_POINT = 0.003
-BREED_COST = 20
-BIRTH_HUNGER = 100 - 2 * BREED_COST  # a newborn holds exactly the energy its parents gave up
-BREED_COOLDOWN = 12
+STRIKE_FORCE = 1.5       # scales every blow
+KILL_MEAL = 25           # hunger a kill sates, plus KILL_MEAL_PER_SIZE for each point of the prey's size
+KILL_MEAL_PER_SIZE = 3
+TEMPERAMENT_RELAPSE = 0.005  # share of the gap back to the inborn value closed each turn
 
+# How experiences reshape temperament, in trait points before scaling by plasticity.
+EXPERIENCES = {
+    "kill": {"aggression": 0.6, "fear": -0.3},
+    "hit": {"aggression": 0.1},
+    "stung": {"aggression": -0.2, "fear": 0.2},
+    "wounded": {"fear": 0.5, "aggression": -0.1},
+    "wounded_alone": {"sociability": 0.3},
+    "bred": {"libido": 0.3, "sociability": 0.2},
+    "bred_into_hunger": {"libido": -0.8},
+    "starving": {"appetite": 0.05, "patience": -0.05},
+    "foraged_meal": {"patience": 0.1},
+    "discovery": {"curiosity": 0.15},
+    "ambushed": {"curiosity": -0.3, "fear": 0.2},
+}
+
+GRASS_SEEN = SENSES.index("grass_seen")
 MAX_SIGHT = 2 + 15 // 2
 SIGHT_OFFSETS = sorted(
     ((dx, dy) for dx in range(-MAX_SIGHT, MAX_SIGHT + 1) for dy in range(-MAX_SIGHT, MAX_SIGHT + 1)
      if 0 < abs(dx) + abs(dy) <= MAX_SIGHT),
     key=lambda offset: (abs(offset[0]) + abs(offset[1]), offset),
 )
-
-
-def decode_dna(dna: int) -> dict[str, int | str]:
-    """Decode the 32-bit genome as eight four-bit traits."""
-    dna &= 0xFFFFFFFF
-    values = [(dna >> shift) & 0xF for shift in range(0, 32, 4)]
-    return {
-        "metabolism": values[0],
-        "aggression": values[1],
-        "constitution": values[2],
-        "species": SPECIES[values[3] % len(SPECIES)],
-        "fertility": values[4],
-        "sight": values[5],
-        "social": values[6],
-        "learning": values[7],
-    }
-
-
-def color_from_dna(dna: int) -> tuple[int, int, int]:
-    """Convert the four DNA bytes (CMYK) to the displayed RGB color."""
-    cyan, magenta, yellow, black = ((dna >> shift) & 0xFF for shift in (24, 16, 8, 0))
-    return (round((255 - cyan) * (255 - black) / 255),
-            round((255 - magenta) * (255 - black) / 255),
-            round((255 - yellow) * (255 - black) / 255))
-
-
-def make_dna(species: int | None = None, rng: random.Random | None = None) -> int:
-    dna = (rng or random).getrandbits(32)
-    if species is not None:
-        dna = (dna & ~(0xF << 12)) | ((species % 4) << 12)
-    return dna
+SEEN_OFFSETS = [(0, 0), *SIGHT_OFFSETS]
 
 
 @dataclass
@@ -82,6 +73,8 @@ class Bitzkey:
     generation: int = 0
     children: int = 0
     died_turn: int | None = None
+    # Current temperament: starts at the inborn values and is reshaped by experience.
+    mind: dict[str, float] = field(default_factory=dict)
     # The last decision, kept until the next one so the brain can learn from how it turned out.
     last_senses: list[float] | None = None
     last_choice: int = 0
@@ -89,24 +82,57 @@ class Bitzkey:
     reward: float = 0.0
     odds: dict[str, float] = field(default_factory=dict)
 
-    @property
-    def traits(self) -> dict[str, int | str]:
-        return decode_dna(self.dna)
+    def __post_init__(self) -> None:
+        if not self.mind:
+            self.mind = {trait: float(value) for trait, value in self.inborn.items()}
+
+    @cached_property
+    def inborn(self) -> dict[str, int]:
+        return decode_mind(self.dna)
+
+    @cached_property
+    def body(self) -> dict[str, int | str]:
+        return decode_body(self.dna)
 
     @property
     def species(self) -> str:
-        return str(self.traits["species"])
+        return str(self.body["species"])
+
+    @property
+    def profile(self) -> dict[str, float]:
+        """Current temperament and physical traits, keyed by trait name."""
+        return {**self.mind, **{trait: float(value) for trait, value in self.body.items()
+                                if trait != "species"}}
+
+    @property
+    def max_health(self) -> float:
+        return 60.0 + 6 * int(self.body["size"])
+
+    @property
+    def burn(self) -> float:
+        """Hunger gained each turn: a bigger, stronger, faster, better-armed body costs more."""
+        body = self.body
+        return (0.3 + 0.02 * int(body["size"]) + 0.012 * int(body["strength"])
+                + 0.016 * int(body["speed"]) + 0.008 * (int(body["weapons"]) + int(body["armour"])))
+
+    @property
+    def steps(self) -> int:
+        return 1 + int(self.body["speed"]) // 5
 
     @property
     def alive(self) -> bool:
         return self.health > 0 and self.hunger < 100
 
     @property
-    def color(self) -> tuple[int, int, int]:
-        return color_from_dna(self.dna)
+    def dot_color(self) -> tuple[int, int, int]:
+        return color_from_word(mind_word(self.dna))
+
+    @property
+    def ring_color(self) -> tuple[int, int, int]:
+        return color_from_word(body_word(self.dna))
 
     def copy(self) -> Bitzkey:
-        return replace(self, brain=self.brain.copy() if self.brain else None)
+        return replace(self, brain=self.brain.copy() if self.brain else None, mind=self.mind.copy())
 
 
 class Simulation:
@@ -126,12 +152,12 @@ class Simulation:
         self.agents: list[Bitzkey] = []
         self._cells: dict[tuple[int, int], list[Bitzkey]] = {}
         self._population = 0
-        self.food: dict[tuple[int, int], int] = {}
-        for _ in range(INITIAL_FOOD):
+        self.grass: dict[tuple[int, int], int] = {}
+        for _ in range(INITIAL_GRASS):
             cell = (self.random.randrange(width), self.random.randrange(height))
-            self.food[cell] = self.food.get(cell, 0) + 1
+            self.grass[cell] = self.grass.get(cell, 0) + 1
         for _ in range(population):
-            self._add_agent(make_dna(self.random.randrange(4), self.random),
+            self._add_agent(make_dna(self.random.randrange(len(SPECIES)), self.random),
                             self.random.randrange(width), self.random.randrange(height))
         self.history: list[dict] = []
         self.history_index = 0
@@ -142,7 +168,8 @@ class Simulation:
         return [agent for agent in self.agents if agent.alive]
 
     def _add_agent(self, dna: int, x: int, y: int, brain: Brain | None = None) -> Bitzkey:
-        agent = Bitzkey(self.next_identifier, dna & 0xFFFFFFFF, x, y)
+        agent = Bitzkey(self.next_identifier, dna & GENOME, x, y)
+        agent.health = agent.max_health
         if agent.species != "plant":
             agent.brain = brain or Brain.random(self.random)
         self.next_identifier += 1
@@ -156,7 +183,7 @@ class Simulation:
             "deaths": self.deaths,
             "next_identifier": self.next_identifier,
             "agents": [agent.copy() for agent in self.agents],
-            "food": self.food.copy(),
+            "grass": self.grass.copy(),
             "random_state": self.random.getstate(),
             "insights": self.insights.snapshot(),
         }
@@ -172,7 +199,7 @@ class Simulation:
         self.deaths = state["deaths"]
         self.next_identifier = state["next_identifier"]
         self.agents = [agent.copy() for agent in state["agents"]]
-        self.food = state["food"].copy()
+        self.grass = state["grass"].copy()
         self.random.setstate(state["random_state"])
         self.insights.restore(state["insights"])
         self.history_index = index
@@ -201,11 +228,11 @@ class Simulation:
             if not agent.alive:
                 continue
             agent.age += 1
-            agent.hunger += self._hunger_rate(agent)
+            agent.hunger += agent.burn
             if agent.cooldown:
                 agent.cooldown -= 1
-            if agent.health < 100 and agent.hunger < 65:
-                agent.health = min(100, agent.health + 0.5)
+            if agent.health < agent.max_health and agent.hunger < 65:
+                agent.health = min(agent.max_health, agent.health + agent.max_health * 0.005)
             if agent.hunger >= 100:
                 self._die(agent, "starved")
                 continue
@@ -213,25 +240,48 @@ class Simulation:
                 agent.hunger = max(0, agent.hunger - 1.5)
                 agent.last_action = "photosynthesized"
                 continue
+            self._settle(agent)
+            if agent.hunger >= 80:
+                self._experience(agent, "starving")
             self._think(agent)
 
-        for _ in range(FOOD_PER_TURN):
+        for _ in range(GRASS_PER_TURN):
             cell = (self.random.randrange(self.width), self.random.randrange(self.height))
-            self.food[cell] = self.food.get(cell, 0) + 1
+            self.grass[cell] = self.grass.get(cell, 0) + 1
         self.agents = [agent for agent in self.agents
                        if agent.died_turn is None or self.turn - agent.died_turn < CORPSE_TURNS]
         self.insights.decay()
+
+    # Temperament
+
+    def _experience(self, agent: Bitzkey, event: str) -> None:
+        """Shift temperament after an experience; intellect sets how far."""
+        plasticity = 0.2 + 0.8 * agent.mind["intellect"] / 15
+        for trait, change in EXPERIENCES[event].items():
+            agent.mind[trait] = max(0.0, min(15.0, agent.mind[trait] + change * plasticity))
+
+    @staticmethod
+    def _settle(agent: Bitzkey) -> None:
+        """Let learned temperament drift slowly back toward the inborn values."""
+        for trait in MIND_TRAITS:
+            agent.mind[trait] += (agent.inborn[trait] - agent.mind[trait]) * TEMPERAMENT_RELAPSE
 
     # Decisions and learning
 
     def _think(self, agent: Bitzkey) -> None:
         """Sense, learn from the previous decision's outcome, then choose and act."""
         senses, options, situation = self._sense(agent)
+        if agent.last_action == "explored":
+            if situation["threat"]:
+                self._experience(agent, "ambushed")
+            elif (situation["grass"] or situation["grass_here"]) and not agent.last_senses[GRASS_SEEN]:
+                self._experience(agent, "discovery")
         values = agent.brain.values(senses)
         if agent.last_senses is not None:
             reward = (agent.reward + self._wellbeing(agent) - agent.last_wellbeing
-                      + self._company(agent, situation["kin"]))
-            self._learn(agent, reward + DISCOUNT * max(values[option] for option in options))
+                      + self._comfort(agent, situation))
+            discount = 0.7 + 0.27 * agent.mind["patience"] / 15
+            self._learn(agent, reward + discount * max(values[option] for option in options))
 
         odds = choice_odds(values, options)
         roll = self.random.random()
@@ -242,7 +292,7 @@ class Simulation:
                 choice = option
                 break
         action = ACTIONS[choice]
-        self.insights.record(agent.species, agent.traits, (ACTIONS[option] for option in options), action)
+        self.insights.record(agent.species, agent.profile, (ACTIONS[option] for option in options), action)
         agent.odds = {ACTIONS[option]: chance for option, chance in odds.items()}
         agent.last_senses = senses
         agent.last_choice = choice
@@ -257,52 +307,70 @@ class Simulation:
         nursery = self._free_cell_near(agent)
         prey = [other for other in neighbors if self._is_prey(agent, other)]
         threats = [other for other in neighbors if self._is_prey(other, agent)]
+        target = max(prey, key=lambda other: self._damage(agent, other) / other.health, default=None)
+        threat = max(threats, key=lambda other: self._damage(other, agent), default=None)
         kin = sum(other.species == agent.species for other in self._nearby(agent, 2))
-        sight = 2 + int(agent.traits["sight"]) // 2
-        food_here = self.food.get((agent.x, agent.y), 0) > 0
-        target = self._nearest_food(agent, sight)
-        closeness = 0.0 if target is None else 1 - (abs(target[0] - agent.x) + abs(target[1] - agent.y) - 1) / sight
+        sight = 2 + int(agent.body["sight"]) // 2
+        grazes = agent.species != "predator"
+        grass_here = grazes and self.grass.get((agent.x, agent.y), 0) > 0
+        grass = self._nearest_grass(agent, sight) if grazes else None
+        quarry, hunter, suitor = self._look_around(agent, sight)
 
         available = {"rest", "explore"}
-        if food_here:
+        if grass_here:
             available.add("eat")
-        if target:
+        if grass:
             available.add("forage")
+        if suitor:
+            available.add("court")
         if mate and agent.cooldown == 0 and nursery and self._population < MAX_POPULATION:
             available.add("breed")
-        if prey:
+        if quarry:
+            available.add("hunt")
+        if target:
             available.add("attack")
-        if threats:
+        if hunter:
             available.add("flee")
 
         senses = make_senses(
             hunger=min(1.0, agent.hunger / 100),
-            health=max(0.0, agent.health / 100),
-            food_here=float(food_here),
-            food_seen=float(target is not None),
-            food_closeness=closeness,
+            health=max(0.0, agent.health / agent.max_health),
+            grass_here=float(grass_here),
+            grass_seen=float(grass is not None),
+            grass_closeness=self._closeness(agent, grass, sight),
             mate_near=float(mate is not None),
+            mate_closeness=self._closeness(agent, suitor and (suitor.x, suitor.y), sight),
             ready_to_breed=float(agent.cooldown == 0),
             prey_near=min(4, len(prey)) / 4,
+            prey_frailty=0.0 if target is None else min(1.0, self._damage(agent, target) / target.health),
+            prey_closeness=self._closeness(agent, quarry and (quarry.x, quarry.y), sight),
             threat_near=min(4, len(threats)) / 4,
+            threat_danger=0.0 if threat is None else min(1.0, self._damage(threat, agent) / agent.health),
+            threat_closeness=self._closeness(agent, hunter and (hunter.x, hunter.y), sight),
             kin_near=min(3, kin) / 3,
             age=min(1.0, agent.age / 400),
+            **{trait: agent.mind[trait] / 15 for trait in MIND_TRAITS},
         )
-        situation = {"mate": mate, "nursery": nursery, "prey": prey, "threats": threats,
-                     "food": target, "kin": kin}
+        situation = {"mate": mate, "nursery": nursery, "prey": target, "threat": threat,
+                     "threats": len(threats), "quarry": quarry, "hunter": hunter, "suitor": suitor,
+                     "grass": grass, "grass_here": grass_here, "kin": kin}
         return senses, [ACTIONS.index(action) for action in ACTIONS if action in available], situation
 
     def _wellbeing(self, agent: Bitzkey) -> float:
-        """How comfortable an animal feels; metabolism sets how much hunger hurts."""
-        appetite = 0.5 + int(agent.traits["metabolism"]) / 15
-        return -appetite * min(100.0, agent.hunger) / 100 - (100 - max(0.0, agent.health)) / 100
+        """How comfortable an animal feels; appetite sets how much hunger hurts."""
+        appetite = 0.5 + agent.mind["appetite"] / 15
+        return (-appetite * min(100.0, agent.hunger) / 100
+                - (1 - max(0.0, agent.health) / agent.max_health))
 
     @staticmethod
-    def _company(agent: Bitzkey, kin: int) -> float:
-        return COMPANY_JOY * int(agent.traits["social"]) / 15 * min(3, kin) / 3
+    def _comfort(agent: Bitzkey, situation: dict) -> float:
+        """Company pleases the sociable; hunters close by frighten the fearful."""
+        company = COMPANY_JOY * agent.mind["sociability"] / 15 * min(3, situation["kin"]) / 3
+        dread = FEAR_DREAD * agent.mind["fear"] / 15 * min(2, situation["threats"]) / 2
+        return company - dread
 
     def _learn(self, agent: Bitzkey, target: float) -> None:
-        learning_rate = LEARNING_RATE_PER_POINT * int(agent.traits["learning"])
+        learning_rate = LEARNING_RATE_PER_POINT * agent.mind["intellect"]
         agent.brain.learn(agent.last_senses, agent.last_choice, target, learning_rate)
 
     def _die(self, agent: Bitzkey, cause: str) -> None:
@@ -317,66 +385,98 @@ class Simulation:
     # Actions
 
     def _act(self, agent: Bitzkey, action: str, situation: dict) -> None:
-        traits = agent.traits
         if action == "eat":
             cell = (agent.x, agent.y)
-            self.food[cell] -= 1
-            if self.food[cell] == 0:
-                del self.food[cell]
+            self.grass[cell] -= 1
+            if self.grass[cell] == 0:
+                del self.grass[cell]
             agent.hunger = max(0, agent.hunger - 35)
+            if agent.last_action == "foraged":
+                self._experience(agent, "foraged_meal")
             agent.last_action = "ate"
         elif action == "forage":
-            self._move_toward(agent, *situation["food"])
+            self._move_toward(agent, *situation["grass"])
             agent.last_action = "foraged"
         elif action == "rest":
-            agent.hunger = max(0, agent.hunger - self._hunger_rate(agent) / 2)
-            agent.health = min(100, agent.health + 1.5)
+            agent.hunger = max(0, agent.hunger - agent.burn / 2)
+            agent.health = min(agent.max_health, agent.health + agent.max_health * 0.015)
             agent.last_action = "rested"
+        elif action == "court":
+            suitor = situation["suitor"]
+            self._move_toward(agent, suitor.x, suitor.y)
+            agent.last_action = "courted"
         elif action == "breed":
             self._breed(agent, situation["mate"], situation["nursery"])
             agent.last_action = "mated"
+        elif action == "hunt":
+            quarry = situation["quarry"]
+            self._move_toward(agent, quarry.x, quarry.y)
+            if abs(quarry.x - agent.x) + abs(quarry.y - agent.y) <= 1:
+                self._attack(agent, quarry)
+                agent.last_action = "pounced"
+            else:
+                agent.last_action = "hunted"
         elif action == "attack":
-            self._attack(agent, situation["prey"][0])
+            self._attack(agent, situation["prey"])
         elif action == "flee":
-            self._move_away(agent, situation["threats"][0])
+            self._move_away(agent, situation["hunter"])
             agent.last_action = "fled"
         else:
-            distance = 1 + int(traits["constitution"]) // 8
-            for _ in range(distance):
+            for _ in range(agent.steps):
                 self._move(agent, (agent.x + self.random.choice((-1, 0, 1))) % self.width,
                            (agent.y + self.random.choice((-1, 0, 1))) % self.height)
+            agent.reward += CURIOSITY_JOY * agent.mind["curiosity"] / 15
             agent.last_action = "explored"
 
+    @staticmethod
+    def _damage(attacker: Bitzkey, defender: Bitzkey) -> float:
+        """One blow: strength and size, sharpened by weapons, blunted by armour."""
+        body = attacker.body
+        force = STRIKE_FORCE * (2 + 0.4 * int(body["strength"]) + 0.2 * int(body["size"]))
+        return force * (1 + int(body["weapons"]) / 20) * (1 - int(defender.body["armour"]) / 25)
+
     def _attack(self, agent: Bitzkey, victim: Bitzkey) -> None:
-        traits = agent.traits
-        joy = FIGHT_JOY * int(traits["aggression"]) / 15
-        victim.health -= 3 + int(traits["constitution"]) * 0.8
-        agent.hunger = max(0, agent.hunger - 15)
+        joy = FIGHT_JOY * agent.mind["aggression"] / 15
+        victim.health -= self._damage(agent, victim)
+        agent.hunger = max(0, agent.hunger - 5)
         agent.reward += joy
         agent.last_action = "attacked"
+        self._experience(agent, "hit")
         if victim.alive:
             victim.last_action = "wounded"
+            self._experience(victim, "wounded")
+            if not any(other.species == victim.species for other in self._nearby(victim, 2)):
+                self._experience(victim, "wounded_alone")
         else:
-            agent.hunger = max(0, agent.hunger - 30)
+            agent.hunger = max(0, agent.hunger - KILL_MEAL - KILL_MEAL_PER_SIZE * int(victim.body["size"]))
             agent.reward += 2 * joy
+            self._experience(agent, "kill")
             self._die(victim, "killed")
 
+        sting = 0.3 * int(victim.body["weapons"]) * (1 - int(agent.body["armour"]) / 25)
+        if sting > 0:
+            agent.health -= sting
+            self._experience(agent, "stung")
+            if not agent.alive:
+                self._die(agent, "killed")
+
     def _breed(self, first: Bitzkey, second: Bitzkey, cell: tuple[int, int]) -> None:
-        split = self.random.randrange(1, 32)
-        mask = (1 << split) - 1
-        dna = (first.dna & mask) | (second.dna & ~mask & 0xFFFFFFFF)
-        if self.random.random() < 0.2:
-            dna ^= 1 << self.random.randrange(32)
+        """Fertile parents breed cheaply and often; each gives its newborn the energy it spends."""
+        costs = [25 - int(parent.body["fertility"]) for parent in (first, second)]
         brain = Brain.inherit(first.brain, second.brain, self.random)
-        child = self._add_agent(dna, *cell, brain=brain)
-        child.hunger = BIRTH_HUNGER
+        child = self._add_agent(cross(first.dna, second.dna, self.random), *cell, brain=brain)
+        child.hunger = 100 - sum(costs)
         child.generation = max(first.generation, second.generation) + 1
         self._population += 1
-        for parent in (first, second):
-            parent.hunger += BREED_COST
-            parent.cooldown = BREED_COOLDOWN
+        for parent, cost in zip((first, second), costs, strict=True):
+            parent.hunger += cost
+            parent.cooldown = 20 - int(parent.body["fertility"])
             parent.children += 1
-            parent.reward += BREED_JOY * int(parent.traits["fertility"]) / 15
+            parent.reward += BREED_JOY * parent.mind["libido"] / 15
+            if not parent.alive:
+                self._die(parent, "bred to death")
+            else:
+                self._experience(parent, "bred_into_hunger" if parent.hunger >= 75 else "bred")
 
     # Space
 
@@ -401,14 +501,44 @@ class Simulation:
                 return cell
         return None
 
-    def _nearest_food(self, agent: Bitzkey, sight: int) -> tuple[int, int] | None:
+    def _nearest_grass(self, agent: Bitzkey, sight: int) -> tuple[int, int] | None:
         for dx, dy in SIGHT_OFFSETS:
             if abs(dx) + abs(dy) > sight:
                 return None
             cell = (agent.x + dx, agent.y + dy)
-            if self.food.get(cell, 0) > 0:
+            if self.grass.get(cell, 0) > 0:
                 return cell
         return None
+
+    def _look_around(self, agent: Bitzkey,
+                     sight: int) -> tuple[Bitzkey | None, Bitzkey | None, Bitzkey | None]:
+        """The nearest prey, hunter and willing mate in sight, for the roles this animal can have."""
+        quarry = hunter = suitor = None
+        hunts = agent.species in ("omnivore", "predator")
+        hunted = agent.species in ("grazer", "omnivore")
+        courts = agent.cooldown == 0
+        for dx, dy in SEEN_OFFSETS:
+            if abs(dx) + abs(dy) > sight or ((quarry or not hunts) and (hunter or not hunted)
+                                             and (suitor or not courts)):
+                break
+            for other in self._cells.get((agent.x + dx, agent.y + dy), ()):
+                if other is agent or not other.alive:
+                    continue
+                if quarry is None and self._is_prey(agent, other):
+                    quarry = other
+                elif hunter is None and self._is_prey(other, agent):
+                    hunter = other
+                elif (courts and suitor is None and other.cooldown == 0
+                      and self._compatible(agent, other)):
+                    suitor = other
+        return quarry, hunter, suitor
+
+    @staticmethod
+    def _closeness(agent: Bitzkey, cell: tuple[int, int] | None, sight: int) -> float:
+        """1 at or next to the cell, falling toward 0 at the edge of sight; 0 when nothing is seen."""
+        if cell is None:
+            return 0.0
+        return min(1.0, 1 - (abs(cell[0] - agent.x) + abs(cell[1] - agent.y) - 1) / sight)
 
     def _move(self, agent: Bitzkey, x: int, y: int) -> None:
         self._cells[(agent.x, agent.y)].remove(agent)
@@ -416,25 +546,22 @@ class Simulation:
         self._cells.setdefault((x, y), []).append(agent)
 
     def _move_toward(self, agent: Bitzkey, x: int, y: int) -> None:
-        distance = 1 + int(agent.traits["constitution"]) // 6
-        for _ in range(distance):
+        for _ in range(agent.steps):
             if agent.x != x:
                 self._move(agent, agent.x + (1 if x > agent.x else -1), agent.y)
             elif agent.y != y:
                 self._move(agent, agent.x, agent.y + (1 if y > agent.y else -1))
 
     def _move_away(self, agent: Bitzkey, threat: Bitzkey) -> None:
-        dx = 1 if agent.x >= threat.x else -1
-        dy = 1 if agent.y >= threat.y else -1
-        self._move(agent, (agent.x + dx) % self.width, (agent.y + dy) % self.height)
-
-    def _hunger_rate(self, agent: Bitzkey) -> float:
-        return 0.35 + int(agent.traits["metabolism"]) * 0.055
+        for _ in range(agent.steps):
+            dx = 1 if agent.x >= threat.x else -1
+            dy = 1 if agent.y >= threat.y else -1
+            self._move(agent, (agent.x + dx) % self.width, (agent.y + dy) % self.height)
 
     @staticmethod
     def _compatible(first: Bitzkey, second: Bitzkey) -> bool:
         return (first.species != "plant" and first.species == second.species
-                and (first.dna ^ second.dna).bit_count() <= 12)
+                and (body_word(first.dna) ^ body_word(second.dna)).bit_count() <= COMPATIBLE_BITS)
 
     @staticmethod
     def _is_prey(hunter: Bitzkey, other: Bitzkey) -> bool:
