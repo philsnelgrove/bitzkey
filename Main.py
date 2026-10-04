@@ -8,6 +8,7 @@ import pygame as pg
 
 from config.Globals import Config
 from display import Window
+from display.Dialog import Dialog
 from display.Look import DOT_RADIUS_RANGE, RING_WIDTH, dot_radius, draw_bitzkey
 from display.Setup import EXPORT_DIR, SetupScreen
 from display.Ui import UI
@@ -37,6 +38,12 @@ class BitzkeyApp:
         self.show_insights = False
         self.show_census = False
         self.graph = ColourGraph()
+        # Bitzkeys added to export, by identifier: their genome and their record when added.
+        self.export_list: dict[int, tuple[int, dict]] = {}
+        self.dialog: Dialog | None = None
+        self._dialog_kind = ""
+        self._add_button: pg.Rect | None = None
+        self._export_button = pg.Rect(0, 0, 0, 0)
         self.message = ""
         self.message_until = 0
         self.playing = True
@@ -65,21 +72,26 @@ class BitzkeyApp:
     def small(self) -> pg.font.Font:
         return UI.font("segoeui", 12)
 
-    def run(self) -> None:
-        running = True
-        while running:
+    def run(self) -> str:
+        """Run until the window closes ("quit") or the user leaves for the configuration panel
+        ("configure")."""
+        while True:
             self.elapsed += self.clock.tick(30) / 1000
             for event in pg.event.get():
                 if event.type == pg.QUIT:
-                    running = False
-                elif event.type == pg.VIDEORESIZE:
+                    return "quit"
+                if event.type == pg.VIDEORESIZE:
                     self.screen = Window.resize(event)
+                elif self.dialog:
+                    choice = self.dialog.handle(event, self.screen.get_size())
+                    if choice and self._answer(choice) == "leave":
+                        return "configure"
                 elif event.type == pg.KEYDOWN:
                     if event.key == pg.K_ESCAPE:
                         if self.show_census:
                             self.show_census = False
                         else:
-                            running = False
+                            self._ask_to_leave()
                     elif event.key == pg.K_F11:
                         self.screen = Window.toggle_fullscreen()
                     elif event.key == pg.K_SPACE:
@@ -109,19 +121,116 @@ class BitzkeyApp:
                             self._copy_selected()
                     elif event.key == pg.K_s and self.show_census:
                         self._export_graph(to_file=True)
+                    elif event.key == pg.K_a and not self.show_census:
+                        self._toggle_export()
+                    elif event.key == pg.K_e:
+                        self._open_export_dialog()
                 elif self.show_census and event.type in (pg.MOUSEBUTTONDOWN, pg.MOUSEBUTTONUP, pg.MOUSEMOTION):
                     action = self.graph.handle(event)
                     if action:
                         self._export_graph(to_file=action == "save")
                 elif event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
-                    self._select_at(event.pos)
+                    self._click(event.pos)
 
-            if self.playing and self.elapsed >= 0.24:
+            if self.playing and not self.dialog and self.elapsed >= 0.24:
                 self.simulation.advance()
                 self.elapsed = 0
             self._draw()
             pg.display.flip()
-        pg.quit()
+
+    def _click(self, position: tuple[int, int]) -> None:
+        if self._add_button and self._add_button.collidepoint(position):
+            self._toggle_export()
+        elif self._export_button.collidepoint(position):
+            self._open_export_dialog()
+        else:
+            self._select_at(position)
+
+    # Dialogs
+
+    def _open(self, kind: str, dialog: Dialog) -> None:
+        self._dialog_kind, self.dialog = kind, dialog
+
+    def _answer(self, choice: str) -> str | None:
+        """Act on a dialog's choice; returns "leave" when the user leaves the simulation."""
+        kind, self.dialog = self._dialog_kind, None
+        if kind == "leave":
+            return "leave" if choice == "leave" else None
+        if choice in ("save", "copy"):
+            self._export_chosen(to_file=choice == "save")
+        elif choice == "clear":
+            count = len(self.export_list)
+            self.export_list.clear()
+            self._say(f"Cleared {count} Bitzkey{'s' if count != 1 else ''} from the export list.")
+        return None
+
+    def _ask_to_leave(self) -> None:
+        lines = ["You'll return to the configuration panel to set up a new world.",
+                 "This world won't be kept."]
+        if self.export_list:
+            count = len(self.export_list)
+            lines.append(f"{count} Bitzkey{'s' if count != 1 else ''} added to export will be lost unless exported first.")
+        self._open("leave", Dialog("Leave this simulation?", lines, [("stay", "STAY"), ("leave", "LEAVE")],
+                                   cancel="stay"))
+
+    def _open_export_dialog(self) -> None:
+        count = len(self.export_list)
+        if not count:
+            self._open("export", Dialog("Export all selected", [
+                "Nothing has been added to export yet.",
+                "Select a Bitzkey and press ADD TO EXPORT (or A)."], [("close", "CLOSE")], cancel="close"))
+            return
+        _, gone = self._chosen_records()
+        lines = [f"{count} Bitzkey{'s' if count != 1 else ''} added to export.",
+                 "The living export as they are now, with what they have learned since."]
+        if gone:
+            lines.append(f"{gone} {'have' if gone != 1 else 'has'} died; they export as they were when added.")
+        lines.append("Save them to a file in exports/, or copy them to the clipboard.")
+        self._open("export", Dialog("Export all selected", lines, [
+            ("clear", "CLEAR LIST"), ("cancel", "CANCEL"), ("copy", "COPY"), ("save", "SAVE FILE")], cancel="cancel"))
+
+    # The export list
+
+    def _toggle_export(self) -> None:
+        agent = next((item for item in self.simulation.agents if item.identifier == self.selected_id), None)
+        if agent is None:
+            self._say("Select a Bitzkey first, then add it to export.")
+            return
+        if agent.identifier in self.export_list:
+            del self.export_list[agent.identifier]
+            self._say(f"Removed #{agent.identifier:03d} from the export list ({len(self.export_list)} on it).")
+        else:
+            self.export_list[agent.identifier] = (agent.dna, bitzkey_record(agent))
+            self._say(f"Added #{agent.identifier:03d} to the export list ({len(self.export_list)} on it).")
+
+    def _chosen_records(self) -> tuple[list[dict], int]:
+        """Records for the export list: the living as they are now, the dead as they were when
+        added (their brain is gone). Also returns how many have died."""
+        agents = {agent.identifier: agent for agent in self.simulation.agents}
+        records, gone = [], 0
+        for identifier, (dna, saved) in self.export_list.items():
+            agent = agents.get(identifier)
+            if agent is not None and agent.alive and agent.dna == dna:
+                records.append(bitzkey_record(agent))
+            else:
+                records.append(saved)
+                gone += 1
+        return records, gone
+
+    def _export_chosen(self, to_file: bool) -> None:
+        records, gone = self._chosen_records()
+        count = len(records)
+        what = f"{count} Bitzkey{'s' if count != 1 else ''} from the export list"
+        if gone:
+            what += f" ({gone} as they were when added)"
+        text = format_records(records)
+        if not to_file:
+            self._copy(text, what)
+            return
+        EXPORT_DIR.mkdir(exist_ok=True)
+        path = EXPORT_DIR / f"bitzkeys-turn-{self.simulation.turn:05d}-chosen-{count}.json"
+        path.write_text(text + "\n", encoding="utf-8")
+        self._say(f"Saved {what} to exports/{path.name}")
 
     def _select_at(self, position: tuple[int, int]) -> None:
         board, cell_width, cell_height = self._board_geometry()
@@ -161,6 +270,8 @@ class BitzkeyApp:
         if self.show_census:
             note = self.message if pg.time.get_ticks() < self.message_until else None
             self.graph.draw(self.screen, self.simulation, note)
+        if self.dialog:
+            self.dialog.draw(self.screen)
 
     def _draw_header(self) -> None:
         pg.draw.rect(self.screen, (27, 37, 37), (0, 0, self.screen.get_width(), UI(62)))
@@ -188,6 +299,8 @@ class BitzkeyApp:
             self._draw_bitzkey(agent, point, radius)
             if agent.identifier == self.selected_id:
                 pg.draw.circle(self.screen, (245, 238, 206), point, radius + RING_WIDTH + UI(3), max(1, UI(1)))
+            if agent.identifier in self.export_list:
+                pg.draw.circle(self.screen, (238, 183, 110), point, radius + RING_WIDTH + UI(6), max(1, UI(1)))
         for x in range(0, self.width + 1, 10):
             px = round(board.left + x * cell_width)
             pg.draw.line(self.screen, (46, 58, 54), (px, board.top), (px, board.bottom), 1)
@@ -213,6 +326,7 @@ class BitzkeyApp:
             self._text(str(counts.get(species, 0)), (x + width - UI(32), y), (231, 236, 222), self.font)
 
         pg.draw.line(self.screen, (54, 68, 62), (x, UI(286)), (x + width, UI(286)), 1)
+        self._add_button = None
         if self.show_insights:
             self._draw_insights(x, width)
             return
@@ -254,7 +368,15 @@ class BitzkeyApp:
             odds = sorted(agent.odds.items(), key=lambda item: -item[1])[:3]
             self._text("CHANCES  " + "   ".join(f"{action} {chance:.0%}" for action, chance in odds),
                        (x, UI(678)), (175, 192, 172), self.small)
-        self._text("C  copy this genome and brain as JSON", (x, UI(700)), (116, 139, 124), self.small)
+        self._text("C  copy as JSON      A  add to / remove from export", (x, UI(700)), (116, 139, 124), self.small)
+        chosen = agent.identifier in self.export_list
+        self._add_button = pg.Rect(x, UI(722), width, UI(30))
+        pg.draw.rect(self.screen, (44, 57, 52), self._add_button, border_radius=UI(5))
+        if chosen:
+            pg.draw.rect(self.screen, (238, 183, 110), self._add_button, 1, border_radius=UI(5))
+        label = UI.font("segoeui", 13, bold=True).render("REMOVE FROM EXPORT" if chosen else "ADD TO EXPORT", True,
+                                                         (238, 183, 110) if chosen else (220, 229, 211))
+        self.screen.blit(label, label.get_rect(center=self._add_button.center))
 
     @staticmethod
     def _dot_radius(agent: Bitzkey, largest: int = DOT_RADIUS_RANGE[1]) -> int:
@@ -360,12 +482,28 @@ class BitzkeyApp:
         pg.draw.rect(self.screen, (27, 37, 37), (0, height - UI(52), self.screen.get_width(), UI(52)))
         history = f"HISTORY  {self.simulation.history_index + 1}/{len(self.simulation.history)}"
         self._text(history, (UI(22), height - UI(36)), (158, 181, 160), self.small)
+        label = UI.font("segoeui", 13, bold=True).render(f"EXPORT ALL SELECTED ({len(self.export_list)})", True,
+                                                         (19, 26, 27) if self.export_list else (220, 229, 211))
+        self._export_button = pg.Rect(0, 0, label.get_width() + UI(32), UI(34))
+        self._export_button.midright = (self.screen.get_width() - UI(20), height - UI(26))
+        pg.draw.rect(self.screen, (238, 183, 110) if self.export_list else (44, 57, 52), self._export_button,
+                     border_radius=UI(6))
+        self.screen.blit(label, label.get_rect(center=self._export_button.center))
+        room = self._export_button.left - UI(185) - UI(16)
         if pg.time.get_ticks() < self.message_until:
-            self._text(self.message, (UI(185), height - UI(36)), (238, 183, 110), self.small)
+            self._text(self._fit(self.message, room), (UI(185), height - UI(36)), (238, 183, 110), self.small)
             return
-        self._text("SPACE  pause/run   LEFT  rewind   RIGHT  step   I  insights   B  brain report   "
-                   "G  colour graph   R  restart   F11  window   ESC  quit", (UI(185), height - UI(36)),
-                   (187, 199, 181), self.small)
+        self._text(self._fit("SPACE  pause   LEFT / RIGHT  rewind / step   I  insights   B  report   G  graph   "
+                             "E  export   R  restart   F11  window   ESC  menu", room),
+                   (UI(185), height - UI(36)), (187, 199, 181), self.small)
+
+    def _fit(self, text: str, width: int) -> str:
+        """Shorten footer text, with an ellipsis, so it stops short of the export button."""
+        if self.small.size(text)[0] <= width:
+            return text
+        while text and self.small.size(text + "...")[0] > width:
+            text = text[:-1]
+        return text.rstrip() + "..."
 
     def _bar(self, x: int, y: int, width: int, value: float, color: tuple[int, int, int]) -> None:
         pg.draw.rect(self.screen, (44, 57, 52), (x, y, width, UI(7)))
@@ -388,10 +526,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """Configure a world, run it, and come back to the configuration panel until the user quits."""
     options = parse_args()
-    settings = SetupScreen(Window.open_window(fullscreen=not options.windowed), vars(options)).run()
-    if settings is None:
-        pg.quit()
-    else:
-        BitzkeyApp(**settings).run()
+    setup = SetupScreen(Window.open_window(fullscreen=not options.windowed), vars(options))
+    while (settings := setup.run()) is not None:
+        if BitzkeyApp(**settings).run() == "quit":
+            break
+    pg.quit()
+
+
+if __name__ == "__main__":
+    main()

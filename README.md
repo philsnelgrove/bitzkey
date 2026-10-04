@@ -91,9 +91,18 @@ folder you can write to. The first launch takes a few seconds while it unpacks.
 - `B`: save a brain report to `reports/`
 - `G`: open or close the colour graph; `Tab` switches it between rings and dots
 - `C`: copy the selected Bitzkey's genome and brain to the clipboard as JSON
+- `A` or ADD TO EXPORT (under the selected Bitzkey): add it to, or remove it from,
+  the export list. Bitzkeys on the list wear an amber ring in the world.
+- `E` or EXPORT ALL SELECTED (bottom right): save the export list to a file in
+  `exports/` or copy it to the clipboard. Living Bitzkeys export as they are now,
+  with what they've learned since being added. Any that have died export as they
+  were when added, brain included. The dialog can also clear the list.
 - Click a Bitzkey: inspect its genome, current state and the odds of its last choice
 - `F11`: switch between fullscreen and a window
-- `Escape`: close the colour graph, or quit
+- `Escape`: close the colour graph; otherwise ask whether to leave the simulation
+  and return to the configuration panel. The panel keeps its settings and import
+  list, ready for a new world. Bitzkeys on the export list are lost unless
+  exported first, and the dialog warns about them. Closing the window quits.
 
 History retains up to 500 world snapshots. Rewinding and stepping forward replays
 the recorded future exactly; advancing from an earlier point replaces that

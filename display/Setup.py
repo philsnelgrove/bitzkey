@@ -212,7 +212,8 @@ class SetupScreen:
 
     def run(self) -> dict | None:
         """Return the chosen settings, with the imported genomes under "imported", or None if
-        the user quit."""
+        the user quit. Running it again, after a simulation, starts from the same values."""
+        self.screen = pg.display.get_surface() or self.screen
         while True:
             self.clock.tick(30)
             for event in pg.event.get():
