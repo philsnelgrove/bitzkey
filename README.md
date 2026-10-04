@@ -13,6 +13,13 @@ python -m pip install -r requirements.txt
 python Main.py
 ```
 
+Bitzkey opens fullscreen at your desktop's resolution. Press `F11` to switch to
+a resizable window and back, or start windowed with `python Main.py --windowed`.
+Text and controls scale with the screen. They are designed for 1200x820 and
+enlarged to fit, so a 1080p screen shows them about a third larger and a 4K
+screen about two and a half times larger. Text is drawn at full resolution, not
+stretched.
+
 A configuration panel opens first. Set:
 
 - the grid width and height (10 to 250 cells)
@@ -38,7 +45,20 @@ genomes into its text box with Ctrl+V or PASTE. Alternatively, load a file with
 LOAD FILE, or drag the file onto the window. Several pasted blocks, one after
 another, are all read. The line under the box says how many genomes of each
 species are ready, or what can't be read; START waits until the text reads
-cleanly or is cleared. Each imported genome spawns as a group of 3 to
+cleanly or is cleared. DESIGN opens the Bitzkey designer. It shows all 16 traits of a genome, mind and
+body, each adjustable with its - and + buttons, the arrow keys (`Shift` for steps
+of five), or by typing a value. The ring and dot hex codes can also be typed
+whole. A large preview shows the Bitzkey in its true colours, at sixteen times
+its in-world size and proportions, beside it at actual size. Below them are the
+stats that follow from the genome: health, energy burn, speed, sight and
+breeding cost. Species is stored as a value from 0 to 15; each value picks a
+species (value mod 4) and also shades the ring. APPLY (`Enter`) adds the design
+to the bottom of the import box, and CANCEL (`Esc`) leaves it out. RANDOM rolls a
+new genome. Reopening the designer starts from the last design applied, so
+variations are quick to build. A designed Bitzkey starts with a fresh brain and
+its genes' temperament.
+
+Each imported genome spawns as a group of 3 to
 5 Bitzkeys at a random spot, with fresh brains, so it arrives with mates. Up to
 120 genomes are used, keeping their groups within the 600 population cap. Set
 "Bitzkeys" to 0 to start with only your imports.
@@ -72,6 +92,7 @@ folder you can write to. The first launch takes a few seconds while it unpacks.
 - `G`: open or close the colour graph; `Tab` switches it between rings and dots
 - `C`: copy the selected Bitzkey's genome and brain to the clipboard as JSON
 - Click a Bitzkey: inspect its genome, current state and the odds of its last choice
+- `F11`: switch between fullscreen and a window
 - `Escape`: close the colour graph, or quit
 
 History retains up to 500 world snapshots. Rewinding and stepping forward replays

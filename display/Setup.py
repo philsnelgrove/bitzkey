@@ -10,8 +10,11 @@ from pathlib import Path
 import pygame as pg
 
 from config.Globals import Config
-from tools.Exchange import Imported, import_bitzkeys
-from tools.Genome import decode_body
+from display import Window
+from display.Ui import UI
+from display.Designer import Designer
+from tools.Exchange import Imported, format_records, import_bitzkeys
+from tools.Genome import decode_body, genome_record
 from tools.Simulation import MAX_IMPORTED, MAX_POPULATION, SPAWN_GROUP
 
 EXPORT_DIR = Config.APP_DIR / "exports"
@@ -141,6 +144,10 @@ class SetupForm:
     def clear_import(self) -> None:
         self.import_text = ""
 
+    def add_design(self, dna: int) -> None:
+        """Add a designed genome to the bottom of the import text."""
+        self.paste(format_records([genome_record(dna)]))
+
     def _settle(self, setting: Setting) -> None:
         """Replace whatever was typed with the in-range value it stands for."""
         value = self.value(setting)
@@ -172,15 +179,36 @@ class SetupScreen:
     def __init__(self, screen: pg.Surface, defaults: Mapping[str, int | None]):
         self.screen = screen
         self.form = SetupForm(defaults)
-        self.font = pg.font.SysFont("segoeui", 15)
-        self.bold = pg.font.SysFont("segoeui", 22, bold=True)
-        self.button_font = pg.font.SysFont("segoeui", 13, bold=True)
-        self.mono = pg.font.SysFont("consolas", 18)
-        self.mono_small = pg.font.SysFont("consolas", 12)
-        self.small = pg.font.SysFont("segoeui", 12)
         self.clock = pg.time.Clock()
         self.note = ""
         self.note_until = 0
+        self.last_design: int | None = None  # the designer reopens on the last design applied
+
+    # Fonts are sized for the 1200x820 design and scaled to the screen.
+
+    @property
+    def font(self) -> pg.font.Font:
+        return UI.font("segoeui", 15)
+
+    @property
+    def bold(self) -> pg.font.Font:
+        return UI.font("segoeui", 22, bold=True)
+
+    @property
+    def button_font(self) -> pg.font.Font:
+        return UI.font("segoeui", 13, bold=True)
+
+    @property
+    def mono(self) -> pg.font.Font:
+        return UI.font("consolas", 18)
+
+    @property
+    def mono_small(self) -> pg.font.Font:
+        return UI.font("consolas", 12)
+
+    @property
+    def small(self) -> pg.font.Font:
+        return UI.font("segoeui", 12)
 
     def run(self) -> dict | None:
         """Return the chosen settings, with the imported genomes under "imported", or None if
@@ -191,13 +219,15 @@ class SetupScreen:
                 if event.type == pg.QUIT:
                     return None
                 if event.type == pg.VIDEORESIZE:
-                    self.screen = pg.display.set_mode((max(860, event.w), max(760, event.h)), pg.RESIZABLE)
+                    self.screen = Window.resize(event)
                 elif event.type == pg.DROPFILE:
                     self._load(event.file)
                 elif event.type == pg.KEYDOWN:
                     if event.key == pg.K_ESCAPE:
                         return None
-                    if event.key in (pg.K_RETURN, pg.K_KP_ENTER):
+                    if event.key == pg.K_F11:
+                        self.screen = Window.toggle_fullscreen()
+                    elif event.key in (pg.K_RETURN, pg.K_KP_ENTER):
                         if self._ready():
                             return self.form.values()
                     elif event.key == pg.K_v and event.mod & pg.KMOD_CTRL:
@@ -205,7 +235,10 @@ class SetupScreen:
                     else:
                         self._key(event)
                 elif event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
-                    if self._click(event.pos) and self._ready():
+                    action = self._click(event.pos)
+                    if action == "quit":
+                        return None
+                    if action == "start" and self._ready():
                         return self.form.values()
             self._draw()
             pg.display.flip()
@@ -234,6 +267,19 @@ class SetupScreen:
             form.backspace()
         elif event.unicode and event.unicode.isprintable():
             form.type_text(event.unicode)
+
+    def _design(self) -> str | None:
+        """Open the designer; an applied design joins the bottom of the import text. Returns
+        "quit" if the window was closed meanwhile."""
+        outcome, dna = Designer(self.screen, self.last_design).run()
+        self.screen = pg.display.get_surface()
+        if outcome == "quit":
+            return "quit"
+        if dna is not None:
+            self.last_design = dna
+            self.form.add_design(dna)
+            self._tell(f"Added a designed {decode_body(dna)['species']} to the import list.")
+        return None
 
     def _paste(self) -> None:
         try:
@@ -276,38 +322,44 @@ class SetupScreen:
         self._tell(f"Loaded {file.name}.")
 
     def _layout(self) -> dict[str, pg.Rect | list[pg.Rect]]:
+        UI.fit(self.screen.get_size())
         width, height = self.screen.get_size()
         settings = len(self.form.settings)
-        card = pg.Rect(0, 0, 640, 110 + settings * self.ROW_HEIGHT + self.IMPORT_HEIGHT + 110)
+        card = pg.Rect(0, 0, UI(640), UI(110 + settings * self.ROW_HEIGHT + self.IMPORT_HEIGHT + 110))
         card.center = (width // 2, height // 2)
-        rows = [pg.Rect(card.left + 20, card.top + 104 + index * self.ROW_HEIGHT, card.width - 40,
-                        self.ROW_HEIGHT - 6) for index in range(settings)]
-        section = pg.Rect(card.left + 20, rows[-1].bottom + 14, card.width - 40, self.IMPORT_HEIGHT - 14)
-        clear = pg.Rect(0, 0, 64, 28)
+        rows = [pg.Rect(card.left + UI(20), card.top + UI(104 + index * self.ROW_HEIGHT), card.width - UI(40),
+                        UI(self.ROW_HEIGHT - 6)) for index in range(settings)]
+        section = pg.Rect(card.left + UI(20), rows[-1].bottom + UI(14), card.width - UI(40), UI(self.IMPORT_HEIGHT - 14))
+        clear = pg.Rect(0, 0, UI(64), UI(28))
         clear.topright = (section.right, section.top)
-        load = pg.Rect(0, 0, 92, 28)
-        load.topright = (clear.left - 8, section.top)
-        paste = pg.Rect(0, 0, 70, 28)
-        paste.topright = (load.left - 8, section.top)
-        box = pg.Rect(section.left, section.top + 36, section.width, 16 * self.TEXT_LINES + 12)
-        start = pg.Rect(0, 0, 180, 44)
-        start.midbottom = (card.centerx, card.bottom - 42)
-        return {"card": card, "rows": rows, "box": box, "paste": paste, "load": load, "clear": clear,
-                "start": start}
+        load = pg.Rect(0, 0, UI(92), UI(28))
+        load.topright = (clear.left - UI(8), section.top)
+        paste = pg.Rect(0, 0, UI(70), UI(28))
+        paste.topright = (load.left - UI(8), section.top)
+        design = pg.Rect(0, 0, UI(80), UI(28))
+        design.topright = (paste.left - UI(8), section.top)
+        box = pg.Rect(section.left, section.top + UI(36), section.width, UI(16 * self.TEXT_LINES + 12))
+        start = pg.Rect(0, 0, UI(180), UI(44))
+        start.midbottom = (card.centerx, card.bottom - UI(42))
+        return {"card": card, "rows": rows, "box": box, "design": design, "paste": paste, "load": load,
+                "clear": clear, "start": start}
 
     @staticmethod
     def _buttons(row: pg.Rect) -> tuple[pg.Rect, pg.Rect, pg.Rect]:
         """The minus button, value box and plus button of a row."""
-        plus = pg.Rect(row.right - 44, row.centery - 15, 30, 30)
-        box = pg.Rect(plus.left - 150, row.centery - 17, 142, 34)
-        minus = pg.Rect(box.left - 38, row.centery - 15, 30, 30)
+        plus = pg.Rect(row.right - UI(44), row.centery - UI(15), UI(30), UI(30))
+        box = pg.Rect(plus.left - UI(150), row.centery - UI(17), UI(142), UI(34))
+        minus = pg.Rect(box.left - UI(38), row.centery - UI(15), UI(30), UI(30))
         return minus, box, plus
 
-    def _click(self, position: tuple[int, int]) -> bool:
-        """Handle a click; return True when it asks to start the world."""
+    def _click(self, position: tuple[int, int]) -> str | None:
+        """Handle a click; return "start" when it asks to start the world, or "quit" if the
+        window was closed from the designer."""
         layout = self._layout()
         if layout["start"].collidepoint(position):
-            return True
+            return "start"
+        if layout["design"].collidepoint(position):
+            return self._design()
         if layout["paste"].collidepoint(position):
             self._paste()
         elif layout["load"].collidepoint(position):
@@ -325,17 +377,19 @@ class SetupScreen:
                     self.form.adjust(-1)
                 elif plus.collidepoint(position):
                     self.form.adjust(1)
-        return False
+        return None
 
     def _draw(self) -> None:
         self.screen.fill((19, 26, 27))
         layout = self._layout()
         card = layout["card"]
-        pg.draw.rect(self.screen, (27, 37, 37), card, border_radius=8)
-        pg.draw.rect(self.screen, (80, 99, 85), card, 1, border_radius=8)
-        self._text("BITZKEY", (card.left + 28, card.top + 24), (229, 239, 220), self.bold)
-        self._text("NEW WORLD  /  CONFIGURATION", (card.left + 143, card.top + 33), (144, 170, 151), self.small)
-        self._text("Set up the world, then start the simulation.", (card.left + 28, card.top + 66),
+        pg.draw.rect(self.screen, (27, 37, 37), card, border_radius=UI(8))
+        pg.draw.rect(self.screen, (80, 99, 85), card, 1, border_radius=UI(8))
+        title = self.bold.render("BITZKEY", True, (229, 239, 220))
+        self.screen.blit(title, (card.left + UI(28), card.top + UI(24)))
+        self._text("NEW WORLD  /  CONFIGURATION", (card.left + UI(52) + title.get_width(), card.top + UI(33)),
+                   (144, 170, 151), self.small)
+        self._text("Set up the world, then start the simulation.", (card.left + UI(28), card.top + UI(66)),
                    (157, 177, 159), self.font)
 
         for index, (setting, row) in enumerate(zip(self.form.settings, layout["rows"], strict=True)):
@@ -344,60 +398,61 @@ class SetupScreen:
 
         start = layout["start"]
         ready = self.form.can_start
-        pg.draw.rect(self.screen, (131, 205, 143) if ready else (70, 88, 76), start, border_radius=6)
+        pg.draw.rect(self.screen, (131, 205, 143) if ready else (70, 88, 76), start, border_radius=UI(6))
         label = self.bold.render("START", True, (19, 26, 27))
         self.screen.blit(label, label.get_rect(center=start.center))
         if pg.time.get_ticks() < self.note_until:
             hint = self.small.render(self.note, True, (238, 183, 110))
         else:
-            hint = self.small.render("UP/DOWN  choose    LEFT/RIGHT  adjust (SHIFT x10)    type a number    "
-                                     "CTRL+V  paste    ENTER  start    ESC  quit", True, (130, 152, 136))
-        self.screen.blit(hint, hint.get_rect(midbottom=(card.centerx, card.bottom - 14)))
+            hint = self.small.render("UP/DOWN  choose   LEFT/RIGHT  adjust (SHIFT x10)   CTRL+V  paste   "
+                                     "ENTER  start   F11  window   ESC  quit", True, (130, 152, 136))
+        self.screen.blit(hint, hint.get_rect(midbottom=(card.centerx, card.bottom - UI(14))))
 
     def _draw_setting(self, setting: Setting, row: pg.Rect, focused: bool) -> None:
-        pg.draw.rect(self.screen, (36, 49, 47) if focused else (31, 42, 41), row, border_radius=5)
+        pg.draw.rect(self.screen, (36, 49, 47) if focused else (31, 42, 41), row, border_radius=UI(5))
         if focused:
-            pg.draw.rect(self.screen, (131, 205, 143), row, 1, border_radius=5)
-        self._text(setting.label.upper(), (row.left + 16, row.top + 7), (232, 236, 219), self.font)
-        self._text(setting.hint, (row.left + 16, row.top + 28), (130, 152, 136), self.small)
+            pg.draw.rect(self.screen, (131, 205, 143), row, 1, border_radius=UI(5))
+        self._text(setting.label.upper(), (row.left + UI(16), row.top + UI(7)), (232, 236, 219), self.font)
+        self._text(setting.hint, (row.left + UI(16), row.top + UI(28)), (130, 152, 136), self.small)
         minus, box, plus = self._buttons(row)
         for button, sign in ((minus, "-"), (plus, "+")):
-            pg.draw.rect(self.screen, (44, 57, 52), button, border_radius=4)
+            pg.draw.rect(self.screen, (44, 57, 52), button, border_radius=UI(4))
             label = self.bold.render(sign, True, (220, 229, 211))
             self.screen.blit(label, label.get_rect(center=button.center))
-        pg.draw.rect(self.screen, (19, 26, 27), box, border_radius=4)
-        pg.draw.rect(self.screen, (131, 205, 143) if focused else (54, 68, 62), box, 1, border_radius=4)
+        pg.draw.rect(self.screen, (19, 26, 27), box, border_radius=UI(4))
+        pg.draw.rect(self.screen, (131, 205, 143) if focused else (54, 68, 62), box, 1, border_radius=UI(4))
         text = self.form.texts[setting.key]
         shown, color = (text, (238, 238, 220)) if text else ("random", (116, 139, 124))
         if focused and not self.form.fresh and pg.time.get_ticks() // 500 % 2:
             shown += "_"
         label = self.mono.render(shown, True, color)
-        self.screen.blit(label, label.get_rect(midright=(box.right - 12, box.centery)))
+        self.screen.blit(label, label.get_rect(midright=(box.right - UI(12), box.centery)))
 
     def _draw_import(self, layout: dict) -> None:
         box = layout["box"]
         focused = self.form.on_import
-        self._text("IMPORT BITZKEYS", (box.left, layout["paste"].top + 5), (232, 236, 219), self.font)
-        for name, label in (("paste", "PASTE"), ("load", "LOAD FILE"), ("clear", "CLEAR")):
+        self._text("IMPORT BITZKEYS", (box.left, layout["paste"].top + UI(5)), (232, 236, 219), self.font)
+        for name, label in (("design", "DESIGN"), ("paste", "PASTE"), ("load", "LOAD FILE"), ("clear", "CLEAR")):
             button = layout[name]
-            pg.draw.rect(self.screen, (44, 57, 52), button, border_radius=4)
+            pg.draw.rect(self.screen, (44, 57, 52), button, border_radius=UI(4))
             text = self.button_font.render(label, True, (220, 229, 211))
             self.screen.blit(text, text.get_rect(center=button.center))
 
-        pg.draw.rect(self.screen, (19, 26, 27), box, border_radius=4)
-        pg.draw.rect(self.screen, (131, 205, 143) if focused else (54, 68, 62), box, 1, border_radius=4)
+        pg.draw.rect(self.screen, (19, 26, 27), box, border_radius=UI(4))
+        pg.draw.rect(self.screen, (131, 205, 143) if focused else (54, 68, 62), box, 1, border_radius=UI(4))
         lines = self.form.import_text.split("\n")
         if not self.form.import_text and not focused:
             lines, color = ["Paste exported genomes here (CTRL+V), drop a file onto the window,",
-                            "or load one. Imported Bitzkeys join the ones spawned above."], (116, 139, 124)
+                            "load one, or DESIGN your own. Imported Bitzkeys join the ones",
+                            "spawned above."], (116, 139, 124)
         else:
             lines, color = lines[-self.TEXT_LINES:], (187, 199, 181)
             if focused and pg.time.get_ticks() // 500 % 2:
                 lines[-1] += "_"
-        columns = (box.width - 20) // max(1, self.mono_small.size("M")[0])
+        columns = (box.width - UI(20)) // max(1, self.mono_small.size("M")[0])
         for index, line in enumerate(lines):
             shown = line if len(line) <= columns else line[:columns - 1] + "~"
-            self._text(shown, (box.left + 10, box.top + 7 + index * 16), color, self.mono_small)
+            self._text(shown, (box.left + UI(10), box.top + UI(7 + index * 16)), color, self.mono_small)
 
         genomes, error = self.form.imports
         if error:
@@ -406,7 +461,7 @@ class SetupScreen:
             status, color = import_summary(genomes), (131, 205, 143)
         else:
             status, color = "Nothing to import.", (116, 139, 124)
-        self._text(status, (box.left, box.bottom + 8), color, self.small)
+        self._text(status, (box.left, box.bottom + UI(8)), color, self.small)
 
     def _text(self, text: str, position: tuple[int, int], color: tuple[int, int, int],
               font: pg.font.Font) -> None:

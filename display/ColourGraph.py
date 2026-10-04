@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 import pygame as pg
 
+from display.Ui import UI
 from tools.Census import colour_order
 from tools.Genome import body_word, color_from_word, decode_body, mind_word
 
@@ -19,7 +20,7 @@ if TYPE_CHECKING:
     from tools.Simulation import Simulation
 
 BAR_PIXELS = 5         # target width of one bar
-DRAG_THRESHOLD = 4     # a press that moves less than this many pixels is a click
+DRAG_THRESHOLD = 4     # a press that moves less than this (design pixels, scaled) is a click
 DIM = 0.75             # how far unselected Bitzkeys fade toward the background
 BACKGROUND = (30, 40, 40)
 PARTS = ("ring", "dot")
@@ -107,8 +108,7 @@ def updated(selection: set[int], picked: set[int], mode: str) -> set[int]:
 
 
 class ColourGraph:
-    def __init__(self, font: pg.font.Font, bold: pg.font.Font, small: pg.font.Font):
-        self.font, self.bold, self.small = font, bold, small
+    def __init__(self) -> None:
         self.part = "ring"
         self.selection: set[int] = set()
         self._selection_version = 0
@@ -121,6 +121,18 @@ class ColourGraph:
         self._image: pg.Surface | None = None
         self._key: tuple | None = None
 
+    @property
+    def font(self) -> pg.font.Font:
+        return UI.font("segoeui", 15)
+
+    @property
+    def bold(self) -> pg.font.Font:
+        return UI.font("segoeui", 22, bold=True)
+
+    @property
+    def small(self) -> pg.font.Font:
+        return UI.font("segoeui", 12)
+
     def switch_part(self) -> None:
         self.part = "dot" if self.part == "ring" else "ring"
 
@@ -130,14 +142,14 @@ class ColourGraph:
 
     def layout(self) -> dict[str, pg.Rect]:
         width, height = self._size
-        panel = pg.Rect(0, 0, min(940, width - 60), min(620, height - 90))
+        panel = pg.Rect(0, 0, min(UI(940), width - UI(60)), min(UI(620), height - UI(90)))
         panel.center = (width // 2, height // 2)
-        chart = pg.Rect(panel.left + 64, panel.top + 92, panel.width - 92, panel.height - 190)
+        chart = pg.Rect(panel.left + UI(64), panel.top + UI(92), panel.width - UI(92), panel.height - UI(190))
         buttons = {}
-        right = panel.right - 24
-        for name, label_width in (("save", 76), ("copy", 76), ("clear", 76)):
-            buttons[name] = pg.Rect(right - label_width, panel.top + 18, label_width, 30)
-            right -= label_width + 8
+        right = panel.right - UI(24)
+        for name in ("save", "copy", "clear"):
+            buttons[name] = pg.Rect(right - UI(76), panel.top + UI(18), UI(76), UI(30))
+            right -= UI(84)
         return {"panel": panel, "chart": chart, **buttons}
 
     def handle(self, event: pg.event.Event) -> str | None:
@@ -156,7 +168,7 @@ class ColourGraph:
         elif event.type == pg.MOUSEBUTTONUP and event.button == 1 and self._press:
             (start, modifiers), self._press = self._press, None
             shift, ctrl = modifiers & pg.KMOD_SHIFT, modifiers & pg.KMOD_CTRL
-            if max(abs(event.pos[0] - start[0]), abs(event.pos[1] - start[1])) < DRAG_THRESHOLD:
+            if max(abs(event.pos[0] - start[0]), abs(event.pos[1] - start[1])) < UI(DRAG_THRESHOLD):
                 hit = bitzkey_at(self._bars, start)
                 picked = set() if hit is None else {hit}
                 self.select(picked, "remove" if ctrl else "toggle" if shift else "replace")
@@ -177,20 +189,21 @@ class ColourGraph:
         shade = pg.Surface(self._size, pg.SRCALPHA)
         shade.fill((8, 12, 12, 175))
         screen.blit(shade, (0, 0))
-        pg.draw.rect(screen, BACKGROUND, panel, border_radius=6)
-        pg.draw.rect(screen, (80, 99, 85), panel, 1, border_radius=6)
+        pg.draw.rect(screen, BACKGROUND, panel, border_radius=UI(6))
+        pg.draw.rect(screen, (80, 99, 85), panel, 1, border_radius=UI(6))
         title = "RING / BODY" if self.part == "ring" else "DOT / MIND"
-        self._text(screen, f"COLOUR GRAPH  /  {title}", (panel.left + 24, panel.top + 18), (229, 239, 220), self.bold)
+        self._text(screen, f"COLOUR GRAPH  /  {title}", (panel.left + UI(24), panel.top + UI(18)), (229, 239, 220),
+                   self.bold)
         self._text(screen, "Every Bitzkey alive over time, in its own colour.    TAB  ring / dot    C  copy    "
                    "S  save to exports/    G or ESC  close",
-                   (panel.left + 24, panel.top + 54), (144, 170, 151), self.small)
+                   (panel.left + UI(24), panel.top + UI(54)), (144, 170, 151), self.small)
         for name in ("clear", "copy", "save"):
-            pg.draw.rect(screen, (44, 57, 52), layout[name], border_radius=4)
+            pg.draw.rect(screen, (44, 57, 52), layout[name], border_radius=UI(4))
             label = self.font.render(name.upper(), True, (220, 229, 211))
             screen.blit(label, label.get_rect(center=layout[name].center))
         if note:
             message = self.small.render(note, True, (238, 183, 110))
-            screen.blit(message, message.get_rect(topright=(panel.right - 24, panel.top + 58)))
+            screen.blit(message, message.get_rect(topright=(panel.right - UI(24), panel.top + UI(58))))
 
         key = (simulation.turn, len(simulation.census.snapshots), len(simulation.agents), simulation.deaths,
                self.part, chart.size, chart.topleft, self._selection_version, id(simulation))
@@ -207,11 +220,11 @@ class ColourGraph:
         for fraction in (0, 0.5, 1):
             y = round(chart.bottom - fraction * chart.height)
             label = self.small.render(f"{self._peak * fraction:g}", True, (149, 170, 150))
-            screen.blit(label, (chart.left - label.get_width() - 8, y - label.get_height() // 2))
+            screen.blit(label, (chart.left - label.get_width() - UI(8), y - label.get_height() // 2))
         middle = self._bars[len(self._bars) // 2].turn
         for turn, x, align in ((0, chart.left, 0), (middle, chart.centerx, 0.5), (simulation.turn, chart.right, 1)):
             label = self.small.render(f"TURN {turn}", True, (149, 170, 150))
-            screen.blit(label, (x - round(label.get_width() * align), chart.bottom + 6))
+            screen.blit(label, (x - round(label.get_width() * align), chart.bottom + UI(6)))
 
         hovered = bitzkey_at(self._bars, self._mouse) if chart.collidepoint(self._mouse) else None
         for left, right, top, bottom in self._places.get(hovered, ()):
@@ -223,11 +236,11 @@ class ColourGraph:
             screen.blit(veil, box.topleft)
             pg.draw.rect(screen, (245, 238, 206), box, 1)
 
-        self._text(screen, self._describe(simulation, hovered), (panel.left + 24, chart.bottom + 30),
+        self._text(screen, self._describe(simulation, hovered), (panel.left + UI(24), chart.bottom + UI(30)),
                    (220, 229, 211), self.font)
         self._text(screen, "Click a Bitzkey or drag a box to select.    SHIFT adds    CTRL removes    "
                    "With nothing selected, COPY and SAVE take everyone alive.",
-                   (panel.left + 24, panel.bottom - 28), (144, 170, 151), self.small)
+                   (panel.left + UI(24), panel.bottom - UI(28)), (144, 170, 151), self.small)
 
     def _describe(self, simulation: Simulation, hovered: int | None) -> str:
         living = {agent.identifier for agent in simulation.living}
