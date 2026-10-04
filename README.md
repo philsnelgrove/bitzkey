@@ -46,6 +46,21 @@ cleanly or is cleared. Each imported genome spawns as a group of 3 to
 To add a setting, add a `Setting` to `SETTINGS` in `display/Setup.py` and a
 parameter with the same name to `BitzkeyApp`.
 
+## Build a Windows Executable
+
+```powershell
+.\build.ps1
+```
+
+This installs PyInstaller (from `requirements-build.txt`) and builds
+`dist\Bitzkey.exe`, a single file that runs on Windows without Python and opens
+no console window. The script uses the project's `.venv` when there is one. If
+Windows blocks scripts, run
+`powershell -ExecutionPolicy Bypass -File .\build.ps1` instead.
+
+The executable saves `reports\` and `exports\` beside itself, so keep it in a
+folder you can write to. The first launch takes a few seconds while it unpacks.
+
 ## Controls
 
 - `Space`: pause or resume

@@ -9,10 +9,11 @@ from pathlib import Path
 
 import pygame as pg
 
+from config.Globals import Config
 from tools.Genome import decode_body, import_genomes
 from tools.Simulation import MAX_IMPORTED, MAX_POPULATION, SPAWN_GROUP
 
-EXPORT_DIR = Path(__file__).resolve().parent.parent / "exports"
+EXPORT_DIR = Config.APP_DIR / "exports"
 MAX_IMPORT_BYTES = 5_000_000
 
 

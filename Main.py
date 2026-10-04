@@ -3,7 +3,6 @@
 import argparse
 from collections import Counter
 from collections.abc import Sequence
-from pathlib import Path
 
 import pygame as pg
 
@@ -15,7 +14,7 @@ from tools.Genome import BODY_TRAITS, MIND_TRAITS, body_word, export_genomes, mi
 from tools.Insights import ANIMALS, brain_report
 from tools.Simulation import SPECIES, Bitzkey, Simulation
 
-REPORT_DIR = Path(__file__).resolve().parent / "reports"
+REPORT_DIR = Config.APP_DIR / "reports"
 RING_WIDTH = 3
 
 
