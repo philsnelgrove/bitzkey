@@ -23,6 +23,7 @@ from tools.Insights import ANIMALS, brain_report
 from tools.Simulation import CORPSE_TURNS, SPECIES, Bitzkey, Simulation
 
 REPORT_DIR = Config.APP_DIR / "reports"
+INSIGHTS_TOP = 290  # the insights panel's top, in design pixels: just below the population counts
 
 
 class BitzkeyApp:
@@ -46,6 +47,11 @@ class BitzkeyApp:
         self.graph = ColourGraph()
         # Bitzkeys added to export, by identifier: their genome and their record when added.
         self.export_list: dict[int, tuple[int, dict]] = {}
+        # The insights panel scrolls: how far down it is, and while its scroll bar is dragged,
+        # where on the thumb it was taken.
+        self.insights_scroll = 0
+        self._insights_height = 0
+        self._scroll_grip: int | None = None
         self.dialog: Dialog | None = None
         self._dialog_kind = ""
         self._add_button: pg.Rect | None = None
@@ -136,6 +142,8 @@ class BitzkeyApp:
                         self._toggle_export()
                     elif event.key == pg.K_e:
                         self._open_export_dialog()
+                elif self.show_insights and not self.show_census and self._scroll_event(event):
+                    pass
                 elif self.show_census and event.type in (pg.MOUSEBUTTONDOWN, pg.MOUSEBUTTONUP, pg.MOUSEMOTION,
                                                          pg.MOUSEWHEEL):
                     action = self.graph.handle(event)
@@ -305,6 +313,7 @@ class BitzkeyApp:
                 nearest_distance = distance
         if nearest and board.collidepoint(position) and nearest_distance < max(UI(9), min(cell_width, cell_height) * 1.6):
             self.selected_id = nearest.identifier
+            self.show_insights = False  # selecting shows the inspector
 
     def _sidebar_width(self) -> int:
         return min(UI(340), max(UI(290), self.screen.get_width() // 3))
@@ -456,37 +465,171 @@ class BitzkeyApp:
             return 1.0
         return max(0.0, 1 - (self.simulation.turn - agent.died_turn) / CORPSE_TURNS)
 
+    # The insights panel scrolls within the sidebar, below the population counts.
+
+    def _insights_view(self) -> pg.Rect:
+        sidebar_x = self.screen.get_width() - self._sidebar_width()
+        top = UI(INSIGHTS_TOP)
+        return pg.Rect(sidebar_x + 1, top, self._sidebar_width() - 1, self.screen.get_height() - UI(58) - top)
+
+    def _scroll_track(self) -> pg.Rect:
+        view = self._insights_view()
+        return pg.Rect(self.screen.get_width() - UI(11), view.top + UI(4), UI(6), view.height - UI(8))
+
+    def _max_scroll(self) -> int:
+        return max(0, self._insights_height - self._insights_view().height)
+
+    def _scroll_thumb(self) -> pg.Rect | None:
+        """The scroll bar's thumb, sized to the share of the panel in view; none when it all fits."""
+        track, most = self._scroll_track(), self._max_scroll()
+        if not most:
+            return None
+        height = max(UI(24), track.height * self._insights_view().height // self._insights_height)
+        return pg.Rect(track.left, track.top + (track.height - height) * self.insights_scroll // most, track.width, height)
+
+    def _scroll_to(self, scroll: int) -> None:
+        self.insights_scroll = max(0, min(self._max_scroll(), scroll))
+
+    def _scroll_event(self, event: pg.event.Event) -> bool:
+        """Scroll the insights panel with the wheel over the sidebar, or by dragging its thumb.
+        Returns whether the event was used."""
+        view = self._insights_view()
+        if event.type == pg.MOUSEWHEEL and view.collidepoint(pg.mouse.get_pos()):
+            self._scroll_to(self.insights_scroll - event.y * UI(48))
+            return True
+        if event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
+            track, thumb = self._scroll_track().inflate(UI(8), 0), self._scroll_thumb()
+            if thumb is None or not track.collidepoint(event.pos):
+                return False
+            if not thumb.collidepoint(event.pos):  # a click on the track jumps the thumb there
+                self._scroll_to((event.pos[1] - track.top - thumb.height // 2) * self._max_scroll()
+                                // max(1, self._scroll_track().height - thumb.height))
+                thumb = self._scroll_thumb()
+            self._scroll_grip = event.pos[1] - thumb.top
+            return True
+        if event.type == pg.MOUSEMOTION and self._scroll_grip is not None:
+            track, thumb = self._scroll_track(), self._scroll_thumb()
+            if thumb is not None:
+                self._scroll_to((event.pos[1] - self._scroll_grip - track.top) * self._max_scroll()
+                                // max(1, track.height - thumb.height))
+            return True
+        if event.type == pg.MOUSEBUTTONUP and event.button == 1 and self._scroll_grip is not None:
+            self._scroll_grip = None
+            return True
+        return False
+
     def _draw_insights(self, x: int, width: int) -> None:
+        """What the animals are doing and what they are like, by species, scrolled within the
+        sidebar. Lengths are in design pixels from the top of the sidebar."""
         insights = self.simulation.insights
-        self._text("BEHAVIOUR", (x, UI(301)), (220, 229, 211), self.font)
-        self._text("% of chances taken, recent turns", (x, UI(323)), (116, 139, 124), self.small)
+        view = self._insights_view()
+        self._scroll_to(self.insights_scroll)
+        offset = self.insights_scroll
+        self.screen.set_clip(view)
+
+        def at(y: float) -> int:
+            return UI(y) - offset
+
         columns = [x + UI(96) + index * (width - UI(96)) // len(ANIMALS) for index in range(len(ANIMALS))]
-        for column, species in zip(columns, ANIMALS):
-            self._text(species[:4].upper(), (column, UI(347)), (149, 170, 150), self.small)
-        for row, action in enumerate(ACTIONS):
-            y = UI(367 + row * 17)
-            self._text(action.upper(), (x, y), (149, 170, 150), self.small)
+
+        def heading(title: str, note: str, y: float) -> float:
+            self._text(title, (x, at(y)), (220, 229, 211), self.font)
+            self._text(note, (x, at(y + 22)), (116, 139, 124), self.small)
+            for column, species in zip(columns, ANIMALS):
+                self._text(species[:4].upper(), (column, at(y + 46)), (149, 170, 150), self.small)
+            return y + 66
+
+        y = heading("BEHAVIOUR", "% of chances taken, recent turns", INSIGHTS_TOP + 11)
+        for action in ACTIONS:
+            self._text(action.upper(), (x, at(y)), (149, 170, 150), self.small)
             for column, species in zip(columns, ANIMALS):
                 share, _ = insights.rate(action, species)
-                self._text("  -" if share is None else f"{share:>4.0%}", (column, y), (231, 236, 222), self.mono)
+                self._text("  -" if share is None else f"{share:>4.0%}", (column, at(y)), (231, 236, 222), self.mono)
+            y += 17
 
         blocks = (
             ("LEAST KEEN TO BREED", insights.extremes("breed", 3, lowest=True)),
             ("KEENEST TO BREED", insights.extremes("breed", 2, lowest=False)),
             ("LEAST KEEN TO FIGHT", insights.extremes("attack", 2, lowest=True)),
         )
-        y = 367 + len(ACTIONS) * 17 + 6
+        y += 6
         for title, groups in blocks:
-            self._text(title, (x, UI(y)), (220, 229, 211), self.small)
+            self._text(title, (x, at(y)), (220, 229, 211), self.small)
             y += 19
             if not groups:
-                self._text("not enough chances yet", (x, UI(y)), (116, 139, 124), self.small)
+                self._text("not enough chances yet", (x, at(y)), (116, 139, 124), self.small)
                 y += 18
             for label, share, _ in groups:
-                self._text(label, (x, UI(y)), (175, 192, 172), self.small)
-                self._text(f"{share:>4.0%}", (x + width - UI(40), UI(y)), (231, 236, 222), self.mono)
+                self._text(label, (x, at(y)), (175, 192, 172), self.small)
+                self._text(f"{share:>4.0%}", (x + width - UI(40), at(y)), (231, 236, 222), self.mono)
                 y += 18
             y += 8
+
+        members = {species: [agent for agent in self.simulation.living if agent.species == species]
+                   for species in ANIMALS}
+
+        def average(species: str, value) -> float | None:
+            group = members[species]
+            return sum(value(agent) for agent in group) / len(group) if group else None
+
+        y = heading("LIFE", "averages of the living", y + 10)
+        rows = (
+            ("ALIVE", lambda species: str(len(members[species]))),
+            ("SIZE", lambda species: _shown(average(species, lambda agent: agent.body["size"]), "{:.1f}")),
+            ("AGE", lambda species: _shown(average(species, lambda agent: agent.age), "{:.0f}")),
+            ("GENERATION", lambda species: _shown(average(species, lambda agent: agent.generation), "{:.1f}")),
+            ("HUNGER", lambda species: _shown(average(species, lambda agent: min(100.0, agent.hunger) / 100), "{:.0%}")),
+            ("HEALTH", lambda species: _shown(average(species, lambda agent: max(0.0, agent.health) / agent.max_health),
+                                              "{:.0%}")),
+            ("CHILDREN", lambda species: _shown(average(species, lambda agent: agent.children), "{:.1f}")),
+            ("HERDING", lambda species: _shown(average(species, lambda agent: agent.herd_instinct), "{:.0%}")),
+            ("RIVALRY", lambda species: "-" if species == "grazer"
+             else _shown(average(species, lambda agent: agent.rivalry), "{:.0%}")),
+        )
+        for label, value in rows:
+            self._text(label, (x, at(y)), (149, 170, 150), self.small)
+            for column, species in zip(columns, ANIMALS):
+                self._text(f"{value(species):>4}", (column, at(y)), (231, 236, 222), self.mono)
+            y += 17
+
+        y = heading("TEMPERAMENT", "average now; green above inborn, amber below", y + 14)
+        for trait in MIND_TRAITS:
+            self._text(trait.upper(), (x, at(y)), (149, 170, 150), self.small)
+            for column, species in zip(columns, ANIMALS):
+                now = average(species, lambda agent: agent.mind[trait])
+                if now is None:
+                    self._text("   -", (column, at(y)), (231, 236, 222), self.mono)
+                    continue
+                shift = now - average(species, lambda agent: agent.inborn[trait])
+                color = ((231, 236, 222) if abs(shift) < 0.25 else (131, 205, 143) if shift > 0 else (238, 183, 110))
+                self._text(f"{now:>4.1f}", (column, at(y)), color, self.mono)
+            y += 17
+
+        self._text("KEENEST BY ACTION", (x, at(y + 14)), (220, 229, 211), self.font)
+        self._text("the group most likely to take each chance", (x, at(y + 36)), (116, 139, 124), self.small)
+        y += 60
+        shown = False
+        for action in ACTIONS:
+            groups = insights.extremes(action, 1, lowest=False)
+            if not groups:
+                continue
+            label, share, _ = groups[0]
+            self._text(action.upper(), (x, at(y)), (149, 170, 150), self.small)
+            self._text(self._fit(label, width - UI(124)), (x + UI(76), at(y)), (175, 192, 172), self.small)
+            self._text(f"{share:>4.0%}", (x + width - UI(40), at(y)), (231, 236, 222), self.mono)
+            y += 18
+            shown = True
+        if not shown:
+            self._text("not enough chances yet", (x, at(y)), (116, 139, 124), self.small)
+            y += 18
+
+        self._insights_height = UI(y + 12) - UI(INSIGHTS_TOP)
+        self.screen.set_clip(None)
+        thumb = self._scroll_thumb()
+        if thumb is not None:
+            pg.draw.rect(self.screen, (36, 49, 47), self._scroll_track(), border_radius=UI(3))
+            pg.draw.rect(self.screen, (238, 183, 110) if self._scroll_grip is not None else (96, 120, 104), thumb,
+                         border_radius=UI(3))
 
     def _save_report(self) -> None:
         report = brain_report(self.simulation.turn, self.simulation.living, self.simulation.insights)
@@ -570,7 +713,8 @@ class BitzkeyApp:
                    (UI(185), height - UI(36)), (187, 199, 181), self.small)
 
     def _fit(self, text: str, width: int) -> str:
-        """Shorten footer text, with an ellipsis, so it stops short of the export button."""
+        """Shorten text in the small font, with an ellipsis, to fit the width: footer notes, and
+        group names in the insights panel."""
         if self.small.size(text)[0] <= width:
             return text
         while text and self.small.size(text + "...")[0] > width:
@@ -584,6 +728,11 @@ class BitzkeyApp:
     def _text(self, text: str, position: tuple[int, int], color: tuple[int, int, int],
               font: pg.font.Font) -> None:
         self.screen.blit(font.render(text, True, color), position)
+
+
+def _shown(value: float | None, pattern: str) -> str:
+    """A number for the insights tables, or a dash when there is none."""
+    return "-" if value is None else pattern.format(value)
 
 
 def parse_args() -> argparse.Namespace:

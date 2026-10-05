@@ -45,6 +45,33 @@ class SimulationFlowTests(unittest.TestCase):
         pg.event.clear()
         pg.display.quit()  # leave no window behind for other tests
 
+    def test_selecting_a_bitzkey_closes_the_insights_panel(self):
+        self.app.show_insights = True
+        board, cell_width, cell_height = self.app._board_geometry()
+        point = (round(board.left + (self.animal.x + 0.5) * cell_width), round(board.top + (self.animal.y + 0.5) * cell_height))
+        self.app.selected_id = None
+        self.app._click(point)
+        self.assertIsNotNone(self.app.selected_id)
+        self.assertFalse(self.app.show_insights)
+
+    def test_the_insights_panel_scrolls_by_wheel_and_scroll_bar_within_its_length(self):
+        self.app.show_insights = True
+        self.app._draw()
+        self.assertGreater(self.app._insights_height, self.app._insights_view().height)  # too long to fit
+        view = self.app._insights_view()
+        with patch.object(pg.mouse, "get_pos", return_value=view.center):
+            self.assertTrue(self.app._scroll_event(pg.event.Event(pg.MOUSEWHEEL, x=0, y=-2)))
+        self.assertGreater(self.app.insights_scroll, 0)
+        with patch.object(pg.mouse, "get_pos", return_value=view.center):
+            self.app._scroll_event(pg.event.Event(pg.MOUSEWHEEL, x=0, y=-1000))
+        self.assertEqual(self.app.insights_scroll, self.app._max_scroll())  # no further than the end
+
+        track = self.app._scroll_track()
+        self.app._scroll_event(pg.event.Event(pg.MOUSEBUTTONDOWN, button=1, pos=(track.centerx, track.top)))
+        self.app._scroll_event(pg.event.Event(pg.MOUSEBUTTONUP, button=1, pos=(track.centerx, track.top)))
+        self.assertEqual(self.app.insights_scroll, 0)  # a click at the top of the track goes back there
+        self.app._draw()  # and the panel still draws at every position
+
     def test_a_selected_bitzkey_can_be_added_to_and_removed_from_export(self):
         self.app._toggle_export()
         self.assertIn(self.animal.identifier, self.app.export_list)

@@ -107,7 +107,7 @@ folder you can write to. The first launch takes a few seconds while it unpacks.
 - `Left Arrow`: rewind one recorded turn
 - `Right Arrow`: advance one turn while paused, or replay a recorded turn
 - `R`: restart with the same launch settings
-- `I`: toggle the behaviour insights panel
+- `I`: toggle the insights panel (scroll it with the wheel or its scroll bar)
 - `B`: save a brain report to `reports/`
 - `G`: open or close the colour graph; `Tab` switches it between rings and dots
 - `C`: copy the selected Bitzkey's genome and brain to the clipboard as JSON
@@ -383,10 +383,18 @@ keeps it shifted.
 
 ## What the Bitzkeys Have Learned
 
-Press `I` to swap the inspector for the behaviour panel. For each species, it
-shows how often each action was taken when it was possible, over recent turns.
-It also names the trait groups least and most keen to breed and least keen to
-fight, e.g. "high-metabolism grazers 4%".
+Press `I` to swap the inspector for the insights panel; selecting a Bitzkey
+brings the inspector back. The panel scrolls: use the mouse wheel over the
+sidebar, or drag the scroll bar on its right edge. It shows, by species:
+
+- Behaviour: how often each action was taken when it was possible, over recent
+  turns, and the trait groups least and most keen to breed and least keen to
+  fight, e.g. "high-metabolism grazers 4%".
+- Life: how many are alive, and their average size, age, generation, hunger,
+  health, children, herd instinct and territorial rivalry.
+- Temperament: each mind trait's current average, green where experience has
+  raised it above the inborn average and amber where it has lowered it.
+- Keenest by action: for every action, the trait group most likely to take it.
 
 Press `B` to save a brain report to `reports/`. The report puts every living
 brain in the same standard situations, such as a fed animal with a willing mate
