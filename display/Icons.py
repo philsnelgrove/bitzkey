@@ -9,12 +9,6 @@ import pygame as pg
 Colour = tuple[int, int, int]
 
 
-def icon_colour(background: Colour) -> Colour:
-    """A dark icon on a light background, a light one on a dark background."""
-    red, green, blue = background
-    return (20, 26, 27) if 0.299 * red + 0.587 * green + 0.114 * blue > 140 else (238, 238, 220)
-
-
 def draw_icon(surface: pg.Surface, species: str, centre: tuple[int, int], half: float, colour: Colour) -> None:
     cx, cy = centre
 

@@ -138,7 +138,8 @@ Stepping or playing forward from the past replays the recorded future.
 
 ## Genome
 
-Each Bitzkey is drawn as an inner dot inside a 2px ring. Its 64-bit genome is
+Each Bitzkey is drawn as an inner dot inside a 2px ring (a dot big enough for
+its species' icon is black, with the icon in the dot's colour). Its 64-bit genome is
 the two colour words together. The low 32 bits colour the dot and shape the
 mind; the high 32 bits colour the ring and shape the body. In each word, the
 four bytes from most to least significant are cyan, magenta, yellow and black.
@@ -312,10 +313,10 @@ dying of old age grows each turn: about half reach their lifespan, and almost
 none live past 1.3 times it. Dying of old age is not held against the brain's
 last choice. A blow costs the striker food, and one that leaves it starved kills
 it there ("exhausted"). A dead Bitzkey is dimmed and crossed through in red, and fades
-away as its corpse decays, vanishing when the corpse is gone. Living Bitzkeys
-carry their species' icon in their dot when it is big enough to hold one: a tree
-for plants, a leaf for grazers, an apple for omnivores and a drumstick for
-predators. The inspector, the designer and the colour graph show them too. A corpse holds the energy its body had left: up to 30 meat, plus
+away as its corpse decays, vanishing when the corpse is gone. A dot big enough
+to hold an icon (3px or more) is black, carrying its species' icon in the dot's
+colour with a thin light grey outline: a tree for plants, a leaf for grazers, an apple for omnivores and a
+drumstick for predators. A smaller dot is simply its colour. The inspector, the designer and the colour graph show them too. A corpse holds the energy its body had left: up to 30 meat, plus
 up to 50 more for the largest. A starved body leaves nothing, and a killed one
 half, as the killer has already eaten. The meat rots away over the 30 turns
 before the corpse fades. Brains, temperament, learning and statistics are all

@@ -3,9 +3,9 @@ from unittest.mock import MagicMock
 
 import pygame as pg
 
-from display.Look import CROSS, draw_bitzkey
+from display.Look import CENTRE, CROSS, ICON_MIN_RADIUS, OUTLINE, draw_bitzkey, outline_offsets
 from Main import DOT_RADIUS_RANGE, BitzkeyApp
-from tools.Genome import encode_dna
+from tools.Genome import color_from_word, encode_dna, mind_word
 from tools.Simulation import CORPSE_TURNS, Bitzkey
 
 
@@ -28,6 +28,31 @@ class DotSizeTests(unittest.TestCase):
         self.assertEqual(BitzkeyApp._dot_radius(bitzkey(7), largest=14), 14)
         self.assertEqual(BitzkeyApp._dot_radius(bitzkey(0), largest=14), DOT_RADIUS_RANGE[0])
 
+
+
+class CentreTests(unittest.TestCase):
+    def test_a_big_dot_is_black_with_its_icon_in_the_dots_colour(self):
+        dna = encode_dna("grazer", size=7)
+        surface = pg.Surface((40, 40))
+        surface.fill((90, 90, 90))
+        draw_bitzkey(surface, dna, (20, 20), 10)
+        self.assertEqual(surface.get_at((20, 20))[:3], color_from_word(mind_word(dna)))  # on the leaf
+        self.assertEqual(surface.get_at((26, 26))[:3], CENTRE)  # beside it
+        outlined = [(x, y) for x in range(40) for y in range(40) if surface.get_at((x, y))[:3] == OUTLINE]
+        self.assertTrue(outlined)
+        self.assertTrue(all(abs(x - 20) < 10 and abs(y - 20) < 10 for x, y in outlined))  # inside the dot
+
+    def test_the_outline_is_a_pixel_thick_in_the_world_and_rounds_corners_when_wider(self):
+        self.assertEqual(sorted(outline_offsets(1)), [(-1, 0), (0, -1), (0, 1), (1, 0)])
+        wide = outline_offsets(16)
+        self.assertIn((11, 11), wide)  # the diagonals too
+        self.assertTrue(all(15 <= (x * x + y * y) ** 0.5 <= 17 for x, y in wide))
+
+    def test_a_dot_too_small_for_an_icon_is_its_colour(self):
+        dna = encode_dna("grazer", size=0)
+        surface = pg.Surface((10, 10))
+        draw_bitzkey(surface, dna, (5, 5), ICON_MIN_RADIUS - 1)
+        self.assertEqual(surface.get_at((5, 5))[:3], color_from_word(mind_word(dna)))
 
 
 class DeadCrossTests(unittest.TestCase):
