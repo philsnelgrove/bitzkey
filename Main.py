@@ -11,6 +11,7 @@ import pygame as pg
 from config.Globals import Config
 from display import Window
 from display.Dialog import Dialog
+from display.Icons import draw_icon
 from display.Look import DOT_RADIUS_RANGE, RING_WIDTH, dot_radius, draw_bitzkey
 from display.Setup import EXPORT_DIR, SetupScreen
 from display.Ui import UI
@@ -407,6 +408,7 @@ class BitzkeyApp:
             return
 
         self._draw_bitzkey(agent, (x + UI(10), UI(343)), self._dot_radius(agent, UI(DOT_RADIUS_RANGE[1])))
+        draw_icon(self.screen, agent.species, (x + width - UI(12), UI(343)), UI(9), (220, 229, 211))
         self._text(f"#{agent.identifier:03d}  {agent.species.upper()}", (x + UI(28), UI(332)), (238, 238, 220),
                    self.font)
         self._text(f"DOT / MIND   {mind_word(agent.dna):08X}", (x, UI(360)), (211, 219, 201), self.mono)

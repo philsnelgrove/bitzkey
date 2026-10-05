@@ -5,6 +5,7 @@ import pygame as pg
 from display.ColourGraph import (BAR_PIXELS, MIN_VIEW, Bar, ColourGraph, bitzkey_at, bitzkeys_in, build_bars,
                                  nice_ceiling, updated)
 from display.Ui import UI
+from tools.Genome import decode_body
 from tools.Simulation import Simulation
 
 
@@ -141,6 +142,27 @@ class TimeTravelTests(unittest.TestCase):
         bars, _ = build_bars(self.simulation, "ring", CHART, 20, 29)
 
         self.assertEqual([bar.turn for bar in bars], list(range(20, 30)))
+
+
+class SpeciesBandTests(unittest.TestCase):
+    def test_bars_stack_by_species_and_living_only_drops_the_dead(self):
+        from tools.Genome import encode_dna
+        simulation = Simulation(width=20, height=20, population=0, seed=1)
+        order = ["predator", "plant", "grazer", "omnivore", "grazer"]
+        agents = [simulation._add_agent(encode_dna(species), index, 1) for index, species in enumerate(order)]
+        chart = pg.Rect(0, 0, 200, 100)
+        bars, _ = build_bars(simulation, "ring", chart)
+        stacked = [decode_body(simulation.lineage[identifier])["species"] for identifier, _, _ in bars[-1].slices]
+        self.assertEqual(stacked, ["plant", "grazer", "grazer", "omnivore", "predator"])  # from the bottom up
+
+        graph = ColourGraph()
+        graph.select({agent.identifier for agent in agents})
+        agents[0].health = 0  # the predator dies
+        pg.init()
+        surface = pg.Surface((1200, 820))
+        graph.draw(surface, simulation, None)
+        graph.handle(pg.event.Event(pg.MOUSEBUTTONDOWN, button=1, pos=graph.layout()["living"].center))
+        self.assertEqual(graph.selection, {agent.identifier for agent in agents[1:]})
 
 
 if __name__ == "__main__":

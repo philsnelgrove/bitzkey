@@ -1001,12 +1001,12 @@ class NewTraitTests(unittest.TestCase):
         simulation._add_agent(encode_dna("grazer"), 15, 18)
         simulation._index_cells()
         simulation.grass_regrowth = 0  # judge the standing grass alone first
-        # grazer: a quarter of 6 tufts and a plant (2 meals), shared by itself, another grazer, and an
-        # omnivore by half
-        self.assertAlmostEqual(simulation._food_supply(grazer), (0.25 * 6 + 2) / (1 + 1 + 0.5))
-        # omnivore: grass at half value, the plant and two grazers as prey in full; only the
-        # predator's half a mouth
-        self.assertAlmostEqual(simulation._food_supply(omnivore), (0.5 * 0.25 * 6 + 2 + 2 * 2) / (1 + 0.5))
+        # grazer: a quarter of 6 tufts and a plant (2 meals), at its specialist's 1.25, shared by
+        # itself, another grazer, and an omnivore by half
+        self.assertAlmostEqual(simulation._food_supply(grazer), 1.25 * (0.25 * 6 + 2) / (1 + 1 + 0.5))
+        # omnivore: grass at half value, the plant at three quarters, two grazers as prey in full;
+        # only the predator's half a mouth
+        self.assertAlmostEqual(simulation._food_supply(omnivore), (0.5 * 0.25 * 6 + 0.75 * 2 + 2 * 2) / (1 + 0.5))
         # predator: no grass for it; two grazers and an omnivore as prey, and no rivals
         self.assertAlmostEqual(simulation._food_supply(predator), 3 * 2)
         # another kind of predator, though it may be hunted, is a rival for the prey, not food
@@ -1020,7 +1020,7 @@ class NewTraitTests(unittest.TestCase):
         grazer = simulation._add_agent(encode_dna("grazer"), 15, 15)
         simulation._index_cells()
         cells = 2 * 6 * 7 + 1  # every cell within six steps
-        expected = cells * simulation.grass_regrowth / (30 * 30) * 150
+        expected = 1.25 * (cells * simulation.grass_regrowth / (30 * 30) * 150)
         self.assertAlmostEqual(simulation._food_supply(grazer), expected)
         corner = simulation._add_agent(encode_dna("grazer"), 0, 0)  # a corner sees less of the world
         simulation._index_cells()
@@ -1070,20 +1070,20 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(self.simulation._flee_range(grazer, 3), 1.5)
         self.assertNotIn(flee, self.simulation._sense(grazer)[1])  # its herd watches with it
 
-    def test_grazers_are_best_at_grass_and_omnivores_at_plants_and_meat(self):
+    def test_grazers_are_the_plant_and_grass_specialists_and_omnivores_live_on_meat(self):
         grazer = self.simulation._add_agent(encode_dna("grazer", size=7), 1, 1)
         omnivore = self.simulation._add_agent(encode_dna("omnivore", size=7), 3, 3)
         for animal in (grazer, omnivore):
             self.simulation.grass[(animal.x, animal.y)] = 1
             animal.hunger = 90
             self.simulation._act(animal, "eat", {})
-        self.assertEqual((90 - grazer.hunger, 90 - omnivore.hunger), (35 / 2, 35 / 2 / 2))  # grass: half
+        self.assertEqual((90 - grazer.hunger, 90 - omnivore.hunger), (1.25 * 35 / 2, 35 / 2 / 2))  # 1.25 and half
 
         plant = self.simulation._add_agent(encode_dna("plant", size=7), 8, 8)
         omnivore.x, omnivore.y, omnivore.hunger = 8, 9, 90
         self.simulation._index_cells()
         self.simulation._browse(omnivore, plant)
-        self.assertEqual(omnivore.hunger, 90 - 70 / 2)  # plants: in full
+        self.assertEqual(omnivore.hunger, 90 - 0.75 * 70 / 2)  # plants: three quarters
 
         prey = self.simulation._add_agent(encode_dna("grazer"), 9, 9)
         self.simulation._index_cells()
@@ -1091,6 +1091,53 @@ class NewTraitTests(unittest.TestCase):
         self.simulation._attack(omnivore, prey)
         effort = 0.2 * Simulation._damage(omnivore, prey) / omnivore.stomach
         self.assertAlmostEqual(90 - omnivore.hunger + effort, (5 + 25) / 2)  # meat: in full
+
+    def test_hunters_switch_away_from_prey_that_is_scarce_nearby(self):
+        simulation = Simulation(width=30, height=30, population=0, seed=3)
+        simulation.grass.clear()
+        omnivore = simulation._add_agent(encode_dna("omnivore", sight=7), 15, 15)
+        grazer = simulation._add_agent(encode_dna("grazer"), 15, 16)
+        for x in range(12, 16):  # four plants against one grazer: grazers are a fifth of its food
+            simulation._add_agent(encode_dna("plant"), x, 13)
+        simulation._index_cells()
+        attack = ACTIONS.index("attack")
+        self.assertNotIn(attack, simulation._sense(omnivore)[1])
+        self.assertNotIn(ACTIONS.index("flee"), simulation._sense(grazer)[1])  # nothing to flee
+        simulation._add_agent(encode_dna("grazer"), 16, 16)  # two in six: common enough
+        simulation._index_cells()
+        self.assertIn(attack, simulation._sense(omnivore)[1])
+
+    def test_predators_weigh_grazers_against_omnivores(self):
+        simulation = Simulation(width=30, height=30, population=0, seed=3)
+        simulation.grass.clear()
+        predator = simulation._add_agent(encode_dna("predator"), 15, 15)
+        for x in range(10, 15):  # all within six steps
+            simulation._add_agent(encode_dna("omnivore"), x, 14)
+        grazer = simulation._add_agent(encode_dna("grazer"), 16, 15)
+        simulation._index_cells()
+        self.assertEqual(simulation._prey_switching(predator), (False, True))  # one grazer in six
+        simulation._sense(predator)
+        self.assertFalse(simulation._is_prey(predator, grazer))
+        rival = simulation._add_agent(encode_dna("predator") ^ (0xFF << 56), 14, 15)
+        self.assertTrue(simulation._is_prey(predator, rival))  # rival kinds are fought regardless
+
+    def test_a_blow_that_exhausts_the_striker_kills_it_and_its_body_rots(self):
+        grazer = self.simulation._add_agent(encode_dna("grazer", size=7, strength=7, weapons=7), 5, 5)
+        predator = self.simulation._add_agent(encode_dna("predator", size=7), 5, 6)
+        self.simulation._index_cells()
+        grazer.hunger = 99.9
+        self.simulation._defend(grazer, predator)
+        self.assertFalse(grazer.alive)
+        self.assertEqual((grazer.died_turn, grazer.last_action), (self.simulation.turn, "exhausted"))
+        for _ in range(CORPSE_TURNS):
+            self.simulation._take_turn()
+        self.assertNotIn(grazer, self.simulation.agents)  # it decayed and was cleared away
+
+    def test_no_body_is_left_without_a_recorded_death(self):
+        simulation = Simulation(width=60, height=60, seed=1)
+        for _ in range(200):
+            simulation.advance()
+        self.assertEqual([agent for agent in simulation.agents if not agent.alive and agent.died_turn is None], [])
 
     def test_striking_burns_food_by_the_damage_dealt(self):
         target = self.simulation._add_agent(encode_dna("grazer", size=7), 5, 5)
@@ -1278,7 +1325,8 @@ class NewTraitTests(unittest.TestCase):
         while grazer.last_action != "browsed":
             self.simulation._act(grazer, "browse", situation)
 
-        self.assertEqual(grazer.hunger, 90 - 70 / 2)  # the largest plant gives 70, into a double stomach
+        self.assertEqual(grazer.hunger, 90 - 1.25 * 70 / 2)  # the largest plant gives 70, a quarter more
+        # to a grazer, into a double stomach
         self.assertEqual(plant.health, plant.max_health - 15)
 
     def test_a_bitten_plant_is_left_alone_until_it_recovers(self):

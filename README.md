@@ -225,8 +225,9 @@ Grass is sown at random, and regrows each turn (see grass density above). On and
 cell it lies on and the eight cells next to it, grass grows twice as fast
 while the body remains.
 Grazers and omnivores eat grass, and browse plants; predators can do neither.
-The two have separate niches: grazers get all the food in grass and omnivores
-only half, while omnivores live on plants, which they digest in full, and meat.
+The two have separate niches: grazers are the specialists, getting a quarter
+more than the food in grass and plants (1.25 times), while omnivores get half the
+food in grass and three quarters of the food in plants, and live on meat.
 Any animal may eat carrion.
 
 Plants stay in place and photosynthesize. Every animal carries its own small
@@ -246,7 +247,7 @@ neural network, and that brain chooses everything it does. Each turn it senses:
 
 It then picks one of the actions open to it: eat, forage, browse, scavenge,
 rest, court, breed, hunt, attack, defend, flee, herd or explore. Foraging walks toward the
-nearest grass in sight; a tuft sates 35 hunger. Grazers get all the food in grass, omnivores half; both get all the food in plants. Browsing walks to the nearest
+nearest grass in sight; a tuft sates 35 hunger. Grazers get 1.25 times the food in grass and plants; omnivores half of grass and three quarters of plants. Browsing walks to the nearest
 plant in sight and, once alongside, takes a bite: 45 hunger, up to 70 from the
 largest plants, far more than grass. Each bite costs the plant 15 health, and
 plants regrow 2% of their health each turn. A bitten plant can't be bitten again
@@ -288,8 +289,9 @@ limits breeding: for each other animal within four cells of a would-be parent,
 besides its partner, its litter shrinks by a tenth, and with ten or more around,
 it does not breed. Animals also breed responsibly: before breeding, an animal
 weighs the food it lives on within six cells against the mouths that share it,
-itself included. Grazers count grass and plants (two meals each); omnivores
-count grass at half value, plants, and grazers as prey (two meals each);
+itself included. Grazers count grass and plants (two meals each), as well as
+they digest them; omnivores count grass and plants as they digest them, and
+grazers as prey (two meals each);
 predators count grazers and omnivores as prey. Grass is judged
 by what will grow back nearby over the next 150 turns, plus a quarter of what is
 standing now, so a crowd doesn't breed on a stock it is about to eat. Every
@@ -298,13 +300,22 @@ kind, and another species eating some of the same food is half a mouth (an
 omnivore to a grazer, or a predator to an omnivore). Below three meals a mouth it
 doesn't breed; between three and six, its litter shrinks in proportion. Other
 kinds of predator may still be hunted, but they are rivals for prey, not a food
-supply to breed on. Reaching 100% hunger or zero health is fatal, and so, in
+supply to breed on. Hunters also switch prey: a hunter only goes after a kind of prey while it
+makes up at least a quarter of the food it weighs within six cells (grazers
+against plants, for an omnivore; grazers against omnivores, for a predator), or
+while none of that food is near. A prey that has become scarce is left alone,
+and doesn't flee a hunter that isn't interested in it, so it can recover.
+Territorial fights, between omnivores or between predators, go on regardless. Reaching 100% hunger or zero health is fatal, and so, in
 time, is age. Plants live about 4,000 turns, and animals from about 250 (the
 smallest, fastest metabolism) to 900 (the largest, slowest). From 70% of its lifespan, a Bitzkey's chance of
 dying of old age grows each turn: about half reach their lifespan, and almost
 none live past 1.3 times it. Dying of old age is not held against the brain's
-last choice. A dead Bitzkey is dimmed and crossed through in red, and fades
-away as its corpse decays, vanishing when the corpse is gone. A corpse holds the energy its body had left: up to 30 meat, plus
+last choice. A blow costs the striker food, and one that leaves it starved kills
+it there ("exhausted"). A dead Bitzkey is dimmed and crossed through in red, and fades
+away as its corpse decays, vanishing when the corpse is gone. Living Bitzkeys
+carry their species' icon in their dot when it is big enough to hold one: a tree
+for plants, a leaf for grazers, an apple for omnivores and a drumstick for
+predators. The inspector, the designer and the colour graph show them too. A corpse holds the energy its body had left: up to 30 meat, plus
 up to 50 more for the largest. A starved body leaves nothing, and a killed one
 half, as the killer has already eaten. The meat rots away over the 30 turns
 before the corpse fades. Brains, temperament, learning and statistics are all
@@ -343,8 +354,11 @@ still hunts other predator kinds and omnivores as before.
 
 Press `G` for the colour graph. Time runs across the bottom. Each bar is a moment
 in the run, and every Bitzkey alive then (plants included) is a slice of it in its
-own exact colour. Slices are sorted by hue, so similar colours flow together from
-bar to bar, and a bar's height is the population. `Tab` switches between ring
+own exact colour. Slices are stacked by species, plants at the bottom, then
+grazers, omnivores and predators, and each species' band is labelled, with its
+icon, at the right end of the chart. Within a species, slices are sorted by hue,
+so similar colours flow together from bar to bar. A bar's height is the
+population. `Tab` switches between ring
 (body) and dot (mind) colours. The graph covers the whole run. It samples who was
 alive at evenly spaced turns, spacing them further apart as the run grows.
 
@@ -360,6 +374,7 @@ Pick Bitzkeys straight from the graph:
 
 - click a slice to select that Bitzkey; click empty space to clear
 - drag a box to select every Bitzkey it touches, in every bar it spans
+- LIVING ONLY drops the dead from the selection
 - hold `Shift` to add to the selection (`Shift`-click toggles one), or `Ctrl` to
   remove from it
 

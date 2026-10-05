@@ -99,6 +99,10 @@ FOOD_NEEDED = 3.0
 PLANT_MEALS = 2.0      # meals a plant is worth to a full-efficiency browser
 PREY_MEALS = 2.0       # meals a prey animal is worth
 SHARED_DIET = 0.5      # how much an animal of another species eating some of the same food counts as a mouth
+# Prey switching: a hunter goes after a kind of prey only while it makes up at least SWITCH_SHARE
+# of the food it weighs within FORAGE_RADIUS (for omnivores, grazers against plants; for predators,
+# grazers against omnivores), so a scarce prey is left alone to recover.
+SWITCH_SHARE = 0.25
 STRIKE_EFFORT = 0.2    # food burned for each point of damage a blow deals
 PREDATOR_LITTERS = 0.5  # predators' litters are this share of the usual size, rounded up
 STRIKE_FORCE = 1.5     # scales every blow
@@ -108,10 +112,10 @@ CARRION_MEAT = 30      # meat a well-fed corpse leaves, plus up to CARRION_MEAT_
 CARRION_MEAT_FOR_SIZE = 50  # a hungrier body leaves less, and a starved one nothing
 SCAVENGE_BITE = 25     # meat eaten in one go
 GRAZER_SPEED = 1.5     # grazers move this many times as far a step, rounded half up
-# Separate niches: grazers are best at grass; omnivores live on plants and meat, getting only half
-# the food in grass.
-GRAZING = {"grazer": 1.0, "omnivore": 0.5}   # share of the food in grass each species gets
-BROWSING = {"grazer": 1.0, "omnivore": 1.0}  # share of the food in plants
+# Separate niches: grazers are the specialists, getting more from grass and plants than anyone;
+# omnivores live on meat, getting only three quarters of the food in plants and half of grass.
+GRAZING = {"grazer": 1.25, "omnivore": 0.5}   # share of the food in grass each species gets
+BROWSING = {"grazer": 1.25, "omnivore": 0.75}  # share of the food in plants
 FLEE_RANGE = 3         # a hunter is only worth fleeing within this many steps, unless the herd raised the alarm
 HERD_VIGILANCE = 0.5   # how far three herd-mates close by, at full herd instinct, shrink that range
 GRASS_OUTLOOK = 150    # judging grass before breeding, an animal counts what will regrow in this many turns
@@ -197,6 +201,8 @@ class Bitzkey:
     assailant: int | None = None  # the animal that struck it since it last acted, which it may defend against
     panicked: bool = False  # failed a morale check when struck, so it will flee its assailant
     rivalry: float = 0.0    # hunters: how overcrowded its territory was with rivals when it last looked
+    hunts_grazers: bool = True    # hunters: whether grazers were common enough to hunt when it last looked
+    hunts_omnivores: bool = True  # predators: the same for omnivores
     own_rivalry: float = 0.0  # the same, counting only its own species: what wears down its reluctance
     alarm: int | None = None  # what struck a herd-mate close by since it last acted
     herd_assailant: int | None = None  # what struck a herd-mate close by, from alongside it: it may defend against it
@@ -299,12 +305,12 @@ class Bitzkey:
 
     @property
     def grazing(self) -> float:
-        """How much of the food in grass nourishes it: grazers get it all, omnivores half."""
+        """How much of the food in grass nourishes it: grazers more than all, omnivores half."""
         return GRAZING.get(self.species, 0.0)
 
     @property
     def browsing(self) -> float:
-        """How much of the food in plants nourishes it: all, for grazers and omnivores."""
+        """How much of the food in plants nourishes it: grazers more than all, omnivores three quarters."""
         return BROWSING.get(self.species, 0.0)
 
     @property
@@ -714,6 +720,7 @@ class Simulation:
     def _sense(self, agent: Bitzkey) -> tuple[list[float], list[int], dict]:
         if agent.species in TERRITORY:
             agent.rivalry, agent.own_rivalry = self._territory(agent)
+            agent.hunts_grazers, agent.hunts_omnivores = self._prey_switching(agent)
         neighbors = self._nearby(agent, 1)
         mate = next((other for other in neighbors if self._compatible(agent, other) and other.can_breed), None)
         nurseries = self._free_cells_near(agent)
@@ -1001,6 +1008,13 @@ class Simulation:
             self._experience(agent, "stung")
             if not agent.alive:
                 self._die(agent, "killed")
+        self._exhausted(agent)
+
+    def _exhausted(self, agent: Bitzkey) -> None:
+        """A blow's effort can leave the striker starved: it dies there, rather than lingering as
+        a body whose death was never recorded."""
+        if not agent.alive and agent.died_turn is None:
+            self._die(agent, "exhausted")
 
     def _defend(self, agent: Bitzkey, assailant: Bitzkey, for_herd: bool = False) -> None:
         """Strike back at the animal that just struck it, or a herd-mate alongside it, or, for a
@@ -1022,6 +1036,7 @@ class Simulation:
             self._die(assailant, "killed")
         elif assailant.species != "plant":
             self._struck(assailant, agent)
+        self._exhausted(agent)
 
     def _struck(self, victim: Bitzkey, striker: Bitzkey) -> None:
         """A struck animal may strike back on its next turn, unless it fails a morale check
@@ -1314,18 +1329,36 @@ class Simulation:
             own += other.species == hunter.species
         return tuple(strength * min(1.0, max(0.0, count - tolerated) / TERRITORY_RAMP) for count in (rivals, own))
 
+    def _prey_switching(self, hunter: Bitzkey) -> tuple[bool, bool]:
+        """Which prey a hunter goes after: each kind only while it makes up at least SWITCH_SHARE of
+        the food weighed within FORAGE_RADIUS (grazers against plants for an omnivore, grazers
+        against omnivores for a predator), or while none of that food is near at all."""
+        grazers = omnivores = plants = 0
+        for other in self._nearby(hunter, FORAGE_RADIUS):
+            grazers += other.species == "grazer"
+            omnivores += other.species == "omnivore"
+            plants += other.species == "plant"
+        if hunter.species == "omnivore":
+            total = grazers + plants
+            return (total == 0 or grazers / total >= SWITCH_SHARE), False
+        total = grazers + omnivores
+        return ((total == 0 or grazers / total >= SWITCH_SHARE),
+                (total == 0 or omnivores / total >= SWITCH_SHARE))
+
     @classmethod
     def _is_prey(cls, hunter: Bitzkey, other: Bitzkey) -> bool:
         if hunter.species == "omnivore":
-            # Grazers, and other omnivores only in an overcrowded territory, once hungry past its
-            # reluctance as that rivalry wears it down.
-            return other.species == "grazer" or (
+            # Grazers while they are common enough to switch to, and other omnivores only in an
+            # overcrowded territory, once hungry past its reluctance as that rivalry wears it down.
+            return (other.species == "grazer" and hunter.hunts_grazers) or (
                 other.species == "omnivore" and hunter.own_rivalry > 0
                 and hunter.hunger / 100 > cls.cannibal_reluctance(hunter) * (1 - hunter.own_rivalry))
         if hunter.species != "predator":
             return False
-        if other.species in ("grazer", "omnivore"):
-            return True
+        if other.species == "grazer":
+            return hunter.hunts_grazers
+        if other.species == "omnivore":
+            return hunter.hunts_omnivores
         if other.species != "predator":
             return False
         # Its own kind only when hungry past its reluctance, which a territory overcrowded with

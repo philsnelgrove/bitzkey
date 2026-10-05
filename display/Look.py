@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import pygame as pg
 
-from tools.Genome import TRAIT_MAX, body_word, color_from_word, mind_word
+from display.Icons import draw_icon, icon_colour
+from tools.Genome import TRAIT_MAX, body_word, color_from_word, decode_body, mind_word
 
 RING_WIDTH = 2
 CROSS = (225, 55, 55)  # the red cross through a dead Bitzkey
 DOT_RADIUS_RANGE = (1, 5)  # dot radius in pixels at the smallest and biggest sizes; bigger cells raise the top
+ICON_MIN_RADIUS = 3  # a dot this big or bigger carries its species' icon
 
 
 def dot_radius(size: int, largest: int = DOT_RADIUS_RANGE[1]) -> int:
@@ -21,7 +23,8 @@ def dot_radius(size: int, largest: int = DOT_RADIUS_RANGE[1]) -> int:
 
 def draw_bitzkey(surface: pg.Surface, dna: int, point: tuple[int, int], radius: int,
                  ring_width: int = RING_WIDTH, alive: bool = True, opacity: float = 1.0) -> None:
-    """The dot inside its ring; a dead Bitzkey is dimmed and crossed through in red. With
+    """The dot inside its ring, carrying its species' icon when big enough; a dead Bitzkey is
+    dimmed and crossed through in red. With
     `opacity` below 1, all of it is drawn that faint, as a decaying corpse fades away."""
     if opacity <= 0:
         return
@@ -37,6 +40,8 @@ def draw_bitzkey(surface: pg.Surface, dna: int, point: tuple[int, int], radius: 
         dot, ring = (tuple(channel // 3 for channel in dot), tuple(channel // 3 for channel in ring))
     pg.draw.circle(surface, ring, point, radius + ring_width)
     pg.draw.circle(surface, dot, point, radius)
+    if alive and radius >= ICON_MIN_RADIUS:
+        draw_icon(surface, str(decode_body(dna)["species"]), point, radius * 0.75, icon_colour(dot))
     if not alive:
         x, y = point
         reach = radius + ring_width

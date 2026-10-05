@@ -16,7 +16,8 @@ import pygame as pg
 
 from display.Ui import UI
 from tools.Census import colour_order
-from tools.Genome import body_word, color_from_word, decode_body, mind_word
+from display.Icons import draw_icon
+from tools.Genome import SPECIES, body_word, color_from_word, decode_body, mind_word
 
 if TYPE_CHECKING:
     from tools.Simulation import Simulation
@@ -77,9 +78,10 @@ def build_bars(simulation: Simulation, part: str, chart: pg.Rect, first: int = 0
     peak = nice_ceiling(max(len(members) for _, members, _ in moments))
     unit = chart.height / peak
 
-    def order(identifier: int) -> tuple:
+    def order(identifier: int) -> tuple:  # by species, plants at the bottom, then by colour
         dna = lineage[identifier]
-        return colour_order(colour_of(dna, part)), body_word(dna) if part == "ring" else mind_word(dna), identifier
+        return (SPECIES.index(decode_body(dna)["species"]), colour_order(colour_of(dna, part)),
+                body_word(dna) if part == "ring" else mind_word(dna), identifier)
 
     bars = []
     for index, (end, members, future) in enumerate(moments):
@@ -140,6 +142,7 @@ class ColourGraph:
         self._places: dict[int, list[tuple[int, int, float, float]]] = {}  # where each Bitzkey is drawn
         self._peak = 1.0
         self._image: pg.Surface | None = None
+        self._alive: set[int] = set()  # who is alive, as last drawn
         self._key: tuple | None = None
 
     @property
@@ -220,9 +223,9 @@ class ColourGraph:
         timeline = pg.Rect(chart.left, chart.bottom + UI(4), chart.width, UI(24))
         buttons = {}
         right = panel.right - UI(24)
-        for name in ("save", "copy", "clear"):
-            buttons[name] = pg.Rect(right - UI(76), panel.top + UI(18), UI(76), UI(30))
-            right -= UI(84)
+        for name, width in (("save", 76), ("copy", 76), ("clear", 76), ("living", 116)):
+            buttons[name] = pg.Rect(right - UI(width), panel.top + UI(18), UI(width), UI(30))
+            right -= UI(width + 8)
         return {"panel": panel, "chart": chart, "timeline": timeline, **buttons}
 
     def handle(self, event: pg.event.Event) -> str | None:
@@ -252,6 +255,8 @@ class ColourGraph:
                     return action
             if layout["clear"].collidepoint(event.pos):
                 self.select(set())
+            elif layout["living"].collidepoint(event.pos):
+                self.select(self.selection & self._alive)  # drop the dead from the selection
             elif timeline.collidepoint(event.pos):
                 self._scrub = self.turn_at(event.pos[0])
             elif chart.collidepoint(event.pos):
@@ -281,6 +286,7 @@ class ColourGraph:
 
     def draw(self, screen: pg.Surface, simulation: Simulation, note: str | None) -> None:
         self._size = screen.get_size()
+        self._alive = {agent.identifier for agent in simulation.living}
         self._now, self._frontier = simulation.turn, simulation.frontier
         layout = self.layout()
         panel, chart, timeline = layout["panel"], layout["chart"], layout["timeline"]
@@ -295,9 +301,9 @@ class ColourGraph:
         self._text(screen, "Every Bitzkey alive over time, in its own colour.    TAB  ring / dot    C  copy    "
                    "S  save to exports/    G or ESC  close",
                    (panel.left + UI(24), panel.top + UI(54)), (144, 170, 151), self.small)
-        for name in ("clear", "copy", "save"):
+        for name, text in (("living", "LIVING ONLY"), ("clear", "CLEAR"), ("copy", "COPY"), ("save", "SAVE")):
             pg.draw.rect(screen, (44, 57, 52), layout[name], border_radius=UI(4))
-            label = self.font.render(name.upper(), True, (220, 229, 211))
+            label = self.font.render(text, True, (220, 229, 211))
             screen.blit(label, label.get_rect(center=layout[name].center))
         if note:
             message = self.small.render(note, True, (238, 183, 110))
@@ -316,6 +322,7 @@ class ColourGraph:
                     self._places.setdefault(identifier, []).append((bar.left, bar.right, top, bottom))
             self._image = self._render(simulation, chart)
         screen.blit(self._image, chart.topleft)
+        self._label_species(screen, simulation, chart)
 
         for fraction in (0, 0.5, 1):
             y = round(chart.bottom - fraction * chart.height)
@@ -339,6 +346,30 @@ class ColourGraph:
         self._text(screen, "Select: click, or drag a box (SHIFT adds, CTRL removes)    Time: drag the timeline, "
                    "or right-click    Zoom: wheel, SHIFT+wheel pans",
                    (panel.left + UI(24), panel.bottom - UI(28)), (144, 170, 151), self.small)
+
+    def _label_species(self, screen: pg.Surface, simulation: Simulation, chart: pg.Rect) -> None:
+        """Name each species' band, with its icon, inside the right end of the chart, where its
+        latest bar is tall enough to hold the label."""
+        if not self._bars:
+            return
+        bands: dict[str, list[float]] = {}
+        for identifier, top, bottom in self._bars[-1].slices:
+            species = str(decode_body(simulation.lineage[identifier])["species"])
+            band = bands.setdefault(species, [top, bottom])
+            band[0], band[1] = min(band[0], top), max(band[1], bottom)
+        font = self.small
+        for species, (top, bottom) in bands.items():
+            if bottom - top < font.get_height():
+                continue
+            label = font.render(f"{species.upper()}S", True, (238, 238, 220))
+            icon = font.get_height()
+            box = pg.Rect(0, 0, label.get_width() + icon + UI(14), label.get_height() + UI(4))
+            box.midright = (chart.right - UI(6), round((top + bottom) / 2))
+            backing = pg.Surface(box.size, pg.SRCALPHA)
+            backing.fill((19, 26, 27, 190))
+            screen.blit(backing, box.topleft)
+            draw_icon(screen, species, (box.left + UI(4) + icon // 2, box.centery), icon * 0.42, (238, 238, 220))
+            screen.blit(label, (box.left + UI(8) + icon, box.top + UI(2)))
 
     def _draw_timeline(self, screen: pg.Surface, chart: pg.Rect, timeline: pg.Rect, first: int, last: int) -> None:
         """The timeline strip with the turns shown, a playhead at the present, and while dragging,
