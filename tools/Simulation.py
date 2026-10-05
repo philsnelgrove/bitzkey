@@ -30,6 +30,14 @@ MAX_IMPORTED = MAX_POPULATION // SPAWN_GROUP[1]  # imported Bitzkeys, so their g
 SPAWN_SPREAD = 2      # a group's members appear within this many cells of each other's centre
 DENSE_HISTORY = 500   # the latest turns are each kept as a snapshot of the world
 CHECKPOINTS = 200     # older turns are kept as at most this many evenly spaced snapshots
+# History keeps to a memory budget: when a snapshot of the world grows large, fewer recent turns
+# are kept and fewer checkpoints, so that all of them fit. These are rough sizes of what a
+# snapshot holds.
+HISTORY_BUDGET = 1 << 30   # bytes
+MIN_SNAPSHOTS = 20
+AGENT_BYTES = 2000         # a Bitzkey's copy
+BRAIN_BYTES = 6000         # a brain's copy
+GRASS_BYTES = 120          # a grass cell's entry
 CORPSE_FERTILITY = 2   # grass grows this many times as fast on and around a corpse
 CORPSE_TURNS = 30
 BREED_RESERVE = 10  # hunger a parent must still have spare after paying to breed
@@ -83,6 +91,14 @@ HERD_SAFETY = 0.6      # how much three herd-mates close by calm fear and steady
 HERD_DEFEND_JOY = 0.5  # pleasure of striking back at whatever struck a herd-mate alongside
 PACK_BONUS = 0.5       # extra force of a blow at prey that a herd-mate is also alongside
 KIND_DIFFERENCE = 0.05  # predators whose ring colours differ by more than this are different kinds, and prey
+# Breeding responsibly: before breeding, an animal weighs the food it eats within FORAGE_RADIUS
+# against the mouths that share it, itself included. Below FOOD_NEEDED meals a mouth it doesn't
+# breed; between that and twice that, its litter shrinks in proportion.
+FORAGE_RADIUS = 6
+FOOD_NEEDED = 3.0
+PLANT_MEALS = 2.0      # meals a plant is worth to a full-efficiency browser
+PREY_MEALS = 2.0       # meals a prey animal is worth
+SHARED_DIET = 0.5      # how much an animal of another species eating some of the same food counts as a mouth
 STRIKE_EFFORT = 0.2    # food burned for each point of damage a blow deals
 PREDATOR_LITTERS = 0.5  # predators' litters are this share of the usual size, rounded up
 STRIKE_FORCE = 1.5     # scales every blow
@@ -92,7 +108,14 @@ CARRION_MEAT = 30      # meat a well-fed corpse leaves, plus up to CARRION_MEAT_
 CARRION_MEAT_FOR_SIZE = 50  # a hungrier body leaves less, and a starved one nothing
 SCAVENGE_BITE = 25     # meat eaten in one go
 GRAZER_SPEED = 1.5     # grazers move this many times as far a step, rounded half up
-GRAZING = {"grazer": 1.0, "omnivore": 0.5}  # share of grass and plant food each species gets
+# Separate niches: grazers are best at grass; omnivores live on plants and meat, getting only half
+# the food in grass.
+GRAZING = {"grazer": 1.0, "omnivore": 0.5}   # share of the food in grass each species gets
+BROWSING = {"grazer": 1.0, "omnivore": 1.0}  # share of the food in plants
+FLEE_RANGE = 3         # a hunter is only worth fleeing within this many steps, unless the herd raised the alarm
+HERD_VIGILANCE = 0.5   # how far three herd-mates close by, at full herd instinct, shrink that range
+GRASS_OUTLOOK = 150    # judging grass before breeding, an animal counts what will regrow in this many turns
+STANDING_GRASS = 0.25  # and this share of the grass standing now
 GRASS_MEAL = 35        # hunger a tuft of grass sates
 PLANT_MEAL = 45        # hunger a bite of a plant sates, plus up to PLANT_MEAL_FOR_SIZE for the largest
 PLANT_MEAL_FOR_SIZE = 25
@@ -104,8 +127,9 @@ SEED_COST = 20         # hunger seeding costs a plant
 SEED_HUNGER = 40       # a plant hungrier than this doesn't seed
 SEEDLING_HUNGER = 50
 SEED_REACH = 5         # how far, in cells, a seed may land from its plant
+LIGHT_RADIUS = 3       # plants compete for light with the plants within this many cells
+LIGHT_LIMIT = 3        # each such plant cuts a plant's chance of seeding by this share, to none at this many
 PLANT_CROWDING = 3     # a seed doesn't take where more than this many plants grow within two cells
-MAX_PLANTS = 200
 TEMPERAMENT_RELAPSE = 0.005  # share of the gap back to the inborn value closed each turn
 
 # How experiences reshape temperament, in shares of a trait's full range before scaling by
@@ -275,8 +299,13 @@ class Bitzkey:
 
     @property
     def grazing(self) -> float:
-        """How much of grass and plant food nourishes it: grazers are far better at it than omnivores."""
+        """How much of the food in grass nourishes it: grazers get it all, omnivores half."""
         return GRAZING.get(self.species, 0.0)
+
+    @property
+    def browsing(self) -> float:
+        """How much of the food in plants nourishes it: all, for grazers and omnivores."""
+        return BROWSING.get(self.species, 0.0)
 
     @property
     def sight(self) -> int:
@@ -440,10 +469,19 @@ class Simulation:
         self._cells.setdefault((x, y), []).append(agent)
         return agent
 
+    def _history_room(self) -> tuple[int, int]:
+        """How many recent turns to keep every snapshot of, and how many older checkpoints: at
+        most DENSE_HISTORY and CHECKPOINTS, fewer when snapshots of the world are large, so the
+        history fits HISTORY_BUDGET."""
+        brains = sum(agent.brain is not None for agent in self.agents)
+        size = len(self.agents) * AGENT_BYTES + brains * BRAIN_BYTES + len(self.grass) * GRASS_BYTES
+        most = max(MIN_SNAPSHOTS, HISTORY_BUDGET // max(1, size))
+        dense = min(DENSE_HISTORY, most // 2)
+        return dense, min(CHECKPOINTS, most - dense)
+
     def _record(self) -> None:
-        """Snapshot the newest turn, then thin the old ones: a turn leaving the recent window
-        stays only if it falls on the checkpoint spacing, and when there are too many
-        checkpoints the spacing doubles."""
+        """Snapshot the newest turn, then thin the old ones: turns before the recent window stay
+        only on the checkpoint spacing, which doubles while there are too many of them."""
         self.history.append({
             "turn": self.turn,
             "deaths": self.deaths,
@@ -454,15 +492,14 @@ class Simulation:
             "insights": self.insights.snapshot(),
         })
         self.frontier = self.turn
-        recent = self.frontier - DENSE_HISTORY
-        leaving = bisect.bisect_left(self.history, recent - 1, key=_turn_of)
-        if (recent - 1 > 0 and leaving < len(self.history) and self.history[leaving]["turn"] == recent - 1
-                and (recent - 1) % self._checkpoint_stride):
-            del self.history[leaving]
-        if bisect.bisect_left(self.history, recent, key=_turn_of) > CHECKPOINTS:
-            self._checkpoint_stride *= 2
+        dense, checkpoints = self._history_room()
+        recent = self.frontier - dense
+        while True:
             self.history = [snapshot for snapshot in self.history
                             if snapshot["turn"] >= recent or snapshot["turn"] % self._checkpoint_stride == 0]
+            if bisect.bisect_left(self.history, recent, key=_turn_of) <= checkpoints:
+                break
+            self._checkpoint_stride *= 2
 
     def _restore(self, snapshot: dict) -> None:
         self.turn = snapshot["turn"]
@@ -535,7 +572,7 @@ class Simulation:
         self._index_cells()
         order = self.living
         self._plants = sum(agent.species == "plant" for agent in order)
-        self._population = len(order) - self._plants  # animals; plants have their own limit
+        self._population = len(order) - self._plants  # animals; the population cap is theirs alone
         self.random.shuffle(order)
         for agent in order:
             if not agent.alive:
@@ -576,11 +613,17 @@ class Simulation:
 
     def _seed(self, plant: Bitzkey) -> None:
         """A well-fed plant may sprout a seedling of its own kind on a free cell up to SEED_REACH away,
-        unless plants already crowd that spot or there are already MAX_PLANTS plants."""
-        if plant.hunger > SEED_HUNGER or self._plants >= MAX_PLANTS:
+        unless plants already crowd that spot. Plants compete for light: the more plants grow
+        within LIGHT_RADIUS, the less likely a plant is to seed, and with LIGHT_LIMIT it doesn't."""
+        if plant.hunger > SEED_HUNGER:
             return
         least, most = SEED_CHANCE
-        if self.random.random() >= least + (most - least) * plant.physique("fertility"):
+        roll = self.random.random()
+        chance = least + (most - least) * plant.physique("fertility")
+        if roll >= chance:
+            return
+        shade = sum(other.species == "plant" for other in self._nearby(plant, LIGHT_RADIUS))
+        if roll >= chance * max(0.0, 1 - shade / LIGHT_LIMIT):
             return
         dx, dy = SIGHT_OFFSETS[self.random.randrange(SEED_OFFSETS)]
         cell = ((plant.x + dx) % self.width, (plant.y + dy) % self.height)
@@ -709,14 +752,15 @@ class Simulation:
         if suitor:
             available.add("court")
         if (mate and agent.can_breed and nurseries and self._room() > 0
-                and self._crowding(agent, mate) < CROWDING_LIMIT):
+                and self._crowding(agent, mate) < CROWDING_LIMIT and self._food_supply(agent) >= FOOD_NEEDED):
             available.add("breed")
         if quarry:
             available.add("hunt")
         if target:
             available.add("attack")
-        if hunter:
-            available.add("flee")
+        if hunter and (alarm_source is not None or abs(hunter.x - agent.x) + abs(hunter.y - agent.y)
+                       <= self._flee_range(agent, herd_near)):
+            available.add("flee")  # only from a hunter close by, unless the herd raised the alarm
         if defend_target:
             available.add("defend")
         if herd_middle is not None and (abs(herd_middle[0] - agent.x) + abs(herd_middle[1] - agent.y)
@@ -884,7 +928,7 @@ class Simulation:
         if abs(plant.x - agent.x) + abs(plant.y - agent.y) > 1 or plant.cooldown:
             agent.last_action = "sought plants"
             return
-        agent.nourish((PLANT_MEAL + PLANT_MEAL_FOR_SIZE * plant.physique("size")) * agent.grazing)
+        agent.nourish((PLANT_MEAL + PLANT_MEAL_FOR_SIZE * plant.physique("size")) * agent.browsing)
         plant.health -= PLANT_BITE
         plant.cooldown = PLANT_RECOVERY
         agent.last_action = "browsed"
@@ -1012,6 +1056,7 @@ class Simulation:
         litter = litter_size([(int(parent.body["litter"]), int(parent.body["size"])) for parent in (first, second)],
                              first.species)
         litter = max(1, int(litter * (1 - self._crowding(first, second) / CROWDING_LIMIT) + 0.5))
+        litter = max(1, int(litter * min(1.0, self._food_supply(first) / (2 * FOOD_NEEDED)) + 0.5))
         cells = cells[:max(1, min(litter, self._room()))]
         costs = [parent.breeding_cost for parent in (first, second)]
         # Energy in absolute terms: a share of each parent's stomach, refilled in the young's.
@@ -1185,6 +1230,61 @@ class Simulation:
                 return 1.0
             return 1 - hunter.feeling("empathy") if other.species == "predator" else 0.0
         return 0.0
+
+    @staticmethod
+    def _feeds_on(eater: Bitzkey, other: Bitzkey) -> bool:
+        """Whether an animal counts another as a food source when judging whether to breed:
+        predators live on grazers and omnivores, and omnivores on grazers. Other predators, of
+        any kind, are rivals for that prey rather than a supply of food, though they may be hunted."""
+        if eater.species == "predator":
+            return other.species in ("grazer", "omnivore")
+        return eater.species == "omnivore" and other.species == "grazer"
+
+    @classmethod
+    def _diet_share(cls, eater: Bitzkey, other: Bitzkey) -> float:
+        """How much another animal counts as a mouth on an animal's food: fully for its own species
+        (every predator, whatever its kind), by half for another species eating some of the same food."""
+        if other.species == "plant" or cls._feeds_on(eater, other):
+            return 0.0
+        if other.species == eater.species:
+            return 1.0
+        grazers = ("grazer", "omnivore")
+        if eater.species in grazers and other.species in grazers:
+            return SHARED_DIET  # both eat grass and plants
+        if eater.species == "omnivore" and other.species == "predator":
+            return SHARED_DIET  # both hunt grazers
+        return 0.0
+
+    def _food_supply(self, agent: Bitzkey) -> float:
+        """The meals within FORAGE_RADIUS of an animal per mouth sharing them, itself included:
+        grass and plants for those that graze, as well as they digest them, and prey for hunters.
+        Grass is judged by what will grow back over GRASS_OUTLOOK turns, and a share of what stands
+        now, so a crowd can't breed on a stock it is about to eat."""
+        food = 0.0
+        if agent.grazing:
+            grass, x, y = self.grass, agent.x, agent.y
+            cells = tufts = 0
+            for dx, dy in nearby_offsets(FORAGE_RADIUS):
+                if 0 <= x + dx < self.width and 0 <= y + dy < self.height:
+                    cells += 1
+                    tufts += grass.get((x + dx, y + dy), 0)
+            regrowth = cells * self.grass_regrowth / (self.width * self.height) * GRASS_OUTLOOK
+            food += agent.grazing * (STANDING_GRASS * tufts + regrowth)
+        mouths = 1.0
+        for other in self._nearby(agent, FORAGE_RADIUS):
+            if other.species == "plant":
+                food += PLANT_MEALS * agent.browsing
+            elif self._feeds_on(agent, other):
+                food += PREY_MEALS
+            else:
+                mouths += self._diet_share(agent, other)
+        return food / mouths
+
+    @staticmethod
+    def _flee_range(agent: Bitzkey, herd_near: int) -> float:
+        """How close a hunter must be before fleeing it is worthwhile: FLEE_RANGE, less among a
+        herd keeping watch together."""
+        return FLEE_RANGE * (1 - HERD_VIGILANCE * agent.herd_instinct * min(3, herd_near) / 3)
 
     def _herd_mate(self, agent: Bitzkey, other: Bitzkey) -> bool:
         """Whether an animal counts another as one of its herd: its species, and its kind for a

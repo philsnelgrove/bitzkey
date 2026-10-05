@@ -128,7 +128,10 @@ folder you can write to. The first launch takes a few seconds while it unpacks.
 
 You can rewind to any turn of the run, back to turn 0. Every one of the latest
 500 turns is kept as a snapshot of the world. Older turns are kept as up to 200
-evenly spaced checkpoints, spread further apart as the run grows. Reaching a turn
+evenly spaced checkpoints, spread further apart as the run grows. The history
+keeps to a memory budget of about 1 GB: when the world is crowded and each
+snapshot is large, fewer recent turns and fewer checkpoints are kept, so
+reaching an old turn may replay more turns, but memory can't run away. Reaching a turn
 between checkpoints restores the one before it and replays forward. The
 simulation is deterministic, so the replay repeats the recorded run exactly.
 Stepping or playing forward from the past replays the recorded future.
@@ -222,6 +225,8 @@ Grass is sown at random, and regrows each turn (see grass density above). On and
 cell it lies on and the eight cells next to it, grass grows twice as fast
 while the body remains.
 Grazers and omnivores eat grass, and browse plants; predators can do neither.
+The two have separate niches: grazers get all the food in grass and omnivores
+only half, while omnivores live on plants, which they digest in full, and meat.
 Any animal may eat carrion.
 
 Plants stay in place and photosynthesize. Every animal carries its own small
@@ -241,7 +246,7 @@ neural network, and that brain chooses everything it does. Each turn it senses:
 
 It then picks one of the actions open to it: eat, forage, browse, scavenge,
 rest, court, breed, hunt, attack, defend, flee, herd or explore. Foraging walks toward the
-nearest grass in sight; a tuft sates 35 hunger. Grazers get all the food in grass and plants; omnivores, half. Browsing walks to the nearest
+nearest grass in sight; a tuft sates 35 hunger. Grazers get all the food in grass, omnivores half; both get all the food in plants. Browsing walks to the nearest
 plant in sight and, once alongside, takes a bite: 45 hunger, up to 70 from the
 largest plants, far more than grass. Each bite costs the plant 15 health, and
 plants regrow 2% of their health each turn. A bitten plant can't be bitten again
@@ -250,7 +255,9 @@ plant leaves no meat. Plants spread by seed: each turn a well-fed plant has a 3%
 to 10% chance, by its fertility, of sprouting a seedling of its own kind, with
 the usual chance of mutation, on a free cell up to five cells away. Seeding
 costs it 20 hunger. A seed doesn't take where more than three plants already
-grow within two cells, and plants are capped at 200. Scavenging walks to the
+grow within two cells. There is no limit on the number of plants, but they
+compete for light: each plant growing within three cells cuts a plant's chance
+of seeding by a third, and with three or more around it, it does not seed. Scavenging walks to the
 nearest carrion in sight and, once alongside, eats up to 25 meat; the carrion
 trait decides how much of that feeds it. Courting walks toward the nearest
 willing mate in sight, but breeding is still a separate choice once they are
@@ -258,8 +265,11 @@ side by side. Hunting chases the nearest prey in sight. Omnivores prey on grazer
 its prey pounces, striking in the same turn, and attacking strikes prey
 alongside. A kill feeds the hunter 25, plus up to 45 more for the largest prey; a blow
 that doesn't kill feeds it 5. Striking is hard work: each blow burns 0.2 food per point of damage it deals, so a heavy hitter pays more for each blow. Hunger figures for meals are for a middle-sized
-stomach: a small animal gains twice as much, a large one half. Defending is open only to an animal struck since its last turn whose assailant is still beside it: it strikes back with the usual force of its size, strength and weapons against the assailant's size and armour. It costs effort like any blow and feeds the defender nothing, but it can kill. Fight or flight: whenever an animal is struck, by an attack or a counterblow, it checks its morale against its current fear. A fully fearful animal breaks 30% of the time when barely hurt, rising to certainty near death; the fearless never break. One that breaks loses its chance to defend: on its next turn it flees its assailant, whatever its brain would have chosen, and grows a little more fearful. Plants can't flee, so their only answer is to fight: a plant with any weapons strikes back at each animal that browses it. Its thorns come mostly from its weapons (80%) and a little from its size (20%), never its strength: at most 15 damage, less against a large or armoured browser. Fleeing runs from the nearest hunter
-in sight, and speed decides who wins a chase. Resting halves the hunger a
+stomach: a small animal gains twice as much, a large one half. Defending is open only to an animal struck since its last turn whose assailant is still beside it: it strikes back with the usual force of its size, strength and weapons against the assailant's size and armour. It costs effort like any blow and feeds the defender nothing, but it can kill. Fight or flight: whenever an animal is struck, by an attack or a counterblow, it checks its morale against its current fear. A fully fearful animal breaks 30% of the time when barely hurt, rising to certainty near death; the fearless never break. One that breaks loses its chance to defend: on its next turn it flees its assailant, whatever its brain would have chosen, and grows a little more fearful. Plants can't flee, so their only answer is to fight: a plant with any weapons strikes back at each animal that browses it. Its thorns come mostly from its weapons (80%) and a little from its size (20%), never its strength: at most 15 damage, less against a large or armoured browser. Fleeing runs from the nearest hunter in sight, and speed decides who wins a
+chase. It is only worthwhile when the hunter is within three steps (or a
+herd-mate was just struck close by): a hunter further off is watched, as a
+sense, but not fled. Among herd-mates the range shrinks, as the herd keeps watch
+together: to half at full herd instinct with three herd-mates close by. Resting halves the hunger a
 Bitzkey gains that turn and heals 1.5% of its health pool, three times the usual
 rate. Both rates are scaled by metabolism, so small animals heal faster. Better-valued actions are more likely, but no choice is certain. Mind
 traits set what it enjoys and dreads; the brain learns online which actions lead
@@ -273,10 +283,22 @@ only breed, or court, when both partners can afford it and still have at least
 shares exactly the energy its parents gave, so a large parent gives more food
 than a small one, and the same food fills a small newborn more. Each newborn needs a free
 neighbouring cell, and if a population cap is set, the world holds at most that
-many living animals (plants are limited separately, to 200). Crowding also
+many living animals (plants don't count toward it). Crowding also
 limits breeding: for each other animal within four cells of a would-be parent,
 besides its partner, its litter shrinks by a tenth, and with ten or more around,
-it does not breed. Reaching 100% hunger or zero health is fatal, and so, in
+it does not breed. Animals also breed responsibly: before breeding, an animal
+weighs the food it lives on within six cells against the mouths that share it,
+itself included. Grazers count grass and plants (two meals each); omnivores
+count grass at half value, plants, and grazers as prey (two meals each);
+predators count grazers and omnivores as prey. Grass is judged
+by what will grow back nearby over the next 150 turns, plus a quarter of what is
+standing now, so a crowd doesn't breed on a stock it is about to eat. Every
+animal of its own species is a mouth, every predator to a predator whatever its
+kind, and another species eating some of the same food is half a mouth (an
+omnivore to a grazer, or a predator to an omnivore). Below three meals a mouth it
+doesn't breed; between three and six, its litter shrinks in proportion. Other
+kinds of predator may still be hunted, but they are rivals for prey, not a food
+supply to breed on. Reaching 100% hunger or zero health is fatal, and so, in
 time, is age. Plants live about 4,000 turns, and animals from about 250 (the
 smallest, fastest metabolism) to 900 (the largest, slowest). From 70% of its lifespan, a Bitzkey's chance of
 dying of old age grows each turn: about half reach their lifespan, and almost

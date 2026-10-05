@@ -9,6 +9,11 @@ from tools.Genome import encode_dna
 from tools.Simulation import CORPSE_TURNS, Simulation, litter_size
 
 
+def lay_plenty_of_grass(simulation: Simulation) -> None:
+    """Grass on every cell, so animals judge food plentiful enough to breed."""
+    simulation.grass.update({(x, y): 3 for x in range(simulation.width) for y in range(simulation.height)})
+
+
 class SimulationTests(unittest.TestCase):
     def setUp(self):
         self.simulation = Simulation(width=10, height=10, population=0, seed=3)
@@ -137,6 +142,7 @@ class SimulationTests(unittest.TestCase):
         self.assertGreater(agent.mind["fear"], 2.0)
 
     def test_breeding_needs_a_ready_mate_and_room(self):
+        lay_plenty_of_grass(self.simulation)
         dna = encode_dna("grazer")
         agent = self.simulation._add_agent(dna, 5, 5)
         mate = self.simulation._add_agent(dna, 5, 6)
@@ -227,8 +233,8 @@ class SimulationTests(unittest.TestCase):
         self.assertEqual(predator.last_action, "pounced")
         self.assertLess(grazer.health, grazer.max_health)
 
-    def test_prey_flees_a_hunter_it_can_see(self):
-        predator = self.simulation._add_agent(encode_dna("predator"), 5, 2)
+    def test_prey_flees_a_hunter_close_by(self):
+        predator = self.simulation._add_agent(encode_dna("predator"), 5, 3)
         grazer = self.simulation._add_agent(encode_dna("grazer", sight=7), 5, 6)
         self.simulation._index_cells()
         senses, options, situation = self.simulation._sense(grazer)
@@ -239,6 +245,7 @@ class SimulationTests(unittest.TestCase):
         self.assertNotIn(ACTIONS.index("flee"), self.simulation._sense(predator)[1])
 
     def test_only_animals_that_can_afford_it_breed(self):
+        lay_plenty_of_grass(self.simulation)
         dna = encode_dna("grazer", fertility=7)  # breeding costs it 10 hunger
         agent = self.simulation._add_agent(dna, 5, 5)
         mate = self.simulation._add_agent(dna, 5, 6)
@@ -264,6 +271,7 @@ class SimulationTests(unittest.TestCase):
         self.assertIn(ACTIONS.index("court"), self.simulation._sense(suitor)[1])
 
     def test_population_cap_withdraws_breeding(self):
+        lay_plenty_of_grass(self.simulation)
         dna = encode_dna("grazer")
         agent = self.simulation._add_agent(dna, 5, 5)
         self.simulation._add_agent(dna, 5, 6)
@@ -434,6 +442,37 @@ class SimulationTests(unittest.TestCase):
         self.assertTrue(all(turn % simulation._checkpoint_stride == 0 for turn in older))
         self.assertEqual(turns[-11:], list(range(50, 61)))
 
+    def test_history_keeps_within_its_memory_budget(self):
+        simulation = Simulation(width=20, height=20, population=30, seed=4)
+        self.assertEqual(simulation._history_room(), (500, 200))  # a small world fits it all
+        with patch("tools.Simulation.HISTORY_BUDGET", 1):  # far too little: the fewest snapshots
+            self.assertEqual(simulation._history_room(), (10, 10))
+            for _ in range(80):
+                simulation.advance()
+            self.assertLessEqual(len(simulation.history), 10 + 10 + 2)
+            simulation.seek(3)  # every turn can still be reached
+            self.assertEqual(simulation.turn, 3)
+
+    def test_plants_seed_less_the_more_plants_shade_them(self):
+        plant = self.simulation._add_agent(encode_dna("plant", fertility=7), 5, 5)  # a 10% chance alone
+        self.simulation._index_cells()
+        seeded = []
+        for shade in range(4):
+            if shade:
+                self.simulation._add_agent(encode_dna("plant"), 5 + shade, 5)  # within three cells
+                self.simulation._index_cells()
+            count = 0
+            for roll in (0.02, 0.05, 0.08):
+                with patch.object(self.simulation.random, "random", return_value=roll):
+                    before = len(self.simulation.agents)
+                    self.simulation._seed(plant)
+                    count += len(self.simulation.agents) > before
+                    del self.simulation.agents[before:]
+                    self.simulation._index_cells()
+                plant.hunger = 0
+            seeded.append(count)
+        self.assertEqual(seeded, [3, 2, 1, 0])  # a chance of 10%, then two thirds, a third and none
+
     def test_rewinding_reaches_turn_zero_however_long_the_run(self):
         with patch("tools.Simulation.DENSE_HISTORY", 5), patch("tools.Simulation.CHECKPOINTS", 2):
             simulation = Simulation(width=20, height=20, population=10, seed=4)
@@ -513,6 +552,7 @@ class NewTraitTests(unittest.TestCase):
         self.simulation.grass.clear()
 
     def test_litter_size_sets_how_many_young_share_the_parents_energy(self):
+        lay_plenty_of_grass(self.simulation)
         dna = encode_dna("grazer", fertility=7, litter=7)
         first = self.simulation._add_agent(dna, 5, 5)
         second = self.simulation._add_agent(dna, 5, 6)
@@ -802,21 +842,6 @@ class NewTraitTests(unittest.TestCase):
         self.simulation._attack(hunter, rival)
         self.assertGreater(hunter.reward, 0.4)  # all relief: it takes no joy in fighting itself
 
-    def test_grazers_get_twice_what_omnivores_do_from_grass_and_plants(self):
-        grazer = self.simulation._add_agent(encode_dna("grazer", size=7), 1, 1)
-        omnivore = self.simulation._add_agent(encode_dna("omnivore", size=7), 5, 5)
-        for animal in (grazer, omnivore):
-            self.simulation.grass[(animal.x, animal.y)] = 1
-            animal.hunger = 90
-            self.simulation._act(animal, "eat", {})
-        self.assertEqual((grazer.hunger, omnivore.hunger), (90 - 35 / 2, 90 - 35 / 2 / 2))
-
-        plant = self.simulation._add_agent(encode_dna("plant", size=7), 8, 8)
-        omnivore.x, omnivore.y, omnivore.hunger = 8, 9, 90
-        self.simulation._index_cells()
-        self.simulation._browse(omnivore, plant)
-        self.assertEqual(omnivore.hunger, 90 - 70 / 2 / 2)
-
     def test_a_world_sets_its_own_mutation_chances(self):
         stable = Simulation(width=12, height=12, population=0, seed=3, mind_mutation=0, body_mutation=0)
         dna = encode_dna("grazer", fertility=7, fear=3, size=2)
@@ -964,6 +989,108 @@ class NewTraitTests(unittest.TestCase):
             simulation._add_agent(dna, x, 10)
         simulation._index_cells()
         self.assertGreater(simulation._territory(hunter)[1], 0)  # an overgrown pack still crowds it
+
+    def test_each_species_weighs_the_food_it_eats_against_the_mouths_sharing_it(self):
+        simulation = Simulation(width=30, height=30, population=0, seed=3)
+        simulation.grass.clear()
+        simulation.grass.update({(15, 13): 4, (16, 15): 2})
+        grazer = simulation._add_agent(encode_dna("grazer"), 15, 15)
+        omnivore = simulation._add_agent(encode_dna("omnivore"), 14, 15)
+        predator = simulation._add_agent(encode_dna("predator"), 17, 15)
+        simulation._add_agent(encode_dna("plant"), 15, 17)
+        simulation._add_agent(encode_dna("grazer"), 15, 18)
+        simulation._index_cells()
+        simulation.grass_regrowth = 0  # judge the standing grass alone first
+        # grazer: a quarter of 6 tufts and a plant (2 meals), shared by itself, another grazer, and an
+        # omnivore by half
+        self.assertAlmostEqual(simulation._food_supply(grazer), (0.25 * 6 + 2) / (1 + 1 + 0.5))
+        # omnivore: grass at half value, the plant and two grazers as prey in full; only the
+        # predator's half a mouth
+        self.assertAlmostEqual(simulation._food_supply(omnivore), (0.5 * 0.25 * 6 + 2 + 2 * 2) / (1 + 0.5))
+        # predator: no grass for it; two grazers and an omnivore as prey, and no rivals
+        self.assertAlmostEqual(simulation._food_supply(predator), 3 * 2)
+        # another kind of predator, though it may be hunted, is a rival for the prey, not food
+        simulation._add_agent(encode_dna("predator") ^ (0xFF << 56), 18, 16)
+        simulation._index_cells()
+        self.assertAlmostEqual(simulation._food_supply(predator), 3 * 2 / 2)
+
+    def test_grass_is_judged_by_what_will_regrow_as_well_as_what_stands(self):
+        simulation = Simulation(width=30, height=30, population=0, seed=3)
+        simulation.grass.clear()
+        grazer = simulation._add_agent(encode_dna("grazer"), 15, 15)
+        simulation._index_cells()
+        cells = 2 * 6 * 7 + 1  # every cell within six steps
+        expected = cells * simulation.grass_regrowth / (30 * 30) * 150
+        self.assertAlmostEqual(simulation._food_supply(grazer), expected)
+        corner = simulation._add_agent(encode_dna("grazer"), 0, 0)  # a corner sees less of the world
+        simulation._index_cells()
+        self.assertLess(simulation._food_supply(corner), expected / 2)
+
+    def test_scarce_food_stops_breeding_and_plenty_allows_full_litters(self):
+        dna = encode_dna("grazer", fertility=7, litter=7)
+        first = self.simulation._add_agent(dna, 5, 5)
+        second = self.simulation._add_agent(dna, 5, 6)
+        self.simulation._index_cells()
+        breed = ACTIONS.index("breed")
+        self.simulation.grass_regrowth = 0  # a barren world
+        self.assertNotIn(breed, self.simulation._sense(first)[1])  # no grass: no young to feed them on
+        lay_plenty_of_grass(self.simulation)
+        self.assertIn(breed, self.simulation._sense(first)[1])
+        self.simulation._breed(first, second, self.simulation._free_cells_near(first))
+        self.assertEqual(len(self.simulation.agents), 2 + 6)
+
+    def test_a_litter_shrinks_as_food_runs_short(self):
+        dna = encode_dna("grazer", fertility=7, litter=7)
+        first = self.simulation._add_agent(dna, 5, 5)
+        second = self.simulation._add_agent(dna, 5, 6)
+        self.simulation._index_cells()
+        with patch.object(Simulation, "_food_supply", return_value=4.5):  # three quarters of plenty
+            self.simulation._breed(first, second, self.simulation._free_cells_near(first))
+        self.assertEqual(len(self.simulation.agents), 2 + 5)  # six young at three quarters: 4.5, rounded up
+
+    def test_a_distant_hunter_is_watched_but_not_fled(self):
+        grazer = self.simulation._add_agent(encode_dna("grazer", sight=7), 5, 6)
+        predator = self.simulation._add_agent(encode_dna("predator"), 5, 2)
+        self.simulation._index_cells()
+        senses, options, situation = self.simulation._sense(grazer)
+        self.assertIs(situation["hunter"], predator)  # it is seen
+        self.assertGreater(senses[SENSES.index("threat_closeness")], 0)
+        self.assertNotIn(ACTIONS.index("flee"), options)  # but four steps off is no reason to run
+
+    def test_a_herd_keeping_watch_flees_only_hunters_closer_still(self):
+        dna = encode_dna("grazer", empathy=7, patience=7, sight=7)
+        grazer = self.simulation._add_agent(dna, 5, 6)
+        self.simulation._add_agent(encode_dna("predator"), 5, 3)  # three steps off
+        self.simulation._index_cells()
+        flee = ACTIONS.index("flee")
+        self.assertIn(flee, self.simulation._sense(grazer)[1])
+        for x, y in ((4, 6), (6, 6), (5, 7)):
+            self.simulation._add_agent(dna, x, y)
+        self.simulation._index_cells()
+        self.assertEqual(self.simulation._flee_range(grazer, 3), 1.5)
+        self.assertNotIn(flee, self.simulation._sense(grazer)[1])  # its herd watches with it
+
+    def test_grazers_are_best_at_grass_and_omnivores_at_plants_and_meat(self):
+        grazer = self.simulation._add_agent(encode_dna("grazer", size=7), 1, 1)
+        omnivore = self.simulation._add_agent(encode_dna("omnivore", size=7), 3, 3)
+        for animal in (grazer, omnivore):
+            self.simulation.grass[(animal.x, animal.y)] = 1
+            animal.hunger = 90
+            self.simulation._act(animal, "eat", {})
+        self.assertEqual((90 - grazer.hunger, 90 - omnivore.hunger), (35 / 2, 35 / 2 / 2))  # grass: half
+
+        plant = self.simulation._add_agent(encode_dna("plant", size=7), 8, 8)
+        omnivore.x, omnivore.y, omnivore.hunger = 8, 9, 90
+        self.simulation._index_cells()
+        self.simulation._browse(omnivore, plant)
+        self.assertEqual(omnivore.hunger, 90 - 70 / 2)  # plants: in full
+
+        prey = self.simulation._add_agent(encode_dna("grazer"), 9, 9)
+        self.simulation._index_cells()
+        omnivore.hunger, prey.health = 90, 1
+        self.simulation._attack(omnivore, prey)
+        effort = 0.2 * Simulation._damage(omnivore, prey) / omnivore.stomach
+        self.assertAlmostEqual(90 - omnivore.hunger + effort, (5 + 25) / 2)  # meat: in full
 
     def test_striking_burns_food_by_the_damage_dealt(self):
         target = self.simulation._add_agent(encode_dna("grazer", size=7), 5, 5)
@@ -1194,17 +1321,13 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual((seedling.hunger, seedling.generation, plant.hunger, plant.last_action),
                          (50, 1, 20, "seeded"))
 
-    def test_plants_do_not_seed_when_hungry_crowded_or_too_many(self):
+    def test_plants_do_not_seed_when_hungry_or_crowded(self):
         plant = self.simulation._add_agent(encode_dna("plant", fertility=7), 5, 5)
         self.simulation._index_cells()
         with patch.object(self.simulation.random, "random", return_value=0.0):
             plant.hunger = 41
             self.simulation._seed(plant)
             plant.hunger = 0
-            with patch("tools.Simulation.MAX_PLANTS", 1):
-                self.simulation._plants = 1
-                self.simulation._seed(plant)
-            self.simulation._plants = 0
             for x in range(12):  # a dense checkerboard of plants over the whole world
                 for y in range(12):
                     if (x, y) != (5, 5) and (x + y) % 2:
@@ -1217,6 +1340,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(len(self.simulation.agents), before)  # no seedlings
 
     def test_plants_do_not_take_up_the_animals_population_cap(self):
+        lay_plenty_of_grass(self.simulation)
         dna = encode_dna("grazer")
         agent = self.simulation._add_agent(dna, 5, 5)
         mate = self.simulation._add_agent(dna, 5, 6)
