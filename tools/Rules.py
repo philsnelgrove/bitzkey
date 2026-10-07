@@ -1,0 +1,257 @@
+"""The simulation's tunable rules: every constant that shapes how the world plays out, so the
+advanced panel can change them before a world starts.
+
+Each rule names a module constant, or one entry of a tuple or table constant, by a key such as
+FORAGE_RADIUS, ANIMAL_LIFESPAN.0, GRAZING.grazer or EXPERIENCES.kill.aggression. The C++ port lists
+the same rules with the same keys, limits and steps (`bitzkey_cli --rules`). Rules are module-wide:
+`apply` sets them all, and a world plays by whatever was set when it runs. Settings the
+configuration panel already covers (world size, population, grass density, the population cap and
+mutation rates) are not repeated here, nor are numbers that fix the genome's or the brain's layout,
+how starting groups are sized, or how much history is kept.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass
+
+from tools import Brain as brain
+from tools import Simulation as world
+
+
+@dataclass(frozen=True)
+class Rule:
+    key: str
+    group: str
+    label: str
+    hint: str
+    minimum: float
+    maximum: float
+    step: float
+
+    @property
+    def integer(self) -> bool:
+        """Whole numbers only: the rule counts cells, turns or animals."""
+        return isinstance(self.step, int)
+
+    def clamp(self, value: float) -> float:
+        value = max(self.minimum, min(self.maximum, value))
+        return int(round(value)) if self.integer else float(value)
+
+
+_MODULES = {"TEMPERATURE": brain, "MUTATION": brain}
+
+# (key, label, hint, minimum, maximum, step) by group. A step that is an int makes a whole-number rule.
+_TABLE: dict[str, list[tuple]] = {
+    "World": [
+        ("GRASS_REGROWTH", "Grass regrowth", "share of the starting grass that grows back each turn", 0, 0.1, 0.001),
+        ("CORPSE_FERTILITY", "Corpse fertility", "grass grows this many times as fast on and around a corpse", 1, 10, 1),
+        ("CORPSE_TURNS", "Corpse turns", "turns a corpse lasts while its meat rots away", 1, 500, 5),
+        ("SPAWN_SPREAD", "Spawn spread", "a starting group appears within this many cells of its centre", 0, 4, 1),
+    ],
+    "Bodies": [
+        ("PLANT_LIFESPAN", "Plant lifespan", "expected turns of life for a plant", 100, 20000, 100),
+        ("ANIMAL_LIFESPAN.0", "Lifespan, fastest", "expected turns of life at the fastest metabolism", 10, 5000, 10),
+        ("ANIMAL_LIFESPAN.1", "Lifespan, slowest", "expected turns of life at the slowest metabolism", 10, 5000, 10),
+        ("AGEING", "Ageing", "from this share of its lifespan, an animal may die of old age", 0.0, 0.95, 0.05),
+        ("METABOLISM.0", "Metabolism, smallest", "metabolic rate of the smallest bodies", 0.1, 5.0, 0.1),
+        ("METABOLISM.1", "Metabolism, largest", "metabolic rate of the largest bodies", 0.1, 5.0, 0.1),
+        ("STOMACH.0", "Stomach, smallest", "food the smallest body holds, relative to the middle", 0.1, 5.0, 0.1),
+        ("STOMACH.1", "Stomach, largest", "food the largest body holds, relative to the middle", 0.1, 5.0, 0.1),
+        ("SIZE_IN_MIGHT", "Size in might", "share of strength and toughness that comes from body size", 0.0, 1.0, 0.05),
+        ("GRAZER_SPEED", "Grazer speed", "grazers move this many times as far a step, rounded half up", 0.5, 4.0, 0.25),
+    ],
+    "Breeding": [
+        ("BREED_RESERVE", "Breeding reserve", "hunger a parent must still have spare after paying to breed", 0, 100, 5),
+        ("MATE_RING_DIFFERENCE", "Mate ring difference", "most a partner's ring colour may differ, at no tolerance",
+         0.0, 1.0, 0.01),
+        ("MATE_DOT_DIFFERENCE", "Mate dot difference", "most a partner's dot colour may differ, at no tolerance",
+         0.0, 1.0, 0.01),
+        ("LITTER_RANGE.0", "Smallest litter", "fewest young per birth, while there is room", 1, 20, 1),
+        ("LITTER_RANGE.1", "Largest litter", "most young per birth, while there is room", 1, 20, 1),
+        ("LITTER_SIZE_WEIGHT", "Small-body litters", "share of litter size from small bodies; the rest from the trait",
+         0.0, 1.0, 0.05),
+        ("PREDATOR_LITTERS", "Predator litters", "predators' litters are this share of the usual, rounded up",
+         0.05, 2.0, 0.05),
+        ("CROWDING_RADIUS", "Crowding radius", "animals within this many cells crowd a would-be parent", 1, 12, 1),
+        ("CROWDING_LIMIT", "Crowding limit", "litters shrink as crowding nears this; at it, no breeding", 1, 100, 1),
+        ("FORAGE_RADIUS", "Forage radius", "food and mouths are weighed within this many cells", 1, 12, 1),
+        ("FOOD_NEEDED", "Food needed", "meals each mouth needs nearby to breed; twice this for a full litter",
+         0.5, 20.0, 0.5),
+        ("PLANT_MEALS", "Plant meals", "meals a plant is worth to a full-efficiency browser", 0.0, 20.0, 0.5),
+        ("PREY_MEALS", "Prey meals", "meals a prey animal is worth", 0.0, 20.0, 0.5),
+        ("SHARED_DIET", "Shared diet", "how much another species eating the same food counts as a mouth",
+         0.0, 1.0, 0.05),
+        ("GRASS_OUTLOOK", "Grass outlook", "grass is judged by what regrows in this many turns", 0, 1000, 10),
+        ("STANDING_GRASS", "Standing grass", "plus this share of the grass standing now", 0.0, 1.0, 0.05),
+    ],
+    "Feelings": [
+        ("DEATH_PENALTY", "Death penalty", "how sharply a brain learns from the choice that killed it", 0.0, 10.0, 0.1),
+        ("BREED_JOY", "Breeding joy", "pleasure of breeding, scaled by libido", 0.0, 5.0, 0.05),
+        ("FIGHT_JOY", "Fighting joy", "pleasure of a blow, scaled by aggression", 0.0, 5.0, 0.05),
+        ("COMPANY_JOY", "Company joy", "pleasure of company, scaled by sociability", 0.0, 5.0, 0.05),
+        ("CURIOSITY_JOY", "Curiosity joy", "pleasure of exploring, scaled by curiosity", 0.0, 5.0, 0.05),
+        ("FEAR_DREAD", "Fear dread", "dread of hunters nearby, scaled by fear", 0.0, 5.0, 0.05),
+        ("UNEASE", "Unease", "how much an intolerant animal minds other species close by", 0.0, 5.0, 0.05),
+        ("EMPATHY_PAIN", "Empathy pain", "how much an empathetic animal feels another's wound", 0.0, 5.0, 0.05),
+        ("OTHER_KIND", "Other kind", "how much of that pain reaches it for another species", 0.0, 1.0, 0.05),
+    ],
+    "Mind": [
+        ("LEARNING_RATE", "Learning rate", "how fast a brain learns, at the highest intellect", 0.0, 0.5, 0.005),
+        ("TEMPERATURE", "Choice temperature", "how loosely a brain picks among its options", 0.01, 5.0, 0.05),
+        ("MUTATION", "Brain mutation", "how much a newborn's brain varies from its parents'", 0.0, 1.0, 0.01),
+        ("TEMPERAMENT_RELAPSE", "Temperament relapse", "share of the gap back to the inborn value closed each turn",
+         0.0, 0.1, 0.001),
+        ("PANIC.0", "Panic, unhurt", "chance a fully fearful animal breaks when struck, unhurt", 0.0, 1.0, 0.05),
+        ("PANIC.1", "Panic, near death", "chance a fully fearful animal breaks when struck, near death",
+         0.0, 1.0, 0.05),
+    ],
+    "Fighting": [
+        ("STRIKE_FORCE", "Strike force", "scales every blow", 0.0, 10.0, 0.1),
+        ("STRIKE_EFFORT", "Strike effort", "food burned for each point of damage a blow deals", 0.0, 2.0, 0.05),
+        ("THORN_FORCE", "Thorn force", "a plant's counterblow at full weapons and size", 0, 100, 1),
+        ("THORN_SIZE_SHARE", "Thorn size share", "share of that from the plant's size; the rest its weapons",
+         0.0, 1.0, 0.05),
+        ("PACK_BONUS", "Pack bonus", "extra force at prey that a herd-mate is also alongside", 0.0, 5.0, 0.05),
+        ("KILL_MEAL", "Kill meal", "hunger a kill sates", 0, 200, 5),
+        ("KILL_MEAL_FOR_SIZE", "Kill meal for size", "more hunger sated, up to this for the largest prey", 0, 200, 5),
+        ("KIND_DIFFERENCE", "Kind difference", "predators whose rings differ more are different kinds", 0.0, 1.0, 0.01),
+        ("FLEE_RANGE", "Flee range", "a hunter is only worth fleeing within this many steps, unless alarmed",
+         0, 12, 1),
+        ("HERD_VIGILANCE", "Herd vigilance", "how far a close herd shrinks that range", 0.0, 1.0, 0.05),
+        ("SWITCH_SHARE", "Prey switching", "a prey is hunted while it is at least this share of the food",
+         0.0, 1.0, 0.05),
+    ],
+    "Territory": [
+        ("TERRITORY_RADIUS", "Territory radius", "a hunter's territory: the cells within this many steps", 1, 12, 1),
+        ("TERRITORY_RAMP", "Territory ramp", "rivals past the limit that bring rivalry to its full strength", 1, 20, 1),
+        ("RIVAL_UNEASE", "Rival unease", "discomfort of a fully overcrowded territory", 0.0, 5.0, 0.05),
+        ("RIVAL_KILL_JOY", "Rival kill joy", "relief at killing a rival in an overcrowded territory", 0.0, 5.0, 0.05),
+        ("TERRITORY.predator.fewest", "Predator rivals, cruel", "rivals the least empathetic predator tolerates",
+         0, 50, 1),
+        ("TERRITORY.predator.most", "Predator rivals, kind", "rivals the most empathetic predator tolerates",
+         0, 50, 1),
+        ("TERRITORY.predator.strength", "Predator rivalry", "how strongly overcrowding moves a predator",
+         0.0, 2.0, 0.05),
+        ("TERRITORY.omnivore.fewest", "Omnivore rivals, cruel", "rivals the least empathetic omnivore tolerates",
+         0, 50, 1),
+        ("TERRITORY.omnivore.most", "Omnivore rivals, kind", "rivals the most empathetic omnivore tolerates",
+         0, 50, 1),
+        ("TERRITORY.omnivore.strength", "Omnivore rivalry", "how strongly overcrowding moves an omnivore",
+         0.0, 2.0, 0.05),
+    ],
+    "Herding": [
+        ("HERD_RADIUS", "Herd radius", "herd-mates are sought within this many steps", 1, 12, 1),
+        ("HERD_SPREAD", "Herd spread", "how far from the herd's middle a fearless animal is content", 0, 12, 1),
+        ("HERD_JOY", "Herd joy", "pleasure of being among three or more herd-mates", 0.0, 5.0, 0.05),
+        ("HERD_LONELINESS", "Herd loneliness", "unease at having no herd-mate in range", 0.0, 5.0, 0.05),
+        ("HERD_SAFETY", "Herd safety", "how much three close herd-mates calm fear", 0.0, 1.0, 0.05),
+        ("HERD_DEFEND_JOY", "Herd defence joy", "pleasure of striking back at a herd-mate's attacker", 0.0, 5.0, 0.05),
+    ],
+    "Food": [
+        ("GRASS_MEAL", "Grass meal", "hunger a tuft of grass sates", 0, 200, 5),
+        ("PLANT_MEAL", "Plant meal", "hunger a bite of a plant sates", 0, 200, 5),
+        ("PLANT_MEAL_FOR_SIZE", "Plant meal for size", "more hunger sated, up to this for the largest plants",
+         0, 200, 5),
+        ("PLANT_BITE", "Plant bite", "health a plant loses to each bite", 0, 200, 1),
+        ("PLANT_REGROWTH", "Plant regrowth", "share of its health a plant regrows each turn", 0.0, 1.0, 0.005),
+        ("PLANT_RECOVERY", "Plant recovery", "turns after a bite before a plant can be bitten again", 0, 100, 1),
+        ("CARRION_MEAT", "Carrion meat", "meat a well-fed corpse leaves", 0, 200, 5),
+        ("CARRION_MEAT_FOR_SIZE", "Carrion meat for size", "more meat, up to this for the largest", 0, 200, 5),
+        ("SCAVENGE_BITE", "Scavenge bite", "meat eaten in one go", 0, 200, 5),
+        ("GRAZING.grazer", "Grazer on grass", "share of the food in grass a grazer gets", 0.0, 3.0, 0.05),
+        ("GRAZING.omnivore", "Omnivore on grass", "share of the food in grass an omnivore gets", 0.0, 3.0, 0.05),
+        ("BROWSING.grazer", "Grazer on plants", "share of the food in plants a grazer gets", 0.0, 3.0, 0.05),
+        ("BROWSING.omnivore", "Omnivore on plants", "share of the food in plants an omnivore gets", 0.0, 3.0, 0.05),
+    ],
+    "Plants": [
+        ("SEED_CHANCE.0", "Seeding, least fertile", "a well-fed plant's chance each turn of seeding", 0.0, 1.0, 0.01),
+        ("SEED_CHANCE.1", "Seeding, most fertile", "a well-fed plant's chance each turn of seeding", 0.0, 1.0, 0.01),
+        ("SEED_COST", "Seed cost", "hunger seeding costs a plant", 0, 100, 1),
+        ("SEED_HUNGER", "Seed hunger", "a plant hungrier than this doesn't seed", 0, 100, 1),
+        ("SEEDLING_HUNGER", "Seedling hunger", "hunger a seedling starts with", 0, 100, 1),
+        ("SEED_REACH", "Seed reach", "how far, in cells, a seed may land from its plant", 1, 9, 1),
+        ("LIGHT_RADIUS", "Light radius", "plants compete for light with plants within this many cells", 0, 12, 1),
+        ("LIGHT_LIMIT", "Light limit", "this many such plants stop a plant seeding", 1, 50, 1),
+        ("PLANT_CROWDING", "Plant crowding", "a seed doesn't take where more plants grow within two cells", 0, 50, 1),
+    ],
+    "Experiences": [
+        (f"EXPERIENCES.{event}.{trait}", f"{event.replace('_', ' ').capitalize()}: {trait}",
+         f"how {event.replace('_', ' ')} shifts {trait}, as a share of its range", -0.5, 0.5, 0.0005)
+        for event, shifts in world.EXPERIENCES.items() for trait in shifts
+    ],
+}
+
+RULES = tuple(Rule(key, group, label, hint, minimum, maximum, step)
+              for group, rows in _TABLE.items() for key, label, hint, minimum, maximum, step in rows)
+BY_KEY = {rule.key: rule for rule in RULES}
+# Pairs that must stay in order, smaller first, and pairs that must differ (lifespan divides by the gap).
+ORDERED = (("LITTER_RANGE.0", "LITTER_RANGE.1"),)
+DISTINCT = (("METABOLISM.0", "METABOLISM.1"),)
+_PARTS = {"fewest": (0, 0), "most": (0, 1), "strength": (1,)}
+
+
+def _path(key: str) -> tuple[object, str, list]:
+    """The module holding a rule's constant, the constant's name, and the steps into it."""
+    name, *steps = key.split(".")
+    if name == "TERRITORY":
+        steps = [steps[0], *_PARTS[steps[1]]]
+    return _MODULES.get(name, world), name, [int(step) if isinstance(step, str) and step.isdigit() else step for step in steps]
+
+
+def get(key: str) -> float:
+    module, name, steps = _path(key)
+    value = getattr(module, name)
+    for step in steps:
+        value = value[step]
+    return value
+
+
+def _replaced(container, steps: list, value):
+    """The container with the value at the end of `steps` replaced; tuples are rebuilt, tables
+    changed in place."""
+    if not steps:
+        return value
+    head, rest = steps[0], steps[1:]
+    if isinstance(container, tuple):
+        items = list(container)
+        items[head] = _replaced(items[head], rest, value)
+        return tuple(items)
+    container[head] = _replaced(container[head], rest, value)
+    return container
+
+
+def _set(key: str, value: float) -> None:
+    module, name, steps = _path(key)
+    setattr(module, name, _replaced(getattr(module, name), steps, value))
+
+
+DEFAULTS: dict[str, float] = {rule.key: get(rule.key) for rule in RULES}
+
+
+def current() -> dict[str, float]:
+    return {rule.key: get(rule.key) for rule in RULES}
+
+
+def problems(values: Mapping[str, float]) -> list[str]:
+    """Why a set of values can't be applied, if it can't."""
+    return ([f"{BY_KEY[low].label} must not exceed {BY_KEY[high].label.lower()}"
+             for low, high in ORDERED if values[low] > values[high]]
+            + [f"{BY_KEY[first].label} must differ from {BY_KEY[second].label.lower()}"
+               for first, second in DISTINCT if values[first] == values[second]])
+
+
+def apply(values: Mapping[str, float]) -> None:
+    """Set every rule: those given to their (clamped) values, the rest to their defaults."""
+    for rule in RULES:
+        _set(rule.key, rule.clamp(values.get(rule.key, DEFAULTS[rule.key])))
+    world.SEED_OFFSETS = sum(abs(dx) + abs(dy) <= world.SEED_REACH for dx, dy in world.SIGHT_OFFSETS)
+
+
+def changed(values: Mapping[str, float]) -> dict[str, float]:
+    return {key: value for key, value in values.items() if value != DEFAULTS[key]}
+
+
+def shown(rule: Rule, value: float) -> str:
+    """A value as the panel shows it: up to six significant digits, no trailing zeros."""
+    return str(int(value)) if rule.integer else f"{value:.6g}"

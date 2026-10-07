@@ -21,7 +21,9 @@ from tools.Exchange import Imported, bitzkey_record, export_bitzkeys, format_rec
 from tools.Genome import genome_record
 from tools.Genome import BODY_TRAITS, MIND_TRAITS, body_word, mind_word
 from tools.Insights import ANIMALS, brain_report
-from tools.Simulation import CORPSE_TURNS, SPECIES, Bitzkey, Simulation
+from tools import Rules
+from tools import Simulation as world
+from tools.Simulation import SPECIES, Bitzkey, Simulation
 
 REPORT_DIR = Config.APP_DIR / "reports"
 INSIGHTS_TOP = 290  # the insights panel's top, in design pixels: just below the population counts
@@ -465,7 +467,7 @@ class BitzkeyApp:
         when the corpse is."""
         if agent.died_turn is None:
             return 1.0
-        return max(0.0, 1 - (self.simulation.turn - agent.died_turn) / CORPSE_TURNS)
+        return max(0.0, 1 - (self.simulation.turn - agent.died_turn) / world.CORPSE_TURNS)  # read live: it is a tunable rule
 
     # The insights panel scrolls within the sidebar, below the population counts.
 
@@ -760,6 +762,7 @@ def main() -> None:
     options = parse_args()
     setup = SetupScreen(Window.open_window(fullscreen=not options.windowed), vars(options))
     while (settings := setup.run()) is not None:
+        Rules.apply(settings.pop("rules", {}))  # the advanced rules hold for this world and its restarts
         if BitzkeyApp(**settings).run() == "quit":
             break
     pg.quit()

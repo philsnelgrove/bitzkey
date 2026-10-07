@@ -185,6 +185,23 @@ class ConfigPanelTests(unittest.TestCase):
         app = BitzkeyApp(**setup.form.values())
         self.assertEqual(app.simulation.population_cap, 250)
 
+    def test_the_advanced_button_keeps_the_rules_applied_for_the_worlds_started(self):
+        from display import Window
+        from display.Advanced import AdvancedScreen
+        from display.Setup import SetupScreen
+        setup = SetupScreen(Window.open_window(fullscreen=False),
+                            {"width": 30, "height": 30, "population": 20, "grass_density": 5, "seed": 1})
+        self.assertEqual(setup._values()["rules"], {})
+        advanced = setup._layout()["advanced"].center
+        with patch.object(AdvancedScreen, "run", return_value=("apply", {"CORPSE_TURNS": 60})):
+            self.assertIsNone(setup._click(advanced))
+        self.assertEqual(setup._values()["rules"], {"CORPSE_TURNS": 60})
+        with patch.object(AdvancedScreen, "run", return_value=("cancel", None)):
+            setup._click(advanced)
+        self.assertEqual(setup._values()["rules"], {"CORPSE_TURNS": 60})
+        with patch.object(AdvancedScreen, "run", return_value=("quit", None)):
+            self.assertEqual(setup._click(advanced), "quit")
+
     def test_quitting_the_configuration_panel_asks_first(self):
         from display import Window
         from display.Setup import SetupScreen
@@ -207,14 +224,16 @@ class MainLoopTests(unittest.TestCase):
         from unittest.mock import MagicMock, patch
 
         setup = MagicMock()
-        setup.run.side_effect = [{"width": 10}, {"width": 20}, None]  # start, start again, then quit
+        # start, start again with an advanced rule changed, then quit
+        setup.run.side_effect = [{"width": 10, "rules": {}}, {"width": 20, "rules": {"CORPSE_TURNS": 60}}, None]
         app = MagicMock()
         app.return_value.run.return_value = "configure"
-        with patch.object(Main, "parse_args", return_value=MagicMock(windowed=True)),                 patch.object(Main.Window, "open_window"), patch.object(Main, "SetupScreen", return_value=setup),                 patch.object(Main, "BitzkeyApp", app), patch.object(Main.pg, "quit"):
+        with patch.object(Main, "parse_args", return_value=MagicMock(windowed=True)),                 patch.object(Main.Window, "open_window"), patch.object(Main, "SetupScreen", return_value=setup),                 patch.object(Main, "BitzkeyApp", app), patch.object(Main.pg, "quit"),                 patch.object(Main.Rules, "apply") as apply:
             Main.main()
 
         self.assertEqual([call.kwargs for call in app.call_args_list], [{"width": 10}, {"width": 20}])
         self.assertEqual(setup.run.call_count, 3)
+        self.assertEqual([call.args for call in apply.call_args_list], [({},), ({"CORPSE_TURNS": 60},)])
 
 
 if __name__ == "__main__":

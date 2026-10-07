@@ -74,8 +74,26 @@ Each imported genome spawns as a group of 3 to
 120 genomes are used, keeping their groups within the 600 population cap. Set
 "Bitzkeys" to 0 to start with only your imports.
 
+ADVANCED opens the advanced rules: 114 numbers that shape how the world plays
+out, in groups (World, Bodies, Breeding, Feelings, Mind, Fighting, Territory,
+Herding, Food, Plants and Experiences). Among them are lifespans, metabolism, litter
+sizes, food-aware breeding, the rewards and pains a brain learns from, blows and
+thorns, territory and herd instincts, meals, plant seeding and how each experience
+reshapes temperament. Each rule has a short note, limits and a step. Choose and adjust
+them as in the configuration panel; PgUp/PgDn jump ten rules, and the wheel scrolls.
+Fractional rules take a typed decimal point, and the experience shifts take a minus
+sign. Changed values show in amber. RESET puts the focused rule back to its default
+and RESET ALL every rule. APPLY (`Enter`) keeps the changes, unless two rules
+conflict (the smallest litter above the largest, or equal metabolisms); CANCEL
+(`Esc`) drops them. The ADVANCED button turns amber and counts the changed rules.
+They hold for every world started from the panel, `R` restarts included, until
+changed again. A seed replays the same world only under the same rules.
+
 To add a setting, add a `Setting` to `SETTINGS` in `display/Setup.py` and a
-parameter with the same name to `BitzkeyApp`.
+parameter with the same name to `BitzkeyApp`. To make another constant in
+`tools/Simulation.py` or `tools/Brain.py` tunable, add a row for it to `_TABLE` in
+`tools/Rules.py`. Code that uses it must read it from its module when it runs,
+not copy it at import. Add the same rule to the C++ port.
 
 ## When a Simulation Ends
 

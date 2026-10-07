@@ -91,8 +91,10 @@ class Brain:
 
     @classmethod
     def inherit(cls, first: Brain, second: Brain, rng: random.Random,
-                mutation: float = MUTATION) -> Brain:
-        """Take each hidden neuron, with its outgoing weights, from one parent, then mutate."""
+                mutation: float | None = None) -> Brain:
+        """Take each hidden neuron, with its outgoing weights, from one parent, then mutate (by
+        MUTATION unless given)."""
+        mutation = MUTATION if mutation is None else mutation
         from_first = np.array([rng.random() < 0.5 for _ in range(HIDDEN_SIZE)])
         bias_from_first = np.array([rng.random() < 0.5 for _ in ACTIONS])
         child = cls(

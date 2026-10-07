@@ -11,6 +11,7 @@ import pygame as pg
 
 from config.Globals import Config
 from display import Window
+from display.Advanced import AdvancedScreen
 from display.Ui import UI
 from display.Designer import Designer
 from display.Dialog import Dialog
@@ -192,6 +193,7 @@ class SetupScreen:
         self.note_until = 0
         self.dialog: Dialog | None = None  # the quit confirmation, while it is open
         self.last_design: int | None = None  # the designer reopens on the last design applied
+        self.rules: dict[str, float] = {}  # the advanced rules changed from their defaults
 
     # Fonts are sized for the 1200x820 design and scaled to the screen.
 
@@ -220,8 +222,9 @@ class SetupScreen:
         return UI.font("segoeui", 12)
 
     def run(self) -> dict | None:
-        """Return the chosen settings, with the imported genomes under "imported", or None if
-        the user quit. Running it again, after a simulation, starts from the same values."""
+        """Return the chosen settings, with the imported genomes under "imported" and the changed
+        advanced rules under "rules", or None if the user quit. Running it again, after a
+        simulation, starts from the same values."""
         self.screen = pg.display.get_surface() or self.screen
         while True:
             self.clock.tick(30)
@@ -245,7 +248,7 @@ class SetupScreen:
                         self.screen = Window.toggle_fullscreen()
                     elif event.key in (pg.K_RETURN, pg.K_KP_ENTER):
                         if self._ready():
-                            return self.form.values()
+                            return self._values()
                     elif event.key == pg.K_v and event.mod & pg.KMOD_CTRL:
                         self._paste()
                     else:
@@ -255,9 +258,12 @@ class SetupScreen:
                     if action == "quit":
                         self._ask_to_quit()
                     if action == "start" and self._ready():
-                        return self.form.values()
+                        return self._values()
             self._draw()
             pg.display.flip()
+
+    def _values(self) -> dict:
+        return {**self.form.values(), "rules": dict(self.rules)}
 
     def _ask_to_quit(self) -> None:
         self.dialog = Dialog("Quit Bitzkey?", ["The application will close."],
@@ -299,6 +305,18 @@ class SetupScreen:
             self.last_design = dna
             self.form.add_design(dna)
             self._tell(f"Added a designed {decode_body(dna)['species']} to the import list.")
+        return None
+
+    def _advanced(self) -> str | None:
+        """Open the advanced rules; applying them keeps them for the worlds started from here.
+        Returns "quit" if the window was closed meanwhile."""
+        outcome, rules = AdvancedScreen(self.screen, self.rules).run()
+        self.screen = pg.display.get_surface()
+        if outcome == "quit":
+            return "quit"
+        if rules is not None:
+            self.rules = rules
+            self._tell(f"{len(rules)} advanced rule{'s' if len(rules) != 1 else ''} changed from the defaults.")
         return None
 
     def _paste(self) -> None:
@@ -363,8 +381,10 @@ class SetupScreen:
         start.bottomleft = (card.centerx + UI(6), card.bottom - UI(42))
         quit = pg.Rect(0, 0, UI(140), UI(44))
         quit.bottomright = (card.centerx - UI(6), card.bottom - UI(42))
+        advanced = pg.Rect(0, 0, UI(120), UI(28))
+        advanced.topright = (card.right - UI(20), card.top + UI(28))
         return {"card": card, "rows": rows, "box": box, "design": design, "paste": paste, "load": load,
-                "clear": clear, "start": start, "quit": quit}
+                "clear": clear, "start": start, "quit": quit, "advanced": advanced}
 
     @staticmethod
     def _buttons(row: pg.Rect) -> tuple[pg.Rect, pg.Rect, pg.Rect]:
@@ -376,7 +396,7 @@ class SetupScreen:
 
     def _click(self, position: tuple[int, int]) -> str | None:
         """Handle a click; return "start" when it asks to start the world, or "quit" if the
-        window was closed from the designer."""
+        window was closed from the designer or the advanced rules."""
         layout = self._layout()
         if layout["start"].collidepoint(position):
             return "start"
@@ -384,6 +404,8 @@ class SetupScreen:
             return "quit"
         if layout["design"].collidepoint(position):
             return self._design()
+        if layout["advanced"].collidepoint(position):
+            return self._advanced()
         if layout["paste"].collidepoint(position):
             self._paste()
         elif layout["load"].collidepoint(position):
@@ -415,6 +437,14 @@ class SetupScreen:
                    (144, 170, 151), self.small)
         self._text("Set up the world, then start the simulation.", (card.left + UI(28), card.top + UI(66)),
                    (157, 177, 159), self.font)
+        advanced = layout["advanced"]
+        pg.draw.rect(self.screen, (238, 183, 110) if self.rules else (44, 57, 52), advanced, border_radius=UI(4))
+        label = self.button_font.render("ADVANCED", True, (19, 26, 27) if self.rules else (220, 229, 211))
+        self.screen.blit(label, label.get_rect(center=advanced.center))
+        if self.rules:
+            note = self.small.render(f"{len(self.rules)} rule{'s' if len(self.rules) != 1 else ''} changed", True,
+                                     (238, 183, 110))
+            self.screen.blit(note, note.get_rect(midtop=(advanced.centerx, advanced.bottom + UI(4))))
 
         for index, (setting, row) in enumerate(zip(self.form.settings, layout["rows"], strict=True)):
             self._draw_setting(setting, row, index == self.form.focus)
