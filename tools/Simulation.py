@@ -139,8 +139,8 @@ PLANT_CROWDING = 3     # a seed doesn't take where more than this many plants gr
 TEMPERAMENT_RELAPSE = 0.005  # share of the gap back to the inborn value closed each turn
 # Climate. The map is banded into zones across its height: ARCTIC_SHARE at the top and at the
 # bottom is arctic, cold; a strip of EQUATOR_SHARE across the middle is the equator, hot; the rest
-# is temperate, medium. Every YEAR_LENGTH turns is a year. Through its first quarter the north,
-# from the top down to and through the equator, is a step colder; through its third quarter the
+# is temperate, medium. Every YEAR_LENGTH turns is a year, starting mild. Through its second quarter
+# the north, from the top down to and through the equator, is a step colder; through its fourth the
 # south, from the bottom up to and through the equator, is. Every Bitzkey has a home temperature,
 # and may tolerate heat or cold, feeling a step less of it; plants tolerate nothing, and a plant
 # spawned at the start is at home in its zone's usual temperature.
@@ -148,9 +148,9 @@ DEFAULT_YEAR_LENGTH = 360
 YEAR_LENGTH = DEFAULT_YEAR_LENGTH  # each world sets it from its year length setting
 ARCTIC_SHARE = 0.2
 EQUATOR_SHARE = 0.2
-CLIMATE_HUNGER = 2.0   # an animal a step or more from home needs this many times the food
-CLIMATE_DAMAGE = 0.1   # two steps or more from home, a Bitzkey loses this share of its full health a turn
-PLANT_CLIMATE_YIELD = 0.5  # a plant out of its temperature gives this share of its food
+CLIMATE_HUNGER = 2.0   # an animal a step or more from home, or a plant too hot, needs this many times the food
+CLIMATE_DAMAGE = 0.1   # for each step from home, a Bitzkey loses this share of its full health a turn; plants from two
+PLANT_CLIMATE_YIELD = 0.0  # a plant out of its temperature gives this share of its food
 GRASS_DIEBACK = 20     # where it isn't medium, a cell's grass loses a tuft every this many turns
 # A dead animal is a fresh kill, not yet carrion, through the turn it died and FRESH_KILL_TURNS more;
 # then it starts to rot. A predator or omnivore may eat a fresh kill of what it lives on whole,
@@ -160,7 +160,7 @@ FRESH_KILL_MEALS = 3.0
 SEED_VIABILITY = 0.75  # years a seed that falls where it can't grow stays able to germinate
 STARTING_TOLERANCE = 0.1  # the chance a random starting genome carries each tolerance flag
 HOT, MEDIUM, COLD, VERY_COLD = range(len(TEMPERATURES))
-SEASONS = ("northern winter", "mild", "southern winter", "mild")  # by quarter of the year
+SEASONS = ("mild", "northern winter", "mild", "southern winter")  # by quarter of the year
 SEED_BYTES = 120  # a waiting seed's entry, for the history's memory budget
 
 # How experiences reshape temperament, in shares of a trait's full range before scaling by
@@ -219,7 +219,7 @@ def temperature_at(y: int, height: int, turn: int) -> int:
     place = (y + 0.5) / height
     equator = abs(place - 0.5) < EQUATOR_SHARE / 2
     quarter = season(turn)
-    winter = (quarter == 0 and (place < 0.5 or equator)) or (quarter == 2 and (place > 0.5 or equator))
+    winter = (quarter == 1 and (place < 0.5 or equator)) or (quarter == 3 and (place > 0.5 or equator))
     return zone_temperature(y, height) + winter
 
 
@@ -704,15 +704,16 @@ class Simulation:
             plant = agent.species == "plant"
             here = self._climate[agent.y]
             steps = agent.climate_steps(here)
-            agent.hunger += agent.burn * (CLIMATE_HUNGER if steps and not plant else 1)
+            hungrier = steps and (not plant or here < agent.climate[0])  # out of its temperature; a plant, too hot
+            agent.hunger += agent.burn * (CLIMATE_HUNGER if hungrier else 1)
             if agent.cooldown:
                 agent.cooldown -= 1
             if agent.health < agent.max_health and agent.hunger < 65:
                 agent.heal(0.005)
-            if steps >= 2:
-                agent.health -= CLIMATE_DAMAGE * agent.max_health
-            if agent.hunger >= 100:  # out of its temperature, it died of exposure
-                self._die(agent, self._exposure(agent, here) if steps and not plant else "starved")
+            if steps >= (2 if plant else 1):  # a tenth of its health a step; a plant takes one step in its stride
+                agent.health -= CLIMATE_DAMAGE * steps * agent.max_health
+            if agent.hunger >= 100:  # hungrier out of its temperature, it died of exposure
+                self._die(agent, self._exposure(agent, here) if hungrier else "starved")
                 continue
             if agent.health <= 0:
                 self._die(agent, self._exposure(agent, here))

@@ -412,7 +412,7 @@ class BitzkeyApp:
         label = self.font.render(f"YEAR {year(turn)}", True, (232, 236, 219))
         self.screen.blit(label, (x + width - label.get_width(), UI(84)))
         label = self.small.render(SEASONS[season(turn)].upper(), True,
-                                  (140, 185, 230) if season(turn) % 2 == 0 else (157, 177, 159))
+                                  (140, 185, 230) if season(turn) % 2 else (157, 177, 159))
         self.screen.blit(label, (x + width - label.get_width(), UI(108)))
         pg.draw.line(self.screen, (54, 68, 62), (x, UI(138)), (x + width, UI(138)), 1)
         self._text("POPULATION", (x, UI(153)), (220, 229, 211), self.font)

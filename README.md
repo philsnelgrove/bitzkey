@@ -259,24 +259,25 @@ bands between are temperate, medium. The world is light grey, each row tinted
 by its temperature now: reddish brown where hot, green where medium, white where
 cold and light blue where very cold.
 
-A year is 360 turns by default (the year length setting), in four quarters. Through the first quarter (the northern
-winter) everything from the top of the map down to and through the equator is
-a step colder: the arctic very cold, the temperate zone cold, the equator
-medium. The second quarter is back to normal. Through the third quarter (the
-southern winter) the same happens from the bottom up to and through the
-equator, and the fourth is normal again. The sidebar shows the year and season.
+A year is 360 turns by default (the year length setting), in four quarters,
+starting mild. Through the second quarter (the northern winter) everything from
+the top of the map down to and through the equator is a step colder: the arctic
+very cold, the temperate zone cold, the equator medium. The third quarter is
+mild again. Through the fourth quarter (the southern winter) the same happens
+from the bottom up to and through the equator. The sidebar shows the year and season.
 
-Every Bitzkey has a home temperature. An animal one step from home needs twice
-the food; two steps or more, it also loses 10% of its full health a turn, and
-may freeze or overheat to death. An animal that starves while out of its
+Every Bitzkey has a home temperature. An animal away from home needs twice the
+food, and loses 10% of its full health a turn for each step it is from home:
+10% one step away, 20% two and 30% three. It may freeze or overheat to death. An animal that starves while out of its
 temperature has died of exposure too: it froze or overheated. Heat tolerance
 spares it a step of heat, and cold tolerance a step of cold: a cold-tolerant
 animal two steps too cold feels one step, and three steps feels two. Tolerance
 is rare at the start: each random starting genome carries each flag only one
 time in ten, so hardiness has to spread by breeding. Plants ignore the tolerance
 flags. Anywhere not at their own temperature a plant neither regrows nor seeds,
-and gives grazing animals half its food; two steps or more from home, it also
-loses 10% of its health a turn. The plants spawned at the start are at home in
+and gives grazing animals no food; too hot, it needs twice the food itself. One
+step from home doesn't hurt a plant, but two steps cost it 20% of its health a
+turn and three 30%. The plants spawned at the start are at home in
 their zone's usual temperature (an imported plant keeps its own). A seed that falls where it is the wrong
 temperature waits there, and sprouts when its cell reaches its temperature and
 has room, for up to three quarters of a year; after that it dies. Grass grows

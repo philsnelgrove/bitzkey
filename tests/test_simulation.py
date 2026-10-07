@@ -6,7 +6,7 @@ from unittest.mock import patch
 from tools.Brain import ACTIONS, SENSES, Brain
 from tools.Exchange import Imported
 from tools.Genome import encode_dna
-from tools.Simulation import CORPSE_TURNS, GRASS_DIEBACK, MEDIUM, Simulation, litter_size, nearby_offsets
+from tools.Simulation import CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, Simulation, litter_size, nearby_offsets
 
 
 def lay_plenty_of_grass(simulation: Simulation) -> None:
@@ -474,7 +474,8 @@ class SimulationTests(unittest.TestCase):
                 self.assertEqual(state(), recorded[target], f"turn {target}")
 
     def test_old_turns_are_kept_as_evenly_spaced_checkpoints(self):
-        with patch("tools.Simulation.DENSE_HISTORY", 10), patch("tools.Simulation.CHECKPOINTS", 4):
+        with patch("tools.Simulation.DENSE_HISTORY", 10), patch("tools.Simulation.CHECKPOINTS", 4), \
+                patch("tools.Simulation.CLIMATE_DAMAGE", 0):  # a world that lasts
             simulation = Simulation(width=20, height=20, population=10, seed=4)
             for _ in range(60):
                 simulation.advance()
@@ -519,7 +520,8 @@ class SimulationTests(unittest.TestCase):
         self.assertEqual(seeded, [3, 2, 1, 0])  # a chance of 10%, then two thirds, a third and none
 
     def test_rewinding_reaches_turn_zero_however_long_the_run(self):
-        with patch("tools.Simulation.DENSE_HISTORY", 5), patch("tools.Simulation.CHECKPOINTS", 2):
+        with patch("tools.Simulation.DENSE_HISTORY", 5), patch("tools.Simulation.CHECKPOINTS", 2), \
+                patch("tools.Simulation.CLIMATE_DAMAGE", 0):  # a world that lasts
             simulation = Simulation(width=20, height=20, population=10, seed=4)
             for _ in range(30):
                 simulation.advance()
@@ -775,14 +777,14 @@ class NewTraitTests(unittest.TestCase):
 
     def test_grass_grows_twice_as_fast_on_and_around_corpses(self):
         rows = self.simulation._medium_rows  # grass grows only where it is medium
-        self.assertTrue({6, 7, 8} <= set(rows))
-        corpse = self.simulation._add_agent(encode_dna("grazer"), 0, 7)
+        self.assertTrue({7, 8, 9} <= set(rows))
+        corpse = self.simulation._add_agent(encode_dna("grazer"), 0, 8)
         corpse.health = 0
         self.simulation._die(corpse, "wounded")
         self.simulation.grass.clear()
         self.simulation._sow(20000)
         self.assertTrue(all(y in rows for _, y in self.simulation.grass))
-        around = [((dx % 12), 7 + dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1)]  # wrapping round the edge
+        around = [((dx % 12), 8 + dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1)]  # wrapping round the edge
         fertile = sum(self.simulation.grass.get(cell, 0) for cell in around) / len(around)
         elsewhere = (sum(self.simulation.grass.values()) - fertile * len(around)) / (12 * len(rows) - len(around))
         self.assertAlmostEqual(fertile / elsewhere, 2, delta=0.35)
@@ -1045,7 +1047,7 @@ class NewTraitTests(unittest.TestCase):
         grazer = simulation._add_agent(encode_dna("grazer"), 15, 15)
         omnivore = simulation._add_agent(encode_dna("omnivore"), 14, 15)
         predator = simulation._add_agent(encode_dna("predator"), 17, 15)
-        simulation._add_agent(encode_dna("plant"), 15, 17)
+        simulation._add_agent(encode_dna("plant", temperature=HOT), 15, 17)  # at home on the equator
         simulation._add_agent(encode_dna("grazer"), 15, 18)
         simulation._index_cells()
         simulation.grass_regrowth = 0  # judge the standing grass alone first
@@ -1389,7 +1391,7 @@ class NewTraitTests(unittest.TestCase):
     def test_grass_dies_back_a_tuft_at_a_time_where_it_isnt_medium(self):
         simulation = Simulation(width=20, height=20, population=0, seed=1)
         simulation.grass = {(x, y): 3 for x in range(20) for y in (1, 5)}  # arctic, then temperate
-        simulation.turn = 120  # mid-year: the arctic cold, the temperate zone medium
+        simulation.turn = 200  # mid-year, mild: the arctic cold, the temperate zone medium
         simulation._update_climate()
         for _ in range(GRASS_DIEBACK):
             simulation.turn += 1
@@ -1435,7 +1437,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertAlmostEqual(corpse.meat, 80 - 50)
 
     def test_grazers_and_omnivores_browse_plants_for_far_more_than_grass(self):
-        plant = self.simulation._add_agent(encode_dna("plant", size=7), 5, 5)
+        plant = self.simulation._add_agent(encode_dna("plant", size=7, temperature=HOT), 5, 5)  # at home on the equator
         grazer = self.simulation._add_agent(encode_dna("grazer", size=7, sight=7), 5, 9)
         predator = self.simulation._add_agent(encode_dna("predator", sight=7), 9, 5)
         grazer.hunger = 90
@@ -1479,11 +1481,11 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual((plant.last_action, plant.meat), ("eaten", 0.0))
 
     def test_well_fed_plants_seed_their_own_kind_nearby(self):
-        plant = self.simulation._add_agent(encode_dna("plant", fertility=7, size=3), 5, 5)
+        plant = self.simulation._add_agent(encode_dna("plant", fertility=7, size=3, temperature=HOT), 5, 5)
         self.simulation._index_cells()
 
         with patch.object(self.simulation.random, "random", return_value=0.0):
-            self.simulation._seed(plant)
+            self.simulation._seed(plant)  # onto the equator, where it is at home
 
         seedling = self.simulation.agents[-1]
         self.assertIsNot(seedling, plant)

@@ -487,7 +487,7 @@ class ColourGraph:
         left_of = lambda turn: round(chart.left + (turn - first) * span)  # noqa: E731
         quarter = first * 4 // length
         while quarter * length // 4 <= last:
-            if quarter % 4 in (0, 2):
+            if quarter % 4 in (1, 3):
                 start = max(first, -(-quarter * length // 4))
                 end = min(last + 1, -(-(quarter + 1) * length // 4))
                 if end > start:
