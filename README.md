@@ -40,6 +40,8 @@ A configuration panel opens first. Set:
 - the body mutation chance (0 to 100, default 50): the percent chance that a
   birth flips one bit of the child's ring. At 100 every child carries one body
   mutation.
+- the year length (20 to 3,600 turns, default 360): a year has four seasons
+  (see Seasons and Climate), and lifespans are counted in years.
 
 Click a row or use Up/Down to choose a setting. Adjust it with its - and +
 buttons or Left/Right (hold Shift for steps of ten), or type a number. Press
@@ -77,12 +79,12 @@ Each imported genome spawns as a group of 3 to
 120 genomes are used, keeping their groups within the 600 population cap. Set
 "Bitzkeys" to 0 to start with only your imports.
 
-ADVANCED opens the advanced rules: 121 numbers that shape how the world plays
+ADVANCED opens the advanced rules: 123 numbers that shape how the world plays
 out, in groups (World, Bodies, Breeding, Feelings, Mind, Fighting, Territory,
 Herding, Food, Plants, Climate and Experiences). Among them are lifespans, metabolism, litter
 sizes, food-aware breeding, the rewards and pains a brain learns from, blows and
-thorns, territory and herd instincts, meals, plant seeding, the year and the
-climate zones, and how each experience reshapes temperament. Each rule has a short note, limits and a step. Choose and adjust
+thorns, territory and herd instincts, meals, fresh kills, plant seeding, the climate
+zones, and how each experience reshapes temperament. Each rule has a short note, limits and a step. Choose and adjust
 them as in the configuration panel; PgUp/PgDn jump ten rules, and the wheel scrolls.
 Fractional rules take a typed decimal point, and the experience shifts take a minus
 sign. Changed values show in amber. RESET puts the focused rule back to its default
@@ -183,7 +185,7 @@ gene values and are then reshaped by experience:
 | fear | dread when hunters are adjacent | wounds, stings and ambushes raise it; kills lower it |
 | appetite | how much hunger hurts | near-starvation raises it |
 | patience | how much it values the future (its learning discount) | meals earned by foraging raise it; starving lowers it |
-| intellect | how fast its brain learns, and how much experience can reshape the mind | fixed |
+| intellect | how deep its brain is (twice its intellect in hidden layers, at least two), how fast it learns, and how much experience can reshape the mind | fixed |
 | empathy | pain at seeing an animal wounded or killed nearby; more for its own kind, double for a death. An empathetic hunter feels some of its victim's pain and enjoys fighting less. | fixed |
 | tolerance | ease among other species: they count as company, hunters are less frightening, and attacking gives less pleasure. The intolerant are uneasy whenever other species are near. The tolerant also accept mates that look less like themselves. | fixed |
 
@@ -257,7 +259,7 @@ bands between are temperate, medium. The world is light grey, each row tinted
 by its temperature now: reddish brown where hot, green where medium, white where
 cold and light blue where very cold.
 
-A year is 180 turns, in four quarters. Through the first quarter (the northern
+A year is 360 turns by default (the year length setting), in four quarters. Through the first quarter (the northern
 winter) everything from the top of the map down to and through the equator is
 a step colder: the arctic very cold, the temperate zone cold, the equator
 medium. The second quarter is back to normal. Through the third quarter (the
@@ -275,16 +277,18 @@ their zone's usual temperature (an imported plant keeps its own). A seed that fa
 temperature waits there, and sprouts when its cell reaches its temperature and
 has room, for up to three quarters of a year; after that it dies. Grass grows
 only where it is medium right now, so in a winter it grows on the equator and
-stops in that hemisphere's temperate zone. Grass already standing stays.
+stops in that hemisphere's temperate zone. Where it isn't medium, standing grass
+dies back gradually: each cell loses a tuft every 20 turns, the cells taking
+their turns in step.
 
 Animals sense the temperature: how far it is from home, as they feel it, and how
 close the nearest row in sight is where they would feel at home. There is no
 action for seeking it out; any migration emerges from what their brains learn to
 do with those senses.
 
-The year length, the zones' sizes, the food and health penalties, how much food
-a plant gives out of its temperature and how long seeds wait are advanced rules
-(the Climate group).
+The zones' sizes, the food and health penalties, how much food a plant gives out
+of its temperature, how fast grass dies back and how long seeds wait are
+advanced rules (the Climate group).
 
 ## Behaviour
 
@@ -295,14 +299,23 @@ Grazers and omnivores eat grass, and browse plants; predators can do neither.
 The two have separate niches: grazers are the specialists, getting a quarter
 more than the food in grass and plants (1.25 times), while omnivores get half the
 food in grass and three quarters of the food in plants, and live on meat.
-Any animal may eat carrion.
+Omnivores and predators may eat carrion; grazers never do.
+
+A dead animal isn't carrion straight away. Through the turn it died and the
+next it is a fresh kill: it doesn't rot yet, and an omnivore or predator may eat
+it whole if it is something it lives on (grazers, for an omnivore; grazers and
+omnivores, for a predator). A fresh kill gives three times the meal of making
+the kill, doesn't count as scavenging, so the carrion trait plays no part, and
+leaves nothing: the body is gone at the end of the turn. After that it rots as
+carrion until it fades.
 
 Plants stay in place and photosynthesize. Every animal carries its own small
 neural network, and that brain chooses everything it does. Each turn it senses:
 
 - its hunger and health
 - grass underfoot or in sight, and plants in sight (grazers and omnivores only)
-- how close the nearest carrion in sight is
+- how close the nearest carrion in sight is (omnivores and predators), and the
+  nearest fresh kill it would eat (likewise)
 - a willing mate beside it, and how close the nearest one in sight is
 - prey in sight, how close the nearest is, and how hard it could hit prey beside it
 - hunters in sight, how close the nearest is, and how dangerous one beside it is
@@ -313,9 +326,16 @@ neural network, and that brain chooses everything it does. Each turn it senses:
 - how far the temperature is from home, and how close home weather is (see
   Seasons and Climate)
 - its current temperament
+- which actions are open to it right now, one input each
+- its own genome: each of its dot's traits as born, each of its ring's traits
+  (species among them) and its climate genes
+
+Its brain has hidden layers of twelve neurons, twice as many layers as its
+inborn intellect, and never fewer than two: from two layers for the dullest to
+fourteen for the brightest. Plants have no brain.
 
 It then picks one of the actions open to it: eat, forage, browse, scavenge,
-rest, court, breed, hunt, attack, defend, flee, herd or explore. Foraging walks toward the
+feast, rest, court, breed, hunt, attack, defend, flee, herd or explore. Foraging walks toward the
 nearest grass in sight; a tuft sates 35 hunger. Grazers get 1.25 times the food in grass and plants; omnivores half of grass and three quarters of plants. Browsing walks to the nearest
 plant in sight and, once alongside, takes a bite: 45 hunger, up to 70 from the
 largest plants, far more than grass. Each bite costs the plant 15 health, and
@@ -329,7 +349,8 @@ grow within two cells. There is no limit on the number of plants, but they
 compete for light: each plant growing within three cells cuts a plant's chance
 of seeding by a third, and with three or more around it, it does not seed. Scavenging walks to the
 nearest carrion in sight and, once alongside, eats up to 25 meat; the carrion
-trait decides how much of that feeds it. Courting walks toward the nearest
+trait decides how much of that feeds it. Feasting walks to the nearest fresh
+kill in sight and, once alongside, eats it whole. Courting walks toward the nearest
 willing mate in sight, but breeding is still a separate choice once they are
 side by side. Hunting chases the nearest prey in sight. Omnivores prey on grazers; predators prey on grazers, omnivores and other predators. Predators whose ring colours differ by more than 5% (the mean difference of the ring's four CMYK bytes) are different kinds, and hunt one another freely. Hunting their own kind is cannibalism: a predator only sees its own kind as prey once its hunger, as a share, exceeds its reluctance, the average of its current empathy, tolerance and patience. The ruthless will eat kin at any hunger; the gentlest never will. Killing its own kind pains an empathetic predator as much as its own species' pain, rather than the reduced pain it feels for others. Predators and omnivores are territorial. An animal's territory is the cells within six steps of it. A predator counts other predators and omnivores in its territory as rivals for the feeding ground, and how many it will share it with depends on its current empathy: one for the least empathetic, rising to five for the most. Each predator beyond that raises its rivalry by a third, up to full rivalry three past its limit. A predator senses its rivalry, finds an overcrowded territory uncomfortable (less so if tolerant), and feels relief, as well as any joy in fighting, at killing a rival there. Crowding by other predators, though not by omnivores, also wears down its reluctance to turn on its own kind: in a territory fully overcrowded with predators, even the gentlest will fight kin for the feeding ground. Omnivores are territorial at half the strength. They count other omnivores as rivals, and predators too, each counting less the more empathetic the omnivore is, and not at all at the greatest empathy. They tolerate two rivals for the least empathetic, rising to ten for the most, and their rivalry tops out at a half. An omnivore only turns on another omnivore when its territory is overcrowded with omnivores, and then only once its hunger exceeds its reluctance as rivalry wears it down, never by more than half. A hunter that reaches
 its prey pounces, striking in the same turn, and attacking strikes prey
@@ -342,10 +363,19 @@ sense, but not fled. Among herd-mates the range shrinks, as the herd keeps watch
 together: to half at full herd instinct with three herd-mates close by. Resting halves the hunger a
 Bitzkey gains that turn and heals 1.5% of its health pool, three times the usual
 rate. Both rates are scaled by metabolism, so small animals heal faster. Better-valued actions are more likely, but no choice is certain. Mind
-traits set what it enjoys and dreads; the brain learns online which actions lead
-there. Death is heavily punished. A child inherits each brain neuron whole from
-one parent or the other, with small mutations, and its parents' learned shifts
-in temperament, so learned habits and moods pass down the generations.
+traits set what it enjoys and dreads. The brain learns online from what each
+choice brought about: whatever raised its health (fullness counting with it) or
+its mood was a success, and whatever lowered them a failure, weighed by how much.
+Both can happen at once, and the bigger counts for more. Its mood is the joys and
+pains it feels, from breeding, fighting, company, its herd, fear, unease, rivals
+and the pain of others; what counts is how much better or worse it feels, not
+how good it feels. Death is heavily punished. A child's brain is as deep as its
+own inborn intellect makes it. Where both parents have a layer, the child takes
+each of its neurons whole from one parent or the other; where only one parent has
+it, from that one; deeper still, its layers start out passing their input on.
+Each action's output comes from one parent or the other, all with small
+mutations. A child also inherits its parents' learned shifts in temperament, so
+learned habits and moods pass down the generations.
 
 Each parent pays 10 to 25% of its stomach to breed, less the more fertile it is. Animals
 only breed, or court, when both partners can afford it and still have at least
@@ -375,8 +405,10 @@ against plants, for an omnivore; grazers against omnivores, for a predator), or
 while none of that food is near. A prey that has become scarce is left alone,
 and doesn't flee a hunter that isn't interested in it, so it can recover.
 Territorial fights, between omnivores or between predators, go on regardless. Reaching 100% hunger or zero health is fatal, and so, in
-time, is age. Plants live about 4,000 turns, and animals from about 250 (the
-smallest, fastest metabolism) to 900 (the largest, slowest). From 70% of its lifespan, a Bitzkey's chance of
+time, is age. Plants and animals alike live about a year at the smallest body
+and fastest metabolism, five years at a middling one and ten at the largest and
+slowest, their lifespan rising steadily between, so it scales with the year
+length. From 70% of its lifespan, a Bitzkey's chance of
 dying of old age grows each turn: about half reach their lifespan, and almost
 none live past 1.3 times it. Dying of old age is not held against the brain's
 last choice. A blow costs the striker food, and one that leaves it starved kills
@@ -479,12 +511,12 @@ they pick up in the next simulation where they left off:
 {"version": 2, "ring": "7421FF41", "dot": "637E4B01",
  "mind": {"aggression": 9.412, "libido": 3.0, ...},
  "brain": {"senses": ["hunger", ...], "actions": ["eat", ...],
-           "hidden_weights": [[...], ...], "hidden_biases": [...],
+           "layers": [{"weights": [[...], ...], "biases": [...]}, ...],
            "output_weights": [[...], ...], "output_biases": [...]}}
 ```
 
 Plants have no brain or changing temperament, so they export only their colours. Several Bitzkeys form a
-JSON array, one per line; an animal with its brain takes about 5 KB.
+JSON array, one per line; an animal with its brain takes about 13 to 31 KB, by how deep its brain is.
 
 Import accepts single objects, arrays, several blocks pasted one after another,
 and `#`-prefixed or lowercase hex. A record without a `"version"` is read as
@@ -492,7 +524,10 @@ genome version 1 and converted, so hand-written records for this version need
 `"version": 2`. A record without a brain gets a fresh one.
 Brain weights are matched to senses and actions by name, so exports from an
 earlier version still load: senses or actions they lack start neutral, and ones
-this version no longer has are dropped. Every member of an imported group starts
+this version no longer has are dropped. A brain saved with one hidden layer, from
+before brains grew deeper, loads too. A saved brain is fitted to the depth its
+Bitzkey's intellect calls for: deepened with layers that pass their input on, or
+cut short. Every member of an imported group starts
 with its own copy of the saved brain and the saved temperament, and their
 children inherit both as usual. Temperament is read for the known traits only,
 kept within 0 to 7; a trait it lacks starts at the gene's value. As in life, a

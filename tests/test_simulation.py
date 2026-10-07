@@ -6,7 +6,7 @@ from unittest.mock import patch
 from tools.Brain import ACTIONS, SENSES, Brain
 from tools.Exchange import Imported
 from tools.Genome import encode_dna
-from tools.Simulation import CORPSE_TURNS, MEDIUM, Simulation, litter_size, nearby_offsets
+from tools.Simulation import CORPSE_TURNS, GRASS_DIEBACK, MEDIUM, Simulation, litter_size, nearby_offsets
 
 
 def lay_plenty_of_grass(simulation: Simulation) -> None:
@@ -26,8 +26,9 @@ class SimulationTests(unittest.TestCase):
         self.assertEqual(sum(sparse.grass.values()), 20)
         self.assertEqual(sum(lush.grass.values()), 200)
         self.assertAlmostEqual(lush.grass_regrowth, 10 * sparse.grass_regrowth)
-        for _ in range(100):
-            lush._take_turn()
+        with patch("tools.Simulation.GRASS_DIEBACK", 10 ** 9):  # no grass dies back
+            for _ in range(100):
+                lush._take_turn()
         self.assertAlmostEqual(sum(lush.grass.values()), 200 + 100 * lush.grass_regrowth, delta=8)
 
     def test_random_population_spawns_in_clustered_groups_of_three_to_five(self):
@@ -322,10 +323,53 @@ class SimulationTests(unittest.TestCase):
         self.simulation._breed(first, second, [(5, 4)])
 
         child = self.simulation.agents[-1]
-        for index, weights in enumerate(child.brain.hidden_weights):
-            nearest = min(max(abs(a - b) for a, b in zip(weights, parent.brain.hidden_weights[index]))
+        for index, weights in enumerate(child.brain.layers[0][0]):
+            nearest = min(max(abs(a - b) for a, b in zip(weights, parent.brain.layers[0][0][index]))
                           for parent in (first, second))
             self.assertLess(nearest, 0.3)  # one parent's neuron, plus small mutations
+
+    def test_a_brain_is_twice_as_deep_as_the_inborn_intellect_and_plants_have_none(self):
+        for intellect, depth in ((0, 2), (1, 2), (3, 6), (7, 14)):
+            animal = self.simulation._add_agent(encode_dna("grazer", intellect=intellect), 1, 1)
+            self.assertEqual(animal.brain.depth, depth)
+        self.assertIsNone(self.simulation._add_agent(encode_dna("plant", intellect=7), 2, 2).brain)
+        imported = self.simulation._add_agent(encode_dna("omnivore", intellect=4), 3, 3, brain=Brain.random(random.Random(1)))
+        self.assertEqual(imported.brain.depth, 8)  # a saved brain is resized to fit
+
+    def test_a_child_brain_is_as_deep_as_its_own_inborn_intellect(self):
+        first = self.simulation._add_agent(encode_dna("grazer", fertility=7, intellect=1), 5, 5)
+        second = self.simulation._add_agent(encode_dna("grazer", fertility=7, intellect=6), 5, 6)
+        self.simulation._index_cells()
+        for _ in range(5):
+            first.cooldown = second.cooldown = 0
+            first.hunger = second.hunger = 0
+            self.simulation._breed(first, second, [(5, 4)])
+            child = self.simulation.agents[-1]
+            self.assertEqual(child.brain.depth, max(2, 2 * child.inborn["intellect"]))
+
+    def test_the_brain_senses_which_actions_are_open_and_its_own_genes(self):
+        grazer = self.simulation._add_agent(encode_dna("grazer", size=7, intellect=3), 5, 5)
+        self.simulation.grass[(5, 5)] = 1
+        self.simulation._index_cells()
+        senses, options, _ = self.simulation._sense(grazer)
+        for index, action in enumerate(ACTIONS):
+            self.assertEqual(senses[SENSES.index(f"open_{action}")], float(index in options))
+        self.assertEqual(senses[SENSES.index("open_eat")], 1.0)
+        self.assertEqual((senses[SENSES.index("size")], senses[SENSES.index("inborn_intellect")]), (1.0, 3 / 7))
+
+    def test_a_brain_learns_from_changes_in_its_comfort_not_how_comfortable_it_is(self):
+        grazer = self.simulation._add_agent(encode_dna("grazer"), 5, 5)
+        self.simulation._index_cells()
+        with patch.object(Simulation, "_comfort", return_value=0.4), \
+                patch.object(Simulation, "_act"), patch.object(Simulation, "_learn") as learn:
+            self.simulation._think(grazer)  # its first decision: nothing to learn from yet
+            self.assertEqual(grazer.last_comfort, 0.4)
+            grazer.last_wellbeing = self.simulation._wellbeing(grazer)
+            self.simulation._think(grazer)  # just as comfortable: no success or failure in that
+        target = learn.call_args.args[1]
+        values = grazer.brain.values(self.simulation._sense(grazer)[0])
+        best = max(values[option] for option in self.simulation._sense(grazer)[1])
+        self.assertAlmostEqual(target, (0.7 + 0.27 * grazer.feeling("patience")) * best)
 
     def test_child_inherits_what_experience_taught_its_parents(self):
         dna = encode_dna("grazer", fertility=7, fear=2, curiosity=5, libido=6)
@@ -1167,14 +1211,18 @@ class NewTraitTests(unittest.TestCase):
 
         self.assertEqual([(agent.x, agent.y) for agent in self.simulation.agents[8:]], [(5, 4)])
 
-    def test_plants_outlive_large_animals_which_outlive_small_ones(self):
-        plant = self.simulation._add_agent(encode_dna("plant", size=0), 1, 1)
+    def test_large_bodies_outlive_small_ones_plant_or_animal(self):
         large = self.simulation._add_agent(encode_dna("grazer", size=7), 2, 2)
         small = self.simulation._add_agent(encode_dna("predator", size=0), 3, 3)
+        plants = [self.simulation._add_agent(encode_dna("plant", size=size), 1, 1) for size in (0, 7)]
 
-        self.assertGreater(plant.lifespan, large.lifespan)
+        self.assertEqual([plant.lifespan for plant in plants], [small.lifespan, large.lifespan])
         self.assertGreater(large.lifespan, small.lifespan)
-        self.assertEqual((large.lifespan, small.lifespan), (900, 250))
+        self.assertEqual((large.lifespan, small.lifespan), (3600, 360))  # ten years and one
+        # five years halfway between the smallest and largest bodies, rising steadily either side
+        below, above = (self.simulation._add_agent(encode_dna("grazer", size=size), 2, 2) for size in (3, 4))
+        self.assertAlmostEqual(below.lifespan, (1 + 4 * 6 / 7) * 360)
+        self.assertAlmostEqual(above.lifespan, (5 + 5 * 1 / 7) * 360)
 
     def test_small_bodies_run_fast_and_short_lives_large_ones_slow_and_long(self):
         small = self.simulation._add_agent(encode_dna("grazer", size=0), 1, 1)
@@ -1250,7 +1298,7 @@ class NewTraitTests(unittest.TestCase):
             self.assertFalse(self.simulation._dies_of_age(animal))
             animal.age += 1
             self.assertTrue(self.simulation._dies_of_age(animal))
-        with patch.object(self.simulation.random, "random", return_value=0.04):  # the chance each turn rises with age
+        with patch.object(self.simulation.random, "random", return_value=0.02):  # the chance each turn rises with age
             animal.age = int(animal.lifespan)
             self.assertFalse(self.simulation._dies_of_age(animal))
             animal.age = int(1.6 * animal.lifespan)
@@ -1281,6 +1329,74 @@ class NewTraitTests(unittest.TestCase):
         self.simulation._take_turn()  # and it stays dead
         self.assertEqual(animal.last_action, "old age")
 
+    def test_grazers_dont_scavenge(self):
+        corpse = self.simulation._add_agent(encode_dna("grazer", size=7), 5, 5)
+        corpse.health = 0
+        self.simulation._die(corpse, "wounded")
+        corpse.died_turn = -2
+        grazer = self.simulation._add_agent(encode_dna("grazer", carrion=7, sight=4), 5, 6)
+        self.simulation._index_cells()
+        senses, options, _ = self.simulation._sense(grazer)
+        self.assertNotIn(ACTIONS.index("scavenge"), options)
+        self.assertEqual(senses[SENSES.index("carrion_closeness")], 0.0)
+
+    def test_a_body_is_a_fresh_kill_through_its_death_turn_and_the_next_then_carrion(self):
+        corpse = self.simulation._add_agent(encode_dna("grazer", size=7), 5, 5)
+        corpse.health = 0
+        corpse.hunger = 50
+        self.simulation._die(corpse, "wounded")
+        predator = self.simulation._add_agent(encode_dna("predator", sight=4), 5, 8)
+        self.simulation._index_cells()
+        self.assertEqual((self.simulation._nearest_kill(predator, 7), self.simulation._nearest_carrion(predator, 7)),
+                         (corpse, None))
+        self.simulation.turn = 1
+        self.simulation._index_cells()
+        self.assertIs(self.simulation._nearest_kill(predator, 7), corpse)
+        self.simulation.turn = 2
+        self.simulation._index_cells()
+        self.assertEqual((self.simulation._nearest_kill(predator, 7), self.simulation._nearest_carrion(predator, 7)),
+                         (None, corpse))
+
+    def test_a_hunter_eats_a_fresh_kill_whole_for_three_times_the_kill_meal(self):
+        corpse = self.simulation._add_agent(encode_dna("grazer", size=0), 5, 5)
+        corpse.health = 0
+        self.simulation._die(corpse, "killed")
+        predator = self.simulation._add_agent(encode_dna("predator", size=7, sight=4), 5, 8)
+        predator.hunger = 90
+        self.simulation._index_cells()
+        senses, options, situation = self.simulation._sense(predator)
+        self.assertIn(ACTIONS.index("feast"), options)
+        self.assertGreater(senses[SENSES.index("kill_closeness")], 0)
+        while predator.last_action != "feasted":
+            self.simulation._act(predator, "feast", situation)
+        self.assertAlmostEqual(predator.hunger, 90 - 3 * 25 / predator.stomach)  # the kill meal of the smallest prey
+        self.assertEqual((corpse.meat, self.simulation._nearest_kill(predator, 7)), (0.0, None))
+        self.simulation._take_turn()
+        self.assertNotIn(corpse, self.simulation.agents)  # the body is gone
+
+    def test_only_hunters_feast_and_only_on_what_they_live_on(self):
+        for species, eaten in (("grazer", "grazer"), ("omnivore", "predator"), ("predator", "plant")):
+            simulation = Simulation(width=12, height=12, population=0, seed=3)
+            corpse = simulation._add_agent(encode_dna(eaten), 5, 5)
+            corpse.health = 0
+            simulation._die(corpse, "killed")
+            eater = simulation._add_agent(encode_dna(species, sight=4), 5, 6)
+            simulation._index_cells()
+            senses, options, _ = simulation._sense(eater)
+            self.assertNotIn(ACTIONS.index("feast"), options, f"{species} eating a {eaten}")
+            self.assertEqual(senses[SENSES.index("kill_closeness")], 0.0)
+
+    def test_grass_dies_back_a_tuft_at_a_time_where_it_isnt_medium(self):
+        simulation = Simulation(width=20, height=20, population=0, seed=1)
+        simulation.grass = {(x, y): 3 for x in range(20) for y in (1, 5)}  # arctic, then temperate
+        simulation.turn = 120  # mid-year: the arctic cold, the temperate zone medium
+        simulation._update_climate()
+        for _ in range(GRASS_DIEBACK):
+            simulation.turn += 1
+            simulation._wither_grass()
+        self.assertEqual(sum(simulation.grass.get((x, 1), 0) for x in range(20)), 20 * 2)  # a tuft each
+        self.assertEqual(sum(simulation.grass.get((x, 5), 0) for x in range(20)), 20 * 3)
+
     def test_corpses_hold_the_energy_their_body_had_left_and_rot(self):
         small = self.simulation._add_agent(encode_dna("grazer", size=0), 2, 2)
         large = self.simulation._add_agent(encode_dna("grazer", size=7), 8, 8)
@@ -1293,14 +1409,15 @@ class NewTraitTests(unittest.TestCase):
         self.simulation._die(starved, "starved")
 
         self.assertEqual((small.meat, large.meat, starved.meat), (15.0, 40.0, 0.0))  # a kill leaves half
-        self.simulation._take_turn()
-        self.assertAlmostEqual(large.meat, 40.0 - 40.0 / 30)
+        self.simulation._take_turn()  # fresh through this turn, it starts to rot at its end
+        self.assertAlmostEqual(large.meat, 40.0 - 40.0 / 29)
 
     def test_scavengers_eat_carrion_and_their_gut_decides_how_much_it_feeds_them(self):
         corpse = self.simulation._add_agent(encode_dna("grazer", size=7), 5, 5)
         corpse.health = 0
         self.simulation._die(corpse, "wounded")
-        picky = self.simulation._add_agent(encode_dna("grazer", carrion=0, sight=4), 5, 9)
+        corpse.died_turn = -2  # no longer a fresh kill
+        picky = self.simulation._add_agent(encode_dna("omnivore", carrion=0, sight=4), 5, 9)
         scavenger = self.simulation._add_agent(encode_dna("predator", carrion=7, sight=4), 5, 1)
         for animal in (picky, scavenger):
             animal.hunger = 60

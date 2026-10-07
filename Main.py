@@ -33,7 +33,8 @@ INSIGHTS_TOP = 290  # the insights panel's top, in design pixels: just below the
 class BitzkeyApp:
     def __init__(self, width: int, height: int, population: int, grass_density: int, seed: int | None,
                  population_cap: int | None = None, mind_mutation: int = Config.MIND_MUTATION,
-                 body_mutation: int = Config.BODY_MUTATION, imported: Sequence[Imported] = ()):
+                 body_mutation: int = Config.BODY_MUTATION, year_length: int = Config.YEAR_LENGTH,
+                 imported: Sequence[Imported] = ()):
         self.screen = Window.open_window()
         self.width = width
         self.height = height
@@ -42,6 +43,7 @@ class BitzkeyApp:
         self.population_cap = population_cap
         self.mind_mutation = mind_mutation
         self.body_mutation = body_mutation
+        self.year_length = year_length
         self.seed = seed
         self.imported = list(imported)
         self.simulation = self._new_world()
@@ -637,7 +639,7 @@ class BitzkeyApp:
 
     def _new_world(self) -> Simulation:
         return Simulation(self.width, self.height, self.population, self.seed, self.grass_density, self.imported,
-                          self.population_cap, self.mind_mutation, self.body_mutation)
+                          self.population_cap, self.mind_mutation, self.body_mutation, self.year_length)
 
     def _say(self, message: str) -> None:
         self.message = message
@@ -741,6 +743,8 @@ def parse_args() -> argparse.Namespace:
                         help="percent chance a birth mutates the child's mind, 0 to 100 (default: 50)")
     parser.add_argument("--body-mutation", type=int, default=Config.BODY_MUTATION,
                         help="percent chance a birth mutates the child's body, 0 to 100 (default: 50)")
+    parser.add_argument("--year-length", type=int, default=Config.YEAR_LENGTH,
+                        help="turns in a year, of four seasons (default: 360)")
     parser.add_argument("--windowed", action="store_true", help="start in a window instead of fullscreen")
     return parser.parse_args()
 

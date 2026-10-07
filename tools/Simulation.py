@@ -9,7 +9,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from functools import cache, cached_property, lru_cache
 
-from tools.Brain import ACTIONS, SENSES, Brain, choice_odds, make_senses
+from tools.Brain import ACTIONS, SENSES, Brain, choice_odds, depth_for, gene_senses, make_senses
 from tools.Genome import (GENOME, MIND_TRAITS, SPECIES, TRAIT_MAX, body_word, color_from_word, cross, dot_difference, inherit_mind, ring_difference,
                           BODY_MUTATION_CHANCE, MIND_MUTATION_CHANCE,
                           TEMPERATURE_SHIFT, TEMPERATURES, decode_body, decode_climate, decode_mind, make_dna, mind_word, share)
@@ -47,8 +47,10 @@ MATE_RING_DIFFERENCE = 0.05
 MATE_DOT_DIFFERENCE = 0.20
 LITTER_RANGE = (1, 6)  # young per birth, while there is room around the parent
 LITTER_SIZE_WEIGHT = 0.5  # how much of litter size comes from small bodies; the rest from the litter trait
-PLANT_LIFESPAN = 4000
-ANIMAL_LIFESPAN = (250, 900)  # expected turns of life at the fastest and slowest metabolisms
+# Years a Bitzkey, plant or animal, is expected to live: the smallest bodies, with the fastest
+# metabolisms; middling ones; and the largest, with the slowest. Between them, lifespan rises steadily
+# with the metabolism slowing.
+LIFESPAN_YEARS = (1.0, 5.0, 10.0)
 METABOLISM = (1.6, 0.6)  # metabolic rate of the smallest and the largest bodies
 STOMACH = (0.5, 2.0)     # food a body holds, relative to the middle, from the smallest to the largest;
                          # hunger is how empty it is, so a meal fills a small stomach more
@@ -142,12 +144,19 @@ TEMPERAMENT_RELAPSE = 0.005  # share of the gap back to the inborn value closed 
 # south, from the bottom up to and through the equator, is. Every Bitzkey has a home temperature,
 # and may tolerate heat (zones hotter than home) or cold (zones colder); plants tolerate nothing, and
 # a plant spawned at the start is at home in its zone's usual temperature.
-YEAR_LENGTH = 180
+DEFAULT_YEAR_LENGTH = 360
+YEAR_LENGTH = DEFAULT_YEAR_LENGTH  # each world sets it from its year length setting
 ARCTIC_SHARE = 0.2
 EQUATOR_SHARE = 0.2
 CLIMATE_HUNGER = 2.0   # an animal a step or more from home needs this many times the food
 CLIMATE_DAMAGE = 0.1   # two steps or more from home, a Bitzkey loses this share of its full health a turn
 PLANT_CLIMATE_YIELD = 0.5  # a plant out of its temperature gives this share of its food
+GRASS_DIEBACK = 20     # where it isn't medium, a cell's grass loses a tuft every this many turns
+# A dead animal is a fresh kill, not yet carrion, through the turn it died and FRESH_KILL_TURNS more;
+# then it starts to rot. A predator or omnivore may eat a fresh kill of what it lives on whole,
+# FRESH_KILL_MEALS times the meal of making the kill, and nothing is left.
+FRESH_KILL_TURNS = 1
+FRESH_KILL_MEALS = 3.0
 SEED_VIABILITY = 0.75  # years a seed that falls where it can't grow stays able to germinate
 HOT, MEDIUM, COLD, VERY_COLD = range(len(TEMPERATURES))
 SEASONS = ("northern winter", "mild", "southern winter", "mild")  # by quarter of the year
@@ -260,6 +269,7 @@ class Bitzkey:
     last_choice: int = 0
     last_wellbeing: float = 0.0
     reward: float = 0.0
+    last_comfort: float = 0.0  # how comfortable it felt at its last decision
     odds: dict[str, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -376,15 +386,23 @@ class Bitzkey:
     def sight(self) -> int:
         return 2 + int(self.body["sight"])
 
+    @cached_property
+    def genes(self) -> dict[str, float]:
+        """Its brain's inputs for its genome: its ring's and dot's traits and its climate genes."""
+        return gene_senses(self.dna)
+
     @property
     def lifespan(self) -> float:
-        """Expected turns of life: plants outlive animals, and among animals a slower metabolism,
-        that is a larger body, lives longer."""
-        if self.species == "plant":
-            return PLANT_LIFESPAN
-        shortest, longest = ANIMAL_LIFESPAN
+        """Expected turns of life, plant or animal: a slower metabolism, that is a larger body,
+        lives longer."""
+        shortest, middle, longest = LIFESPAN_YEARS
         fastest, slowest = METABOLISM
-        return shortest + (longest - shortest) * (fastest - self.metabolism) / (fastest - slowest)
+        slowing = (fastest - self.metabolism) / (fastest - slowest)  # 0 at the fastest metabolism, 1 the slowest
+        if slowing <= 0.5:
+            years = shortest + (middle - shortest) * (2 * slowing)
+        else:
+            years = middle + (longest - middle) * (2 * slowing - 1)
+        return years * YEAR_LENGTH
 
     @property
     def breeding_cost(self) -> float:
@@ -437,12 +455,17 @@ class Simulation:
                  population: int = INITIAL_POPULATION, seed: int | None = None,
                  grass_density: float = GRASS_DENSITY, imported: Sequence[Imported] = (),
                  population_cap: int | None = None, mind_mutation: float = 100 * MIND_MUTATION_CHANCE,
-                 body_mutation: float = 100 * BODY_MUTATION_CHANCE):
+                 body_mutation: float = 100 * BODY_MUTATION_CHANCE, year_length: int = DEFAULT_YEAR_LENGTH):
         """Spawn `population` random Bitzkeys in groups sharing a genome, plus a group for each
         `imported` Bitzkey, whose members all start with copies of its saved brain if it has one.
         `population_cap` limits living animals; None leaves crowding alone to limit them.
         `mind_mutation` and `body_mutation` are the percent chances that a birth mutates the
-        child's mind or body."""
+        child's mind or body. `year_length` is the turns in a year, for the seasons and lifespans;
+        like the advanced rules, it holds for the whole program while the world runs."""
+        global YEAR_LENGTH
+        if year_length < 4:
+            raise ValueError("A year must be at least 4 turns.")
+        YEAR_LENGTH = self.year_length = year_length
         if width < 10 or height < 10:
             raise ValueError("World dimensions must both be at least 10 cells.")
         if population < 0:
@@ -468,6 +491,7 @@ class Simulation:
         self.agents: list[Bitzkey] = []
         self._cells: dict[tuple[int, int], list[Bitzkey]] = {}
         self._carrion: dict[tuple[int, int], list[Bitzkey]] = {}
+        self._kills: dict[tuple[int, int], list[Bitzkey]] = {}  # fresh kills, by cell
         self._population = 0
         self.population_cap = population_cap
         self.mind_mutation = mind_mutation / 100
@@ -544,8 +568,9 @@ class Simulation:
         agent.health = agent.max_health
         if mind:
             agent.mind.update({trait: mind[trait] for trait in MIND_TRAITS if trait in mind})
-        if agent.species != "plant":
-            agent.brain = brain or Brain.random(self.random)
+        if agent.species != "plant":  # plants need no brain
+            depth = depth_for(agent.inborn["intellect"])  # twice its inborn intellect, at least two
+            agent.brain = Brain.random(self.random, depth) if brain is None else brain.resized(depth)
         self.next_identifier += 1
         self.agents.append(agent)
         self.lineage[agent.identifier] = agent.dna
@@ -700,11 +725,12 @@ class Simulation:
             self._think(agent)
 
         self._germinate()
+        self._wither_grass()
         whole, fraction = divmod(self.grass_regrowth, 1)
         self._sow(int(whole) + (1 if fraction and self.random.random() < fraction else 0))
         for agent in self.agents:
-            if agent.died_turn is not None:
-                agent.meat = max(0.0, agent.meat - agent.rot)
+            if agent.died_turn is not None and self.turn - agent.died_turn >= FRESH_KILL_TURNS:
+                agent.meat = max(0.0, agent.meat - agent.rot)  # no longer fresh by next turn: it rots
         self.agents = [agent for agent in self.agents
                        if agent.died_turn is None or self.turn - agent.died_turn < CORPSE_TURNS]
         self.insights.decay()
@@ -737,6 +763,16 @@ class Simulation:
             self.seeds.append((*cell, dna, plant.generation + 1, self.turn))
             return
         self._sprout(dna, cell, plant.generation + 1)
+
+    def _wither_grass(self) -> None:
+        """Grass dies back where it isn't medium: a tuft a cell every GRASS_DIEBACK turns, the cells
+        taking their turns in step."""
+        for (x, y), tufts in list(self.grass.items()):
+            if self._climate[y] != MEDIUM and (x + y * self.width + self.turn) % GRASS_DIEBACK == 0:
+                if tufts > 1:
+                    self.grass[(x, y)] = tufts - 1
+                else:
+                    del self.grass[(x, y)]
 
     def _room_for_seedling(self, cell: tuple[int, int]) -> bool:
         """Whether a seedling can take on a cell: it is free, and plants don't crowd it."""
@@ -807,9 +843,12 @@ class Simulation:
             elif (situation["grass"] or situation["grass_here"]) and not agent.last_senses[GRASS_SEEN]:
                 self._experience(agent, "discovery")
         values = agent.brain.values(senses)
+        comfort = self._comfort(agent, situation)
         if agent.last_senses is not None:
+            # What came of its last choice: whatever raised its health (fullness counting with it) or
+            # its mood was a success, whatever lowered them a failure, by how much; both may happen.
             reward = (agent.reward + self._wellbeing(agent) - agent.last_wellbeing
-                      + self._comfort(agent, situation))
+                      + comfort - agent.last_comfort)
             discount = 0.7 + 0.27 * agent.feeling("patience")
             self._learn(agent, reward + discount * max(values[option] for option in options))
 
@@ -834,6 +873,7 @@ class Simulation:
         agent.last_senses = senses
         agent.last_choice = choice
         agent.last_wellbeing = self._wellbeing(agent)
+        agent.last_comfort = comfort
         agent.reward = 0.0
         agent.assailant = None  # the chance to strike back, or need to flee, passes with this turn's choice
         agent.panicked = False
@@ -858,7 +898,8 @@ class Simulation:
         grazes = agent.species != "predator"
         grass_here = grazes and self.grass.get((agent.x, agent.y), 0) > 0
         grass = self._nearest_grass(agent, sight) if grazes else None
-        carrion = self._nearest_carrion(agent, sight)
+        carrion = self._nearest_carrion(agent, sight) if agent.species != "grazer" else None  # grazers don't scavenge
+        kill = self._nearest_kill(agent, sight) if agent.species in ("omnivore", "predator") else None
         quarry, hunter, suitor, flora = self._look_around(agent, sight)
         assailant = next((other for other in neighbors if other.identifier == agent.assailant), None)
         herd_assailant = next((other for other in neighbors if other.identifier == agent.herd_assailant), None)
@@ -881,6 +922,8 @@ class Simulation:
             available.add("browse")
         if carrion:
             available.add("scavenge")
+        if kill:
+            available.add("feast")
         if suitor:
             available.add("court")
         if (mate and agent.can_breed and nurseries and self._room() > 0
@@ -917,6 +960,7 @@ class Simulation:
             kin_near=min(3, kin) / 3,
             others_near=min(3, others) / 3,
             carrion_closeness=self._closeness(agent, carrion and (carrion.x, carrion.y), sight),
+            kill_closeness=self._closeness(agent, kill and (kill.x, kill.y), sight),
             plant_closeness=self._closeness(agent, flora and (flora.x, flora.y), sight),
             assailant_near=float(assailant is not None),
             rivalry=agent.rivalry,
@@ -930,10 +974,12 @@ class Simulation:
             comfort_closeness=1.0 if not discomfort else self._closeness(agent, comfort, sight),
             age=min(1.0, agent.age / 400),
             **{trait: agent.feeling(trait) for trait in MIND_TRAITS},
+            **{f"open_{action}": 1.0 for action in available},
+            **agent.genes,
         )
         situation = {"mate": mate, "nurseries": nurseries, "prey": target, "threat": threat,
                      "threats": len(threats), "quarry": quarry, "hunter": hunter, "suitor": suitor,
-                     "grass": grass, "grass_here": grass_here, "carrion": carrion, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
+                     "grass": grass, "grass_here": grass_here, "carrion": carrion, "kill": kill, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
                      "others": others, "defend_target": defend_target, "for_herd": assailant is None,
                      "herd": herd, "herd_near": herd_near, "herd_middle": herd_middle}
         return senses, [ACTIONS.index(action) for action in ACTIONS if action in available], situation
@@ -991,8 +1037,9 @@ class Simulation:
         nourished = 0.0 if agent.species == "plant" else max(0.0, 1 - agent.hunger / 100)
         agent.meat = ((CARRION_MEAT + CARRION_MEAT_FOR_SIZE * agent.physique("size")) * nourished
                       * (0.5 if cause == "killed" else 1))
-        agent.rot = agent.meat / CORPSE_TURNS
-        self._carrion.setdefault((agent.x, agent.y), []).append(agent)
+        agent.rot = agent.meat / max(1, CORPSE_TURNS - FRESH_KILL_TURNS)  # it rots once no longer fresh
+        if agent.species != "plant":
+            self._kills.setdefault((agent.x, agent.y), []).append(agent)
         self.deaths += 1
         if agent.species == "plant":
             self._plants -= 1
@@ -1016,6 +1063,8 @@ class Simulation:
             agent.last_action = "foraged"
         elif action == "browse":
             self._browse(agent, situation["flora"])
+        elif action == "feast":
+            self._feast(agent, situation["kill"])
         elif action == "scavenge":
             self._scavenge(agent, situation["carrion"])
         elif action == "rest":
@@ -1081,6 +1130,23 @@ class Simulation:
         corpse.meat -= bite
         agent.nourish(bite * agent.digestion)
         agent.last_action = "scavenged"
+
+    def _feast(self, agent: Bitzkey, corpse: Bitzkey) -> None:
+        """Go to the fresh kill and, once alongside, eat it whole: FRESH_KILL_MEALS times the meal of
+        making the kill. It isn't scavenging, and nothing is left: the body is gone at the turn's end."""
+        self._move_toward(agent, corpse.x, corpse.y)
+        if abs(corpse.x - agent.x) + abs(corpse.y - agent.y) > 1:
+            agent.last_action = "sought a kill"
+            return
+        agent.nourish(FRESH_KILL_MEALS * (KILL_MEAL + KILL_MEAL_FOR_SIZE * corpse.physique("size")))
+        corpse.meat = 0.0
+        corpse.died_turn = self.turn - CORPSE_TURNS
+        self._kills[(corpse.x, corpse.y)].remove(corpse)
+        agent.last_action = "feasted"
+
+    def _fresh(self, corpse: Bitzkey) -> bool:
+        """Whether a body is still a fresh kill, not yet carrion."""
+        return corpse.died_turn is not None and self.turn - corpse.died_turn <= FRESH_KILL_TURNS
 
     @staticmethod
     def _damage(attacker: Bitzkey, defender: Bitzkey) -> float:
@@ -1205,12 +1271,13 @@ class Simulation:
         given = sum(min(cost, max(0.0, 100 - parent.hunger)) * parent.stomach
                     for cost, parent in zip(costs, (first, second)))
         for cell in cells:
-            brain = Brain.inherit(first.brain, second.brain, self.random)
             # The child's mind starts at the average of its parents' current minds, mutated, and
-            # its dot is written from that mind, so experience is inherited and shows.
+            # its dot is written from that mind, so experience is inherited and shows. Its brain,
+            # a mix of its parents', is as deep as its own inborn intellect makes it.
             mind = inherit_mind(first.mind, second.mind, self.random, self.mind_mutation)
-            child = self._add_agent(cross(first.dna, second.dna, self.random, mind, body_chance=self.body_mutation),
-                                    *cell, brain=brain)
+            dna = cross(first.dna, second.dna, self.random, mind, body_chance=self.body_mutation)
+            brain = Brain.inherit(first.brain, second.brain, self.random, depth_for(decode_mind(dna)["intellect"]))
+            child = self._add_agent(dna, *cell, brain=brain)
             child.mind = mind
             child.hunger = max(0.0, 100 - given / len(cells) / child.stomach)
             child.generation = max(first.generation, second.generation) + 1
@@ -1230,9 +1297,13 @@ class Simulation:
     def _index_cells(self) -> None:
         self._cells = {}
         self._carrion = {}
+        self._kills = {}
         for agent in self.agents:
             if agent.alive:
                 self._cells.setdefault((agent.x, agent.y), []).append(agent)
+            elif self._fresh(agent):
+                if agent.species != "plant":
+                    self._kills.setdefault((agent.x, agent.y), []).append(agent)
             elif agent.meat > 0:
                 self._carrion.setdefault((agent.x, agent.y), []).append(agent)
 
@@ -1278,6 +1349,17 @@ class Simulation:
         for dx, dy in SEEN_WITHIN[sight]:
             for corpse in carrion.get((x + dx, y + dy), ()):
                 if corpse.meat > 0:
+                    return corpse
+        return None
+
+    def _nearest_kill(self, agent: Bitzkey, sight: int) -> Bitzkey | None:
+        """The nearest fresh kill in sight of something it lives on."""
+        if not self._kills:
+            return None
+        kills, x, y = self._kills, agent.x, agent.y
+        for dx, dy in SEEN_WITHIN[sight]:
+            for corpse in kills.get((x + dx, y + dy), ()):
+                if self._feeds_on(agent, corpse):
                     return corpse
         return None
 

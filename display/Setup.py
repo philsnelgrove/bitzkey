@@ -50,6 +50,8 @@ SETTINGS = (
             0, 100, 5),
     Setting("body_mutation", "Body mutation", "percent chance a birth flips one body gene: 0 stable, 100 always",
             0, 100, 5),
+    Setting("year_length", "Year length", "turns in a year, of four seasons; lifespans are counted in years",
+            20, 3600, 20),
 )
 MAX_DIGITS = 9
 
@@ -181,7 +183,7 @@ def import_summary(bitzkeys: list[Imported]) -> str:
 class SetupScreen:
     """Draws the form and handles input until the user starts a world or quits."""
 
-    ROW_HEIGHT = 50
+    ROW_HEIGHT = 46
     IMPORT_HEIGHT = 170
     TEXT_LINES = 5
 
@@ -472,8 +474,8 @@ class SetupScreen:
         pg.draw.rect(self.screen, (36, 49, 47) if focused else (31, 42, 41), row, border_radius=UI(5))
         if focused:
             pg.draw.rect(self.screen, (131, 205, 143), row, 1, border_radius=UI(5))
-        self._text(setting.label.upper(), (row.left + UI(16), row.top + UI(5)), (232, 236, 219), self.font)
-        self._text(setting.hint, (row.left + UI(16), row.top + UI(25)), (130, 152, 136), self.small)
+        self._text(setting.label.upper(), (row.left + UI(16), row.top + UI(3)), (232, 236, 219), self.font)
+        self._text(setting.hint, (row.left + UI(16), row.top + UI(22)), (130, 152, 136), self.small)
         minus, box, plus = self._buttons(row)
         for button, sign in ((minus, "-"), (plus, "+")):
             pg.draw.rect(self.screen, (44, 57, 52), button, border_radius=UI(4))

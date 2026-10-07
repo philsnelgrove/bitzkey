@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING
 
-from tools.Brain import ACTIONS, choice_odds, make_senses
+from tools.Brain import ACTIONS, choice_odds, make_senses, open_senses
 from tools.Genome import BODY_TRAITS, MIND_TRAITS
 
 if TYPE_CHECKING:
@@ -40,7 +40,10 @@ SCENARIOS = (
      ("browse", "rest", "explore"), GRAZERS),
     ("Hungry, carrion in sight",
      {"hunger": 0.6, "health": 1, "carrion_closeness": 0.6, "age": 0.2},
-     ("scavenge", "rest", "explore"), ANIMALS),
+     ("scavenge", "rest", "explore"), ("omnivore", "predator")),
+    ("Hungry, a fresh kill in sight",
+     {"hunger": 0.6, "health": 1, "kill_closeness": 0.6, "age": 0.2},
+     ("feast", "rest", "explore"), ("omnivore", "predator")),
     ("Peckish, prey in sight",
      {"hunger": 0.5, "health": 1, "prey_closeness": 0.6, "age": 0.2},
      ("hunt", "rest", "explore"), ("omnivore", "predator")),
@@ -158,7 +161,8 @@ def brain_report(turn: int, animals: Iterable[Bitzkey], insights: Insights) -> s
         for animal in thinkers:
             if animal.species not in species_list:
                 continue
-            senses = make_senses(**situation, **{trait: animal.feeling(trait) for trait in MIND_TRAITS})
+            senses = make_senses(**situation, **{trait: animal.feeling(trait) for trait in MIND_TRAITS},
+                                 **open_senses(actions), **animal.genes)
             odds = choice_odds(animal.brain.values(senses), options)
             named = {ACTIONS[option]: chance for option, chance in odds.items()}
             for group in _groups(animal.species, animal.profile):

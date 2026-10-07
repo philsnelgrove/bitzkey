@@ -50,9 +50,10 @@ _TABLE: dict[str, list[tuple]] = {
         ("SPAWN_SPREAD", "Spawn spread", "a starting group appears within this many cells of its centre", 0, 4, 1),
     ],
     "Bodies": [
-        ("PLANT_LIFESPAN", "Plant lifespan", "expected turns of life for a plant", 100, 20000, 100),
-        ("ANIMAL_LIFESPAN.0", "Lifespan, fastest", "expected turns of life at the fastest metabolism", 10, 5000, 10),
-        ("ANIMAL_LIFESPAN.1", "Lifespan, slowest", "expected turns of life at the slowest metabolism", 10, 5000, 10),
+        ("LIFESPAN_YEARS.0", "Lifespan, shortest", "years of life expected for the smallest bodies, plant or animal",
+         0.5, 30.0, 0.5),
+        ("LIFESPAN_YEARS.1", "Lifespan, middle", "years of life expected for middling bodies", 0.5, 30.0, 0.5),
+        ("LIFESPAN_YEARS.2", "Lifespan, longest", "years of life expected for the largest bodies", 0.5, 30.0, 0.5),
         ("AGEING", "Ageing", "from this share of its lifespan, an animal may die of old age", 0.0, 0.95, 0.05),
         ("METABOLISM.0", "Metabolism, smallest", "metabolic rate of the smallest bodies", 0.1, 5.0, 0.1),
         ("METABOLISM.1", "Metabolism, largest", "metabolic rate of the largest bodies", 0.1, 5.0, 0.1),
@@ -115,6 +116,9 @@ _TABLE: dict[str, list[tuple]] = {
         ("PACK_BONUS", "Pack bonus", "extra force at prey that a herd-mate is also alongside", 0.0, 5.0, 0.05),
         ("KILL_MEAL", "Kill meal", "hunger a kill sates", 0, 200, 5),
         ("KILL_MEAL_FOR_SIZE", "Kill meal for size", "more hunger sated, up to this for the largest prey", 0, 200, 5),
+        ("FRESH_KILL_TURNS", "Fresh kill turns", "turns after the one it died in that a body is a fresh kill", 0, 10, 1),
+        ("FRESH_KILL_MEALS", "Fresh kill meals", "times the kill meal a predator or omnivore gets eating a fresh kill",
+         0.0, 10.0, 0.5),
         ("KIND_DIFFERENCE", "Kind difference", "predators whose rings differ more are different kinds", 0.0, 1.0, 0.01),
         ("FLEE_RANGE", "Flee range", "a hunter is only worth fleeing within this many steps, unless alarmed",
          0, 12, 1),
@@ -176,7 +180,6 @@ _TABLE: dict[str, list[tuple]] = {
         ("PLANT_CROWDING", "Plant crowding", "a seed doesn't take where more plants grow within two cells", 0, 50, 1),
     ],
     "Climate": [
-        ("YEAR_LENGTH", "Year length", "turns in a year; each quarter is a season", 4, 2000, 4),
         ("ARCTIC_SHARE", "Arctic", "share of the map's height that is arctic, at the top and again at the bottom",
          0.0, 0.5, 0.05),
         ("EQUATOR_SHARE", "Equator", "share of the map's height across its middle that is the equator", 0.0, 1.0, 0.05),
@@ -186,6 +189,7 @@ _TABLE: dict[str, list[tuple]] = {
          0.0, 1.0, 0.01),
         ("PLANT_CLIMATE_YIELD", "Plant climate yield", "share of its food a plant gives out of its temperature",
          0.0, 1.0, 0.05),
+        ("GRASS_DIEBACK", "Grass dieback", "where it isn't medium, turns for each tuft of a cell's grass to die", 1, 500, 1),
         ("SEED_VIABILITY", "Seed viability", "years a seed waits for its temperature before it dies", 0.0, 5.0, 0.05),
     ],
     "Experiences": [
@@ -199,7 +203,8 @@ RULES = tuple(Rule(key, group, label, hint, minimum, maximum, step)
               for group, rows in _TABLE.items() for key, label, hint, minimum, maximum, step in rows)
 BY_KEY = {rule.key: rule for rule in RULES}
 # Pairs that must stay in order, smaller first, and pairs that must differ (lifespan divides by the gap).
-ORDERED = (("LITTER_RANGE.0", "LITTER_RANGE.1"),)
+ORDERED = (("LITTER_RANGE.0", "LITTER_RANGE.1"), ("LIFESPAN_YEARS.0", "LIFESPAN_YEARS.1"),
+           ("LIFESPAN_YEARS.1", "LIFESPAN_YEARS.2"))
 DISTINCT = (("METABOLISM.0", "METABOLISM.1"),)
 _PARTS = {"fewest": (0, 0), "most": (0, 1), "strength": (1,)}
 
