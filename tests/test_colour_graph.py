@@ -1,9 +1,11 @@
 import unittest
+import unittest.mock
 
 import pygame as pg
 
-from display.ColourGraph import (BAR_PIXELS, MIN_VIEW, Bar, ColourGraph, bitzkey_at, bitzkeys_in, build_bars,
-                                 nice_ceiling, updated)
+from display.ColourGraph import (BAR_PIXELS, MIN_VIEW, SORTS, Bar, ColourGraph, bitzkey_at, bitzkeys_in, build_bars,
+                                 nice_ceiling, trait_of, updated)
+from display.Inspector import draw_tooltip
 from display.Ui import UI
 from tools.Genome import decode_body
 from tools.Simulation import Simulation
@@ -36,6 +38,20 @@ class BuildBarsTests(unittest.TestCase):
             if bar.slices:
                 self.assertAlmostEqual(bar.slices[0][2], CHART.bottom)
                 self.assertGreaterEqual(bar.slices[-1][1], CHART.top - 1e-9)
+
+    def test_a_trait_sorts_each_species_lowest_at_the_bottom(self):
+        for sort in ("intellect", "weapons", "temperature", "cold tolerance"):
+            bars, _ = build_bars(self.simulation, "ring", CHART, sort=sort)
+            for bar in bars:
+                stacked = [(decode_body(self.simulation.lineage[identifier])["species"],
+                            trait_of(self.simulation.lineage[identifier], sort)) for identifier, _, _ in bar.slices]
+                for (species, value), (next_species, next_value) in zip(stacked, stacked[1:]):
+                    if species == next_species:
+                        self.assertLessEqual(value, next_value)
+            # the same Bitzkeys, only in another order
+            colour, _ = build_bars(self.simulation, "ring", CHART)
+            self.assertEqual(sorted(identifier for identifier, _, _ in bars[-1].slices),
+                             sorted(identifier for identifier, _, _ in colour[-1].slices))
 
     def test_one_bar_per_turn_early_in_a_run(self):
         simulation = Simulation(width=30, height=30, population=10, seed=1)
@@ -86,6 +102,36 @@ class TimeTravelTests(unittest.TestCase):
 
     def click(self, kind, x, y, button=1):
         return self.graph.handle(pg.event.Event(kind, pos=(x, y), button=button))
+
+    def test_the_sort_menu_opens_picks_a_trait_and_a_click_elsewhere_just_closes_it(self):
+        self.assertEqual(self.graph.sort, "colour")
+        self.assertEqual(SORTS[0], "colour")
+        self.click(pg.MOUSEBUTTONDOWN, *self.graph.layout()["sort"].center)
+        self.assertTrue(self.graph.menu_open)
+        sort, item = next((sort, item) for sort, item in self.graph.menu_items() if sort == "intellect")
+        self.click(pg.MOUSEBUTTONDOWN, *item.center)
+        self.assertEqual((self.graph.sort, self.graph.menu_open), ("intellect", False))
+
+        self.click(pg.MOUSEBUTTONDOWN, *self.graph.layout()["sort"].center)
+        self.click(pg.MOUSEBUTTONDOWN, self.chart.left + 2, self.chart.bottom - 2)  # closes, picks no one
+        self.assertEqual((self.graph.sort, self.graph.menu_open, self.graph.selection), ("intellect", False, set()))
+
+    def test_hovering_a_slice_shows_its_details_in_a_tooltip_on_the_screen(self):
+        surface = pg.Surface((1200, 820))
+        living = next(agent for agent in self.simulation.living)
+        for agent, known in ((living, True), (living, False)):
+            for mouse in ((10, 10), (1190, 810)):
+                box = draw_tooltip(surface, agent, known, mouse)
+                self.assertTrue(surface.get_rect().contains(box))
+        self.assertLess(draw_tooltip(surface, living, False, (10, 10)).height,
+                        draw_tooltip(surface, living, True, (10, 10)).height)
+
+        self.graph.draw(surface, self.simulation, None)
+        identifier, top, bottom = self.graph._bars[-1].slices[0]
+        self.graph._mouse = (self.graph._bars[-1].left + 1, round((top + bottom) / 2))
+        with unittest.mock.patch("display.ColourGraph.draw_tooltip") as tooltip:
+            self.graph.draw(surface, self.simulation, None)
+        self.assertEqual(tooltip.call_args.args[1].identifier, identifier)
 
     def test_dragging_the_timeline_seeks_where_it_is_let_go(self):
         y = self.timeline.centery

@@ -175,6 +175,19 @@ _TABLE: dict[str, list[tuple]] = {
         ("LIGHT_LIMIT", "Light limit", "this many such plants stop a plant seeding", 1, 50, 1),
         ("PLANT_CROWDING", "Plant crowding", "a seed doesn't take where more plants grow within two cells", 0, 50, 1),
     ],
+    "Climate": [
+        ("YEAR_LENGTH", "Year length", "turns in a year; each quarter is a season", 4, 2000, 4),
+        ("ARCTIC_SHARE", "Arctic", "share of the map's height that is arctic, at the top and again at the bottom",
+         0.0, 0.5, 0.05),
+        ("EQUATOR_SHARE", "Equator", "share of the map's height across its middle that is the equator", 0.0, 1.0, 0.05),
+        ("CLIMATE_HUNGER", "Climate hunger", "times the food an animal needs a step or more from its home temperature",
+         1.0, 5.0, 0.1),
+        ("CLIMATE_DAMAGE", "Climate damage", "share of full health lost a turn two or more steps from home",
+         0.0, 1.0, 0.01),
+        ("PLANT_CLIMATE_YIELD", "Plant climate yield", "share of its food a plant gives out of its temperature",
+         0.0, 1.0, 0.05),
+        ("SEED_VIABILITY", "Seed viability", "years a seed waits for its temperature before it dies", 0.0, 5.0, 0.05),
+    ],
     "Experiences": [
         (f"EXPERIENCES.{event}.{trait}", f"{event.replace('_', ' ').capitalize()}: {trait}",
          f"how {event.replace('_', ' ')} shifts {trait}, as a share of its range", -0.5, 0.5, 0.0005)
@@ -235,10 +248,13 @@ def current() -> dict[str, float]:
 
 def problems(values: Mapping[str, float]) -> list[str]:
     """Why a set of values can't be applied, if it can't."""
-    return ([f"{BY_KEY[low].label} must not exceed {BY_KEY[high].label.lower()}"
-             for low, high in ORDERED if values[low] > values[high]]
-            + [f"{BY_KEY[first].label} must differ from {BY_KEY[second].label.lower()}"
-               for first, second in DISTINCT if values[first] == values[second]])
+    found = ([f"{BY_KEY[low].label} must not exceed {BY_KEY[high].label.lower()}"
+              for low, high in ORDERED if values[low] > values[high]]
+             + [f"{BY_KEY[first].label} must differ from {BY_KEY[second].label.lower()}"
+                for first, second in DISTINCT if values[first] == values[second]])
+    if 2 * values["ARCTIC_SHARE"] + values["EQUATOR_SHARE"] > 1 + 1e-9:
+        found.append("The two arctic zones and the equator must fit in the map together")
+    return found
 
 
 def apply(values: Mapping[str, float]) -> None:

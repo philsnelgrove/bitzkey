@@ -2,8 +2,8 @@ import random
 import unittest
 from unittest.mock import patch
 
-from tools.Genome import (BODY_TRAITS, MIND_MUTATION_CHANCE, MIND_MUTATION_ROLLS, MIND_TRAITS, SPARE_BITS, TRAIT_MAX, body_word,
-                          color_from_word, convert_v1, cross, decode_body, decode_mind, encode_dna,
+from tools.Genome import (BODY_TRAITS, MIND_MUTATION_CHANCE, MIND_MUTATION_ROLLS, MIND_TRAITS, SPARE_BITS, TEMPERATURES, TRAIT_MAX, body_word,
+                          color_from_word, convert_v1, cross, decode_body, decode_climate, decode_mind, encode_dna,
                           genome_from_record, genome_record, inherit_mind, make_dna, mind_word)
 
 
@@ -12,12 +12,29 @@ class GenomeTests(unittest.TestCase):
         dna = encode_dna("predator", fear=4, intellect=7, tolerance=5, size=6, fertility=3, carrion=2)
 
         self.assertEqual(mind_word(dna), (4 << 12) | (7 << 21) | (5 << 27))
-        self.assertEqual(body_word(dna), 3 | (6 << 3) | (3 << 21) | (2 << 27))
+        self.assertEqual(body_word(dna), 3 | (6 << 3) | (3 << 21) | (2 << 27) | (1 << 30))  # a medium home
 
     def test_every_word_holds_ten_three_bit_traits(self):
         self.assertEqual((len(MIND_TRAITS), len(BODY_TRAITS), TRAIT_MAX), (10, 10, 7))
         everything = encode_dna("predator", **{trait: TRAIT_MAX for trait in MIND_TRAITS + BODY_TRAITS[1:]})
         self.assertEqual(mind_word(everything) >> 30, 0)  # the top two bits carry no trait
+
+    def test_the_climate_genes_hold_the_top_bits_of_each_word(self):
+        self.assertEqual(TEMPERATURES, ("hot", "medium", "cold", "very cold"))
+        dna = encode_dna("grazer", temperature=3, cold_tolerance=True, size=7)
+        self.assertEqual(decode_climate(dna), (3, False, True))
+        self.assertEqual((body_word(dna) >> 30, mind_word(dna) >> 30), (3, 2))
+        self.assertEqual(decode_body(dna)["size"], 7)  # the traits are untouched
+        self.assertEqual(decode_climate(encode_dna("plant", heat_tolerance=True)), (1, True, False))
+        with self.assertRaisesRegex(ValueError, "0 to 3"):
+            encode_dna("grazer", temperature=4)
+
+    def test_a_child_inherits_its_tolerances_together_from_one_parent(self):
+        hardy = encode_dna("grazer", heat_tolerance=True, cold_tolerance=True)
+        tender = encode_dna("grazer")
+        rng = random.Random(5)
+        tolerances = {decode_climate(cross(hardy, tender, rng))[1:] for _ in range(60)}
+        self.assertEqual(tolerances, {(True, True), (False, False)})
 
     def test_traits_outside_their_range_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "0 to 7"):

@@ -3,7 +3,7 @@ import unittest
 
 from display.Designer import FIELDS, DesignerForm
 from display.Setup import SetupForm
-from tools.Genome import BODY_TRAITS, MIND_TRAITS, body_word, decode_body, decode_mind, encode_dna, mind_word
+from tools.Genome import BODY_TRAITS, MIND_TRAITS, body_word, decode_body, decode_climate, decode_mind, encode_dna, mind_word
 
 
 def field_index(kind: str, name: str) -> int:
@@ -15,6 +15,16 @@ class DesignerFormTests(unittest.TestCase):
         self.assertEqual([name for kind, name in FIELDS if kind == "mind"], list(MIND_TRAITS))
         self.assertEqual([name for kind, name in FIELDS if kind == "body"], list(BODY_TRAITS))
         self.assertEqual([name for kind, name in FIELDS if kind == "hex"], ["ring", "dot"])
+        self.assertEqual([name for kind, name in FIELDS if kind == "climate"], ["hardiness", "temperature"])
+
+    def test_the_climate_rows_edit_the_top_bits_of_each_word(self):
+        form = DesignerForm(encode_dna("grazer", temperature=0, size=5))
+        form.select(field_index("climate", "temperature"))
+        form.adjust(10)
+        form.select(field_index("climate", "hardiness"))
+        form.type_text("2")
+        self.assertEqual(decode_climate(form.dna), (3, False, True))
+        self.assertEqual(decode_body(form.dna)["size"], 5)
 
     def test_editing_a_trait_changes_only_its_own_bits(self):
         form = DesignerForm(encode_dna("grazer", fear=3, size=7))

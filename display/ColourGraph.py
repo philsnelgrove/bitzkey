@@ -1,8 +1,10 @@
 """The colour graph popup: every Bitzkey alive over time, stacked in its own colour.
 
 Each bar is a moment in the run; each Bitzkey alive then is a slice of it in its exact ring or
-dot colour, sorted so similar colours flow together. Bitzkeys are picked by clicking their slice
-or dragging a box around slices, then copied or saved. The graph also travels in time: drag
+dot colour, stacked by species and, within a species, sorted so similar colours flow together, or
+by a trait chosen from the SORT menu. Hovering over a slice shows that Bitzkey's details.
+Bitzkeys are picked by clicking their slice or dragging a box around slices, then copied or saved;
+the pick stays selected on the map when the graph closes. The graph also travels in time: drag
 the timeline beneath it, or right-click, to move the world to that turn. The mouse wheel zooms
 into a stretch of the run.
 """
@@ -17,7 +19,11 @@ import pygame as pg
 from display.Ui import UI
 from tools.Census import colour_order
 from display.Icons import draw_icon
-from tools.Genome import SPECIES, body_word, color_from_word, decode_body, mind_word
+from display.Inspector import draw_tooltip
+from tools.Genome import (BODY_TRAITS, MIND_TRAITS, SPECIES, body_word, color_from_word, decode_body, decode_climate,
+                          decode_mind, mind_word)
+from tools import Simulation as world
+from tools.Simulation import Bitzkey
 
 if TYPE_CHECKING:
     from tools.Simulation import Simulation
@@ -30,6 +36,12 @@ MIN_VIEW = 10          # the fewest turns the graph zooms in to
 ZOOM_STEP = 0.8        # each wheel notch shows this share of the turns before it
 BACKGROUND = (30, 40, 40)
 PARTS = ("ring", "dot")
+# What a species' Bitzkeys are sorted by: their colour, or an inborn trait or climate gene, lowest at
+# the bottom (for the home temperature, hottest at the bottom).
+CLIMATE_SORTS = ("temperature", "heat tolerance", "cold tolerance")
+SORTS = ("colour", *MIND_TRAITS, *BODY_TRAITS[1:], *CLIMATE_SORTS)
+YEAR_LABEL_SPACING = 56  # design pixels the year labels on the timeline keep apart, at least
+MENU_ROW = 22  # design pixels per item of the sort menu
 
 
 @dataclass
@@ -59,10 +71,22 @@ def nice_ceiling(value: float) -> float:
         scale *= 10
 
 
+def sort_label(sort: str) -> str:
+    return "Colour value" if sort == "colour" else sort.capitalize()
+
+
+def trait_of(dna: int, trait: str) -> int:
+    """An inborn trait, mind or body, or a climate gene, from the genome."""
+    if trait in CLIMATE_SORTS:
+        return int(decode_climate(dna)[CLIMATE_SORTS.index(trait)])
+    return decode_mind(dna)[trait] if trait in MIND_TRAITS else int(decode_body(dna)[trait])
+
+
 def build_bars(simulation: Simulation, part: str, chart: pg.Rect, first: int = 0,
-               last: int | None = None) -> tuple[list[Bar], float]:
+               last: int | None = None, sort: str = "colour") -> tuple[list[Bar], float]:
     """Lay out one bar per stretch of turns from `first` to `last` (by default the whole run),
     each stacking the Bitzkeys alive at its end; the bar holding the present shows it exactly.
+    Within a species they are sorted by colour, or by the trait `sort` names and then colour.
     Returns the bars and the population the chart tops at."""
     last = simulation.frontier if last is None else last
     turns = last - first + 1
@@ -78,10 +102,15 @@ def build_bars(simulation: Simulation, part: str, chart: pg.Rect, first: int = 0
     peak = nice_ceiling(max(len(members) for _, members, _ in moments))
     unit = chart.height / peak
 
-    def order(identifier: int) -> tuple:  # by species, plants at the bottom, then by colour
-        dna = lineage[identifier]
-        return (SPECIES.index(decode_body(dna)["species"]), colour_order(colour_of(dna, part)),
-                body_word(dna) if part == "ring" else mind_word(dna), identifier)
+    keys: dict[int, tuple] = {}
+
+    def order(identifier: int) -> tuple:  # by species, plants at the bottom, then by the sort
+        if identifier not in keys:
+            dna = lineage[identifier]
+            keys[identifier] = (SPECIES.index(decode_body(dna)["species"]),
+                                0 if sort == "colour" else trait_of(dna, sort), colour_order(colour_of(dna, part)),
+                                body_word(dna) if part == "ring" else mind_word(dna), identifier)
+        return keys[identifier]
 
     bars = []
     for index, (end, members, future) in enumerate(moments):
@@ -128,6 +157,8 @@ def updated(selection: set[int], picked: set[int], mode: str) -> set[int]:
 class ColourGraph:
     def __init__(self) -> None:
         self.part = "ring"
+        self.sort = "colour"
+        self.menu_open = False  # the sort menu
         self.selection: set[int] = set()
         self.view: tuple[int, int] | None = None  # the turns shown when zoomed in; None shows the run
         self.seek_turn = 0                        # where a "seek" asks the world to go
@@ -223,16 +254,33 @@ class ColourGraph:
         timeline = pg.Rect(chart.left, chart.bottom + UI(4), chart.width, UI(24))
         buttons = {}
         right = panel.right - UI(24)
-        for name, width in (("save", 76), ("copy", 76), ("clear", 76), ("living", 116)):
+        for name, width in (("save", 76), ("copy", 76), ("clear", 76), ("living", 116), ("sort", 170)):
             buttons[name] = pg.Rect(right - UI(width), panel.top + UI(18), UI(width), UI(30))
             right -= UI(width + 8)
         return {"panel": panel, "chart": chart, "timeline": timeline, **buttons}
+
+    def menu_items(self) -> list[tuple[str, pg.Rect]]:
+        """The sort menu's choices under its button, a small gap before the mind traits, the body
+        traits and the climate genes."""
+        button = self.layout()["sort"]
+        items, top = [], button.bottom + UI(2)
+        for index, sort in enumerate(SORTS):
+            if index in (1, 1 + len(MIND_TRAITS), len(SORTS) - len(CLIMATE_SORTS)):
+                top += UI(6)
+            items.append((sort, pg.Rect(button.left, top, button.width, UI(MENU_ROW))))
+            top += UI(MENU_ROW)
+        return items
 
     def handle(self, event: pg.event.Event) -> str | None:
         """Handle a mouse event. Returns "copy" or "save" when a button asks for an export, and
         "seek" when the world should move to `seek_turn`."""
         layout = self.layout()
         chart, timeline = layout["chart"], layout["timeline"]
+        if self.menu_open and event.type == pg.MOUSEBUTTONDOWN:  # a click picks a choice or closes the menu
+            self.menu_open = False
+            if event.button == 1:
+                self.sort = next((sort for sort, item in self.menu_items() if item.collidepoint(event.pos)), self.sort)
+            return None
         if event.type == pg.MOUSEMOTION:
             self._mouse = event.pos
             if self._scrub is not None:
@@ -253,7 +301,9 @@ class ColourGraph:
             for action in ("copy", "save"):
                 if layout[action].collidepoint(event.pos):
                     return action
-            if layout["clear"].collidepoint(event.pos):
+            if layout["sort"].collidepoint(event.pos):
+                self.menu_open = True
+            elif layout["clear"].collidepoint(event.pos):
                 self.select(set())
             elif layout["living"].collidepoint(event.pos):
                 self.select(self.selection & self._alive)  # drop the dead from the selection
@@ -305,6 +355,7 @@ class ColourGraph:
             pg.draw.rect(screen, (44, 57, 52), layout[name], border_radius=UI(4))
             label = self.font.render(text, True, (220, 229, 211))
             screen.blit(label, label.get_rect(center=layout[name].center))
+        self._draw_sort_button(screen, layout["sort"])
         if note:
             message = self.small.render(note, True, (238, 183, 110))
             screen.blit(message, message.get_rect(topright=(panel.right - UI(24), panel.top + UI(58))))
@@ -312,10 +363,10 @@ class ColourGraph:
         first, last = self.window()
         key = (simulation.turn, simulation.frontier, len(simulation.census.snapshots), len(simulation.agents),
                simulation.deaths, self.part, chart.size, chart.topleft, self._selection_version, first, last,
-               id(simulation))
+               id(simulation), self.sort)
         if key != self._key:
             self._key = key
-            self._bars, self._peak = build_bars(simulation, self.part, chart, first, last)
+            self._bars, self._peak = build_bars(simulation, self.part, chart, first, last, self.sort)
             self._places = {}
             for bar in self._bars:
                 for identifier, top, bottom in bar.slices:
@@ -331,7 +382,8 @@ class ColourGraph:
 
         self._draw_timeline(screen, chart, timeline, first, last)
 
-        hovered = bitzkey_at(self._bars, self._mouse) if chart.collidepoint(self._mouse) else None
+        hovered = (bitzkey_at(self._bars, self._mouse)
+                   if chart.collidepoint(self._mouse) and not self.menu_open else None)
         for left, right, top, bottom in self._places.get(hovered, ()):
             pg.draw.rect(screen, (245, 238, 206), (left, round(top) - 1, right - left, max(1, round(bottom - top)) + 2), 1)
         if self._press:
@@ -346,6 +398,34 @@ class ColourGraph:
         self._text(screen, "Select: click, or drag a box (SHIFT adds, CTRL removes)    Time: drag the timeline, "
                    "or right-click    Zoom: wheel, SHIFT+wheel pans",
                    (panel.left + UI(24), panel.bottom - UI(28)), (144, 170, 151), self.small)
+        if self.menu_open:
+            self._draw_menu(screen)
+        elif hovered is not None and not self._press:
+            agent = next((item for item in simulation.agents if item.identifier == hovered), None)
+            known = agent is not None
+            draw_tooltip(screen, agent or Bitzkey(hovered, simulation.lineage[hovered], 0, 0), known, self._mouse,
+                         simulation.temperature(agent.y) if known else None)
+
+    def _draw_sort_button(self, screen: pg.Surface, button: pg.Rect) -> None:
+        pg.draw.rect(screen, (44, 57, 52), button, border_radius=UI(4))
+        if self.menu_open or self.sort != "colour":
+            pg.draw.rect(screen, (131, 205, 143), button, 1, border_radius=UI(4))
+        label = self.small.render(f"SORT  {sort_label(self.sort).upper()}", True, (220, 229, 211))
+        screen.blit(label, label.get_rect(midleft=(button.left + UI(10), button.centery)))
+        x, y = button.right - UI(14), button.centery
+        pg.draw.polygon(screen, (220, 229, 211), [(x - UI(5), y - UI(2)), (x + UI(5), y - UI(2)), (x, y + UI(4))])
+
+    def _draw_menu(self, screen: pg.Surface) -> None:
+        items = self.menu_items()
+        back = items[0][1].unionall([item for _, item in items[1:]]).inflate(UI(4), UI(4))
+        pg.draw.rect(screen, (19, 26, 27), back, border_radius=UI(4))
+        pg.draw.rect(screen, (80, 99, 85), back, 1, border_radius=UI(4))
+        for sort, item in items:
+            if item.collidepoint(self._mouse):
+                pg.draw.rect(screen, (44, 57, 52), item)
+            color = (131, 205, 143) if sort == self.sort else (220, 229, 211)
+            label = self.small.render(sort_label(sort), True, color)
+            screen.blit(label, label.get_rect(midleft=(item.left + UI(10), item.centery)))
 
     def _label_species(self, screen: pg.Surface, simulation: Simulation, chart: pg.Rect) -> None:
         """Name each species' band, with its icon, inside the right end of the chart, where its
@@ -372,9 +452,10 @@ class ColourGraph:
             screen.blit(label, (box.left + UI(8) + icon, box.top + UI(2)))
 
     def _draw_timeline(self, screen: pg.Surface, chart: pg.Rect, timeline: pg.Rect, first: int, last: int) -> None:
-        """The timeline strip with the turns shown, a playhead at the present, and while dragging,
-        a marker where the world will go."""
+        """The timeline strip with the turns shown, its winters shaded and its years marked, a
+        playhead at the present, and while dragging, a marker where the world will go."""
         pg.draw.rect(screen, (22, 30, 30), timeline, border_radius=UI(4))
+        self._draw_seasons(screen, chart, timeline, first, last)
         pg.draw.rect(screen, (54, 68, 62), timeline, 1, border_radius=UI(4))
         if self.view is None:
             middle = f"TURN {(first + last) // 2}"
@@ -398,11 +479,36 @@ class ColourGraph:
             tag.clamp_ip(chart.inflate(0, UI(40)))
             screen.blit(label, tag)
 
+    def _draw_seasons(self, screen: pg.Surface, chart: pg.Rect, timeline: pg.Rect, first: int, last: int) -> None:
+        """Shade each winter quarter on the timeline, and mark where each year begins with a line
+        up through the chart, labelled while the labels have room."""
+        length = world.YEAR_LENGTH
+        span = chart.width / (last - first + 1)  # pixels a turn
+        left_of = lambda turn: round(chart.left + (turn - first) * span)  # noqa: E731
+        quarter = first * 4 // length
+        while quarter * length // 4 <= last:
+            if quarter % 4 in (0, 2):
+                start = max(first, -(-quarter * length // 4))
+                end = min(last + 1, -(-(quarter + 1) * length // 4))
+                if end > start:
+                    pg.draw.rect(screen, (30, 42, 56), (left_of(start), timeline.top + 1, left_of(end) - left_of(start),
+                                                        timeline.height - 2))
+            quarter += 1
+        every = max(1, -(-UI(YEAR_LABEL_SPACING) // max(1, round(length * span))))
+        for turn in range(-(-max(1, first) // length) * length, last + 1, length):
+            x = left_of(turn)
+            pg.draw.line(screen, (88, 104, 112), (x, chart.top), (x, timeline.bottom - 1), 1)
+            if (turn // length) % every == 0:
+                label = self.small.render(f"YEAR {turn // length + 1}", True, (140, 185, 230))
+                screen.blit(label, (x + UI(3), chart.top + UI(2)))
+
     def _describe(self, simulation: Simulation, hovered: int | None) -> str:
         living = {agent.identifier for agent in simulation.living}
         alive = len(self.selection & living)
         chosen = (f"{len(self.selection)} selected ({alive} alive)" if self.selection
                   else "Nothing selected")
+        if self.sort != "colour":
+            chosen = f"Each species sorted by {self.sort}, lowest at the bottom.     " + chosen
         if simulation.turn < simulation.frontier:
             chosen = f"Rewound to turn {simulation.turn} of {simulation.frontier}.     " + chosen
         elif simulation.end_reason:

@@ -51,6 +51,9 @@ class RulesTests(unittest.TestCase):
         self.assertEqual(Rules.problems(values), ["Smallest litter must not exceed largest litter"])
         values = {**DEFAULTS, "METABOLISM.0": 1.0, "METABOLISM.1": 1.0}
         self.assertEqual(Rules.problems(values), ["Metabolism, smallest must differ from metabolism, largest"])
+        values = {**DEFAULTS, "ARCTIC_SHARE": 0.4, "EQUATOR_SHARE": 0.3}
+        self.assertEqual(Rules.problems(values), ["The two arctic zones and the equator must fit in the map together"])
+        self.assertEqual(Rules.problems({**values, "EQUATOR_SHARE": 0.2}), [])
         self.assertEqual(Rules.problems(DEFAULTS), [])
 
     def test_a_world_plays_by_the_rules_set_when_it_runs(self):

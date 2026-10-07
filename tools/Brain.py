@@ -36,9 +36,12 @@ SENSES = (
     "herd_near",          # herd-mates within two cells, 0..3 scaled to 0..1
     "herd_closeness",     # 1 at the middle of its herd in range, falling to 0 at the range's edge; 0 alone
     "alarm",              # 1 when a herd-mate close by was struck since it last acted
+    "climate_discomfort",  # how far the temperature here is from home, as it feels it: 0, 0.5 a step, 1 two or more
+    "comfort_closeness",  # 1 where it feels at home or next to such a row, falling to 0 beyond sight; 0 when none is seen
     "age",             # 0 at birth, 1 at 400 turns or older
 ) + MIND_TRAITS        # then its current temperament, each trait 0..7 scaled to 0..1
-ACTIONS = ("eat", "forage", "browse", "scavenge", "rest", "court", "breed", "hunt", "attack", "defend", "flee", "herd", "explore")
+ACTIONS = ("eat", "forage", "browse", "scavenge", "rest", "court", "breed", "hunt", "attack", "defend", "flee", "herd",
+           "migrate", "explore")
 INPUT_SIZE = len(SENSES)
 HIDDEN_SIZE = 12
 TEMPERATURE = 0.2

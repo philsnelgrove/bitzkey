@@ -27,7 +27,8 @@ A configuration panel opens first. Set:
   sharing one genome, each group within two cells of a random spot.
 - the grass density: the percent of cells with grass at the start (default 50).
   Each turn, 0.4% of that starting amount grows back, so density means the
-  same at any grid size.
+  same at any grid size. Grass grows only where it is medium (see Seasons and
+  Climate).
 - an optional random seed. The same seed replays the same world; leave it blank
   for a new one.
 - an optional population cap: the most animals alive at once. Leave it blank,
@@ -57,7 +58,9 @@ another, are all read. The line under the box says how many genomes of each
 species are ready, or what can't be read; START waits until the text reads
 cleanly or is cleared. DESIGN opens the Bitzkey designer. It shows all 20 traits
 of a genome, mind and body, each adjustable with its - and + buttons, the arrow
-keys (`Shift` for steps of five), or by typing a digit from 0 to 7. The ring and
+keys (`Shift` for steps of five), or by typing a digit from 0 to 7. Below each
+column is a climate gene, from 0 to 3: hardiness under the mind (none, heat, cold
+or both) and the home temperature under the body (hot, medium, cold or very cold). The ring and
 dot hex codes can also be typed whole. A large preview shows the Bitzkey in its
 true colours, at sixteen times its in-world size and proportions, beside it at
 actual size. Below them are the stats that follow from the genome: health,
@@ -74,17 +77,18 @@ Each imported genome spawns as a group of 3 to
 120 genomes are used, keeping their groups within the 600 population cap. Set
 "Bitzkeys" to 0 to start with only your imports.
 
-ADVANCED opens the advanced rules: 114 numbers that shape how the world plays
+ADVANCED opens the advanced rules: 121 numbers that shape how the world plays
 out, in groups (World, Bodies, Breeding, Feelings, Mind, Fighting, Territory,
-Herding, Food, Plants and Experiences). Among them are lifespans, metabolism, litter
+Herding, Food, Plants, Climate and Experiences). Among them are lifespans, metabolism, litter
 sizes, food-aware breeding, the rewards and pains a brain learns from, blows and
-thorns, territory and herd instincts, meals, plant seeding and how each experience
-reshapes temperament. Each rule has a short note, limits and a step. Choose and adjust
+thorns, territory and herd instincts, meals, plant seeding, the year and the
+climate zones, and how each experience reshapes temperament. Each rule has a short note, limits and a step. Choose and adjust
 them as in the configuration panel; PgUp/PgDn jump ten rules, and the wheel scrolls.
 Fractional rules take a typed decimal point, and the experience shifts take a minus
 sign. Changed values show in amber. RESET puts the focused rule back to its default
 and RESET ALL every rule. APPLY (`Enter`) keeps the changes, unless two rules
-conflict (the smallest litter above the largest, or equal metabolisms); CANCEL
+conflict (the smallest litter above the largest, equal metabolisms, or arctic
+zones and an equator too wide to fit the map together); CANCEL
 (`Esc`) drops them. The ADVANCED button turns amber and counts the changed rules.
 They hold for every world started from the panel, `R` restarts included, until
 changed again. A seed replays the same world only under the same rules.
@@ -162,8 +166,10 @@ the two colour words together. The low 32 bits colour the dot and shape the
 mind; the high 32 bits colour the ring and shape the body. In each word, the
 four bytes from most to least significant are cyan, magenta, yellow and black.
 Each word also holds ten three-bit traits, each 0 to 7, read from its
-least-significant bits. The top two bits of each word hold no trait, but they
-still shade the colour.
+least-significant bits. The top two bits of each word hold the climate genes,
+and like the rest they shade the colour: in the ring, the home temperature (0
+hot, 1 medium, 2 cold, 3 very cold); in the dot, the heat tolerance flag (bit 30)
+and the cold tolerance flag (bit 31). See Seasons and Climate.
 
 **Inner dot: mind, emotion and social life.** These traits start at their
 gene values and are then reshaped by experience:
@@ -221,22 +227,63 @@ its own by more than 5%, or whose dot colour differs by more than 20% (the mean
 difference of the four CMYK bytes). Tolerance widens both: at the greatest
 tolerance it accepts any ring and any dot of its species. A child's ring is a
 single-point crossover of its parents' rings. A child's dot comes from its
-starting mind (see above), its two spare bits from either parent. With the
-world's body mutation chance (50% by default), one bit of the ring flips.
+starting mind (see above); its two tolerance flags come together from either
+parent. The home temperature travels with the ring. With the world's body
+mutation chance (50% by default), one bit of the ring flips, which may change
+the home temperature; the tolerance flags never mutate.
 Minds blend, but experience and mind mutations keep them varied.
 
 This is genome version 2. Version 1 held eight four-bit traits (0 to 15) per
 word, before empathy, tolerance, litter and carrion existed. Older exports,
 which carry no version, are converted when imported: each trait is scaled to 0
-to 7, and empathy starts at 0, tolerance at 3, litter at 0 and carrion at 0.
-Their colours change, because the bits move.
+to 7, and empathy starts at 0, tolerance at 3, litter at 0 and carrion at 0,
+with a medium home temperature and neither tolerance. Their colours change,
+because the bits move. Version 2 genomes made before the climate genes existed
+are read as they are: whatever their top bits were becomes their climate.
 
 The inspector shows both words in hex and every trait. Mind traits appear
 inborn and as they are now, coloured green where experience has raised them
 and amber where it has lowered them. It also shows the body's energy burn,
-hunger, health, age against expected lifespan, generation, children, last
-action, the odds its brain gave each option, and for a corpse, the meat left on
-it.
+its climate (home temperature, the temperature where it stands, coloured amber
+one step from home and red two, and what it tolerates), hunger, health, age
+against expected lifespan, generation, children, last action, the odds its brain
+gave each option, and for a corpse, the meat left on it.
+
+## Seasons and Climate
+
+The map is banded into climate zones across its height. The top and bottom 20%
+are arctic, cold; a strip of 20% across the middle is the equator, hot; the two
+bands between are temperate, medium. Rows that aren't medium are tinted on the
+map: warm on the equator, blue in the arctic, paler blue where very cold.
+
+A year is 180 turns, in four quarters. Through the first quarter (the northern
+winter) everything from the top of the map down to and through the equator is
+a step colder: the arctic very cold, the temperate zone cold, the equator
+medium. The second quarter is back to normal. Through the third quarter (the
+southern winter) the same happens from the bottom up to and through the
+equator, and the fourth is normal again. The sidebar shows the year and season.
+
+Every Bitzkey has a home temperature. An animal one step from home needs twice
+the food; two steps or more, it also loses 10% of its full health a turn, and
+may freeze or overheat to death. Heat tolerance spares it in any zone hotter
+than home, and cold tolerance in any zone colder. Plants ignore the tolerance
+flags. Anywhere not at their own temperature a plant neither regrows nor seeds,
+and gives grazing animals half its food; two steps or more from home, it also
+loses 10% of its health a turn. The plants spawned at the start are at home in
+their zone's usual temperature (an imported plant keeps its own). A seed that falls where it is the wrong
+temperature waits there, and sprouts when its cell reaches its temperature and
+has room, for up to three quarters of a year; after that it dies. Grass grows
+only where it is medium right now, so in a winter it grows on the equator and
+stops in that hemisphere's temperate zone. Grass already standing stays.
+
+Animals sense the temperature: how far it is from home, as they feel it, and how
+close the nearest row in sight is where they would feel at home. When they are
+out of their temperature and such a row is in sight, they can migrate, walking
+straight toward it, north first when both ways are as near.
+
+The year length, the zones' sizes, the food and health penalties, how much food
+a plant gives out of its temperature and how long seeds wait are advanced rules
+(the Climate group).
 
 ## Behaviour
 
@@ -262,10 +309,12 @@ neural network, and that brain chooses everything it does. Each turn it senses:
 - its herd: how many herd-mates are close by, how near it is to the herd's middle,
   and whether a herd-mate close by has just been struck
 - its own kind and other species close by, and its own age
+- how far the temperature is from home, and how close home weather is (see
+  Seasons and Climate)
 - its current temperament
 
 It then picks one of the actions open to it: eat, forage, browse, scavenge,
-rest, court, breed, hunt, attack, defend, flee, herd or explore. Foraging walks toward the
+rest, court, breed, hunt, attack, defend, flee, herd, migrate or explore. Foraging walks toward the
 nearest grass in sight; a tuft sates 35 hunger. Grazers get 1.25 times the food in grass and plants; omnivores half of grass and three quarters of plants. Browsing walks to the nearest
 plant in sight and, once alongside, takes a bite: 45 hunger, up to 70 from the
 largest plants, far more than grass. Each bite costs the plant 15 health, and
@@ -376,9 +425,14 @@ in the run, and every Bitzkey alive then (plants included) is a slice of it in i
 own exact colour. Slices are stacked by species, plants at the bottom, then
 grazers, omnivores and predators, and each species' band is labelled, with its
 icon, at the right end of the chart. Within a species, slices are sorted by hue,
-so similar colours flow together from bar to bar. A bar's height is the
+so similar colours flow together from bar to bar. The SORT menu at the top sorts
+each species by a trait instead: any of the ten mind traits, the body traits, or
+the climate genes (home temperature, heat tolerance, cold tolerance), taken from
+the genome, lowest at the bottom (for temperature, hottest at the bottom). Slices with the same value are then
+sorted by colour. Colour value is the default. A bar's height is the
 population. `Tab` switches between ring
-(body) and dot (mind) colours. The graph covers the whole run. It samples who was
+(body) and dot (mind) colours. The timeline shades each winter quarter and marks
+where each year begins, with a line up through the chart. The graph covers the whole run. It samples who was
 alive at evenly spaced turns, spacing them further apart as the run grows.
 
 The graph is also a time scrubber. A playhead marks the present. Drag along the
@@ -398,8 +452,15 @@ Pick Bitzkeys straight from the graph:
   remove from it
 
 A selected Bitzkey stays lit in every bar it appears in while the others fade.
-Hovering over a slice names the Bitzkey: its species, whether it is alive, and
-its ring and dot codes.
+Hovering over a slice shows a tooltip with that Bitzkey's details, as the sidebar
+shows them for a selected one: genome codes, temperament, body, hunger, health,
+age and latest chances. A Bitzkey no longer in the world, or not yet born at the
+turn shown, has only its genome to show. The line under the chart also names it.
+
+The graph and the map share one selection. Close the graph and the Bitzkeys picked
+on it stay ringed on the map, while the sidebar shows no single Bitzkey and counts
+how many are picked. Clicking a dot on the map selects just that one, on the
+graph as well.
 
 Then press `C` or COPY to put the selection on the clipboard, or `S` or SAVE to
 write a `.json` file into `exports/`. CLEAR empties the selection. Living

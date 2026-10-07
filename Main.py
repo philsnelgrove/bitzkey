@@ -11,7 +11,7 @@ import pygame as pg
 from config.Globals import Config
 from display import Window
 from display.Dialog import Dialog
-from display.Icons import draw_icon
+from display.Inspector import TEMPERATURE_COLOURS, draw_details
 from display.Look import DOT_RADIUS_RANGE, RING_WIDTH, dot_radius, draw_bitzkey
 from display.Setup import EXPORT_DIR, SetupScreen
 from display.Ui import UI
@@ -19,11 +19,11 @@ from tools.Brain import ACTIONS
 from display.ColourGraph import ColourGraph
 from tools.Exchange import Imported, bitzkey_record, export_bitzkeys, format_records
 from tools.Genome import genome_record
-from tools.Genome import BODY_TRAITS, MIND_TRAITS, body_word, mind_word
+from tools.Genome import MIND_TRAITS
 from tools.Insights import ANIMALS, brain_report
 from tools import Rules
 from tools import Simulation as world
-from tools.Simulation import SPECIES, Bitzkey, Simulation
+from tools.Simulation import SEASONS, SPECIES, Bitzkey, Simulation, season, year
 
 REPORT_DIR = Config.APP_DIR / "reports"
 INSIGHTS_TOP = 290  # the insights panel's top, in design pixels: just below the population counts
@@ -106,7 +106,7 @@ class BitzkeyApp:
                 elif event.type == pg.KEYDOWN:
                     if event.key == pg.K_ESCAPE:
                         if self.show_census:
-                            self.show_census = False
+                            self._close_graph()
                         else:
                             self._ask_to_leave()
                     elif event.key == pg.K_F11:
@@ -131,7 +131,10 @@ class BitzkeyApp:
                     elif event.key == pg.K_b:
                         self._save_report()
                     elif event.key == pg.K_g:
-                        self.show_census = not self.show_census
+                        if self.show_census:
+                            self._close_graph()
+                        else:
+                            self.show_census = True
                     elif event.key == pg.K_TAB and self.show_census:
                         self.graph.switch_part()
                     elif event.key == pg.K_c:
@@ -184,6 +187,14 @@ class BitzkeyApp:
         self.playing = False
         self.show_census = True
         self._say(self._end_note())
+
+    def _close_graph(self) -> None:
+        """Close the colour graph. The Bitzkeys picked on it stay selected on the map; the sidebar
+        then shows no one Bitzkey, unless the pick is just the one it was showing."""
+        self.show_census = False
+        self.graph.menu_open = False
+        if self.graph.selection and self.graph.selection != {self.selected_id}:
+            self.selected_id = None
 
     def _seek(self, turn: int) -> None:
         """Pause and move the world to a turn already simulated. A long replay says so first."""
@@ -316,6 +327,7 @@ class BitzkeyApp:
                 nearest_distance = distance
         if nearest and board.collidepoint(position) and nearest_distance < max(UI(9), min(cell_width, cell_height) * 1.6):
             self.selected_id = nearest.identifier
+            self.graph.select({nearest.identifier})  # the map and the graph share one selection
             self.show_insights = False  # selecting shows the inspector
 
     def _sidebar_width(self) -> int:
@@ -359,6 +371,14 @@ class BitzkeyApp:
     def _draw_world(self) -> None:
         board, cell_width, cell_height = self._board_geometry()
         pg.draw.rect(self.screen, (29, 39, 38), board)
+        for y in range(self.height):  # rows not medium, faintly in their temperature's colour
+            temperature = self.simulation.temperature(y)
+            if temperature == world.MEDIUM:
+                continue
+            top, bottom = round(board.top + y * cell_height), round(board.top + (y + 1) * cell_height)
+            tint = tuple(round(back + (channel - back) * 0.14)
+                         for back, channel in zip((29, 39, 38), TEMPERATURE_COLOURS[temperature]))
+            pg.draw.rect(self.screen, tint, (board.left, top, board.width, bottom - top))
         for x, y in self.simulation.grass:
             point = (round(board.left + (x + 0.5) * cell_width),
                      round(board.top + (y + 0.5) * cell_height))
@@ -369,7 +389,7 @@ class BitzkeyApp:
                      round(board.top + (agent.y + 0.5) * cell_height))
             radius = self._dot_radius(agent, largest)
             self._draw_bitzkey(agent, point, radius, self._corpse_opacity(agent))
-            if agent.identifier == self.selected_id:
+            if agent.identifier == self.selected_id or agent.identifier in self.graph.selection:
                 pg.draw.circle(self.screen, (245, 238, 206), point, radius + RING_WIDTH + UI(3), max(1, UI(1)))
             if agent.identifier in self.export_list:
                 pg.draw.circle(self.screen, (238, 183, 110), point, radius + RING_WIDTH + UI(6), max(1, UI(1)))
@@ -390,6 +410,12 @@ class BitzkeyApp:
         self._text(f"TURN  {self.simulation.turn:05d}", (x, UI(78)), (232, 236, 219), self.bold)
         self._text(f"{len(self.simulation.living)} ALIVE    {self.simulation.deaths} LOST",
                    (x, UI(108)), (157, 177, 159), self.small)
+        turn = self.simulation.turn
+        label = self.font.render(f"YEAR {year(turn)}", True, (232, 236, 219))
+        self.screen.blit(label, (x + width - label.get_width(), UI(84)))
+        label = self.small.render(SEASONS[season(turn)].upper(), True,
+                                  (140, 185, 230) if season(turn) % 2 == 0 else (157, 177, 159))
+        self.screen.blit(label, (x + width - label.get_width(), UI(108)))
         pg.draw.line(self.screen, (54, 68, 62), (x, UI(138)), (x + width, UI(138)), 1)
         self._text("POPULATION", (x, UI(153)), (220, 229, 211), self.font)
         for index, species in enumerate(SPECIES):
@@ -407,47 +433,17 @@ class BitzkeyApp:
         if agent is None:
             self._text("Click a dot to inspect its genome.", (x, UI(332)), (146, 165, 149), self.small)
             self._text("Living: click its current position.", (x, UI(352)), (116, 139, 124), self.small)
+            if self.graph.selection:
+                count = len(self.graph.selection)
+                self._text(f"{count} picked on the colour graph, ringed on the map.", (x, UI(380)),
+                           (238, 183, 110), self.small)
             return
 
-        self._draw_bitzkey(agent, (x + UI(10), UI(343)), self._dot_radius(agent, UI(DOT_RADIUS_RANGE[1])))
-        draw_icon(self.screen, agent.species, (x + width - UI(12), UI(343)), UI(9), (220, 229, 211))
-        self._text(f"#{agent.identifier:03d}  {agent.species.upper()}", (x + UI(28), UI(332)), (238, 238, 220),
-                   self.font)
-        self._text(f"DOT / MIND   {mind_word(agent.dna):08X}", (x, UI(360)), (211, 219, 201), self.mono)
-        self._text(f"RING / BODY  {body_word(agent.dna):08X}", (x, UI(379)), (211, 219, 201), self.mono)
-
-        body_x = x + min(UI(168), width // 2 + UI(18))
-        self._text("MIND      born   now", (x, UI(406)), (149, 170, 150), self.small)
-        self._text("BODY", (body_x, UI(406)), (149, 170, 150), self.small)
-        for index, trait in enumerate(MIND_TRAITS):
-            born, now = agent.inborn[trait], agent.mind[trait]
-            color = ((175, 192, 172) if abs(now - born) < 0.25
-                     else (131, 205, 143) if now > born else (238, 183, 110))
-            self._text(f"{trait:<11}{born:>3}{now:>6.1f}", (x, UI(424 + index * 16)), color, self.mono_small)
-        for index, trait in enumerate(BODY_TRAITS[1:]):
-            self._text(f"{trait:<9}{agent.body[trait]:>3}", (body_x, UI(424 + index * 16)),
-                       (175, 192, 172), self.mono_small)
-        self._text(f"{'burn':<7}{agent.burn:>5.2f}", (body_x, UI(424 + 9 * 16)), (175, 192, 172), self.mono_small)
-
-        self._text(f"HUNGER  {min(100.0, agent.hunger):5.1f}%", (x, UI(590)), (224, 177, 118), self.mono)
-        self._bar(x, UI(609), width, agent.hunger / 100, (224, 150, 94))
-        self._text(f"HEALTH  {max(0.0, agent.health):5.1f} / {agent.max_health:.0f}", (x, UI(619)),
-                   (161, 207, 162), self.mono)
-        self._bar(x, UI(638), width, agent.health / agent.max_health, (124, 190, 131))
-        self._text(f"AGE {agent.age} / ~{agent.lifespan:.0f}    GENERATION {agent.generation}    "
-                   f"CHILDREN {agent.children}",
-                   (x, UI(651)), (145, 164, 146), self.small)
-        state = f"LAST ACTION: {agent.last_action.upper()}"
-        if not agent.alive:
-            state += f"     MEAT LEFT {agent.meat:.0f}"
-        self._text(state, (x, UI(667)), (145, 164, 146), self.small)
-        if agent.odds:
-            odds = sorted(agent.odds.items(), key=lambda item: -item[1])[:3]
-            self._text("CHANCES  " + "   ".join(f"{action} {chance:.0%}" for action, chance in odds),
-                       (x, UI(683)), (175, 192, 172), self.small)
-        self._text("C  copy as JSON      A  add to / remove from export", (x, UI(702)), (116, 139, 124), self.small)
+        draw_details(self.screen, agent, x, lambda offset: UI(332 + offset), width,
+                     here=self.simulation.temperature(agent.y))
+        self._text("C  copy as JSON      A  add to / remove from export", (x, UI(719)), (116, 139, 124), self.small)
         chosen = agent.identifier in self.export_list
-        self._add_button = pg.Rect(x, UI(722), width, UI(30))
+        self._add_button = pg.Rect(x, UI(737), width, UI(28))
         pg.draw.rect(self.screen, (44, 57, 52), self._add_button, border_radius=UI(5))
         if chosen:
             pg.draw.rect(self.screen, (238, 183, 110), self._add_button, 1, border_radius=UI(5))
@@ -724,10 +720,6 @@ class BitzkeyApp:
         while text and self.small.size(text + "...")[0] > width:
             text = text[:-1]
         return text.rstrip() + "..."
-
-    def _bar(self, x: int, y: int, width: int, value: float, color: tuple[int, int, int]) -> None:
-        pg.draw.rect(self.screen, (44, 57, 52), (x, y, width, UI(7)))
-        pg.draw.rect(self.screen, color, (x, y, round(width * max(0, min(1, value))), UI(7)))
 
     def _text(self, text: str, position: tuple[int, int], color: tuple[int, int, int],
               font: pg.font.Font) -> None:

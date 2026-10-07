@@ -54,6 +54,30 @@ class SimulationFlowTests(unittest.TestCase):
         self.assertIsNotNone(self.app.selected_id)
         self.assertFalse(self.app.show_insights)
 
+    def test_a_pick_on_the_graph_stays_selected_on_the_map_with_no_one_inspected(self):
+        others = [agent.identifier for agent in self.app.simulation.living][:3]
+        self.app.show_census = True
+        self.app.graph.select(set(others))
+        pg.event.post(key(pg.K_g))
+        self.app.playing = False
+        with patch.object(self.app, "_tick", side_effect=[None, SystemExit]):
+            with self.assertRaises(SystemExit):
+                self.app.run()
+        self.assertFalse(self.app.show_census)
+        self.assertIsNone(self.app.selected_id)  # the sidebar shows no one Bitzkey
+        self.assertEqual(self.app.graph.selection, set(others))  # but the pick stays, ringed on the map
+        self.app._draw()
+
+        # clicking a dot selects just it, on the map and the graph alike; closing the graph keeps it
+        board, cell_width, cell_height = self.app._board_geometry()
+        self.app._click((round(board.left + (self.animal.x + 0.5) * cell_width),
+                         round(board.top + (self.animal.y + 0.5) * cell_height)))
+        chosen = self.app.selected_id
+        self.assertEqual(self.app.graph.selection, {chosen})
+        self.app.show_census = True
+        self.app._close_graph()
+        self.assertEqual(self.app.selected_id, chosen)
+
     def test_the_insights_panel_scrolls_by_wheel_and_scroll_bar_within_its_length(self):
         self.app.show_insights = True
         self.app._draw()

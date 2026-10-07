@@ -6,7 +6,7 @@ from unittest.mock import patch
 from tools.Brain import ACTIONS, SENSES, Brain
 from tools.Exchange import Imported
 from tools.Genome import encode_dna
-from tools.Simulation import CORPSE_TURNS, Simulation, litter_size
+from tools.Simulation import CORPSE_TURNS, MEDIUM, Simulation, litter_size, nearby_offsets
 
 
 def lay_plenty_of_grass(simulation: Simulation) -> None:
@@ -466,8 +466,9 @@ class SimulationTests(unittest.TestCase):
                 with patch.object(self.simulation.random, "random", return_value=roll):
                     before = len(self.simulation.agents)
                     self.simulation._seed(plant)
-                    count += len(self.simulation.agents) > before
+                    count += len(self.simulation.agents) > before or bool(self.simulation.seeds)  # sprouted or waits
                     del self.simulation.agents[before:]
+                    self.simulation.seeds.clear()
                     self.simulation._index_cells()
                 plant.hunger = 0
             seeded.append(count)
@@ -729,14 +730,17 @@ class NewTraitTests(unittest.TestCase):
         self.assertGreater(kin_pain, -hunter.reward)
 
     def test_grass_grows_twice_as_fast_on_and_around_corpses(self):
-        corpse = self.simulation._add_agent(encode_dna("grazer"), 0, 0)
+        rows = self.simulation._medium_rows  # grass grows only where it is medium
+        self.assertTrue({6, 7, 8} <= set(rows))
+        corpse = self.simulation._add_agent(encode_dna("grazer"), 0, 7)
         corpse.health = 0
         self.simulation._die(corpse, "wounded")
         self.simulation.grass.clear()
         self.simulation._sow(20000)
-        around = [((dx % 12), (dy % 12)) for dx in (-1, 0, 1) for dy in (-1, 0, 1)]  # wrapping round the edge
+        self.assertTrue(all(y in rows for _, y in self.simulation.grass))
+        around = [((dx % 12), 7 + dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1)]  # wrapping round the edge
         fertile = sum(self.simulation.grass.get(cell, 0) for cell in around) / len(around)
-        elsewhere = (sum(self.simulation.grass.values()) - fertile * len(around)) / (144 - len(around))
+        elsewhere = (sum(self.simulation.grass.values()) - fertile * len(around)) / (12 * len(rows) - len(around))
         self.assertAlmostEqual(fertile / elsewhere, 2, delta=0.35)
 
     def test_a_predators_territory_grows_rivalrous_past_a_few_other_predators(self):
@@ -1019,8 +1023,9 @@ class NewTraitTests(unittest.TestCase):
         simulation.grass.clear()
         grazer = simulation._add_agent(encode_dna("grazer"), 15, 15)
         simulation._index_cells()
-        cells = 2 * 6 * 7 + 1  # every cell within six steps
-        expected = 1.25 * (cells * simulation.grass_regrowth / (30 * 30) * 150)
+        # every cell within six steps where grass grows now, of all the cells it grows in
+        cells = sum(simulation.temperature(15 + dy) == MEDIUM for _, dy in nearby_offsets(6))
+        expected = 1.25 * (cells * simulation.grass_regrowth / (30 * len(simulation._medium_rows)) * 150)
         self.assertAlmostEqual(simulation._food_supply(grazer), expected)
         corner = simulation._add_agent(encode_dna("grazer"), 0, 0)  # a corner sees less of the world
         simulation._index_cells()
@@ -1339,6 +1344,7 @@ class NewTraitTests(unittest.TestCase):
         self.simulation._browse(grazer, plant)  # arriving at a recovering plant gets nothing
         self.assertEqual((plant.health, grazer.last_action), (plant.max_health - 15, "sought plants"))
 
+        self.simulation.agents.remove(grazer)  # left alone while it recovers
         for _ in range(8):
             self.simulation._take_turn()
         self.assertEqual(plant.cooldown, 0)

@@ -2,9 +2,11 @@
 
 The low 32 bits are the inner dot: mental, emotional and social traits.
 The high 32 bits are the outer ring: the body and its physical attributes.
-Each word holds ten three-bit traits (0 to 7), from its least-significant bits; its top
-two bits carry no trait but, like the rest, shade its colour. Read as four CMYK bytes,
-each word sets the colour of its part of the Bitzkey.
+Each word holds ten three-bit traits (0 to 7), from its least-significant bits. Its top two
+bits hold the climate genes: in the ring, the home temperature (hot, medium, cold or very
+cold); in the dot, the heat tolerance flag (bit 30) and the cold tolerance flag (bit 31).
+Like the rest, they shade the colour: read as four CMYK bytes, each word sets the colour of
+its part of the Bitzkey.
 
 Version 1 genomes held eight four-bit traits (0 to 15) per word. Exported records without
 a version are version 1, and are converted when imported.
@@ -31,13 +33,18 @@ GENOME = (1 << 64) - 1
 MIND_MUTATION_CHANCE = 0.5  # for each of MIND_MUTATION_ROLLS: one mind trait steps one up or down
 MIND_MUTATION_ROLLS = 3     # mind mutations a birth may carry, each with the mind mutation chance
 BODY_MUTATION_CHANCE = 0.5  # one bit of the ring flips
-SPARE_BITS = 0xC0000000  # the dot's two bits that hold no trait
+SPARE_BITS = 0xC0000000  # the dot's two bits that hold no mind trait: the tolerance flags
+TEMPERATURES = ("hot", "medium", "cold", "very cold")  # home temperatures, from hottest to coldest
+TEMPERATURE_SHIFT = 62  # the home temperature: the ring's top two bits
+HEAT_TOLERANCE = 1 << 30  # in the dot
+COLD_TOLERANCE = 1 << 31
 HEX_WORD = re.compile(r"#?([0-9A-Fa-f]{8})")
 
 # Version 1 held the first eight traits of each word, four bits each. Converted genomes start
 # the traits added in version 2 at these values.
 V1_MAX = 15
 V1_TRAIT_DEFAULTS = {"empathy": 0, "tolerance": 3, "litter": 0, "carrion": 0}
+V1_TEMPERATURE = 1  # medium
 
 
 def share(value: float) -> float:
@@ -68,15 +75,26 @@ def decode_body(dna: int) -> dict[str, int | str]:
     return body
 
 
-def encode_dna(species: str = "plant", **traits: int) -> int:
-    """Build a genome from named traits, each 0 to 7; unnamed traits are zero."""
+def decode_climate(dna: int) -> tuple[int, bool, bool]:
+    """The climate genes: the home temperature (an index into TEMPERATURES), and whether it
+    tolerates heat and cold."""
+    return (dna >> TEMPERATURE_SHIFT) & 0x3, bool(dna & HEAT_TOLERANCE), bool(dna & COLD_TOLERANCE)
+
+
+def encode_dna(species: str = "plant", temperature: int = V1_TEMPERATURE, heat_tolerance: bool = False,
+               cold_tolerance: bool = False, **traits: int) -> int:
+    """Build a genome from named traits, each 0 to 7, and climate genes; unnamed traits are
+    zero, the home temperature medium, and neither tolerance."""
     unknown = set(traits) - set(MIND_TRAITS) - set(BODY_TRAITS[1:])
     if unknown:
         raise ValueError(f"Unknown traits: {', '.join(sorted(unknown))}.")
     outside = {trait: value for trait, value in traits.items() if not 0 <= value <= TRAIT_MAX}
     if outside:
         raise ValueError(f"Traits run from 0 to {TRAIT_MAX}: {outside}.")
-    dna = SPECIES.index(species) << 32
+    if not 0 <= temperature < len(TEMPERATURES):
+        raise ValueError(f"Temperatures run from 0 to {len(TEMPERATURES) - 1}: {temperature}.")
+    dna = SPECIES.index(species) << 32 | temperature << TEMPERATURE_SHIFT
+    dna |= (HEAT_TOLERANCE if heat_tolerance else 0) | (COLD_TOLERANCE if cold_tolerance else 0)
     for index, trait in enumerate(MIND_TRAITS):
         dna |= traits.get(trait, 0) << (TRAIT_BITS * index)
     for index, trait in enumerate(BODY_TRAITS[1:], start=1):
@@ -86,7 +104,8 @@ def encode_dna(species: str = "plant", **traits: int) -> int:
 
 def convert_v1(dna: int) -> int:
     """Re-encode a version 1 genome in this layout: each old trait scaled from 0-15 to 0-7, the
-    species kept, and the traits version 1 lacked at their defaults."""
+    species kept, and the traits version 1 lacked at their defaults: a medium home temperature
+    and neither tolerance among them."""
     old_mind = dict(zip(MIND_TRAITS[:8], _traits(mind_word(dna), 8, 4), strict=True))
     old_body = dict(zip(BODY_TRAITS[:8], _traits(body_word(dna), 8, 4), strict=True))
     traits = {trait: round(value * TRAIT_MAX / V1_MAX) for trait, value in {**old_mind, **old_body}.items()

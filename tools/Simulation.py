@@ -12,7 +12,7 @@ from functools import cache, cached_property, lru_cache
 from tools.Brain import ACTIONS, SENSES, Brain, choice_odds, make_senses
 from tools.Genome import (GENOME, MIND_TRAITS, SPECIES, TRAIT_MAX, body_word, color_from_word, cross, dot_difference, inherit_mind, ring_difference,
                           BODY_MUTATION_CHANCE, MIND_MUTATION_CHANCE,
-                          decode_body, decode_mind, make_dna, mind_word, share)
+                          TEMPERATURE_SHIFT, TEMPERATURES, decode_body, decode_climate, decode_mind, make_dna, mind_word, share)
 from tools.Census import Census
 from tools.Exchange import Imported
 from tools.Insights import Insights
@@ -135,6 +135,23 @@ LIGHT_RADIUS = 3       # plants compete for light with the plants within this ma
 LIGHT_LIMIT = 3        # each such plant cuts a plant's chance of seeding by this share, to none at this many
 PLANT_CROWDING = 3     # a seed doesn't take where more than this many plants grow within two cells
 TEMPERAMENT_RELAPSE = 0.005  # share of the gap back to the inborn value closed each turn
+# Climate. The map is banded into zones across its height: ARCTIC_SHARE at the top and at the
+# bottom is arctic, cold; a strip of EQUATOR_SHARE across the middle is the equator, hot; the rest
+# is temperate, medium. Every YEAR_LENGTH turns is a year. Through its first quarter the north,
+# from the top down to and through the equator, is a step colder; through its third quarter the
+# south, from the bottom up to and through the equator, is. Every Bitzkey has a home temperature,
+# and may tolerate heat (zones hotter than home) or cold (zones colder); plants tolerate nothing, and
+# a plant spawned at the start is at home in its zone's usual temperature.
+YEAR_LENGTH = 180
+ARCTIC_SHARE = 0.2
+EQUATOR_SHARE = 0.2
+CLIMATE_HUNGER = 2.0   # an animal a step or more from home needs this many times the food
+CLIMATE_DAMAGE = 0.1   # two steps or more from home, a Bitzkey loses this share of its full health a turn
+PLANT_CLIMATE_YIELD = 0.5  # a plant out of its temperature gives this share of its food
+SEED_VIABILITY = 0.75  # years a seed that falls where it can't grow stays able to germinate
+HOT, MEDIUM, COLD, VERY_COLD = range(len(TEMPERATURES))
+SEASONS = ("northern winter", "mild", "southern winter", "mild")  # by quarter of the year
+SEED_BYTES = 120  # a waiting seed's entry, for the history's memory budget
 
 # How experiences reshape temperament, in shares of a trait's full range before scaling by
 # plasticity.
@@ -166,6 +183,34 @@ SEEN_OFFSETS = [(0, 0), *SIGHT_OFFSETS]
 SIGHT_WITHIN = [[offset for offset in SIGHT_OFFSETS if abs(offset[0]) + abs(offset[1]) <= reach]
                 for reach in range(MAX_SIGHT + 1)]
 SEEN_WITHIN = [[(0, 0), *offsets] for offsets in SIGHT_WITHIN]
+
+
+def season(turn: int) -> int:
+    """The quarter of the year a turn falls in, 0 to 3."""
+    return turn % YEAR_LENGTH * 4 // YEAR_LENGTH
+
+
+def year(turn: int) -> int:
+    """The year a turn falls in, from 1."""
+    return turn // YEAR_LENGTH + 1
+
+
+def zone_temperature(y: int, height: int) -> int:
+    """A row's temperature outside the winters: cold in the arctic, hot on the equator, medium
+    between."""
+    place = (y + 0.5) / height
+    if place < ARCTIC_SHARE or place > 1 - ARCTIC_SHARE:
+        return COLD
+    return HOT if abs(place - 0.5) < EQUATOR_SHARE / 2 else MEDIUM
+
+
+def temperature_at(y: int, height: int, turn: int) -> int:
+    """A row's temperature on a turn: its zone's, a step colder in its hemisphere's winter."""
+    place = (y + 0.5) / height
+    equator = abs(place - 0.5) < EQUATOR_SHARE / 2
+    quarter = season(turn)
+    winter = (quarter == 0 and (place < 0.5 or equator)) or (quarter == 2 and (place > 0.5 or equator))
+    return zone_temperature(y, height) + winter
 
 
 @cache
@@ -236,6 +281,20 @@ class Bitzkey:
     @cached_property
     def species(self) -> str:
         return str(self.body["species"])
+
+    @cached_property
+    def climate(self) -> tuple[int, bool, bool]:
+        """Its home temperature, and whether it tolerates heat and cold."""
+        return decode_climate(self.dna)
+
+    def climate_steps(self, here: int) -> int:
+        """How many steps a temperature is from home, as it feels it: an animal tolerant of heat
+        doesn't feel hotter, nor one tolerant of cold colder. Plants feel every step."""
+        home, heat, cold = self.climate
+        difference = here - home  # above 0, colder than home
+        if self.species != "plant" and ((difference > 0 and cold) or (difference < 0 and heat)):
+            return 0
+        return abs(difference)
 
     @property
     def profile(self) -> dict[str, float]:
@@ -414,12 +473,18 @@ class Simulation:
         self.mind_mutation = mind_mutation / 100
         self.body_mutation = body_mutation / 100
         self._plants = 0
+        # Seeds waiting where they fell for the temperature they can grow in: (x, y, genome,
+        # generation, turn sown).
+        self.seeds: list[tuple[int, int, int, int, int]] = []
+        self._climate: list[int] = []
+        self._medium_rows: list[int] = []
+        self._update_climate()
         self.grass: dict[tuple[int, int], int] = {}
         initial_grass = round(width * height * grass_density / 100)
         self.grass_regrowth = initial_grass * GRASS_REGROWTH
         self._sow(initial_grass)
         for size in self._group_sizes(population):
-            self._spawn_group(make_dna(self.random.randrange(len(SPECIES)), self.random), size)
+            self._spawn_group(make_dna(self.random.randrange(len(SPECIES)), self.random), size, native=True)
         for bitzkey in imported:
             self._spawn_group(bitzkey.dna, self.random.randint(*SPAWN_GROUP), bitzkey.brain, bitzkey.mind)
         # Snapshots of the world by turn: every recent turn, then evenly spaced checkpoints back
@@ -434,6 +499,15 @@ class Simulation:
     @property
     def living(self) -> list[Bitzkey]:
         return [agent for agent in self.agents if agent.alive]
+
+    def temperature(self, y: int) -> int:
+        """A row's temperature now."""
+        return self._climate[y]
+
+    def _update_climate(self) -> None:
+        """Each row's temperature this turn, and the rows where grass can grow: the medium ones."""
+        self._climate = [temperature_at(y, self.height, self.turn) for y in range(self.height)]
+        self._medium_rows = [y for y, temperature in enumerate(self._climate) if temperature == MEDIUM]
 
     def _group_sizes(self, population: int) -> list[int]:
         """Random group sizes adding up to the population, never leaving a group too small.
@@ -450,12 +524,15 @@ class Simulation:
         return sizes
 
     def _spawn_group(self, dna: int, size: int, brain: Brain | None = None,
-                     mind: Mapping[str, float] | None = None) -> None:
+                     mind: Mapping[str, float] | None = None, native: bool = False) -> None:
         """Place `size` Bitzkeys of one genome around a random centre, kept clear of the edges
         so the group is never split across them. Each gets its own copy of `brain` and starts
-        with the temperament in `mind`, if given."""
+        with the temperament in `mind`, if given. `native` plants take the usual temperature of
+        their centre's zone as their home."""
         x = self.random.randrange(SPAWN_SPREAD, self.width - SPAWN_SPREAD)
         y = self.random.randrange(SPAWN_SPREAD, self.height - SPAWN_SPREAD)
+        if native and decode_body(dna)["species"] == "plant":
+            dna = dna & ~(0x3 << TEMPERATURE_SHIFT) | zone_temperature(y, self.height) << TEMPERATURE_SHIFT
         for _ in range(size):
             self._add_agent(dna, x + self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD),
                             y + self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD),
@@ -480,7 +557,8 @@ class Simulation:
         most DENSE_HISTORY and CHECKPOINTS, fewer when snapshots of the world are large, so the
         history fits HISTORY_BUDGET."""
         brains = sum(agent.brain is not None for agent in self.agents)
-        size = len(self.agents) * AGENT_BYTES + brains * BRAIN_BYTES + len(self.grass) * GRASS_BYTES
+        size = (len(self.agents) * AGENT_BYTES + brains * BRAIN_BYTES + len(self.grass) * GRASS_BYTES
+                + len(self.seeds) * SEED_BYTES)
         most = max(MIN_SNAPSHOTS, HISTORY_BUDGET // max(1, size))
         dense = min(DENSE_HISTORY, most // 2)
         return dense, min(CHECKPOINTS, most - dense)
@@ -494,6 +572,7 @@ class Simulation:
             "next_identifier": self.next_identifier,
             "agents": [agent.copy() for agent in self.agents],
             "grass": self.grass.copy(),
+            "seeds": list(self.seeds),
             "random_state": self.random.getstate(),
             "insights": self.insights.snapshot(),
         })
@@ -513,8 +592,10 @@ class Simulation:
         self.next_identifier = snapshot["next_identifier"]
         self.agents = [agent.copy() for agent in snapshot["agents"]]
         self.grass = snapshot["grass"].copy()
+        self.seeds = list(snapshot["seeds"])
         self.random.setstate(snapshot["random_state"])
         self.insights.restore(snapshot["insights"])
+        self._update_climate()
         self._index_cells()
 
     def _start_for(self, target: int) -> tuple[dict | None, int]:
@@ -575,6 +656,7 @@ class Simulation:
         """One turn. A replay re-simulates a turn already recorded, so the census, which already
         holds it, is left alone."""
         self.turn += 1
+        self._update_climate()
         self._index_cells()
         order = self.living
         self._plants = sum(agent.species == "plant" for agent in order)
@@ -584,19 +666,30 @@ class Simulation:
             if not agent.alive:
                 continue
             agent.age += 1
-            agent.hunger += agent.burn
+            plant = agent.species == "plant"
+            here = self._climate[agent.y]
+            steps = agent.climate_steps(here)
+            agent.hunger += agent.burn * (CLIMATE_HUNGER if steps and not plant else 1)
             if agent.cooldown:
                 agent.cooldown -= 1
             if agent.health < agent.max_health and agent.hunger < 65:
                 agent.heal(0.005)
+            if steps >= 2:
+                agent.health -= CLIMATE_DAMAGE * agent.max_health
             if agent.hunger >= 100:
                 self._die(agent, "starved")
+                continue
+            if agent.health <= 0:
+                self._die(agent, "froze" if here > agent.climate[0] else "overheated")
                 continue
             if self._dies_of_age(agent):
                 self._die(agent, "old age")
                 continue
-            if agent.species == "plant":
+            if plant:
                 agent.hunger = max(0, agent.hunger - 1.5)
+                if steps:  # out of its temperature, a plant neither grows nor seeds
+                    agent.last_action = "withering"
+                    continue
                 agent.health = min(agent.max_health, agent.health + agent.max_health * PLANT_REGROWTH)
                 agent.last_action = "photosynthesized"
                 self._seed(agent)
@@ -606,6 +699,7 @@ class Simulation:
                 self._experience(agent, "starving")
             self._think(agent)
 
+        self._germinate()
         whole, fraction = divmod(self.grass_regrowth, 1)
         self._sow(int(whole) + (1 if fraction and self.random.random() < fraction else 0))
         for agent in self.agents:
@@ -633,27 +727,56 @@ class Simulation:
             return
         dx, dy = SIGHT_OFFSETS[self.random.randrange(SEED_OFFSETS)]
         cell = ((plant.x + dx) % self.width, (plant.y + dy) % self.height)
-        if any(other.alive for other in self._cells.get(cell, ())):
+        if not self._room_for_seedling(cell):
             return
-        spot = Bitzkey(-1, plant.dna, *cell)
-        if sum(other.species == "plant" for other in self._nearby(spot, 2)) > PLANT_CROWDING:
-            return
-        seedling = self._add_agent(cross(plant.dna, plant.dna, self.random, None, self.mind_mutation,
-                                         self.body_mutation), *cell)
-        seedling.hunger = SEEDLING_HUNGER
-        seedling.generation = plant.generation + 1
+        dna = cross(plant.dna, plant.dna, self.random, None, self.mind_mutation, self.body_mutation)
         plant.hunger += SEED_COST
         plant.children += 1
         plant.last_action = "seeded"
+        if self._climate[cell[1]] != decode_climate(dna)[0]:  # too hot or cold to grow: the seed waits
+            self.seeds.append((*cell, dna, plant.generation + 1, self.turn))
+            return
+        self._sprout(dna, cell, plant.generation + 1)
+
+    def _room_for_seedling(self, cell: tuple[int, int]) -> bool:
+        """Whether a seedling can take on a cell: it is free, and plants don't crowd it."""
+        if any(other.alive for other in self._cells.get(cell, ())):
+            return False
+        spot = Bitzkey(-1, 0, *cell)
+        return sum(other.species == "plant" for other in self._nearby(spot, 2)) <= PLANT_CROWDING
+
+    def _sprout(self, dna: int, cell: tuple[int, int], generation: int) -> None:
+        seedling = self._add_agent(dna, *cell)
+        seedling.hunger = SEEDLING_HUNGER
+        seedling.generation = generation
         self._plants += 1
 
+    def _germinate(self) -> None:
+        """Waiting seeds sprout once their cell is at their temperature and there is room, unless
+        they have waited SEED_VIABILITY of a year, when they are dead."""
+        viable = SEED_VIABILITY * YEAR_LENGTH
+        waiting = []
+        for seed in self.seeds:
+            x, y, dna, generation, sown = seed
+            if self.turn - sown >= viable:
+                continue
+            if self._climate[y] == decode_climate(dna)[0] and self._room_for_seedling((x, y)):
+                self._sprout(dna, (x, y), generation)
+            else:
+                waiting.append(seed)
+        self.seeds = waiting
+
     def _sow(self, tufts: int) -> None:
-        """Scatter new grass at random; on and around a corpse, it grows CORPSE_FERTILITY times as fast."""
+        """Scatter new grass at random where it is medium, the only temperature it grows in; on and
+        around a corpse, it grows CORPSE_FERTILITY times as fast."""
+        rows = self._medium_rows
+        if not rows:
+            return
         fertile = {((corpse.x + dx) % self.width, (corpse.y + dy) % self.height)
                    for corpse in self.agents if corpse.died_turn is not None
                    for dx in (-1, 0, 1) for dy in (-1, 0, 1)}
         for _ in range(tufts):
-            cell = (self.random.randrange(self.width), self.random.randrange(self.height))
+            cell = (self.random.randrange(self.width), rows[self.random.randrange(len(rows))])
             self.grass[cell] = self.grass.get(cell, 0) + (CORPSE_FERTILITY if cell in fertile else 1)
 
     def _take_census(self) -> None:
@@ -741,6 +864,8 @@ class Simulation:
         herd_assailant = next((other for other in neighbors if other.identifier == agent.herd_assailant), None)
         defend_target = assailant or herd_assailant
         herd, herd_near, herd_middle = self._herd(agent)
+        discomfort = agent.climate_steps(self._climate[agent.y])
+        comfort = self._comfort_row(agent, sight) if discomfort else None
         alarm_source = None
         if agent.alarm is not None:
             alarm_source = next((other for other in self._nearby(agent, 3) if other.identifier == agent.alarm), None)
@@ -773,6 +898,8 @@ class Simulation:
         if herd_middle is not None and (abs(herd_middle[0] - agent.x) + abs(herd_middle[1] - agent.y)
                                         > HERD_SPREAD * (1 - agent.feeling("fear"))):
             available.add("herd")  # the more fearful it is, the closer it keeps to the herd's middle
+        if comfort:
+            available.add("migrate")  # toward the temperature it is at home in
 
         senses = make_senses(
             hunger=min(1.0, agent.hunger / 100),
@@ -801,6 +928,8 @@ class Simulation:
             herd_closeness=(0.0 if herd_middle is None else
                             max(0.0, 1 - (abs(herd_middle[0] - agent.x) + abs(herd_middle[1] - agent.y)) / HERD_RADIUS)),
             alarm=float(agent.alarm is not None),
+            climate_discomfort=min(2, discomfort) / 2,
+            comfort_closeness=1.0 if not discomfort else self._closeness(agent, comfort, sight),
             age=min(1.0, agent.age / 400),
             **{trait: agent.feeling(trait) for trait in MIND_TRAITS},
         )
@@ -808,7 +937,7 @@ class Simulation:
                      "threats": len(threats), "quarry": quarry, "hunter": hunter, "suitor": suitor,
                      "grass": grass, "grass_here": grass_here, "carrion": carrion, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
                      "others": others, "defend_target": defend_target, "for_herd": assailant is None,
-                     "herd": herd, "herd_near": herd_near, "herd_middle": herd_middle}
+                     "herd": herd, "herd_near": herd_near, "herd_middle": herd_middle, "comfort": comfort}
         return senses, [ACTIONS.index(action) for action in ACTIONS if action in available], situation
 
     def _wellbeing(self, agent: Bitzkey) -> float:
@@ -917,6 +1046,9 @@ class Simulation:
         elif action == "herd":
             self._move_toward(agent, *situation["herd_middle"])
             agent.last_action = "herded"
+        elif action == "migrate":
+            self._move_toward(agent, *situation["comfort"])
+            agent.last_action = "migrated"
         elif action == "flee":
             self._move_away(agent, situation["hunter"])
             agent.last_action = "panicked" if situation.get("panic") else "fled"
@@ -935,7 +1067,7 @@ class Simulation:
         if abs(plant.x - agent.x) + abs(plant.y - agent.y) > 1 or plant.cooldown:
             agent.last_action = "sought plants"
             return
-        agent.nourish((PLANT_MEAL + PLANT_MEAL_FOR_SIZE * plant.physique("size")) * agent.browsing)
+        agent.nourish((PLANT_MEAL + PLANT_MEAL_FOR_SIZE * plant.physique("size")) * agent.browsing * self._plant_yield(plant))
         plant.health -= PLANT_BITE
         plant.cooldown = PLANT_RECOVERY
         agent.last_action = "browsed"
@@ -1270,25 +1402,39 @@ class Simulation:
             return SHARED_DIET  # both hunt grazers
         return 0.0
 
+    def _plant_yield(self, plant: Bitzkey) -> float:
+        """The share of its food a plant gives: less out of its temperature."""
+        return PLANT_CLIMATE_YIELD if plant.climate_steps(self._climate[plant.y]) else 1.0
+
+    def _comfort_row(self, agent: Bitzkey, sight: int) -> tuple[int, int] | None:
+        """The nearest cell straight up or down, within sight, where it would feel at home: north
+        before south at the same distance."""
+        for distance in range(1, sight + 1):
+            for y in (agent.y - distance, agent.y + distance):
+                if 0 <= y < self.height and not agent.climate_steps(self._climate[y]):
+                    return agent.x, y
+        return None
+
     def _food_supply(self, agent: Bitzkey) -> float:
         """The meals within FORAGE_RADIUS of an animal per mouth sharing them, itself included:
         grass and plants for those that graze, as well as they digest them, and prey for hunters.
-        Grass is judged by what will grow back over GRASS_OUTLOOK turns, and a share of what stands
-        now, so a crowd can't breed on a stock it is about to eat."""
+        Grass is judged by what will grow back over GRASS_OUTLOOK turns where it grows now, and a
+        share of what stands now, so a crowd can't breed on a stock it is about to eat."""
         food = 0.0
         if agent.grazing:
-            grass, x, y = self.grass, agent.x, agent.y
+            grass, climate, x, y = self.grass, self._climate, agent.x, agent.y
             cells = tufts = 0
             for dx, dy in nearby_offsets(FORAGE_RADIUS):
                 if 0 <= x + dx < self.width and 0 <= y + dy < self.height:
-                    cells += 1
+                    cells += climate[y + dy] == MEDIUM
                     tufts += grass.get((x + dx, y + dy), 0)
-            regrowth = cells * self.grass_regrowth / (self.width * self.height) * GRASS_OUTLOOK
+            growing = self.width * len(self._medium_rows)
+            regrowth = cells * self.grass_regrowth / growing * GRASS_OUTLOOK if growing else 0.0
             food += agent.grazing * (STANDING_GRASS * tufts + regrowth)
         mouths = 1.0
         for other in self._nearby(agent, FORAGE_RADIUS):
             if other.species == "plant":
-                food += PLANT_MEALS * agent.browsing
+                food += PLANT_MEALS * agent.browsing * self._plant_yield(other)
             elif self._feeds_on(agent, other):
                 food += PREY_MEALS
             else:

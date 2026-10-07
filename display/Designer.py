@@ -10,20 +10,33 @@ import pygame as pg
 from display import Window
 from display.Look import RING_WIDTH, dot_radius, draw_bitzkey
 from display.Ui import UI
-from tools.Genome import (BODY_TRAITS, GENOME, MIND_TRAITS, SPECIES, TRAIT_BITS, TRAIT_MAX, WORD, body_word,
-                          decode_body, mind_word)
+from tools.Genome import (BODY_TRAITS, GENOME, MIND_TRAITS, SPECIES, TEMPERATURES, TRAIT_BITS, TRAIT_MAX, WORD,
+                          body_word, decode_body, mind_word)
 from tools.Simulation import Bitzkey, litter_size
 
-FIELDS = (tuple(("mind", trait) for trait in MIND_TRAITS) + tuple(("body", trait) for trait in BODY_TRAITS)
+# The rows, a column for each word: the mind traits and then the tolerance flags (the dot's top two
+# bits, as one value: 1 heat, 2 cold, 3 both), the body traits and then the home temperature (the
+# ring's top two bits); then the two hex codes.
+FIELDS = (tuple(("mind", trait) for trait in MIND_TRAITS) + (("climate", "hardiness"),)
+          + tuple(("body", trait) for trait in BODY_TRAITS) + (("climate", "temperature"),)
           + (("hex", "ring"), ("hex", "dot")))
+COLUMN_ROWS = len(MIND_TRAITS) + 1
+HARDINESS = ("none", "heat", "cold", "both")
+CLIMATE_MAX = 3
 HEX_DIGITS = "0123456789ABCDEF"
 PREVIEW_ZOOM = 16  # the preview is the in-world look, this many times larger
 
 
 def _shift(field: tuple[str, str]) -> int:
     kind, name = field
+    if kind == "climate":
+        return 30 if name == "hardiness" else 62
     index = MIND_TRAITS.index(name) if kind == "mind" else BODY_TRAITS.index(name)
     return TRAIT_BITS * index + (0 if kind == "mind" else 32)
+
+
+def _largest(field: tuple[str, str]) -> int:
+    return CLIMATE_MAX if field[0] == "climate" else TRAIT_MAX
 
 
 class DesignerForm:
@@ -39,12 +52,13 @@ class DesignerForm:
         return FIELDS[self.focus]
 
     def value(self, field: tuple[str, str]) -> int:
-        """A trait's value, 0 to 7; for species, the raw value that picks it (value mod 4)."""
-        return (self.dna >> _shift(field)) & TRAIT_MAX
+        """A trait's value, 0 to 7; for species, the raw value that picks it (value mod 4); for the
+        climate genes, 0 to 3."""
+        return (self.dna >> _shift(field)) & _largest(field)
 
     def set_value(self, field: tuple[str, str], value: int) -> None:
-        shift = _shift(field)
-        self.dna = (self.dna & ~(TRAIT_MAX << shift) & GENOME) | (max(0, min(TRAIT_MAX, value)) << shift)
+        shift, largest = _shift(field), _largest(field)
+        self.dna = (self.dna & ~(largest << shift) & GENOME) | (max(0, min(largest, value)) << shift)
 
     def word(self, part: str) -> int:
         return body_word(self.dna) if part == "ring" else mind_word(self.dna)
@@ -174,16 +188,15 @@ class Designer:
     def _layout(self) -> dict:
         UI.fit(self.screen.get_size())
         width, height = self.screen.get_size()
-        card = pg.Rect(0, 0, UI(1040), UI(740))
+        card = pg.Rect(0, 0, UI(1040), UI(800))
         card.center = (width // 2, height // 2)
         preview = pg.Rect(card.left + UI(24), card.top + UI(92), UI(320), UI(300))
         codes = {part: pg.Rect(preview.right - UI(160), preview.bottom + UI(16 + 44 * index), UI(160), UI(34))
                  for index, part in enumerate(("ring", "dot"))}
         column_width = (card.right - UI(24) - (preview.right + UI(32)) - UI(24)) // 2
         rows = {}
-        traits = len(MIND_TRAITS) + len(BODY_TRAITS)
-        for index, field in enumerate(FIELDS[:traits]):
-            column, row = divmod(index, len(MIND_TRAITS))
+        for index, field in enumerate(FIELDS[:2 * COLUMN_ROWS]):
+            column, row = divmod(index, COLUMN_ROWS)
             left = preview.right + UI(32) + column * (column_width + UI(24))
             rows[field] = pg.Rect(left, card.top + UI(124 + row * 50), column_width, UI(42))
         buttons = {}
@@ -271,12 +284,18 @@ class Designer:
                      f"Breeding costs each parent {25 - 15 * fertility:.0f} hunger, then",
                      f"{round(20 - 15 * fertility)} turns to recover.  With a like partner, litters of {litter}.",
                      f"Carrion gives it {sample.digestion:.0%} of its meat.  Lives about {sample.lifespan:.0f} turns."]
+        home, hardiness = form.value(("climate", "temperature")), form.value(("climate", "hardiness"))
+        if species == "plant":
+            facts.append(f"At home where it is {TEMPERATURES[home]}; elsewhere it withers.")
+        else:
+            hardy = ("", "  Tolerates heat.", "  Tolerates cold.", "  Tolerates heat and cold.")[hardiness]
+            facts.append(f"At home where it is {TEMPERATURES[home]}.{hardy}")
         for index, fact in enumerate(facts):
             self._text(fact, (preview.left, layout["codes"]["dot"].bottom + UI(20 + index * 22)), (187, 199, 181),
                        self.small)
 
         # The trait rows: mind on the left, body on the right.
-        first_rows = (layout["rows"][FIELDS[0]], layout["rows"][FIELDS[len(MIND_TRAITS)]])
+        first_rows = (layout["rows"][FIELDS[0]], layout["rows"][FIELDS[COLUMN_ROWS]])
         for row, heading in zip(first_rows, ("MIND  /  INNER DOT", "BODY  /  OUTER RING")):
             self._text(heading, (row.left, row.top - UI(28)), (220, 229, 211), self.font)
         for field, row in layout["rows"].items():
@@ -302,14 +321,21 @@ class Designer:
         meter = pg.Rect(row.left + UI(12), row.bottom - UI(11), minus.left - row.left - UI(28), UI(4))
         pg.draw.rect(self.screen, (44, 57, 52), meter)
         pg.draw.rect(self.screen, (131, 205, 143),
-                     (meter.left, meter.top, round(meter.width * value / TRAIT_MAX), meter.height))
+                     (meter.left, meter.top, round(meter.width * value / _largest(field)), meter.height))
         for button, sign in ((minus, "-"), (plus, "+")):
             pg.draw.rect(self.screen, (44, 57, 52), button, border_radius=UI(4))
             label = self.bold.render(sign, True, (220, 229, 211))
             self.screen.blit(label, label.get_rect(center=button.center))
         pg.draw.rect(self.screen, (19, 26, 27), box, border_radius=UI(4))
         pg.draw.rect(self.screen, (131, 205, 143) if focused else (54, 68, 62), box, 1, border_radius=UI(4))
-        shown = f"{SPECIES[value % len(SPECIES)]} {value}" if field == ("body", "species") else str(value)
+        if field == ("body", "species"):
+            shown = f"{SPECIES[value % len(SPECIES)]} {value}"
+        elif field == ("climate", "temperature"):
+            shown = TEMPERATURES[value]
+        elif field == ("climate", "hardiness"):
+            shown = HARDINESS[value]
+        else:
+            shown = str(value)
         text = self.font.render(shown, True, (238, 238, 220))
         self.screen.blit(text, text.get_rect(midright=(box.right - UI(10), box.centery)))
 
