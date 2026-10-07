@@ -1,6 +1,8 @@
 import random
 import unittest
 
+from unittest.mock import patch
+
 import numpy as np
 
 from tools.Brain import (ACTIONS, HIDDEN_SIZE, INPUT_SIZE, MIN_DEPTH, SENSES, Brain, choice_odds, depth_for, gene_senses,
@@ -89,6 +91,36 @@ class BrainTests(unittest.TestCase):
         self.assertTrue(np.array_equal(deeper.layers[5][0], np.eye(HIDDEN_SIZE)))
         self.assertTrue(np.array_equal(shallower.layers[1][0], brain.layers[1][0]))
 
+    def test_a_new_brain_is_reluctant_to_set_off_in_any_direction(self):
+        reluctant = Brain.random(random.Random(7))
+        with patch("tools.Brain.HEADING_RELUCTANCE", 0.0):
+            eager = Brain.random(random.Random(7))
+        for action, (mine, theirs) in zip(ACTIONS, zip(reluctant.output_biases, eager.output_biases), strict=True):
+            self.assertAlmostEqual(mine, theirs - (0.5 if action.startswith("go_") else 0.0))
+
+    def test_a_first_traced_lesson_is_an_ordinary_lesson(self):
+        traced, plain = Brain.random(random.Random(7), 3), Brain.random(random.Random(7), 3)
+        senses = [0.3] * INPUT_SIZE
+        traced.learn_traced(senses, 2, 1.5, learning_rate=0.05, discount=0.9)
+        plain.learn(senses, 2, 1.5, learning_rate=0.05)
+        for mine, theirs in zip(traced.values([0.6] * INPUT_SIZE), plain.values([0.6] * INPUT_SIZE), strict=True):
+            self.assertAlmostEqual(mine, theirs, places=12)
+
+    def test_a_traced_lesson_reaches_back_to_the_choice_before(self):
+        earlier, later = [0.2] * INPUT_SIZE, [0.7] * INPUT_SIZE
+        changes = []
+        for decay in (0.0, 0.9):
+            with patch("tools.Brain.TRACE_DECAY", decay):
+                brain = Brain.random(random.Random(7))
+                before = brain.values(earlier)[1]
+                brain.learn_traced(earlier, 1, before, learning_rate=0.05, discount=1.0)  # no surprise yet
+                brain.learn_traced(later, 4, brain.values(later)[4] - 1, learning_rate=0.05, discount=1.0)
+                changes.append(brain.values(earlier)[1] - before)
+        # Without a trace, the earlier choice moves only through the layers both share; with one, it
+        # shares more than twice the blame.
+        self.assertLess(changes[0], 0)
+        self.assertLess(changes[1], 2 * changes[0])
+
     def test_copy_is_independent(self):
         brain = Brain.random(random.Random(7))
         duplicate = brain.copy()
@@ -96,6 +128,15 @@ class BrainTests(unittest.TestCase):
         brain.learn([1.0] * INPUT_SIZE, 0, 5.0, learning_rate=0.1)
 
         self.assertNotEqual(brain, duplicate)
+
+    def test_copy_keeps_its_own_traces(self):
+        brain = Brain.random(random.Random(7))
+        brain.learn_traced([0.5] * INPUT_SIZE, 0, 5.0, learning_rate=0.1, discount=0.9)
+        duplicate = brain.copy()
+        brain.learn_traced([0.5] * INPUT_SIZE, 0, 5.0, learning_rate=0.1, discount=0.9)
+        duplicate.learn_traced([0.5] * INPUT_SIZE, 0, 5.0, learning_rate=0.1, discount=0.9)
+        self.assertEqual(brain, duplicate)  # the same traces, kept apart
+        self.assertIsNone(Brain.from_record(brain.to_record()).traces)  # traces belong to one life
 
     def test_exported_brain_loads_back_with_the_same_values(self):
         brain = Brain.random(random.Random(7))

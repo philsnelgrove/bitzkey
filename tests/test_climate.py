@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from tools.Brain import ACTIONS, SENSES
 from tools.Genome import decode_climate, encode_dna
-from tools.Simulation import (COLD, DEATH_PENALTY, HOT, KILL_MEAL, KILL_MEAL_FOR_SIZE, LEARNING_RATE, MEDIUM, PLANT_MEAL,
+from tools.Simulation import (COLD, CURIOSITY_JOY, DEATH_PENALTY, HOT, KILL_MEAL, KILL_MEAL_FOR_SIZE, LEARNING_RATE, MEDIUM, PLANT_MEAL,
                               SOCIAL_MEMORY, SOCIAL_MOOD, VERY_COLD, Simulation, season, temperature_at, year,
                               zone_temperature)
 
@@ -202,6 +202,79 @@ class SenseTests(unittest.TestCase):
         self.assertEqual((senses[SENSES.index("climate_discomfort")], senses[SENSES.index("comfort_closeness")]),
                          (1.0, 0.0))
         self.assertNotIn("migrate", ACTIONS)  # moving toward home is left for brains to learn
+
+    def test_an_animal_senses_where_it_is_and_how_warm_it_is_here_north_and_south(self):
+        simulation = world(turn=0)  # mild: arctic rows 0-19, temperate 20-39, equator 40-59
+        grazer = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM, sight=7), 50, 35)  # sees 9 rows
+        senses = simulation._sense(grazer)[0]
+        sensed = {name: senses[SENSES.index(name)] for name in ("latitude", "warmth", "warmth_north", "warmth_south")}
+        self.assertEqual(sensed, {"latitude": 2 * 35.5 / 100 - 1, "warmth": 0.0, "warmth_north": 0.0,
+                                  "warmth_south": 0.5})  # row 26 temperate, row 44 the equator
+        cold = simulation._add_agent(encode_dna("grazer", temperature=HOT, sight=7), 50, 3)
+        senses = simulation._sense(cold)[0]
+        self.assertEqual([senses[SENSES.index(name)] for name in ("warmth", "warmth_north", "warmth_south")],
+                         [-1.0, -1.0, -1.0])  # two steps too cold, north to the map's edge too
+
+    def test_an_animal_can_head_north_or_south_but_not_off_the_map(self):
+        simulation = world(turn=0)
+        grazer = simulation._add_agent(encode_dna("grazer", speed=0), 50, 50)  # two rows a step
+        options, situation = simulation._sense(grazer)[1:]
+        self.assertTrue({ACTIONS.index("go_north"), ACTIONS.index("go_south")} <= set(options))
+        simulation._act(grazer, "go_north", situation)
+        self.assertEqual((grazer.x, grazer.y, grazer.last_action), (50, 48, "went north"))
+        simulation._act(grazer, "go_south", situation)
+        self.assertEqual((grazer.x, grazer.y, grazer.last_action), (50, 50, "went south"))
+        top = simulation._add_agent(encode_dna("grazer"), 50, 0)
+        bottom = simulation._add_agent(encode_dna("grazer", speed=7), 50, 98)
+        self.assertNotIn(ACTIONS.index("go_north"), simulation._sense(top)[1])
+        options, situation = simulation._sense(bottom)[1:]
+        self.assertIn(ACTIONS.index("go_south"), options)
+        simulation._act(bottom, "go_south", situation)
+        self.assertEqual(bottom.y, 99)  # stopped by the edge
+        self.assertNotIn(ACTIONS.index("go_south"), simulation._sense(bottom)[1])
+
+    def test_an_animal_can_always_head_east_or_west_round_the_map_and_enjoys_setting_off(self):
+        simulation = world(turn=0)
+        grazer = simulation._add_agent(encode_dna("grazer", speed=0, curiosity=7), 1, 50)  # two cells a step
+        options, situation = simulation._sense(grazer)[1:]
+        self.assertTrue({ACTIONS.index("go_east"), ACTIONS.index("go_west"), ACTIONS.index("rest")} <= set(options))
+        self.assertNotIn("explore", ACTIONS)
+        simulation._act(grazer, "go_west", situation)
+        self.assertEqual((grazer.x, grazer.y, grazer.last_action, grazer.reward), (99, 50, "went west", CURIOSITY_JOY))
+        simulation._act(grazer, "go_east", situation)
+        self.assertEqual((grazer.x, grazer.y, grazer.last_action), (1, 50, "went east"))
+
+    def test_being_out_of_its_temperature_is_uncomfortable_less_so_for_the_hardy(self):
+        simulation = world(turn=0)
+        at_home = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM), 50, 30)
+        one_step = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM), 52, 10)
+        two_steps = simulation._add_agent(encode_dna("grazer", temperature=HOT), 54, 10)
+        hardy = simulation._add_agent(encode_dna("grazer", temperature=HOT, cold_tolerance=True), 56, 10)
+        exposure = [simulation._sense(agent)[2]["exposure"] for agent in (at_home, one_step, two_steps, hardy)]
+        self.assertEqual(exposure, [0.0, 0.5, 1.0, 0.5])
+        with patch("tools.Simulation.CLIMATE_UNEASE", 0.4):
+            situation = simulation._sense(two_steps)[2]
+            cold = simulation._comfort(two_steps, situation)
+            situation["exposure"] = 0.0
+            self.assertAlmostEqual(simulation._comfort(two_steps, situation) - cold, 0.4)
+
+    def test_foraging_and_herding_never_lead_further_from_home(self):
+        simulation = world(turn=0)  # row 40 is the hot equator, rows 20-39 temperate
+        grazer = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM, sight=7), 50, 38)
+        simulation.grass.update({(50, 41): 1, (50, 33): 1})
+        self.assertEqual(simulation._nearest_grass(grazer, grazer.sight), (50, 33))  # past the nearer, hot one
+        hot = simulation._add_agent(encode_dna("grazer", temperature=HOT, sight=7), 50, 42)
+        self.assertEqual(simulation._nearest_grass(hot, hot.sight), (50, 41))  # it is at home there
+
+        herder = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM, empathy=7, patience=7), 70, 36)
+        mates = [simulation._add_agent(herder.dna, 70 + dx, 40) for dx in (-1, 0, 1)]  # on the equator
+        simulation._index_cells()
+        options, situation = simulation._sense(herder)[1:]
+        self.assertEqual(situation["herd_middle"], (70, 40))
+        self.assertNotIn(ACTIONS.index("herd"), options)
+        for mate in mates:
+            simulation._move(mate, mate.x, 32)  # into the temperate zone
+        self.assertIn(ACTIONS.index("herd"), simulation._sense(herder)[1])
 
 
 class TimeTests(unittest.TestCase):

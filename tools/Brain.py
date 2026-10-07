@@ -10,7 +10,8 @@ import numpy as np
 
 from tools.Genome import BODY_TRAITS, MIND_TRAITS, SPECIES, TEMPERATURES, decode_body, decode_climate, decode_mind, share
 
-ACTIONS = ("eat", "forage", "browse", "scavenge", "feast", "rest", "court", "breed", "hunt", "attack", "defend", "flee", "herd", "explore")
+ACTIONS = ("eat", "forage", "browse", "scavenge", "feast", "rest", "court", "breed", "hunt", "attack", "defend", "flee", "herd",
+           "go_north", "go_south", "go_east", "go_west")
 SENSES = (
     "hunger",          # 0..1
     "health",          # 0..1
@@ -45,6 +46,11 @@ SENSES = (
     # The time of year, as two hands of a clock a quarter of a year apart, so the year's turn is smooth:
     "time_of_year_a",  # 1 at the start of the year, falling to 0 halfway through, and rising back to 1
     "time_of_year_b",  # the same a quarter of a year later: 0 a quarter in, 1 three quarters in
+    "latitude",        # -1 at the top (north) edge of the map, 0 on the equator, 1 at the bottom (south) edge
+    # How much warmer than home it is, in steps, 1 two or more too hot, -1 two or more too cold:
+    "warmth",          # here
+    "warmth_north",    # at the edge of its sight to the north, or the map's edge if nearer
+    "warmth_south",    # and to the south
 ) + MIND_TRAITS + (    # then its current temperament, each trait 0..7 scaled to 0..1
     *(f"open_{action}" for action in ACTIONS),            # 1 for each action open to it now
     *(f"inborn_{trait}" for trait in MIND_TRAITS),        # its dot's traits, as born, 0..1
@@ -56,6 +62,11 @@ HIDDEN_SIZE = 12  # neurons in each hidden layer
 MIN_DEPTH = 2     # hidden layers: twice the inborn intellect, and never fewer than this
 TEMPERATURE = 0.2
 MUTATION = 0.05
+TRACE_DECAY = 0.9  # lambda: how much of each earlier choice's credit carries on to the next, beside the discount
+# A new brain values setting off in a direction this much below its other actions, so an untaught
+# brain doesn't march straight away from its range, its herd and its food before it has learned where to go.
+HEADING_RELUCTANCE = 0.5
+HEADINGS = ("go_north", "go_south", "go_east", "go_west")
 RECORD_DIGITS = 6  # decimal places kept when a brain is exported
 
 
@@ -110,12 +121,17 @@ class Brain:
     child keeps whole learned features from one parent or the other. Its weights are NumPy
     arrays: each hidden layer's weights are one row per neuron, the output weights one row per
     action. The first hidden layer reads the senses; each later one reads the layer before.
+    Learning from its own choices, it keeps an eligibility trace for every weight (TD(lambda)), so
+    what comes of a choice reaches back to the choices that led to it; the traces belong to one
+    life and are neither inherited nor exported.
     """
 
     def __init__(self, layers: Sequence[tuple[Sequence, Sequence]], output_weights: Sequence, output_biases: Sequence):
         self.layers = [(np.array(weights, dtype=float), np.array(biases, dtype=float)) for weights, biases in layers]
         self.output_weights = np.array(output_weights, dtype=float)
         self.output_biases = np.array(output_biases, dtype=float)
+        # Each hidden layer's (weights, biases) traces, then the output layer's; None until it first learns.
+        self.traces: list[tuple[np.ndarray, np.ndarray]] | None = None
 
     @property
     def depth(self) -> int:
@@ -130,7 +146,7 @@ class Brain:
             layers.append(([[rng.uniform(-bound, bound) for _ in range(reads)] for _ in range(HIDDEN_SIZE)],
                            [0.0] * HIDDEN_SIZE))
         return cls(layers, [[rng.uniform(-0.3, 0.3) for _ in range(HIDDEN_SIZE)] for _ in ACTIONS],
-                   [rng.uniform(-0.2, 0.2) for _ in ACTIONS])
+                   [rng.uniform(-0.2, 0.2) - (HEADING_RELUCTANCE if action in HEADINGS else 0.0) for action in ACTIONS])
 
     @classmethod
     def inherit(cls, first: Brain, second: Brain, rng: random.Random, depth: int = MIN_DEPTH,
@@ -202,8 +218,49 @@ class Brain:
             weights -= learning_rate * np.outer(delta, activations[index])
         self.output_biases[action] -= learning_rate * error
 
+    def learn_traced(self, inputs: Sequence[float], action: int, target: float, learning_rate: float,
+                     discount: float) -> None:
+        """Learn from its own choice by TD(lambda): every weight's eligibility fades by the discount
+        times TRACE_DECAY and gains how this action's value moves with it; then every weight moves
+        by the clipped error times its eligibility, so the choices before this one share in it."""
+        if learning_rate <= 0:
+            return
+        decay = discount * TRACE_DECAY
+        if self.traces is None:
+            self.traces = [(np.zeros_like(weights), np.zeros_like(biases)) for weights, biases in self.layers]
+            self.traces.append((np.zeros_like(self.output_weights), np.zeros_like(self.output_biases)))
+        *hidden, (output_weights, output_biases) = self.traces
+        activations = self._activations(inputs)
+        top = activations[-1]
+        value = float(self.output_weights[action] @ top + self.output_biases[action])
+        error = max(-1.0, min(1.0, value - target))
+        output_weights *= decay
+        output_weights[action] += top
+        output_biases *= decay
+        output_biases[action] += 1.0
+        gradient = self.output_weights[action]
+        for index in range(self.depth - 1, -1, -1):
+            weights, _ = self.layers[index]
+            delta = gradient * (1 - activations[index + 1] * activations[index + 1])
+            if index:
+                gradient = weights.T @ delta
+            weight_trace, bias_trace = hidden[index]
+            weight_trace *= decay
+            weight_trace += np.outer(delta, activations[index])
+            bias_trace *= decay
+            bias_trace += delta
+        step = learning_rate * error
+        for (weights, biases), (weight_trace, bias_trace) in zip(self.layers, hidden):
+            weights -= step * weight_trace
+            biases -= step * bias_trace
+        self.output_weights -= step * output_weights
+        self.output_biases -= step * output_biases
+
     def copy(self) -> Brain:
-        return Brain(self.layers, self.output_weights, self.output_biases)
+        brain = Brain(self.layers, self.output_weights, self.output_biases)
+        if self.traces is not None:
+            brain.traces = [(weights.copy(), biases.copy()) for weights, biases in self.traces]
+        return brain
 
     def to_record(self) -> dict:
         """The brain's weights for export, labelled with the senses and actions they belong to."""

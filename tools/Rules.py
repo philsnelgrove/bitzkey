@@ -39,7 +39,7 @@ class Rule:
         return int(round(value)) if self.integer else float(value)
 
 
-_MODULES = {"TEMPERATURE": brain, "MUTATION": brain}
+_MODULES = {"TEMPERATURE": brain, "MUTATION": brain, "TRACE_DECAY": brain, "HEADING_RELUCTANCE": brain}
 
 # (key, label, hint, minimum, maximum, step) by group. A step that is an int makes a whole-number rule.
 _TABLE: dict[str, list[tuple]] = {
@@ -91,9 +91,11 @@ _TABLE: dict[str, list[tuple]] = {
         ("BREED_JOY", "Breeding joy", "pleasure of breeding, scaled by libido", 0.0, 5.0, 0.05),
         ("FIGHT_JOY", "Fighting joy", "pleasure of a blow, scaled by aggression", 0.0, 5.0, 0.05),
         ("COMPANY_JOY", "Company joy", "pleasure of company, scaled by sociability", 0.0, 5.0, 0.05),
-        ("CURIOSITY_JOY", "Curiosity joy", "pleasure of exploring, scaled by curiosity", 0.0, 5.0, 0.05),
+        ("CURIOSITY_JOY", "Curiosity joy", "pleasure of setting off in a direction, scaled by curiosity", 0.0, 5.0, 0.05),
         ("FEAR_DREAD", "Fear dread", "dread of hunters nearby, scaled by fear", 0.0, 5.0, 0.05),
         ("UNEASE", "Unease", "how much an intolerant animal minds other species close by", 0.0, 5.0, 0.05),
+        ("CLIMATE_UNEASE", "Climate unease", "discomfort two steps from home, half that one step; less if hardy",
+         0.0, 5.0, 0.05),
         ("EMPATHY_PAIN", "Empathy pain", "how much an empathetic animal feels another's wound", 0.0, 5.0, 0.05),
         ("OTHER_KIND", "Other kind", "how much of that pain reaches it for another species", 0.0, 1.0, 0.05),
     ],
@@ -105,8 +107,12 @@ _TABLE: dict[str, list[tuple]] = {
     ],
     "Mind": [
         ("LEARNING_RATE", "Learning rate", "how fast a brain learns, at the highest intellect", 0.0, 0.5, 0.005),
+        ("TRACE_DECAY", "Trace decay", "how far back a choice's outcome reaches earlier choices (lambda)",
+         0.0, 1.0, 0.05),
         ("TEMPERATURE", "Choice temperature", "how loosely a brain picks among its options", 0.01, 5.0, 0.05),
         ("MUTATION", "Brain mutation", "how much a newborn's brain varies from its parents'", 0.0, 1.0, 0.01),
+        ("HEADING_RELUCTANCE", "Heading reluctance", "how much less a new brain values setting off in a direction",
+         0.0, 2.0, 0.05),
         ("TEMPERAMENT_RELAPSE", "Temperament relapse", "share of the gap back to the inborn value closed each turn",
          0.0, 0.1, 0.001),
         ("PANIC.0", "Panic, unhurt", "chance a fully fearful animal breaks when struck, unhurt", 0.0, 1.0, 0.05),

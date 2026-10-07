@@ -188,7 +188,7 @@ class SimulationTests(unittest.TestCase):
     def test_predators_cannot_eat_grass(self):
         predator = self.simulation._add_agent(encode_dna("predator", sight=7), 5, 5)
         grazer = self.simulation._add_agent(encode_dna("grazer", sight=7), 2, 2)
-        self.simulation.grass.update({(5, 5): 1, (2, 2): 1, (7, 7): 1})
+        self.simulation.grass.update({(5, 5): 1, (2, 2): 1, (3, 3): 1, (7, 7): 1})
         self.simulation._index_cells()
         grass_actions = {ACTIONS.index("eat"), ACTIONS.index("forage")}
 
@@ -454,7 +454,8 @@ class SimulationTests(unittest.TestCase):
         self.assertGreater(victim.mind["fear"], victim.inborn["fear"])
 
     def test_seeking_rebuilds_any_turn_exactly_even_between_checkpoints(self):
-        with patch("tools.Simulation.DENSE_HISTORY", 10), patch("tools.Simulation.CHECKPOINTS", 4):
+        with patch("tools.Simulation.DENSE_HISTORY", 10), patch("tools.Simulation.CHECKPOINTS", 4), \
+                patch("tools.Simulation.CLIMATE_DAMAGE", 0):  # a world that lasts
             simulation = Simulation(width=20, height=20, population=30, seed=4)
 
             def state():  # copies, since the live objects carry on changing
@@ -1394,10 +1395,10 @@ class NewTraitTests(unittest.TestCase):
         top = simulation._add_agent(encode_dna("grazer", speed=7), 0, 0)
         bottom = simulation._add_agent(encode_dna("predator", speed=7), 19, 19)
         simulation._index_cells()
-        for _ in range(200):
-            simulation._act(top, "explore", {})
-            simulation._act(bottom, "explore", {})
-            self.assertTrue(0 <= top.y < 20 and 0 <= bottom.y < 20)
+        for heading in ("go_north", "go_west", "go_south", "go_east") * 50:
+            simulation._act(top, heading, {})
+            simulation._act(bottom, heading, {})
+            self.assertTrue(0 <= top.y < 20 and 0 <= bottom.y < 20 and 0 <= top.x < 20 and 0 <= bottom.x < 20)
         top.x, top.y, bottom.x, bottom.y = 0, 0, 19, 19
         simulation._index_cells()
         self.assertEqual(simulation._within(-1), 0)

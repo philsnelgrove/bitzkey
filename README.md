@@ -79,7 +79,7 @@ Each imported genome spawns as a group of 3 to
 120 genomes are used, keeping their groups within the 600 population cap. Set
 "Bitzkeys" to 0 to start with only your imports.
 
-ADVANCED opens the advanced rules: 128 numbers that shape how the world plays
+ADVANCED opens the advanced rules: 131 numbers that shape how the world plays
 out, in groups (World, Bodies, Breeding, Feelings, Mind, Fighting, Territory,
 Herding, Food, Plants, Climate, Society and Experiences). Among them are lifespans, metabolism, litter
 sizes, food-aware breeding, the rewards and pains a brain learns from, blows and
@@ -181,7 +181,7 @@ gene values and are then reshaped by experience:
 | aggression | pleasure of a fight, more for a kill | kills raise it; wounds and stings lower it |
 | libido | pleasure of breeding | mating raises it; breeding into starvation sharply lowers it |
 | sociability | pleasure of company | mating raises it; being wounded alone raises it |
-| curiosity | pleasure of exploring | finding grass where none was seen raises it; walking into a hunter lowers it |
+| curiosity | pleasure of setting off in a direction | finding grass where none was seen raises it; walking into a hunter lowers it |
 | fear | dread when hunters are adjacent | wounds, stings and ambushes raise it; kills lower it |
 | appetite | how much hunger hurts | near-starvation raises it |
 | patience | how much it values the future (its learning discount) | meals earned by foraging raise it; starving lowers it |
@@ -208,7 +208,7 @@ their young.
 | strength | the other half of its striking force |
 | armour | the other half of its toughness, which reduces damage taken by up to 60% |
 | weapons | sharpen blows by up to 75%, and spines hurt anyone who attacks |
-| speed | cells moved per step of foraging, fleeing or exploring (1 to 4; grazers move half as far again, rounded up: 2, 3, 5 or 6) |
+| speed | cells moved per step of foraging, fleeing or heading off in a direction (1 to 4; grazers move half as far again, rounded up: 2, 3, 5 or 6) |
 | sight | how far it sees (2 to 9 cells) |
 | fertility | high: cheap, frequent breeding and weak, hungry young; low: costly, rare breeding and well-fed young |
 | litter | young per birth: 1 to 6. A high litter trait and a small body both make litters bigger, half each, averaged over both parents, so small animals tend to have large litters and large animals small ones. Predators have half as many young, rounded up (1 to 3). Each young needs a free cell around the parent (sides first, then corners), and the litter shares the energy its parents give. |
@@ -290,9 +290,16 @@ dies back gradually: each cell loses a tuft every 20 turns, the cells taking
 their turns in step.
 
 Animals sense the temperature: how far it is from home, as they feel it, and how
-close the nearest row in sight is where they would feel at home. There is no
-action for seeking it out; any migration emerges from what their brains learn to
-do with those senses.
+close the nearest row in sight is where they would feel at home. They also sense
+how far north or south they are, and how much warmer or colder than home it is
+where they stand and at the edge of their sight to the north and to the south.
+Being out of their temperature makes them uneasy, the more so the further from
+home (half as much for the hardy), so a step back toward home is felt at once.
+They can head north or south, but there is no action that seeks home out for
+them; any migration emerges from what their brains learn to do with those senses
+and the time of year. Foraging never leads further from home: an animal ignores
+grass in rows whose temperature is further from home than where it stands, and
+doesn't herd toward a herd whose middle is.
 
 The zones' sizes, the food and health penalties, how much food a plant gives out
 of its temperature, how fast grass dies back, how long seeds wait, how common
@@ -338,6 +345,8 @@ neural network, and that brain chooses everything it does. Each turn it senses:
   learn the seasons' rhythm and what each brings
 - how far the temperature is from home, and how close home weather is (see
   Seasons and Climate)
+- how far north or south it is, and how much warmer or colder than home it is
+  here and at the edge of its sight to the north and to the south
 - its current temperament
 - which actions are open to it right now, one input each
 - its own genome: each of its dot's traits as born, each of its ring's traits
@@ -348,7 +357,15 @@ inborn intellect, and never fewer than two: from two layers for the dullest to
 fourteen for the brightest. Plants have no brain.
 
 It then picks one of the actions open to it: eat, forage, browse, scavenge,
-feast, rest, court, breed, hunt, attack, defend, flee, herd or explore. Foraging walks toward the
+feast, rest, court, breed, hunt, attack, defend, flee, herd, go north, go south,
+go east or go west. Each heading walks straight that way as far as its speed
+allows: north and south stop at the edge of the map, while east and west wrap
+round it, so they are always open. Setting off in a direction is how an animal
+explores: it pleases the curious, and finding grass where none was seen, or
+walking into a hunter, shapes its curiosity. A new brain starts out valuing the
+four headings a little below its other actions, so an untaught animal doesn't
+march away from its range, its herd and its food before it has learned where to
+go. Foraging walks toward the
 nearest grass in sight; a tuft sates 35 hunger. Grazers get 1.25 times the food in grass and plants; omnivores half of grass and three quarters of plants. Browsing walks to the nearest
 plant in sight and, once alongside, takes a bite: 45 hunger, up to 70 from the
 largest plants, far more than grass. Each bite costs the plant 15 health, and
@@ -382,7 +399,13 @@ its mood was a success, and whatever lowered them a failure, weighed by how much
 Both can happen at once, and the bigger counts for more. Its mood is the joys and
 pains it feels, from breeding, fighting, company, its herd, fear, unease, rivals
 and the pain of others; what counts is how much better or worse it feels, not
-how good it feels. Death is heavily punished. A child's brain is as deep as its
+how good it feels. Death is heavily punished. What comes of a choice also reaches
+back to the choices that led to it (TD(lambda) learning): each weight keeps a
+trace of how recently and how much it shaped the brain's choices, fading each
+turn by its discount (more for the patient) times nine tenths, so a death or a
+meal is credited to the run of choices before it, not just the last one. How far
+back it reaches is an advanced rule (the Mind group), as is how reluctant a new
+brain is to set off in a direction. A child's brain is as deep as its
 own inborn intellect makes it. Where both parents have a layer, the child takes
 each of its neurons whole from one parent or the other; where only one parent has
 it, from that one; deeper still, its layers start out passing their input on.

@@ -36,7 +36,7 @@ CHECKPOINTS = 200     # older turns are kept as at most this many evenly spaced 
 HISTORY_BUDGET = 1 << 30   # bytes
 MIN_SNAPSHOTS = 20
 AGENT_BYTES = 2000         # a Bitzkey's copy
-BRAIN_BYTES = 6000         # a brain's copy
+BRAIN_BYTES = 12000        # a brain's copy, with its eligibility traces
 GRASS_BYTES = 120          # a grass cell's entry
 CORPSE_FERTILITY = 2   # grass grows this many times as fast on and around a corpse
 CORPSE_TURNS = 30
@@ -61,9 +61,10 @@ DEATH_PENALTY = 2.0
 BREED_JOY = 1.0
 FIGHT_JOY = 0.5
 COMPANY_JOY = 0.1
-CURIOSITY_JOY = 0.15
+CURIOSITY_JOY = 0.15   # pleasure of setting off in a direction, scaled by curiosity
 FEAR_DREAD = 0.3
 UNEASE = 0.1           # how much an intolerant animal minds other species close by
+CLIMATE_UNEASE = 0.5   # discomfort two or more steps from home, half that one step; less for the hardy
 EMPATHY_PAIN = 0.15    # how much an empathetic animal feels another's wound; twice that for a death
 # Society: an animal sees what happens to its herd-mates (its pack, for a predator) within its sight. A
 # herd-mate's kill is a success, its death (but of old age) a failure; the witness learns from it as
@@ -188,6 +189,11 @@ EXPERIENCES = {
     "panicked": {"fear": 0.0067},
 }
 
+# Setting off in a direction: the step in x and y, and what it then says it did. The top and bottom
+# of the map are barriers; east and west wrap round.
+HEADINGS = {"go_north": (0, -1, "went north"), "go_south": (0, 1, "went south"),
+            "go_east": (1, 0, "went east"), "go_west": (-1, 0, "went west")}
+TRAVELLED = {went for _, _, went in HEADINGS.values()}
 GRASS_SEEN = SENSES.index("grass_seen")
 MAX_SIGHT = 2 + TRAIT_MAX
 SIGHT_OFFSETS = sorted(
@@ -871,7 +877,7 @@ class Simulation:
     def _think(self, agent: Bitzkey) -> None:
         """Sense, learn from the previous decision's outcome, then choose and act."""
         senses, options, situation = self._sense(agent)
-        if agent.last_action == "explored":
+        if agent.last_action in TRAVELLED:
             if situation["threat"]:
                 self._experience(agent, "ambushed")
             elif (situation["grass"] or situation["grass_here"]) and not agent.last_senses[GRASS_SEEN]:
@@ -883,8 +889,7 @@ class Simulation:
             # its mood was a success, whatever lowered them a failure, by how much; both may happen.
             reward = (agent.reward + self._wellbeing(agent) - agent.last_wellbeing
                       + comfort - agent.last_comfort)
-            discount = 0.7 + 0.27 * agent.feeling("patience")
-            self._learn(agent, reward + discount * max(values[option] for option in options))
+            self._learn(agent, reward + self._discount(agent) * max(values[option] for option in options))
 
         if agent.panicked and situation["assailant"]:
             # Fight or flight, decided by fear: it breaks off and flees its assailant.
@@ -939,7 +944,8 @@ class Simulation:
         herd_assailant = next((other for other in neighbors if other.identifier == agent.herd_assailant), None)
         defend_target = assailant or herd_assailant
         herd, herd_near, herd_middle = self._herd(agent)
-        discomfort = agent.climate_steps(self._climate[agent.y])
+        here = self._climate[agent.y]
+        discomfort = agent.climate_steps(here)
         comfort = self._comfort_row(agent, sight) if discomfort else None
         alarm_source = None
         if agent.alarm is not None:
@@ -947,7 +953,7 @@ class Simulation:
             if hunter is None and alarm_source is not None:
                 hunter = alarm_source  # the herd's alarm: flight from whatever struck a herd-mate
 
-        available = {"rest", "explore"}
+        available = {"rest", "go_east", "go_west"}
         if grass_here:
             available.add("eat")
         if grass:
@@ -974,7 +980,14 @@ class Simulation:
             available.add("defend")
         if herd_middle is not None and (abs(herd_middle[0] - agent.x) + abs(herd_middle[1] - agent.y)
                                         > HERD_SPREAD * (1 - agent.feeling("fear"))):
-            available.add("herd")  # the more fearful it is, the closer it keeps to the herd's middle
+            # The more fearful it is, the closer it keeps to the herd's middle, but not where the
+            # middle is further from its home temperature than here.
+            if agent.climate_steps(self._climate[herd_middle[1]]) <= discomfort:
+                available.add("herd")
+        if agent.y > 0:
+            available.add("go_north")
+        if agent.y < self.height - 1:
+            available.add("go_south")
 
         senses = make_senses(
             hunger=min(1.0, agent.hunger / 100),
@@ -1010,6 +1023,10 @@ class Simulation:
             comfort_closeness=1.0 if not discomfort else self._closeness(agent, comfort, sight),
             age=min(1.0, agent.age / 400),
             **self._time_of_year(),
+            latitude=2 * (agent.y + 0.5) / self.height - 1,
+            warmth=self._warmth(agent, agent.y),
+            warmth_north=self._warmth(agent, max(0, agent.y - sight)),
+            warmth_south=self._warmth(agent, min(self.height - 1, agent.y + sight)),
             **{trait: agent.feeling(trait) for trait in MIND_TRAITS},
             **{f"open_{action}": 1.0 for action in available},
             **agent.genes,
@@ -1018,7 +1035,8 @@ class Simulation:
                      "threats": len(threats), "quarry": quarry, "hunter": hunter, "suitor": suitor,
                      "grass": grass, "grass_here": grass_here, "carrion": carrion, "kill": kill, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
                      "others": others, "defend_target": defend_target, "for_herd": assailant is None,
-                     "herd": herd, "herd_near": herd_near, "herd_middle": herd_middle}
+                     "herd": herd, "herd_near": herd_near, "herd_middle": herd_middle,
+                     "exposure": min(2, discomfort) / 2 * agent.exposure_share(here)}
         return senses, [ACTIONS.index(action) for action in ACTIONS if action in available], situation
 
     def _wellbeing(self, agent: Bitzkey) -> float:
@@ -1032,7 +1050,8 @@ class Simulation:
         """Company pleases the sociable, and the tolerant count other species as company.
         Hunters close by frighten the fearful, less so the tolerant and those among their herd; the
         intolerant are uneasy around anything unlike them. Herd animals enjoy their herd's company
-        and are uneasy with none of it in range, the more so the more fearful they are."""
+        and are uneasy with none of it in range, the more so the more fearful they are. Out of its
+        home temperature, an animal is uneasy, the more so the further, and less if hardy to it."""
         tolerance = agent.feeling("tolerance")
         instinct = agent.herd_instinct
         herd_near = min(3, situation.get("herd_near", 0)) / 3
@@ -1046,10 +1065,18 @@ class Simulation:
         if not situation.get("herd", True):
             herding -= HERD_LONELINESS * instinct
         herding *= 0.5 + agent.feeling("fear")  # the fearful feel their herd, and its absence, most
-        return company - dread - unease - crowded + herding
+        exposed = CLIMATE_UNEASE * situation.get("exposure", 0.0)
+        return company - dread - unease - crowded + herding - exposed
+
+    @staticmethod
+    def _discount(agent: Bitzkey) -> float:
+        """How much the future counts against the present: more for the patient."""
+        return 0.7 + 0.27 * agent.feeling("patience")
 
     def _learn(self, agent: Bitzkey, target: float) -> None:
-        agent.brain.learn(agent.last_senses, agent.last_choice, target, LEARNING_RATE * agent.feeling("intellect"))
+        """Learn from its own last choice, by TD(lambda), so the choices before it share in what came of it."""
+        agent.brain.learn_traced(agent.last_senses, agent.last_choice, target, LEARNING_RATE * agent.feeling("intellect"),
+                                 self._discount(agent))
 
     def _dies_of_age(self, agent: Bitzkey) -> bool:
         """Past AGEING of its lifespan, the chance of dying each turn grows with age, so that about
@@ -1132,15 +1159,14 @@ class Simulation:
         elif action == "herd":
             self._move_toward(agent, *situation["herd_middle"])
             agent.last_action = "herded"
+        elif action in HEADINGS:
+            dx, dy, went = HEADINGS[action]
+            self._move(agent, (agent.x + dx * agent.steps) % self.width, self._within(agent.y + dy * agent.steps))
+            agent.reward += CURIOSITY_JOY * agent.feeling("curiosity")
+            agent.last_action = went
         elif action == "flee":
             self._move_away(agent, situation["hunter"])
             agent.last_action = "panicked" if situation.get("panic") else "fled"
-        else:
-            for _ in range(agent.steps):
-                self._move(agent, (agent.x + self.random.choice((-1, 0, 1))) % self.width,
-                           self._within(agent.y + self.random.choice((-1, 0, 1))))
-            agent.reward += CURIOSITY_JOY * agent.feeling("curiosity")
-            agent.last_action = "explored"
 
     def _browse(self, agent: Bitzkey, plant: Bitzkey) -> None:
         """Go to the plant and, once alongside, take a bite: far more filling than grass, and more
@@ -1378,12 +1404,19 @@ class Simulation:
         return cells
 
     def _nearest_grass(self, agent: Bitzkey, sight: int) -> tuple[int, int] | None:
-        grass, x, y = self.grass, agent.x, agent.y
+        """The nearest grass in sight, but none in a row further from its home temperature than here."""
+        grass, climate, x, y = self.grass, self._climate, agent.x, agent.y
+        worst = agent.climate_steps(climate[y])
         for dx, dy in SIGHT_WITHIN[sight]:
             cell = (x + dx, y + dy)
-            if grass.get(cell, 0) > 0:
+            if grass.get(cell, 0) > 0 and agent.climate_steps(climate[y + dy]) <= worst:
                 return cell
         return None
+
+    def _warmth(self, agent: Bitzkey, y: int) -> float:
+        """How much warmer than home a row feels, as a sense: 0.5 a step, from -1 (two or more steps
+        too cold) to 1 (two or more too hot)."""
+        return max(-2, min(2, agent.climate[0] - self._climate[y])) / 2
 
     def _nearest_carrion(self, agent: Bitzkey, sight: int) -> Bitzkey | None:
         if not self._carrion:
