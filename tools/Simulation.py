@@ -65,6 +65,12 @@ CURIOSITY_JOY = 0.15
 FEAR_DREAD = 0.3
 UNEASE = 0.1           # how much an intolerant animal minds other species close by
 EMPATHY_PAIN = 0.15    # how much an empathetic animal feels another's wound; twice that for a death
+# Society: an animal sees what happens to its herd-mates (its pack, for a predator) within its sight. A
+# herd-mate's kill is a success, its death (but of old age) a failure; the witness learns from it as
+# if it had made the herd-mate's last choice itself, and feels it, by its empathy times its intellect.
+SOCIAL_LEARNING = 1.0  # how fast it learns from what it sees, beside learning from its own choices
+SOCIAL_MOOD = 0.3      # how much what it sees moves its mood
+SOCIAL_MEMORY = 0.8    # the share of a seen success or failure it still senses a turn later
 OTHER_KIND = 0.4       # how much of that pain reaches it when the victim is of another species
 LEARNING_RATE = 0.045  # at the highest intellect
 PANIC = (0.3, 1.0)     # chance a fully fearful animal breaks when struck, unhurt and near death;
@@ -261,6 +267,8 @@ class Bitzkey:
     hunts_omnivores: bool = True  # predators: the same for omnivores
     own_rivalry: float = 0.0  # the same, counting only its own species: what wears down its reluctance
     alarm: int | None = None  # what struck a herd-mate close by since it last acted
+    seen_success: float = 0.0  # a herd-mate's success it saw, fading turn by turn
+    seen_failure: float = 0.0  # a herd-mate's failure it saw, the same
     herd_assailant: int | None = None  # what struck a herd-mate close by, from alongside it: it may defend against it
     meat: float = 0.0  # a corpse's meat left for scavengers
     rot: float = 0.0   # meat lost to rot each turn
@@ -741,6 +749,8 @@ class Simulation:
                 agent.last_action = "photosynthesized"
                 self._seed(agent)
                 continue
+            agent.seen_success *= SOCIAL_MEMORY
+            agent.seen_failure *= SOCIAL_MEMORY
             self._settle(agent)
             if agent.hunger >= 80:
                 self._experience(agent, "starving")
@@ -994,6 +1004,8 @@ class Simulation:
             herd_closeness=(0.0 if herd_middle is None else
                             max(0.0, 1 - (abs(herd_middle[0] - agent.x) + abs(herd_middle[1] - agent.y)) / HERD_RADIUS)),
             alarm=float(agent.alarm is not None),
+            herd_success=agent.seen_success,
+            herd_failure=agent.seen_failure,
             climate_discomfort=min(2, discomfort) / 2,
             comfort_closeness=1.0 if not discomfort else self._closeness(agent, comfort, sight),
             age=min(1.0, agent.age / 400),
@@ -1055,6 +1067,8 @@ class Simulation:
         if agent.brain is not None and agent.last_senses is not None:
             penalty = 0.0 if cause == "old age" else DEATH_PENALTY
             self._learn(agent, agent.reward + self._wellbeing(agent) - agent.last_wellbeing - penalty)
+            if cause != "old age":  # its herd sees it fail
+                self._witness(agent, -DEATH_PENALTY)
         agent.brain = None
         agent.health = min(agent.health, 0.0)  # whatever the cause, a recorded death leaves it dead
         agent.died_turn = self.turn
@@ -1206,8 +1220,10 @@ class Simulation:
             if not any(other.species == victim.species for other in self._nearby(victim, 2)):
                 self._experience(victim, "wounded_alone")
         else:
-            agent.nourish(KILL_MEAL + KILL_MEAL_FOR_SIZE * victim.physique("size"))
+            meal = KILL_MEAL + KILL_MEAL_FOR_SIZE * victim.physique("size")
+            agent.nourish(meal)
             agent.reward += 2 * joy
+            self._witness(agent, meal / agent.stomach / 100)  # its pack sees it succeed: the fullness it gained
             if self._rival_weight(agent, victim) > 0:  # one fewer rival for the feeding ground
                 agent.reward += RIVAL_KILL_JOY * agent.rivalry * (1 - 0.5 * agent.feeling("tolerance"))
             self._experience(agent, "kill")
@@ -1555,6 +1571,30 @@ class Simulation:
         """How close a hunter must be before fleeing it is worthwhile: FLEE_RANGE, less among a
         herd keeping watch together."""
         return FLEE_RANGE * (1 - HERD_VIGILANCE * agent.herd_instinct * min(3, herd_near) / 3)
+
+    def _witness(self, actor: Bitzkey, outcome: float) -> None:
+        """The herd-mates within sight of an animal's success (an outcome above 0) or failure learn
+        from it as if they had made its last choice themselves, feel it, and sense it for a while;
+        how much they take it in is their empathy times their intellect."""
+        if actor.last_senses is None:
+            return
+        for observer in self._nearby(actor, MAX_SIGHT):
+            if (observer.brain is None or not self._society(observer, actor)
+                    or abs(observer.x - actor.x) + abs(observer.y - actor.y) > observer.sight):
+                continue
+            heed = observer.feeling("empathy") * observer.feeling("intellect")
+            observer.brain.learn(actor.last_senses, actor.last_choice, outcome, LEARNING_RATE * heed * SOCIAL_LEARNING)
+            observer.reward += SOCIAL_MOOD * heed * outcome
+            if outcome > 0:
+                observer.seen_success = 1.0
+            else:
+                observer.seen_failure = 1.0
+
+    def _society(self, observer: Bitzkey, actor: Bitzkey) -> bool:
+        """Whether an animal counts another, alive or not, as one of its herd (or pack): as for
+        _herd_mate."""
+        return (observer is not actor and observer.species != "plant" and observer.species == actor.species
+                and (observer.species != "predator" or self._same_kind(observer, actor)) and self._willing(observer, actor))
 
     def _herd_mate(self, agent: Bitzkey, other: Bitzkey) -> bool:
         """Whether an animal counts another as one of its herd: its species, and its kind for a

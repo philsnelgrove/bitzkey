@@ -37,6 +37,8 @@ SENSES = (
     "herd_near",          # herd-mates within two cells, 0..3 scaled to 0..1
     "herd_closeness",     # 1 at the middle of its herd in range, falling to 0 at the range's edge; 0 alone
     "alarm",              # 1 when a herd-mate close by was struck since it last acted
+    "herd_success",       # 1 when it has just seen a herd-mate succeed (a kill), fading turn by turn
+    "herd_failure",       # 1 when it has just seen a herd-mate fail (die), fading turn by turn
     "climate_discomfort",  # how far the temperature here is from home, as it feels it: 0, 0.5 a step, 1 two or more
     "comfort_closeness",  # 1 where it feels at home or next to such a row, falling to 0 beyond sight; 0 when none is seen
     "age",             # 0 at birth, 1 at 400 turns or older

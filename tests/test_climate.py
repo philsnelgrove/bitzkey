@@ -3,7 +3,8 @@ from unittest.mock import patch
 
 from tools.Brain import ACTIONS, SENSES
 from tools.Genome import decode_climate, encode_dna
-from tools.Simulation import (COLD, HOT, MEDIUM, PLANT_MEAL, VERY_COLD, Simulation, season, temperature_at, year,
+from tools.Simulation import (COLD, DEATH_PENALTY, HOT, KILL_MEAL, KILL_MEAL_FOR_SIZE, LEARNING_RATE, MEDIUM, PLANT_MEAL,
+                              SOCIAL_MEMORY, SOCIAL_MOOD, VERY_COLD, Simulation, season, temperature_at, year,
                               zone_temperature)
 
 
@@ -219,6 +220,67 @@ class TimeTests(unittest.TestCase):
         self.assertEqual([tuple(simulation._time_of_year().values()) for simulation.turn in (25, 50)],
                          [(0.5, 0.0), (0.0, 0.5)])
         Simulation(width=20, height=20, population=0, seed=1)  # back to the default year
+
+
+class SocietyTests(unittest.TestCase):
+    def setUp(self):
+        self.simulation = world()
+        self.simulation._add_agent(encode_dna("predator"), 90, 90)  # far off
+
+    def decided(self, animal):
+        """An animal that has made a decision, which a witness can learn from."""
+        self.simulation._index_cells()
+        senses, options, _ = self.simulation._sense(animal)
+        animal.last_senses, animal.last_choice = senses, options[0]
+        return animal
+
+    def test_herd_mates_in_sight_learn_from_a_death_and_feel_it_by_empathy_and_intellect(self):
+        bright = encode_dna("grazer", empathy=7, intellect=7, sight=3)
+        dying = self.decided(self.simulation._add_agent(bright, 50, 50))
+        witness = self.simulation._add_agent(bright, 50, 53)  # three cells off: in sight
+        dull = self.simulation._add_agent(encode_dna("grazer", empathy=7, intellect=0, sight=3), 51, 50)
+        far = self.simulation._add_agent(bright, 50, 59)  # out of sight
+        stranger = self.simulation._add_agent(encode_dna("omnivore", empathy=7, intellect=7, sight=3), 49, 50)
+        self.simulation._index_cells()
+        with patch.object(witness.brain, "learn") as learns:
+            dying.health = 0
+            self.simulation._die(dying, "froze")
+        learns.assert_called_once_with(dying.last_senses, dying.last_choice, -DEATH_PENALTY, LEARNING_RATE)
+        self.assertEqual((witness.reward, witness.seen_failure), (SOCIAL_MOOD * -DEATH_PENALTY, 1.0))
+        for unmoved in (dull, far, stranger):  # no intellect, out of sight, not of its herd
+            self.assertEqual((unmoved.reward, unmoved.seen_failure), (0.0, 0.0))
+
+    def test_old_age_teaches_nothing(self):
+        bright = encode_dna("grazer", empathy=7, intellect=7, sight=3)
+        old = self.decided(self.simulation._add_agent(bright, 50, 50))
+        witness = self.simulation._add_agent(bright, 50, 52)
+        self.simulation._index_cells()
+        old.health = 0
+        self.simulation._die(old, "old age")
+        self.assertEqual(witness.seen_failure, 0.0)
+
+    def test_a_pack_learns_from_a_kill_and_enjoys_it(self):
+        pack = encode_dna("predator", empathy=7, intellect=7, sight=3, strength=7, weapons=7)
+        hunter = self.decided(self.simulation._add_agent(pack, 50, 50))
+        mate = self.simulation._add_agent(pack, 52, 50)
+        prey = self.simulation._add_agent(encode_dna("grazer"), 50, 51)
+        prey.health = 0.1
+        self.simulation._index_cells()
+        with patch.object(mate.brain, "learn") as learns:
+            self.simulation._attack(hunter, prey)
+        self.assertFalse(prey.alive)
+        gained = (KILL_MEAL + KILL_MEAL_FOR_SIZE * prey.physique("size")) / hunter.stomach / 100
+        learns.assert_called_once_with(hunter.last_senses, hunter.last_choice, gained, LEARNING_RATE)
+        self.assertEqual(mate.seen_success, 1.0)
+        self.assertGreater(mate.reward, SOCIAL_MOOD * gained - 2 * 0.15 * 0.4 - 1e-9)  # less its pity for the prey
+
+    def test_what_it_saw_is_an_input_that_fades(self):
+        grazer = self.simulation._add_agent(encode_dna("grazer"), 50, 50)
+        grazer.seen_success, grazer.seen_failure = 1.0, 1.0
+        senses = self.simulation._sense(grazer)[0]
+        self.assertEqual((senses[SENSES.index("herd_success")], senses[SENSES.index("herd_failure")]), (1.0, 1.0))
+        take_turn(self.simulation)
+        self.assertAlmostEqual(grazer.seen_failure, SOCIAL_MEMORY)
 
 
 class SeedTests(unittest.TestCase):

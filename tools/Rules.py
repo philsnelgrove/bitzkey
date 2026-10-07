@@ -97,6 +97,12 @@ _TABLE: dict[str, list[tuple]] = {
         ("EMPATHY_PAIN", "Empathy pain", "how much an empathetic animal feels another's wound", 0.0, 5.0, 0.05),
         ("OTHER_KIND", "Other kind", "how much of that pain reaches it for another species", 0.0, 1.0, 0.05),
     ],
+    "Society": [
+        ("SOCIAL_LEARNING", "Social learning", "how much a herd-mate's success or failure seen teaches, by empathy and intellect",
+         0.0, 3.0, 0.05),
+        ("SOCIAL_MOOD", "Social mood", "how much a herd-mate's success or failure seen moves the mood", 0.0, 3.0, 0.05),
+        ("SOCIAL_MEMORY", "Social memory", "share of a seen success or failure still sensed a turn later", 0.0, 1.0, 0.05),
+    ],
     "Mind": [
         ("LEARNING_RATE", "Learning rate", "how fast a brain learns, at the highest intellect", 0.0, 0.5, 0.005),
         ("TEMPERATURE", "Choice temperature", "how loosely a brain picks among its options", 0.01, 5.0, 0.05),

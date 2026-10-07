@@ -79,9 +79,9 @@ Each imported genome spawns as a group of 3 to
 120 genomes are used, keeping their groups within the 600 population cap. Set
 "Bitzkeys" to 0 to start with only your imports.
 
-ADVANCED opens the advanced rules: 125 numbers that shape how the world plays
+ADVANCED opens the advanced rules: 128 numbers that shape how the world plays
 out, in groups (World, Bodies, Breeding, Feelings, Mind, Fighting, Territory,
-Herding, Food, Plants, Climate and Experiences). Among them are lifespans, metabolism, litter
+Herding, Food, Plants, Climate, Society and Experiences). Among them are lifespans, metabolism, litter
 sizes, food-aware breeding, the rewards and pains a brain learns from, blows and
 thorns, territory and herd instincts, meals, fresh kills, plant seeding, the climate
 zones, and how each experience reshapes temperament. Each rule has a short note, limits and a step. Choose and adjust
@@ -331,6 +331,8 @@ neural network, and that brain chooses everything it does. Each turn it senses:
 - whether the animal that just struck it is still beside it, and how hard it could strike back
 - its herd: how many herd-mates are close by, how near it is to the herd's middle,
   and whether a herd-mate close by has just been struck
+- whether it has lately seen a herd-mate succeed or fail (see below), fading
+  turn by turn
 - its own kind and other species close by, and its own age
 - the time of year, as two hands of a clock a quarter of a year apart, so it can
   learn the seasons' rhythm and what each brings
@@ -387,6 +389,18 @@ it, from that one; deeper still, its layers start out passing their input on.
 Each action's output comes from one parent or the other, all with small
 mutations. A child also inherits its parents' learned shifts in temperament, so
 learned habits and moods pass down the generations.
+
+Animals also learn from their herd, or pack. An animal sees what happens to its
+herd-mates within its sight: a herd-mate's kill is a success, and its death,
+from exposure, hunger, a blow or anything but old age, a failure. The witness
+learns from it as if it had made that herd-mate's last choice itself, in the
+same situation, toward the death penalty for a death or the fullness the killer
+gained for a kill. It feels it too: a kill lifts its mood and a death lowers it,
+by how much the herd-mate gained or lost. How much it takes in is its empathy
+times its intellect, so the dull or callous barely notice, while the bright and
+caring learn from every loss. It also senses what it saw, fading by a fifth each
+turn. How strongly this teaches, how much it moves the mood and how long it is
+remembered are advanced rules (the Society group).
 
 Each parent pays 10 to 25% of its stomach to breed, less the more fertile it is. Animals
 only breed, or court, when both partners can afford it and still have at least
