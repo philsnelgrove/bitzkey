@@ -79,7 +79,7 @@ Each imported genome spawns as a group of 3 to
 120 genomes are used, keeping their groups within the 600 population cap. Set
 "Bitzkeys" to 0 to start with only your imports.
 
-ADVANCED opens the advanced rules: 124 numbers that shape how the world plays
+ADVANCED opens the advanced rules: 125 numbers that shape how the world plays
 out, in groups (World, Bodies, Breeding, Feelings, Mind, Fighting, Territory,
 Herding, Food, Plants, Climate and Experiences). Among them are lifespans, metabolism, litter
 sizes, food-aware breeding, the rewards and pains a brain learns from, blows and
@@ -272,8 +272,9 @@ Every Bitzkey has a home temperature. An animal away from home needs twice the
 food, and loses 10% of its full health a turn for each step it is from home:
 10% one step away, 20% two and 30% three. It may freeze or overheat to death. An animal that starves while out of its
 temperature has died of exposure too: it froze or overheated. Heat tolerance
-spares it a step of heat, and cold tolerance a step of cold: a cold-tolerant
-animal two steps too cold feels one step, and three steps feels two. Tolerance
+halves the penalties of heat, and cold tolerance those of cold: a cold-tolerant
+animal two steps too cold needs half again as much food rather than double, and
+loses 10% of its health a turn rather than 20%. Tolerance
 is rare at the start: each random starting genome carries each flag only one
 time in ten, so hardiness has to spread by breeding. Plants ignore the tolerance
 flags. Anywhere not at their own temperature a plant neither regrows nor seeds,
@@ -294,8 +295,8 @@ action for seeking it out; any migration emerges from what their brains learn to
 do with those senses.
 
 The zones' sizes, the food and health penalties, how much food a plant gives out
-of its temperature, how fast grass dies back, how long seeds wait and how
-common tolerance is at the start are
+of its temperature, how fast grass dies back, how long seeds wait, how common
+tolerance is at the start and how much it spares are
 advanced rules (the Climate group).
 
 ## Behaviour

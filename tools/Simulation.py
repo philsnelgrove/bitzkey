@@ -142,7 +142,7 @@ TEMPERAMENT_RELAPSE = 0.005  # share of the gap back to the inborn value closed 
 # is temperate, medium. Every YEAR_LENGTH turns is a year, starting mild. Through its second quarter
 # the north, from the top down to and through the equator, is a step colder; through its fourth the
 # south, from the bottom up to and through the equator, is. Every Bitzkey has a home temperature,
-# and may tolerate heat or cold, feeling a step less of it; plants tolerate nothing, and a plant
+# and may tolerate heat or cold, suffering HARDINESS of its penalties; plants tolerate nothing, and a plant
 # spawned at the start is at home in its zone's usual temperature.
 DEFAULT_YEAR_LENGTH = 360
 YEAR_LENGTH = DEFAULT_YEAR_LENGTH  # each world sets it from its year length setting
@@ -159,6 +159,7 @@ FRESH_KILL_TURNS = 1
 FRESH_KILL_MEALS = 3.0
 SEED_VIABILITY = 0.75  # years a seed that falls where it can't grow stays able to germinate
 STARTING_TOLERANCE = 0.1  # the chance a random starting genome carries each tolerance flag
+HARDINESS = 0.5  # the share of exposure's extra hunger and damage an animal tolerant of it suffers
 HOT, MEDIUM, COLD, VERY_COLD = range(len(TEMPERATURES))
 SEASONS = ("mild", "northern winter", "mild", "southern winter")  # by quarter of the year
 SEED_BYTES = 120  # a waiting seed's entry, for the history's memory budget
@@ -299,13 +300,17 @@ class Bitzkey:
         return decode_climate(self.dna)
 
     def climate_steps(self, here: int) -> int:
-        """How many steps a temperature is from home, as it feels it: an animal tolerant of heat
-        feels a step less of it, and one tolerant of cold the same. Plants feel every step."""
+        """How many steps a temperature is from home."""
+        return abs(here - self.climate[0])
+
+    def exposure_share(self, here: int) -> float:
+        """The share of exposure's penalties it suffers here: HARDINESS for an animal tolerant of
+        heat where it is hotter than home, or of cold where it is colder; otherwise all of them.
+        Plants tolerate nothing."""
         home, heat, cold = self.climate
-        difference = here - home  # above 0, colder than home
-        if self.species != "plant" and ((difference > 0 and cold) or (difference < 0 and heat)):
-            return abs(difference) - 1
-        return abs(difference)
+        if self.species != "plant" and ((here > home and cold) or (here < home and heat)):
+            return HARDINESS
+        return 1.0
 
     @property
     def profile(self) -> dict[str, float]:
@@ -705,13 +710,14 @@ class Simulation:
             here = self._climate[agent.y]
             steps = agent.climate_steps(here)
             hungrier = steps and (not plant or here < agent.climate[0])  # out of its temperature; a plant, too hot
-            agent.hunger += agent.burn * (CLIMATE_HUNGER if hungrier else 1)
+            share = agent.exposure_share(here)  # less for the hardy
+            agent.hunger += agent.burn * (1 + (CLIMATE_HUNGER - 1) * share if hungrier else 1)
             if agent.cooldown:
                 agent.cooldown -= 1
             if agent.health < agent.max_health and agent.hunger < 65:
                 agent.heal(0.005)
             if steps >= (2 if plant else 1):  # a tenth of its health a step; a plant takes one step in its stride
-                agent.health -= CLIMATE_DAMAGE * steps * agent.max_health
+                agent.health -= CLIMATE_DAMAGE * steps * share * agent.max_health
             if agent.hunger >= 100:  # hungrier out of its temperature, it died of exposure
                 self._die(agent, self._exposure(agent, here) if hungrier else "starved")
                 continue
