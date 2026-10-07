@@ -16,6 +16,20 @@ CENTRE = (0, 0, 0)  # the black centre behind a species icon
 OUTLINE = (190, 190, 190)  # the thin light grey outline around a species icon
 DOT_RADIUS_RANGE = (1, 5)  # dot radius in pixels at the smallest and biggest sizes; bigger cells raise the top
 ICON_MIN_RADIUS = 3  # a dot this big or bigger carries its species' icon
+# The world: light grey, each row tinted by its temperature now, from hot to very cold: reddish brown,
+# green, white and light blue.
+WORLD_GREY = (196, 198, 196)
+ZONE_TINTS = ((150, 85, 55), (110, 170, 90), (255, 255, 255), (170, 210, 250))
+ZONE_TINT = 0.45  # how far toward its tint a zone's grey goes
+GRASS = (62, 122, 52)
+GRID = (140, 146, 142)
+SELECTED = (25, 32, 32)    # the ring round the selected Bitzkey and those picked on the colour graph
+EXPORTING = (205, 120, 30)  # the ring round Bitzkeys on the export list
+
+
+def zone_colour(temperature: int) -> tuple[int, int, int]:
+    """The world's grey tinted for a temperature."""
+    return tuple(round(grey + (tint - grey) * ZONE_TINT) for grey, tint in zip(WORLD_GREY, ZONE_TINTS[temperature]))
 
 
 def dot_radius(size: int, largest: int = DOT_RADIUS_RANGE[1]) -> int:

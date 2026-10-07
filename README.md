@@ -253,8 +253,9 @@ gave each option, and for a corpse, the meat left on it.
 
 The map is banded into climate zones across its height. The top and bottom 20%
 are arctic, cold; a strip of 20% across the middle is the equator, hot; the two
-bands between are temperate, medium. Rows that aren't medium are tinted on the
-map: warm on the equator, blue in the arctic, paler blue where very cold.
+bands between are temperate, medium. The world is light grey, each row tinted
+by its temperature now: reddish brown where hot, green where medium, white where
+cold and light blue where very cold.
 
 A year is 180 turns, in four quarters. Through the first quarter (the northern
 winter) everything from the top of the map down to and through the equator is
@@ -277,9 +278,9 @@ only where it is medium right now, so in a winter it grows on the equator and
 stops in that hemisphere's temperate zone. Grass already standing stays.
 
 Animals sense the temperature: how far it is from home, as they feel it, and how
-close the nearest row in sight is where they would feel at home. When they are
-out of their temperature and such a row is in sight, they can migrate, walking
-straight toward it, north first when both ways are as near.
+close the nearest row in sight is where they would feel at home. There is no
+action for seeking it out; any migration emerges from what their brains learn to
+do with those senses.
 
 The year length, the zones' sizes, the food and health penalties, how much food
 a plant gives out of its temperature and how long seeds wait are advanced rules
@@ -314,7 +315,7 @@ neural network, and that brain chooses everything it does. Each turn it senses:
 - its current temperament
 
 It then picks one of the actions open to it: eat, forage, browse, scavenge,
-rest, court, breed, hunt, attack, defend, flee, herd, migrate or explore. Foraging walks toward the
+rest, court, breed, hunt, attack, defend, flee, herd or explore. Foraging walks toward the
 nearest grass in sight; a tuft sates 35 hunger. Grazers get 1.25 times the food in grass and plants; omnivores half of grass and three quarters of plants. Browsing walks to the nearest
 plant in sight and, once alongside, takes a bite: 45 hunger, up to 70 from the
 largest plants, far more than grass. Each bite costs the plant 15 health, and

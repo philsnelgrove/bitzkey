@@ -128,28 +128,24 @@ class EffectTests(unittest.TestCase):
 
 
 class SenseTests(unittest.TestCase):
-    def test_an_animal_senses_the_temperature_and_can_migrate_toward_home(self):
+    def test_an_animal_senses_how_far_it_is_from_home_and_how_close_home_weather_is(self):
         simulation = world(turn=60)
-        grazer = simulation._add_agent(encode_dna("grazer", temperature=COLD, sight=7, speed=0), 50, 23)
-        senses, options, situation = simulation._sense(grazer)
+        grazer = simulation._add_agent(encode_dna("grazer", temperature=COLD, sight=7), 50, 23)
+        self.assertEqual(simulation._comfort_row(grazer, grazer.sight), (50, 19))  # the arctic, four rows north
+        senses = simulation._sense(grazer)[0]
         self.assertEqual(senses[SENSES.index("climate_discomfort")], 0.5)  # temperate: a step too warm
-        self.assertEqual(situation["comfort"], (50, 19))  # the arctic, four rows north
         self.assertAlmostEqual(senses[SENSES.index("comfort_closeness")], 1 - 3 / 9)
-        self.assertIn(ACTIONS.index("migrate"), options)
-        simulation._act(grazer, "migrate", situation)
-        self.assertEqual(((grazer.x, grazer.y), grazer.last_action), ((50, 21), "migrated"))  # two rows a step
 
         at_home = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM), 50, 30)
-        senses, options, situation = simulation._sense(at_home)
+        senses = simulation._sense(at_home)[0]
         self.assertEqual((senses[SENSES.index("climate_discomfort")], senses[SENSES.index("comfort_closeness")]),
                          (0.0, 1.0))
-        self.assertNotIn(ACTIONS.index("migrate"), options)
 
         lost = simulation._add_agent(encode_dna("grazer", temperature=VERY_COLD, sight=0), 50, 50)  # none in sight
-        senses, options, _ = simulation._sense(lost)
+        senses = simulation._sense(lost)[0]
         self.assertEqual((senses[SENSES.index("climate_discomfort")], senses[SENSES.index("comfort_closeness")]),
                          (1.0, 0.0))
-        self.assertNotIn(ACTIONS.index("migrate"), options)
+        self.assertNotIn("migrate", ACTIONS)  # moving toward home is left for brains to learn
 
 
 class SeedTests(unittest.TestCase):

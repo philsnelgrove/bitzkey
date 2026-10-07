@@ -898,8 +898,6 @@ class Simulation:
         if herd_middle is not None and (abs(herd_middle[0] - agent.x) + abs(herd_middle[1] - agent.y)
                                         > HERD_SPREAD * (1 - agent.feeling("fear"))):
             available.add("herd")  # the more fearful it is, the closer it keeps to the herd's middle
-        if comfort:
-            available.add("migrate")  # toward the temperature it is at home in
 
         senses = make_senses(
             hunger=min(1.0, agent.hunger / 100),
@@ -937,7 +935,7 @@ class Simulation:
                      "threats": len(threats), "quarry": quarry, "hunter": hunter, "suitor": suitor,
                      "grass": grass, "grass_here": grass_here, "carrion": carrion, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
                      "others": others, "defend_target": defend_target, "for_herd": assailant is None,
-                     "herd": herd, "herd_near": herd_near, "herd_middle": herd_middle, "comfort": comfort}
+                     "herd": herd, "herd_near": herd_near, "herd_middle": herd_middle}
         return senses, [ACTIONS.index(action) for action in ACTIONS if action in available], situation
 
     def _wellbeing(self, agent: Bitzkey) -> float:
@@ -1046,9 +1044,6 @@ class Simulation:
         elif action == "herd":
             self._move_toward(agent, *situation["herd_middle"])
             agent.last_action = "herded"
-        elif action == "migrate":
-            self._move_toward(agent, *situation["comfort"])
-            agent.last_action = "migrated"
         elif action == "flee":
             self._move_away(agent, situation["hunter"])
             agent.last_action = "panicked" if situation.get("panic") else "fled"

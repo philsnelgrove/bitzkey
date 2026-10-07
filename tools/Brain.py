@@ -40,8 +40,7 @@ SENSES = (
     "comfort_closeness",  # 1 where it feels at home or next to such a row, falling to 0 beyond sight; 0 when none is seen
     "age",             # 0 at birth, 1 at 400 turns or older
 ) + MIND_TRAITS        # then its current temperament, each trait 0..7 scaled to 0..1
-ACTIONS = ("eat", "forage", "browse", "scavenge", "rest", "court", "breed", "hunt", "attack", "defend", "flee", "herd",
-           "migrate", "explore")
+ACTIONS = ("eat", "forage", "browse", "scavenge", "rest", "court", "breed", "hunt", "attack", "defend", "flee", "herd", "explore")
 INPUT_SIZE = len(SENSES)
 HIDDEN_SIZE = 12
 TEMPERATURE = 0.2

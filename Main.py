@@ -11,8 +11,9 @@ import pygame as pg
 from config.Globals import Config
 from display import Window
 from display.Dialog import Dialog
-from display.Inspector import TEMPERATURE_COLOURS, draw_details
-from display.Look import DOT_RADIUS_RANGE, RING_WIDTH, dot_radius, draw_bitzkey
+from display.Inspector import draw_details
+from display.Look import (DOT_RADIUS_RANGE, EXPORTING, GRASS, GRID, RING_WIDTH, SELECTED, dot_radius, draw_bitzkey,
+                          zone_colour)
 from display.Setup import EXPORT_DIR, SetupScreen
 from display.Ui import UI
 from tools.Brain import ACTIONS
@@ -370,19 +371,14 @@ class BitzkeyApp:
 
     def _draw_world(self) -> None:
         board, cell_width, cell_height = self._board_geometry()
-        pg.draw.rect(self.screen, (29, 39, 38), board)
-        for y in range(self.height):  # rows not medium, faintly in their temperature's colour
-            temperature = self.simulation.temperature(y)
-            if temperature == world.MEDIUM:
-                continue
+        for y in range(self.height):  # each row in its temperature's colour
             top, bottom = round(board.top + y * cell_height), round(board.top + (y + 1) * cell_height)
-            tint = tuple(round(back + (channel - back) * 0.14)
-                         for back, channel in zip((29, 39, 38), TEMPERATURE_COLOURS[temperature]))
-            pg.draw.rect(self.screen, tint, (board.left, top, board.width, bottom - top))
+            pg.draw.rect(self.screen, zone_colour(self.simulation.temperature(y)),
+                         (board.left, top, board.width, bottom - top))
         for x, y in self.simulation.grass:
             point = (round(board.left + (x + 0.5) * cell_width),
                      round(board.top + (y + 0.5) * cell_height))
-            pg.draw.circle(self.screen, (117, 166, 111), point, max(1, round(min(cell_width, cell_height) * 0.18)))
+            pg.draw.circle(self.screen, GRASS, point, max(1, round(min(cell_width, cell_height) * 0.18)))
         largest = max(DOT_RADIUS_RANGE[1], round(min(cell_width, cell_height) * 0.45))
         for agent in self.simulation.agents:
             point = (round(board.left + (agent.x + 0.5) * cell_width),
@@ -390,15 +386,15 @@ class BitzkeyApp:
             radius = self._dot_radius(agent, largest)
             self._draw_bitzkey(agent, point, radius, self._corpse_opacity(agent))
             if agent.identifier == self.selected_id or agent.identifier in self.graph.selection:
-                pg.draw.circle(self.screen, (245, 238, 206), point, radius + RING_WIDTH + UI(3), max(1, UI(1)))
+                pg.draw.circle(self.screen, SELECTED, point, radius + RING_WIDTH + UI(3), max(1, UI(1)))
             if agent.identifier in self.export_list:
-                pg.draw.circle(self.screen, (238, 183, 110), point, radius + RING_WIDTH + UI(6), max(1, UI(1)))
+                pg.draw.circle(self.screen, EXPORTING, point, radius + RING_WIDTH + UI(6), max(1, UI(1)))
         for x in range(0, self.width + 1, 10):
             px = round(board.left + x * cell_width)
-            pg.draw.line(self.screen, (46, 58, 54), (px, board.top), (px, board.bottom), 1)
+            pg.draw.line(self.screen, GRID, (px, board.top), (px, board.bottom), 1)
         for y in range(0, self.height + 1, 10):
             py = round(board.top + y * cell_height)
-            pg.draw.line(self.screen, (46, 58, 54), (board.left, py), (board.right, py), 1)
+            pg.draw.line(self.screen, GRID, (board.left, py), (board.right, py), 1)
         pg.draw.rect(self.screen, (80, 99, 85), board, 1)
 
     def _draw_sidebar(self) -> None:
