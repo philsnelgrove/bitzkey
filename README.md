@@ -79,7 +79,7 @@ Each imported genome spawns as a group of 3 to
 120 genomes are used, keeping their groups within the 600 population cap. Set
 "Bitzkeys" to 0 to start with only your imports.
 
-ADVANCED opens the advanced rules: 132 numbers that shape how the world plays
+ADVANCED opens the advanced rules: 134 numbers that shape how the world plays
 out, in groups (World, Bodies, Breeding, Feelings, Mind, Fighting, Territory,
 Herding, Food, Plants, Climate, Society and Experiences). Among them are lifespans, metabolism, litter
 sizes, food-aware breeding, the rewards and pains a brain learns from, blows and
@@ -269,14 +269,19 @@ very cold, the temperate zone cold, the equator medium. The third quarter is
 mild again. Through the fourth quarter (the southern winter) the same happens
 from the bottom up to and through the equator. The sidebar shows the year and season.
 
-The weather doesn't change all at once. Through the first third of each season
-(30 turns of a 360-turn year) every row's temperature turns steadily from the
-last season's to this one's: a temperate row in the north is a third of the way
-to cold ten turns into its winter, half way at fifteen and cold at thirty, and
-turns back the same way as the next season begins. The zones' colours turn with
-it, and so do its effects: an animal half a step from home needs half the extra
-food and loses half a step's health, and grass grows in a row, and dies back in
-it, by how medium the row is. The world's first season starts settled.
+The weather doesn't change all at once: it comes in a wave. A winter washes in
+from its hemisphere's edge, the top of the map for the north and the bottom for
+the south, down or up to the far side of the equator, and as it ends ebbs back
+the way it came, from the equator to the edge. The wave crosses the hemisphere in
+bands of two rows over the first half of each season (45 turns of a 360-turn
+year), about a row and a third a turn. At its front four bands stand part way
+between the old weather and the new, each a quarter step further on than the
+band ahead of it, so the change comes as a staircase an animal can see within
+its sight: winter behind the front, the old season ahead of it. Each band turns
+by a quarter step as the front moves on by one. The zones' colours turn with the
+wave, and so do its effects: an animal half a step from home needs half the
+extra food and loses half a step's health, and grass grows in a row, and dies
+back in it, by how medium the row is. The world's first season starts settled.
 
 Every Bitzkey has a home temperature. An animal a step or more from home needs
 twice the food, and loses 10% of its full health a turn for each step it is from home:
@@ -313,7 +318,7 @@ and the time of year. Foraging never leads further from home: an animal ignores
 grass in rows whose temperature is further from home than where it stands, and
 doesn't herd toward a herd whose middle is.
 
-The zones' sizes, how much of each season the weather takes to turn, the food and health penalties, how much food a plant gives out
+The zones' sizes, how much of each season a wave takes to pass and how wide its bands and front are, the food and health penalties, how much food a plant gives out
 of its temperature, how fast grass dies back, how long seeds wait, how common
 tolerance is at the start and how much it spares are
 advanced rules (the Climate group).
