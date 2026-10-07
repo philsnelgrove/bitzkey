@@ -6,7 +6,8 @@ from unittest.mock import patch
 from tools.Brain import ACTIONS, SENSES, Brain
 from tools.Exchange import Imported
 from tools.Genome import encode_dna
-from tools.Simulation import CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, Simulation, litter_size, nearby_offsets
+from tools.Simulation import (CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, SEED_OFFSETS, SIGHT_OFFSETS, Simulation, litter_size,
+                              nearby_offsets)
 
 
 def lay_plenty_of_grass(simulation: Simulation) -> None:
@@ -508,7 +509,7 @@ class SimulationTests(unittest.TestCase):
                 self.simulation._index_cells()
             count = 0
             for roll in (0.02, 0.05, 0.08):
-                with patch.object(self.simulation.random, "random", return_value=roll):
+                with patch.object(self.simulation.random, "random", return_value=roll),                         patch.object(self.simulation.random, "randrange", return_value=0):  # beside it, on the map
                     before = len(self.simulation.agents)
                     self.simulation._seed(plant)
                     count += len(self.simulation.agents) > before or bool(self.simulation.seeds)  # sprouted or waits
@@ -1387,6 +1388,43 @@ class NewTraitTests(unittest.TestCase):
             senses, options, _ = simulation._sense(eater)
             self.assertNotIn(ACTIONS.index("feast"), options, f"{species} eating a {eaten}")
             self.assertEqual(senses[SENSES.index("kill_closeness")], 0.0)
+
+    def test_the_top_and_bottom_of_the_map_are_barriers_but_east_and_west_wrap(self):
+        simulation = Simulation(width=20, height=20, population=0, seed=2)
+        top = simulation._add_agent(encode_dna("grazer", speed=7), 0, 0)
+        bottom = simulation._add_agent(encode_dna("predator", speed=7), 19, 19)
+        simulation._index_cells()
+        for _ in range(200):
+            simulation._act(top, "explore", {})
+            simulation._act(bottom, "explore", {})
+            self.assertTrue(0 <= top.y < 20 and 0 <= bottom.y < 20)
+        top.x, top.y, bottom.x, bottom.y = 0, 0, 19, 19
+        simulation._index_cells()
+        self.assertEqual(simulation._within(-1), 0)
+        self.assertEqual(simulation._within(20), 19)
+        slow = simulation._add_agent(encode_dna("predator", speed=0), 0, 0)  # a cell a step
+        hunter = simulation._add_agent(encode_dna("predator"), 1, 1)
+        simulation._move_away(slow, hunter)  # it flees up and west: stopped at the top, it wraps round the west
+        self.assertEqual((slow.x, slow.y), (19, 0))
+        self.assertTrue(all(0 <= y < 20 for _, y in simulation._free_cells_near(bottom)))
+        self.assertIn((0, 19), simulation._free_cells_near(bottom))  # east wraps round to the west
+
+    def test_seeds_and_fertile_ground_dont_cross_the_top_or_bottom(self):
+        simulation = Simulation(width=20, height=20, population=0, seed=2)
+        plant = simulation._add_agent(encode_dna("plant", fertility=7), 10, 0)
+        simulation._index_cells()
+        offsets = [index for index, (dx, dy) in enumerate(SIGHT_OFFSETS[:SEED_OFFSETS]) if dy < 0]
+        with patch.object(simulation.random, "random", return_value=0.0),                 patch.object(simulation.random, "randrange", return_value=offsets[0]):
+            simulation._seed(plant)  # northward, off the map
+        self.assertEqual((len(simulation.agents), simulation.seeds, plant.children), (1, [], 0))
+        corpse = simulation._add_agent(encode_dna("grazer"), 5, 0)
+        corpse.health = 0
+        simulation._die(corpse, "wounded")
+        simulation.grass.clear()
+        simulation._medium_rows = list(range(20))  # grass may grow anywhere, to see where it grows faster
+        with patch.object(simulation.random, "randrange", side_effect=[5, 19] * 1 + [5, 0]):
+            simulation._sow(2)
+        self.assertEqual((simulation.grass[(5, 19)], simulation.grass[(5, 0)]), (1, 2))
 
     def test_grass_dies_back_a_tuft_at_a_time_where_it_isnt_medium(self):
         simulation = Simulation(width=20, height=20, population=0, seed=1)

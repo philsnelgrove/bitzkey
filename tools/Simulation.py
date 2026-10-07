@@ -763,7 +763,9 @@ class Simulation:
         if roll >= chance * max(0.0, 1 - shade / LIGHT_LIMIT):
             return
         dx, dy = SIGHT_OFFSETS[self.random.randrange(SEED_OFFSETS)]
-        cell = ((plant.x + dx) % self.width, (plant.y + dy) % self.height)
+        if not 0 <= plant.y + dy < self.height:  # off the top or bottom of the map: the seed is lost
+            return
+        cell = ((plant.x + dx) % self.width, plant.y + dy)
         if not self._room_for_seedling(cell):
             return
         dna = cross(plant.dna, plant.dna, self.random, None, self.mind_mutation, self.body_mutation)
@@ -819,9 +821,9 @@ class Simulation:
         rows = self._medium_rows
         if not rows:
             return
-        fertile = {((corpse.x + dx) % self.width, (corpse.y + dy) % self.height)
+        fertile = {((corpse.x + dx) % self.width, corpse.y + dy)
                    for corpse in self.agents if corpse.died_turn is not None
-                   for dx in (-1, 0, 1) for dy in (-1, 0, 1)}
+                   for dx in (-1, 0, 1) for dy in (-1, 0, 1) if 0 <= corpse.y + dy < self.height}
         for _ in range(tufts):
             cell = (self.random.randrange(self.width), rows[self.random.randrange(len(rows))])
             self.grass[cell] = self.grass.get(cell, 0) + (CORPSE_FERTILITY if cell in fertile else 1)
@@ -1110,7 +1112,7 @@ class Simulation:
         else:
             for _ in range(agent.steps):
                 self._move(agent, (agent.x + self.random.choice((-1, 0, 1))) % self.width,
-                           (agent.y + self.random.choice((-1, 0, 1))) % self.height)
+                           self._within(agent.y + self.random.choice((-1, 0, 1))))
             agent.reward += CURIOSITY_JOY * agent.feeling("curiosity")
             agent.last_action = "explored"
 
@@ -1340,7 +1342,9 @@ class Simulation:
         """The empty cells around an animal, sides before corners, where young can be born."""
         cells = []
         for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0), (1, -1), (1, 1), (-1, 1), (-1, -1)):
-            cell = ((agent.x + dx) % self.width, (agent.y + dy) % self.height)
+            if not 0 <= agent.y + dy < self.height:  # beyond the top or bottom of the map
+                continue
+            cell = ((agent.x + dx) % self.width, agent.y + dy)
             if not any(other.alive for other in self._cells.get(cell, ())):
                 cells.append(cell)
         return cells
@@ -1408,6 +1412,11 @@ class Simulation:
             return 0.0
         return min(1.0, 1 - (abs(cell[0] - agent.x) + abs(cell[1] - agent.y) - 1) / sight)
 
+    def _within(self, y: int) -> int:
+        """A row kept on the map: the top and bottom edges are barriers, though east and west wrap
+        round."""
+        return max(0, min(self.height - 1, y))
+
     def _move(self, agent: Bitzkey, x: int, y: int) -> None:
         self._cells[(agent.x, agent.y)].remove(agent)
         agent.x, agent.y = x, y
@@ -1424,7 +1433,7 @@ class Simulation:
         for _ in range(agent.steps):
             dx = 1 if agent.x >= threat.x else -1
             dy = 1 if agent.y >= threat.y else -1
-            self._move(agent, (agent.x + dx) % self.width, (agent.y + dy) % self.height)
+            self._move(agent, (agent.x + dx) % self.width, self._within(agent.y + dy))
 
     @staticmethod
     def _compatible(first: Bitzkey, second: Bitzkey) -> bool:

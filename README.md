@@ -255,7 +255,9 @@ gave each option, and for a corpse, the meat left on it.
 
 The map is banded into climate zones across its height. The top and bottom 20%
 are arctic, cold; a strip of 20% across the middle is the equator, hot; the two
-bands between are temperate, medium. The world is light grey, each row tinted
+bands between are temperate, medium. The top and bottom edges of the map are
+barriers: nothing walks, flees or is born across them, and seeds that would fall
+beyond them are lost. East and west still wrap round. The world is light grey, each row tinted
 by its temperature now: reddish brown where hot, green where medium, white where
 cold and light blue where very cold.
 
