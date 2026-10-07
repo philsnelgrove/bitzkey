@@ -203,6 +203,24 @@ class SenseTests(unittest.TestCase):
         self.assertNotIn("migrate", ACTIONS)  # moving toward home is left for brains to learn
 
 
+class TimeTests(unittest.TestCase):
+    def test_animals_sense_the_time_of_year_as_two_clock_hands_a_quarter_apart(self):
+        simulation = world(turn=0)
+        grazer = simulation._add_agent(encode_dna("grazer"), 50, 50)
+        hands = []
+        for turn in (0, 90, 180, 270, 360):
+            simulation.turn = turn
+            senses = simulation._sense(grazer)[0]
+            hands.append((senses[SENSES.index("time_of_year_a")], senses[SENSES.index("time_of_year_b")]))
+        self.assertEqual(hands, [(1.0, 0.5), (0.5, 0.0), (0.0, 0.5), (0.5, 1.0), (1.0, 0.5)])  # round the year
+
+    def test_the_clock_follows_the_year_length(self):
+        simulation = Simulation(width=20, height=20, population=0, seed=1, year_length=100)
+        self.assertEqual([tuple(simulation._time_of_year().values()) for simulation.turn in (25, 50)],
+                         [(0.5, 0.0), (0.0, 0.5)])
+        Simulation(width=20, height=20, population=0, seed=1)  # back to the default year
+
+
 class SeedTests(unittest.TestCase):
     def test_a_seed_that_falls_where_it_cant_grow_waits_for_its_temperature(self):
         simulation = world(turn=200)
@@ -234,8 +252,8 @@ class SeedTests(unittest.TestCase):
             self.assertEqual(simulation.seeds, waiting)
 
     def test_waiting_seeds_rewind_and_replay_with_the_world(self):
-        simulation = Simulation(width=40, height=40, population=60, seed=3)
-        while not simulation.seeds and simulation.turn < 300:  # run until some seeds are waiting
+        simulation = Simulation(width=40, height=40, population=60, seed=4)
+        while not simulation.seeds and simulation.turn < 300 and not simulation.ended:  # until some seeds wait
             simulation.advance()
         seeds, turn = list(simulation.seeds), simulation.turn
         self.assertTrue(seeds)

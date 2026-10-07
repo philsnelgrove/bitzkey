@@ -332,6 +332,8 @@ neural network, and that brain chooses everything it does. Each turn it senses:
 - its herd: how many herd-mates are close by, how near it is to the herd's middle,
   and whether a herd-mate close by has just been struck
 - its own kind and other species close by, and its own age
+- the time of year, as two hands of a clock a quarter of a year apart, so it can
+  learn the seasons' rhythm and what each brings
 - how far the temperature is from home, and how close home weather is (see
   Seasons and Climate)
 - its current temperament

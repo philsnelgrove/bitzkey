@@ -40,6 +40,9 @@ SENSES = (
     "climate_discomfort",  # how far the temperature here is from home, as it feels it: 0, 0.5 a step, 1 two or more
     "comfort_closeness",  # 1 where it feels at home or next to such a row, falling to 0 beyond sight; 0 when none is seen
     "age",             # 0 at birth, 1 at 400 turns or older
+    # The time of year, as two hands of a clock a quarter of a year apart, so the year's turn is smooth:
+    "time_of_year_a",  # 1 at the start of the year, falling to 0 halfway through, and rising back to 1
+    "time_of_year_b",  # the same a quarter of a year later: 0 a quarter in, 1 three quarters in
 ) + MIND_TRAITS + (    # then its current temperament, each trait 0..7 scaled to 0..1
     *(f"open_{action}" for action in ACTIONS),            # 1 for each action open to it now
     *(f"inborn_{trait}" for trait in MIND_TRAITS),        # its dot's traits, as born, 0..1

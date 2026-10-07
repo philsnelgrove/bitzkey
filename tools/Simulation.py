@@ -539,6 +539,11 @@ class Simulation:
         """How the climate killed it: colder than home, it froze; hotter, it overheated."""
         return "froze" if here > agent.climate[0] else "overheated"
 
+    def _time_of_year(self) -> dict[str, float]:
+        """The brain's sense of the time of year: two hands of a clock a quarter of a year apart."""
+        day = self.turn % YEAR_LENGTH / YEAR_LENGTH  # 0 at the year's start, nearly 1 at its end
+        return {"time_of_year_a": abs(2 * day - 1), "time_of_year_b": abs(2 * ((day + 0.25) % 1.0) - 1)}
+
     def _update_climate(self) -> None:
         """Each row's temperature this turn, and the rows where grass can grow: the medium ones."""
         self._climate = [temperature_at(y, self.height, self.turn) for y in range(self.height)]
@@ -992,6 +997,7 @@ class Simulation:
             climate_discomfort=min(2, discomfort) / 2,
             comfort_closeness=1.0 if not discomfort else self._closeness(agent, comfort, sight),
             age=min(1.0, agent.age / 400),
+            **self._time_of_year(),
             **{trait: agent.feeling(trait) for trait in MIND_TRAITS},
             **{f"open_{action}": 1.0 for action in available},
             **agent.genes,
