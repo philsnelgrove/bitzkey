@@ -778,7 +778,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertGreater(kin_pain, -hunter.reward)
 
     def test_grass_grows_twice_as_fast_on_and_around_corpses(self):
-        rows = self.simulation._medium_rows  # grass grows only where it is medium
+        rows = self.simulation._grass_rows  # grass grows only where it is medium
         self.assertTrue({7, 8, 9} <= set(rows))
         corpse = self.simulation._add_agent(encode_dna("grazer"), 0, 8)
         corpse.health = 0
@@ -1073,7 +1073,7 @@ class NewTraitTests(unittest.TestCase):
         simulation._index_cells()
         # every cell within six steps where grass grows now, of all the cells it grows in
         cells = sum(simulation.temperature(15 + dy) == MEDIUM for _, dy in nearby_offsets(6))
-        expected = 1.25 * (cells * simulation.grass_regrowth / (30 * len(simulation._medium_rows)) * 150)
+        expected = 1.25 * (cells * simulation.grass_regrowth / (30 * simulation._grass_reach[-1]) * 150)
         self.assertAlmostEqual(simulation._food_supply(grazer), expected)
         corner = simulation._add_agent(encode_dna("grazer"), 0, 0)  # a corner sees less of the world
         simulation._index_cells()
@@ -1422,15 +1422,17 @@ class NewTraitTests(unittest.TestCase):
         corpse.health = 0
         simulation._die(corpse, "wounded")
         simulation.grass.clear()
-        simulation._medium_rows = list(range(20))  # grass may grow anywhere, to see where it grows faster
-        with patch.object(simulation.random, "randrange", side_effect=[5, 19] * 1 + [5, 0]):
+        simulation._grass_rows = list(range(20))  # grass may grow anywhere, to see where it grows faster
+        simulation._grass_reach = [float(rows) for rows in range(1, 21)]
+        with patch.object(simulation.random, "randrange", return_value=5), \
+                patch.object(simulation.random, "random", side_effect=[0.975, 0.0]):  # rows 19 and 0
             simulation._sow(2)
         self.assertEqual((simulation.grass[(5, 19)], simulation.grass[(5, 0)]), (1, 2))
 
     def test_grass_dies_back_a_tuft_at_a_time_where_it_isnt_medium(self):
         simulation = Simulation(width=20, height=20, population=0, seed=1)
         simulation.grass = {(x, y): 3 for x in range(20) for y in (1, 5)}  # arctic, then temperate
-        simulation.turn = 200  # mid-year, mild: the arctic cold, the temperate zone medium
+        simulation.turn = 220  # mid-year, mild: the arctic cold, the temperate zone medium
         simulation._update_climate()
         for _ in range(GRASS_DIEBACK):
             simulation.turn += 1

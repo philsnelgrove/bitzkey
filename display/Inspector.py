@@ -26,7 +26,7 @@ def hardiness(heat: bool, cold: bool) -> str:
     return "HEAT & COLD-HARDY" if heat and cold else "HEAT-HARDY" if heat else "COLD-HARDY" if cold else ""
 
 
-def _draw_climate(screen: pg.Surface, agent: Bitzkey, x: int, y: int, width: int, here: int | None) -> None:
+def _draw_climate(screen: pg.Surface, agent: Bitzkey, x: int, y: int, width: int, here: float | None) -> None:
     """Its home temperature, the temperature where it is (coloured by how far that is from home, as
     it feels it), and what it tolerates; temperatures are shortened if the line is too narrow."""
     small = UI.font("segoeui", 12)
@@ -35,9 +35,9 @@ def _draw_climate(screen: pg.Surface, agent: Bitzkey, x: int, y: int, width: int
     for names in (TEMPERATURES, SHORT_TEMPERATURES):
         parts = [(f"HOME {names[home].upper()}", TEMPERATURE_COLOURS[home])]
         if here is not None:
-            steps = agent.climate_steps(here)
-            colour = (175, 192, 172) if not steps else (238, 183, 110) if steps == 1 else (235, 100, 90)
-            parts.append((f"HERE {names[here].upper()}", colour))
+            steps = agent.climate_steps(here)  # part steps while the weather turns: shown as the nearer
+            colour = (175, 192, 172) if steps < 0.5 else (238, 183, 110) if steps < 1.5 else (235, 100, 90)
+            parts.append((f"HERE {names[int(here + 0.5)].upper()}", colour))
         if sum(small.size(text)[0] for text, _ in parts) + UI(14) * len(parts) + hardy.get_width() <= width:
             break
     left = x
@@ -58,7 +58,7 @@ def _bar(screen: pg.Surface, x: int, y: int, width: int, value: float, color: tu
 
 
 def draw_details(screen: pg.Surface, agent: Bitzkey, x: int, at: Callable[[float], int], width: int,
-                 known: bool = True, here: int | None = None) -> None:
+                 known: bool = True, here: float | None = None) -> None:
     """Draw the details from x across `width`; `at` turns a design offset from their top into a
     screen y. A Bitzkey not `known` is one no longer (or not yet) in the world, rebuilt from its
     genome, so only what its genes fix is shown. `here` is the temperature where it is."""
@@ -110,7 +110,7 @@ def draw_details(screen: pg.Surface, agent: Bitzkey, x: int, at: Callable[[float
 
 
 def draw_tooltip(screen: pg.Surface, agent: Bitzkey, known: bool, mouse: tuple[int, int],
-                 here: int | None = None) -> pg.Rect:
+                 here: float | None = None) -> pg.Rect:
     """The details in a box beside the mouse, kept on the screen. Returns the box."""
     width, padding = UI(300), UI(12)
     box = pg.Rect(0, 0, width + 2 * padding, UI(DETAILS_HEIGHT if known else GENOME_HEIGHT) + 2 * padding)

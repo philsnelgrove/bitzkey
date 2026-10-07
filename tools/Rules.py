@@ -201,6 +201,8 @@ _TABLE: dict[str, list[tuple]] = {
          0.0, 1.0, 0.01),
         ("PLANT_CLIMATE_YIELD", "Plant climate yield", "share of its food a plant gives out of its temperature",
          0.0, 1.0, 0.05),
+        ("SEASON_TURNING", "Season turning", "share of each season over which the weather turns from the last",
+         0.0, 1.0, 0.05),
         ("GRASS_DIEBACK", "Grass dieback", "where it isn't medium, turns for each tuft of a cell's grass to die", 1, 500, 1),
         ("SEED_VIABILITY", "Seed viability", "years a seed waits for its temperature before it dies", 0.0, 5.0, 0.05),
         ("STARTING_TOLERANCE", "Starting tolerance", "chance a random starting genome carries each tolerance flag",

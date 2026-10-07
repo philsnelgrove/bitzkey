@@ -8,6 +8,7 @@ import random
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from functools import cache, cached_property, lru_cache
+from itertools import accumulate
 
 from tools.Brain import ACTIONS, SENSES, Brain, choice_odds, depth_for, gene_senses, make_senses
 from tools.Genome import (GENOME, MIND_TRAITS, SPECIES, TRAIT_MAX, body_word, color_from_word, cross, dot_difference, inherit_mind, ring_difference,
@@ -159,6 +160,9 @@ CLIMATE_HUNGER = 2.0   # an animal a step or more from home, or a plant too hot,
 CLIMATE_DAMAGE = 0.1   # for each step from home, a Bitzkey loses this share of its full health a turn; plants from two
 PLANT_CLIMATE_YIELD = 0.0  # a plant out of its temperature gives this share of its food
 GRASS_DIEBACK = 20     # where it isn't medium, a cell's grass loses a tuft every this many turns
+# The weather turns gradually: through this share of each season, every row's temperature moves
+# steadily from the last season's to this one's, and the climate's effects move with it.
+SEASON_TURNING = 1 / 3
 # A dead animal is a fresh kill, not yet carrion, through the turn it died and FRESH_KILL_TURNS more;
 # then it starts to rot. A predator or omnivore may eat a fresh kill of what it lives on whole,
 # FRESH_KILL_MEALS times the meal of making the kill, and nothing is left.
@@ -227,13 +231,40 @@ def zone_temperature(y: int, height: int) -> int:
     return HOT if abs(place - 0.5) < EQUATOR_SHARE / 2 else MEDIUM
 
 
-def temperature_at(y: int, height: int, turn: int) -> int:
-    """A row's temperature on a turn: its zone's, a step colder in its hemisphere's winter."""
+def season_temperature(y: int, height: int, quarter: int) -> int:
+    """A row's settled temperature in a quarter of the year: its zone's, a step colder in its
+    hemisphere's winter."""
     place = (y + 0.5) / height
     equator = abs(place - 0.5) < EQUATOR_SHARE / 2
-    quarter = season(turn)
     winter = (quarter == 1 and (place < 0.5 or equator)) or (quarter == 3 and (place > 0.5 or equator))
     return zone_temperature(y, height) + winter
+
+
+def season_progress(turn: int) -> float:
+    """How far the weather has turned from the last season's to this one's: 0 as a season begins,
+    1 once SEASON_TURNING of it has passed. The world's first season starts settled."""
+    quarter = season(turn)
+    if (turn < YEAR_LENGTH and quarter == 0) or SEASON_TURNING <= 0:
+        return 1.0
+    into = (turn % YEAR_LENGTH * 4 - quarter * YEAR_LENGTH) / YEAR_LENGTH  # share of the season gone, 0 to 1
+    return min(1.0, into / SEASON_TURNING)
+
+
+def temperature_at(y: int, height: int, turn: int) -> float:
+    """A row's temperature on a turn, from 0 (hot) to 3 (very cold): its season's, though early in
+    a season it is still turning from the last season's, part way between the two."""
+    quarter = season(turn)
+    now = season_temperature(y, height, quarter)
+    progress = season_progress(turn)
+    if progress >= 1:
+        return float(now)
+    before = season_temperature(y, height, (quarter - 1) % 4)
+    return before + (now - before) * progress
+
+
+def dieback_threshold(x: int, y: int) -> float:
+    """A cell's fixed share, 0 to 1, below which a row's shortfall from medium makes its grass die back."""
+    return (x * 7919 + y * 104729) % 1000 / 1000
 
 
 @cache
@@ -313,11 +344,11 @@ class Bitzkey:
         """Its home temperature, and whether it tolerates heat and cold."""
         return decode_climate(self.dna)
 
-    def climate_steps(self, here: int) -> int:
-        """How many steps a temperature is from home."""
+    def climate_steps(self, here: float) -> float:
+        """How many steps a temperature is from home, part steps while the weather turns."""
         return abs(here - self.climate[0])
 
-    def exposure_share(self, here: int) -> float:
+    def exposure_share(self, here: float) -> float:
         """The share of exposure's penalties it suffers here: HARDINESS for an animal tolerant of
         heat where it is hotter than home, or of cold where it is colder; otherwise all of them.
         Plants tolerate nothing."""
@@ -520,8 +551,10 @@ class Simulation:
         # Seeds waiting where they fell for the temperature they can grow in: (x, y, genome,
         # generation, turn sown).
         self.seeds: list[tuple[int, int, int, int, int]] = []
-        self._climate: list[int] = []
-        self._medium_rows: list[int] = []
+        self._climate: list[float] = []
+        self._growth: list[float] = []      # each row's share of medium, where grass grows
+        self._grass_rows: list[int] = []    # the rows where grass grows at all
+        self._grass_reach: list[float] = []  # their growth added up, row by row, for sowing
         self._update_climate()
         self.grass: dict[tuple[int, int], int] = {}
         initial_grass = round(width * height * grass_density / 100)
@@ -544,8 +577,8 @@ class Simulation:
     def living(self) -> list[Bitzkey]:
         return [agent for agent in self.agents if agent.alive]
 
-    def temperature(self, y: int) -> int:
-        """A row's temperature now."""
+    def temperature(self, y: int) -> float:
+        """A row's temperature now, part way between two while the weather turns."""
         return self._climate[y]
 
     @staticmethod
@@ -559,9 +592,12 @@ class Simulation:
         return {"time_of_year_a": abs(2 * day - 1), "time_of_year_b": abs(2 * ((day + 0.25) % 1.0) - 1)}
 
     def _update_climate(self) -> None:
-        """Each row's temperature this turn, and the rows where grass can grow: the medium ones."""
+        """Each row's temperature this turn, and how well grass grows in it: fully where it is
+        medium, less the further it has turned from medium, and not at all a step away."""
         self._climate = [temperature_at(y, self.height, self.turn) for y in range(self.height)]
-        self._medium_rows = [y for y, temperature in enumerate(self._climate) if temperature == MEDIUM]
+        self._growth = [max(0.0, 1 - abs(temperature - MEDIUM)) for temperature in self._climate]
+        self._grass_rows = [y for y, growth in enumerate(self._growth) if growth > 0]
+        self._grass_reach = list(accumulate(self._growth[y] for y in self._grass_rows))
 
     def _group_sizes(self, population: int) -> list[int]:
         """Random group sizes adding up to the population, never leaving a group too small.
@@ -728,15 +764,19 @@ class Simulation:
             plant = agent.species == "plant"
             here = self._climate[agent.y]
             steps = agent.climate_steps(here)
-            hungrier = steps and (not plant or here < agent.climate[0])  # out of its temperature; a plant, too hot
+            hungrier = steps > 0 and (not plant or here < agent.climate[0])  # out of its temperature; a plant, too hot
             share = agent.exposure_share(here)  # less for the hardy
-            agent.hunger += agent.burn * (1 + (CLIMATE_HUNGER - 1) * share if hungrier else 1)
+            # The extra food it needs rises with the weather's turning, to the full amount a step away.
+            agent.hunger += agent.burn * (1 + (CLIMATE_HUNGER - 1) * share * min(1.0, steps) if hungrier else 1)
             if agent.cooldown:
                 agent.cooldown -= 1
             if agent.health < agent.max_health and agent.hunger < 65:
                 agent.heal(0.005)
-            if steps >= (2 if plant else 1):  # a tenth of its health a step; a plant takes one step in its stride
-                agent.health -= CLIMATE_DAMAGE * steps * share * agent.max_health
+            # A tenth of its health a step, part steps in part; a plant takes one step in its stride,
+            # and is hurt more and more as the weather turns toward a second, to full harm two away.
+            felt = max(0.0, min(steps, 2 * (steps - 1))) if plant else steps
+            if felt > 0:
+                agent.health -= CLIMATE_DAMAGE * felt * share * agent.max_health
             if agent.hunger >= 100:  # hungrier out of its temperature, it died of exposure
                 self._die(agent, self._exposure(agent, here) if hungrier else "starved")
                 continue
@@ -748,7 +788,7 @@ class Simulation:
                 continue
             if plant:
                 agent.hunger = max(0, agent.hunger - 1.5)
-                if steps:  # out of its temperature, a plant neither grows nor seeds
+                if steps >= 0.5:  # nearer another temperature than its own, a plant neither grows nor seeds
                     agent.last_action = "withering"
                     continue
                 agent.health = min(agent.max_health, agent.health + agent.max_health * PLANT_REGROWTH)
@@ -799,16 +839,18 @@ class Simulation:
         plant.hunger += SEED_COST
         plant.children += 1
         plant.last_action = "seeded"
-        if self._climate[cell[1]] != decode_climate(dna)[0]:  # too hot or cold to grow: the seed waits
+        if abs(self._climate[cell[1]] - decode_climate(dna)[0]) >= 0.5:  # too hot or cold to grow: the seed waits
             self.seeds.append((*cell, dna, plant.generation + 1, self.turn))
             return
         self._sprout(dna, cell, plant.generation + 1)
 
     def _wither_grass(self) -> None:
         """Grass dies back where it isn't medium: a tuft a cell every GRASS_DIEBACK turns, the cells
-        taking their turns in step."""
+        taking their turns in step. While a row turns away from medium, only some of its cells die
+        back, more as it turns further: each cell whose fixed threshold its shortfall passes."""
         for (x, y), tufts in list(self.grass.items()):
-            if self._climate[y] != MEDIUM and (x + y * self.width + self.turn) % GRASS_DIEBACK == 0:
+            if (1 - self._growth[y] > dieback_threshold(x, y)
+                    and (x + y * self.width + self.turn) % GRASS_DIEBACK == 0):
                 if tufts > 1:
                     self.grass[(x, y)] = tufts - 1
                 else:
@@ -836,23 +878,26 @@ class Simulation:
             x, y, dna, generation, sown = seed
             if self.turn - sown >= viable:
                 continue
-            if self._climate[y] == decode_climate(dna)[0] and self._room_for_seedling((x, y)):
+            if abs(self._climate[y] - decode_climate(dna)[0]) < 0.5 and self._room_for_seedling((x, y)):
                 self._sprout(dna, (x, y), generation)
             else:
                 waiting.append(seed)
         self.seeds = waiting
 
     def _sow(self, tufts: int) -> None:
-        """Scatter new grass at random where it is medium, the only temperature it grows in; on and
-        around a corpse, it grows CORPSE_FERTILITY times as fast."""
-        rows = self._medium_rows
+        """Scatter new grass at random where it is medium, the only temperature it grows in, and less
+        in a row turning to or from medium, by how medium it is; on and around a corpse, it grows
+        CORPSE_FERTILITY times as fast."""
+        rows, reach = self._grass_rows, self._grass_reach
         if not rows:
             return
         fertile = {((corpse.x + dx) % self.width, corpse.y + dy)
                    for corpse in self.agents if corpse.died_turn is not None
                    for dx in (-1, 0, 1) for dy in (-1, 0, 1) if 0 <= corpse.y + dy < self.height}
         for _ in range(tufts):
-            cell = (self.random.randrange(self.width), rows[self.random.randrange(len(rows))])
+            x = self.random.randrange(self.width)
+            at = bisect.bisect_right(reach, self.random.random() * reach[-1])
+            cell = (x, rows[min(at, len(rows) - 1)])
             self.grass[cell] = self.grass.get(cell, 0) + (CORPSE_FERTILITY if cell in fertile else 1)
 
     def _take_census(self) -> None:
@@ -1562,14 +1607,14 @@ class Simulation:
 
     def _plant_yield(self, plant: Bitzkey) -> float:
         """The share of its food a plant gives: less out of its temperature."""
-        return PLANT_CLIMATE_YIELD if plant.climate_steps(self._climate[plant.y]) else 1.0
+        return 1 - (1 - PLANT_CLIMATE_YIELD) * min(1.0, plant.climate_steps(self._climate[plant.y]))
 
     def _comfort_row(self, agent: Bitzkey, sight: int) -> tuple[int, int] | None:
         """The nearest cell straight up or down, within sight, where it would feel at home: north
         before south at the same distance."""
         for distance in range(1, sight + 1):
             for y in (agent.y - distance, agent.y + distance):
-                if 0 <= y < self.height and not agent.climate_steps(self._climate[y]):
+                if 0 <= y < self.height and agent.climate_steps(self._climate[y]) < 0.5:
                     return agent.x, y
         return None
 
@@ -1580,13 +1625,15 @@ class Simulation:
         share of what stands now, so a crowd can't breed on a stock it is about to eat."""
         food = 0.0
         if agent.grazing:
-            grass, climate, x, y = self.grass, self._climate, agent.x, agent.y
-            cells = tufts = 0
+            grass, x, y = self.grass, agent.x, agent.y
+            growth = self._growth
+            cells = 0.0
+            tufts = 0
             for dx, dy in nearby_offsets(FORAGE_RADIUS):
                 if 0 <= x + dx < self.width and 0 <= y + dy < self.height:
-                    cells += climate[y + dy] == MEDIUM
+                    cells += growth[y + dy]
                     tufts += grass.get((x + dx, y + dy), 0)
-            growing = self.width * len(self._medium_rows)
+            growing = self.width * self._grass_reach[-1] if self._grass_rows else 0.0
             regrowth = cells * self.grass_regrowth / growing * GRASS_OUTLOOK if growing else 0.0
             food += agent.grazing * (STANDING_GRASS * tufts + regrowth)
         mouths = 1.0

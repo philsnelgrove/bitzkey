@@ -79,7 +79,7 @@ Each imported genome spawns as a group of 3 to
 120 genomes are used, keeping their groups within the 600 population cap. Set
 "Bitzkeys" to 0 to start with only your imports.
 
-ADVANCED opens the advanced rules: 131 numbers that shape how the world plays
+ADVANCED opens the advanced rules: 132 numbers that shape how the world plays
 out, in groups (World, Bodies, Breeding, Feelings, Mind, Fighting, Territory,
 Herding, Food, Plants, Climate, Society and Experiences). Among them are lifespans, metabolism, litter
 sizes, food-aware breeding, the rewards and pains a brain learns from, blows and
@@ -259,7 +259,8 @@ bands between are temperate, medium. The top and bottom edges of the map are
 barriers: nothing walks, flees or is born across them, and seeds that would fall
 beyond them are lost. East and west still wrap round. The world is light grey, each row tinted
 by its temperature now: reddish brown where hot, green where medium, white where
-cold and light blue where very cold.
+cold and light blue where very cold, and part way between two while the weather
+turns.
 
 A year is 360 turns by default (the year length setting), in four quarters,
 starting mild. Through the second quarter (the northern winter) everything from
@@ -268,8 +269,17 @@ very cold, the temperate zone cold, the equator medium. The third quarter is
 mild again. Through the fourth quarter (the southern winter) the same happens
 from the bottom up to and through the equator. The sidebar shows the year and season.
 
-Every Bitzkey has a home temperature. An animal away from home needs twice the
-food, and loses 10% of its full health a turn for each step it is from home:
+The weather doesn't change all at once. Through the first third of each season
+(30 turns of a 360-turn year) every row's temperature turns steadily from the
+last season's to this one's: a temperate row in the north is a third of the way
+to cold ten turns into its winter, half way at fifteen and cold at thirty, and
+turns back the same way as the next season begins. The zones' colours turn with
+it, and so do its effects: an animal half a step from home needs half the extra
+food and loses half a step's health, and grass grows in a row, and dies back in
+it, by how medium the row is. The world's first season starts settled.
+
+Every Bitzkey has a home temperature. An animal a step or more from home needs
+twice the food, and loses 10% of its full health a turn for each step it is from home:
 10% one step away, 20% two and 30% three. It may freeze or overheat to death. An animal that starves while out of its
 temperature has died of exposure too: it froze or overheated. Heat tolerance
 halves the penalties of heat, and cold tolerance those of cold: a cold-tolerant
@@ -277,12 +287,13 @@ animal two steps too cold needs half again as much food rather than double, and
 loses 10% of its health a turn rather than 20%. Tolerance
 is rare at the start: each random starting genome carries each flag only one
 time in ten, so hardiness has to spread by breeding. Plants ignore the tolerance
-flags. Anywhere not at their own temperature a plant neither regrows nor seeds,
-and gives grazing animals no food; too hot, it needs twice the food itself. One
-step from home doesn't hurt a plant, but two steps cost it 20% of its health a
-turn and three 30%. The plants spawned at the start are at home in
+flags. Nearer another temperature than its own, a plant neither regrows nor
+seeds; a step from home it gives grazing animals no food, and too hot it needs
+twice the food itself. One step from home doesn't hurt a plant, but two steps
+cost it 20% of its health a turn and three 30%, rising steadily between one step
+and two while the weather turns. The plants spawned at the start are at home in
 their zone's usual temperature (an imported plant keeps its own). A seed that falls where it is the wrong
-temperature waits there, and sprouts when its cell reaches its temperature and
+temperature waits there, and sprouts when its cell is nearer its temperature than any other and
 has room, for up to three quarters of a year; after that it dies. Grass grows
 only where it is medium right now, so in a winter it grows on the equator and
 stops in that hemisphere's temperate zone. Where it isn't medium, standing grass
@@ -293,7 +304,8 @@ Animals sense the temperature: how far it is from home, as they feel it, and how
 close the nearest row in sight is where they would feel at home. They also sense
 how far north or south they are, and how much warmer or colder than home it is
 where they stand and at the edge of their sight to the north and to the south.
-Being out of their temperature makes them uneasy, the more so the further from
+These read the zones' colours, so they change gradually as the weather turns,
+and an animal can feel a winter setting in before it bites. Being out of their temperature makes them uneasy, the more so the further from
 home (half as much for the hardy), so a step back toward home is felt at once.
 They can head north or south, but there is no action that seeks home out for
 them; any migration emerges from what their brains learn to do with those senses
@@ -301,7 +313,7 @@ and the time of year. Foraging never leads further from home: an animal ignores
 grass in rows whose temperature is further from home than where it stands, and
 doesn't herd toward a herd whose middle is.
 
-The zones' sizes, the food and health penalties, how much food a plant gives out
+The zones' sizes, how much of each season the weather takes to turn, the food and health penalties, how much food a plant gives out
 of its temperature, how fast grass dies back, how long seeds wait, how common
 tolerance is at the start and how much it spares are
 advanced rules (the Climate group).

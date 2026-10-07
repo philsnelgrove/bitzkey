@@ -27,9 +27,13 @@ SELECTED = (25, 32, 32)    # the ring round the selected Bitzkey and those picke
 EXPORTING = (205, 120, 30)  # the ring round Bitzkeys on the export list
 
 
-def zone_colour(temperature: int) -> tuple[int, int, int]:
-    """The world's grey tinted for a temperature."""
-    return tuple(round(grey + (tint - grey) * ZONE_TINT) for grey, tint in zip(WORLD_GREY, ZONE_TINTS[temperature]))
+def zone_colour(temperature: float) -> tuple[int, int, int]:
+    """The world's grey tinted for a temperature, part way between two tints while the weather turns."""
+    lower = min(int(temperature), len(ZONE_TINTS) - 1)
+    upper = min(lower + 1, len(ZONE_TINTS) - 1)
+    turned = temperature - lower
+    tints = (low + (high - low) * turned for low, high in zip(ZONE_TINTS[lower], ZONE_TINTS[upper]))
+    return tuple(round(grey + (tint - grey) * ZONE_TINT) for grey, tint in zip(WORLD_GREY, tints))
 
 
 def dot_radius(size: int, largest: int = DOT_RADIUS_RANGE[1]) -> int:

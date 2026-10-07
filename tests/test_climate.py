@@ -3,13 +3,13 @@ from unittest.mock import patch
 
 from tools.Brain import ACTIONS, SENSES
 from tools.Genome import decode_climate, encode_dna
-from tools.Simulation import (COLD, CURIOSITY_JOY, DEATH_PENALTY, HOT, KILL_MEAL, KILL_MEAL_FOR_SIZE, LEARNING_RATE, MEDIUM, PLANT_MEAL,
+from tools.Simulation import (COLD, CURIOSITY_JOY, DEATH_PENALTY, GRASS_DIEBACK, dieback_threshold, season_progress, HOT, KILL_MEAL, KILL_MEAL_FOR_SIZE, LEARNING_RATE, MEDIUM, PLANT_MEAL,
                               SOCIAL_MEMORY, SOCIAL_MOOD, VERY_COLD, Simulation, season, temperature_at, year,
                               zone_temperature)
 
 
-def world(turn: int = 200, size: int = 100) -> Simulation:
-    """An empty world at a turn, its grass cleared."""
+def world(turn: int = 220, size: int = 100) -> Simulation:
+    """An empty world at a turn, its grass cleared: by default mid-year, mild, the weather settled."""
     simulation = Simulation(width=size, height=size, population=0, seed=3)
     simulation.grass.clear()
     simulation.turn = turn
@@ -45,13 +45,28 @@ class ZoneTests(unittest.TestCase):
 
     def test_each_hemisphere_and_the_equator_are_a_step_colder_in_its_winter(self):
         normal = [zone_temperature(y, 100) for y in range(100)]
-        north = [temperature_at(y, 100, 100) for y in range(100)]  # second quarter
-        south = [temperature_at(y, 100, 300) for y in range(100)]  # fourth quarter
+        north = [temperature_at(y, 100, 120) for y in range(100)]  # second quarter, once the weather has turned
+        south = [temperature_at(y, 100, 310) for y in range(100)]  # fourth quarter
         self.assertEqual(north, [VERY_COLD] * 20 + [COLD] * 20 + [MEDIUM] * 20 + normal[60:])
         self.assertEqual(south, normal[:40] + [MEDIUM] * 20 + [COLD] * 20 + [VERY_COLD] * 20)
-        for turn in (10, 200, 370):  # first and third quarters, and next year's first: mild
+        for turn in (10, 220, 400):  # first and third quarters, and next year's first: mild
             self.assertEqual([temperature_at(y, 100, turn) for y in range(100)], normal)
-        self.assertEqual([temperature_at(y, 100, 460) for y in range(100)], north)  # the next year repeats
+        self.assertEqual([temperature_at(y, 100, 480) for y in range(100)], north)  # the next year repeats
+
+    def test_the_weather_turns_steadily_through_the_first_third_of_each_season(self):
+        temperate, equator, south = 30, 50, 70  # north temperate, the equator and south temperate
+        self.assertEqual(season_progress(90), 0.0)
+        self.assertAlmostEqual(season_progress(105), 0.5)
+        self.assertEqual(season_progress(120), 1.0)
+        self.assertEqual([temperature_at(temperate, 100, turn) for turn in (89, 90, 120)], [MEDIUM, MEDIUM, COLD])
+        self.assertAlmostEqual(temperature_at(temperate, 100, 105), MEDIUM + 0.5)
+        self.assertAlmostEqual(temperature_at(equator, 100, 100), HOT + 1 / 3)
+        self.assertEqual(temperature_at(south, 100, 105), MEDIUM)  # the south's weather doesn't turn
+        self.assertAlmostEqual(temperature_at(temperate, 100, 195), COLD - 0.5)  # and back out of winter
+        self.assertEqual(temperature_at(south, 100, 360), COLD)  # a new year turns out of the south's winter
+        self.assertEqual(temperature_at(south, 100, 0), MEDIUM)  # but the world's first season is settled
+        with patch("tools.Simulation.SEASON_TURNING", 0):
+            self.assertEqual(temperature_at(temperate, 100, 90), COLD)  # all at once
 
 
 class FeelingTests(unittest.TestCase):
@@ -84,7 +99,7 @@ class FeelingTests(unittest.TestCase):
 
 class EffectTests(unittest.TestCase):
     def test_each_step_from_home_doubles_an_animals_food_and_hurts_a_tenth_more(self):
-        simulation = world(turn=200)  # the second quarter: no winter
+        simulation = world(turn=220)  # the second quarter: no winter
         at_home = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM), 10, 30)
         one_away = simulation._add_agent(encode_dna("grazer", temperature=COLD), 20, 30)
         two_away = simulation._add_agent(encode_dna("grazer", temperature=VERY_COLD), 30, 30)
@@ -98,7 +113,7 @@ class EffectTests(unittest.TestCase):
         self.assertAlmostEqual(two_away.health, 0.8 * two_away.max_health)
 
     def test_starving_out_of_its_temperature_is_dying_of_exposure(self):
-        simulation = world(turn=200)
+        simulation = world(turn=220)
         away = simulation._add_agent(encode_dna("grazer", temperature=COLD), 20, 50)  # on the equator: too hot
         at_home = simulation._add_agent(encode_dna("grazer", temperature=HOT), 40, 50)
         for animal in (away, at_home):
@@ -113,7 +128,7 @@ class EffectTests(unittest.TestCase):
         self.assertAlmostEqual(sum(flags) / len(flags), 0.1, delta=0.05)
 
     def test_winter_turns_a_home_zone_hostile_and_the_cold_can_kill(self):
-        simulation = world(turn=90)  # turn 91, next, is in the north's winter
+        simulation = world(turn=119)  # by turn 120, next, the north's winter has set in
         grazer = simulation._add_agent(encode_dna("grazer", temperature=HOT), 50, 10)  # arctic: very cold now
         grazer.health = 5
         simulation._add_agent(encode_dna("predator"), 90, 90)
@@ -122,7 +137,7 @@ class EffectTests(unittest.TestCase):
         self.assertEqual(grazer.last_action, "froze")
 
     def test_a_plant_out_of_its_temperature_withers_without_growing_or_seeding_and_two_steps_hurt(self):
-        simulation = world(turn=200)
+        simulation = world(turn=220)
         one_away = simulation._add_agent(encode_dna("plant", temperature=HOT, fertility=7, cold_tolerance=True), 50, 30)
         two_away = simulation._add_agent(encode_dna("plant", temperature=VERY_COLD, fertility=7), 20, 30)
         for plant in (one_away, two_away):
@@ -137,7 +152,7 @@ class EffectTests(unittest.TestCase):
         self.assertEqual((len(simulation.agents), simulation.seeds), (3, []))
 
     def test_a_plant_out_of_its_temperature_gives_no_food(self):
-        simulation = world(turn=200)
+        simulation = world(turn=220)
         at_home = simulation._add_agent(encode_dna("plant", temperature=MEDIUM), 50, 30)
         away = simulation._add_agent(encode_dna("plant", temperature=COLD), 60, 30)
         self.assertEqual((simulation._plant_yield(at_home), simulation._plant_yield(away)), (1.0, 0.0))
@@ -177,19 +192,58 @@ class EffectTests(unittest.TestCase):
         self.assertEqual([temperature_at(y, 100, 0) for y in range(100)], [zone_temperature(y, 100) for y in range(100)])
 
     def test_grass_grows_only_where_it_is_medium_now(self):
-        simulation = world(turn=100)  # the north's winter: its temperate zone is cold, the equator medium
+        simulation = world(turn=120)  # the north's winter: its temperate zone is cold, the equator medium
         simulation._sow(3000)
         rows = {y for _, y in simulation.grass}
         self.assertEqual(rows, set(range(40, 80)))
 
+    def test_while_the_weather_turns_its_effects_turn_with_it(self):
+        simulation = world(turn=104)  # turn 105, next, is half way through the north's winter setting in
+        grazer = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM), 50, 30)  # half a step too cold
+        simulation._add_agent(encode_dna("predator"), 90, 90)
+        take_turn(simulation)
+        self.assertAlmostEqual(grazer.hunger, 1.5 * grazer.burn)  # half the extra food
+        self.assertAlmostEqual(grazer.health, 0.95 * grazer.max_health)  # half a step's harm
+        plant = simulation._add_agent(encode_dna("plant", temperature=MEDIUM), 60, 30)
+        self.assertAlmostEqual(simulation._plant_yield(plant), 0.5)
+
+    def test_grass_grows_and_dies_back_by_how_medium_a_turning_row_is(self):
+        simulation = world(turn=105)  # the north's temperate zone half way to cold, the south's medium
+        simulation._sow(20000)
+        north = sum(tufts for (_, y), tufts in simulation.grass.items() if 20 <= y < 40)
+        south = sum(tufts for (_, y), tufts in simulation.grass.items() if 60 <= y < 80)
+        self.assertAlmostEqual(north / south, 0.5, delta=0.05)
+        self.assertEqual(simulation._growth[30], 0.5)
+        simulation.grass = {(x, y): 3 for x in range(100) for y in (30, 70)}
+        for _ in range(GRASS_DIEBACK):
+            simulation._wither_grass()
+            simulation.turn += 1
+        withered = {x for x in range(100) if simulation.grass[(x, 30)] < 3}
+        self.assertEqual(withered, {x for x in range(100) if dieback_threshold(x, 30) < 0.5})  # about half
+        self.assertTrue(all(simulation.grass[(x, 70)] == 3 for x in range(100)))
+
+    def test_the_zones_colour_turns_with_the_weather(self):
+        from display.Look import zone_colour
+        halfway = zone_colour(MEDIUM + 0.5)
+        for channel, low, high in zip(halfway, zone_colour(MEDIUM), zone_colour(COLD)):
+            self.assertLessEqual(abs(channel - (low + high) / 2), 1)
+        self.assertEqual(zone_colour(float(VERY_COLD)), zone_colour(VERY_COLD))
+
 
 class SenseTests(unittest.TestCase):
     def test_an_animal_senses_how_far_it_is_from_home_and_how_close_home_weather_is(self):
-        simulation = world(turn=200)
+        simulation = world(turn=220)
         grazer = simulation._add_agent(encode_dna("grazer", temperature=COLD, sight=7), 50, 23)
         self.assertEqual(simulation._comfort_row(grazer, grazer.sight), (50, 19))  # the arctic, four rows north
         senses = simulation._sense(grazer)[0]
         self.assertEqual(senses[SENSES.index("climate_discomfort")], 0.5)  # temperate: a step too warm
+        simulation.turn = 105  # half way through the north's winter setting in: half a step
+        simulation._update_climate()
+        senses = simulation._sense(grazer)[0]
+        self.assertEqual((senses[SENSES.index("climate_discomfort")], senses[SENSES.index("warmth")]), (0.25, 0.25))
+        simulation.turn = 220
+        simulation._update_climate()
+        senses = simulation._sense(grazer)[0]
         self.assertAlmostEqual(senses[SENSES.index("comfort_closeness")], 1 - 3 / 9)
 
         at_home = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM), 50, 30)
@@ -358,7 +412,7 @@ class SocietyTests(unittest.TestCase):
 
 class SeedTests(unittest.TestCase):
     def test_a_seed_that_falls_where_it_cant_grow_waits_for_its_temperature(self):
-        simulation = world(turn=200)
+        simulation = world(turn=220)
         simulation.body_mutation = 0
         plant = simulation._add_agent(encode_dna("plant", temperature=COLD, fertility=7), 50, 30)
         simulation._index_cells()
@@ -366,9 +420,9 @@ class SeedTests(unittest.TestCase):
             simulation._seed(plant)
         self.assertEqual(len(simulation.agents), 1)
         [(x, y, dna, generation, sown)] = simulation.seeds
-        self.assertEqual((generation, sown, plant.children), (1, 200, 1))
+        self.assertEqual((generation, sown, plant.children), (1, 220, 1))
 
-        simulation.turn = 460  # next year's winter in the north makes its temperate zone cold
+        simulation.turn = 480  # next year's winter in the north makes its temperate zone cold
         simulation._update_climate()
         simulation._index_cells()
         simulation._germinate()
