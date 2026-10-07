@@ -160,9 +160,13 @@ CLIMATE_HUNGER = 2.0   # an animal a step or more from home, or a plant too hot,
 CLIMATE_DAMAGE = 0.1   # for each step from home, a Bitzkey loses this share of its full health a turn; plants from two
 PLANT_CLIMATE_YIELD = 0.0  # a plant out of its temperature gives this share of its food
 GRASS_DIEBACK = 20     # where it isn't medium, a cell's grass loses a tuft every this many turns
-# The weather turns gradually: through this share of each season, every row's temperature moves
-# steadily from the last season's to this one's, and the climate's effects move with it.
-SEASON_TURNING = 1 / 3
+# The weather turns in a wave. A winter washes in from its hemisphere's edge to the equator, and as
+# it ends ebbs back the way it came, over this share of each season. The wave moves in bands of
+# WAVE_BAND rows; at its front, WAVE_FRONT bands stand part way between the old weather and the new,
+# in even steps, so the change comes as a staircase. The climate's effects move with it.
+SEASON_TURNING = 0.5
+WAVE_BAND = 2
+WAVE_FRONT = 4
 # A dead animal is a fresh kill, not yet carrion, through the turn it died and FRESH_KILL_TURNS more;
 # then it starts to rot. A predator or omnivore may eat a fresh kill of what it lives on whole,
 # FRESH_KILL_MEALS times the meal of making the kill, and nothing is left.
@@ -231,18 +235,36 @@ def zone_temperature(y: int, height: int) -> int:
     return HOT if abs(place - 0.5) < EQUATOR_SHARE / 2 else MEDIUM
 
 
+def in_winter(y: int, height: int, quarter: int) -> bool:
+    """Whether a row is in winter in a quarter of the year: the north and the equator in the second,
+    the south and the equator in the fourth."""
+    place = (y + 0.5) / height
+    equator = abs(place - 0.5) < EQUATOR_SHARE / 2
+    return (quarter == 1 and (place < 0.5 or equator)) or (quarter == 3 and (place > 0.5 or equator))
+
+
 def season_temperature(y: int, height: int, quarter: int) -> int:
     """A row's settled temperature in a quarter of the year: its zone's, a step colder in its
     hemisphere's winter."""
-    place = (y + 0.5) / height
-    equator = abs(place - 0.5) < EQUATOR_SHARE / 2
-    winter = (quarter == 1 and (place < 0.5 or equator)) or (quarter == 3 and (place > 0.5 or equator))
-    return zone_temperature(y, height) + winter
+    return zone_temperature(y, height) + in_winter(y, height, quarter)
+
+
+def wave_band(y: int, height: int, quarter: int) -> tuple[int, int]:
+    """As the weather turns into a quarter of the year, which band of the wave a row is in, counted
+    in the order the wave reaches them, and how many bands the wave crosses. A winter washes in from
+    its hemisphere's edge toward the equator (the second and fourth quarters), and ebbs back from the
+    equator toward the edge (the third and first)."""
+    north = quarter in (1, 2)
+    rows = [row for row in range(height) if in_winter(row, height, 1 if north else 3)]
+    first, last = rows[0], rows[-1]
+    inward = quarter in (1, 3)
+    offset = y - first if north == inward else last - y
+    return offset // WAVE_BAND, (last - first) // WAVE_BAND + 1
 
 
 def season_progress(turn: int) -> float:
-    """How far the weather has turned from the last season's to this one's: 0 as a season begins,
-    1 once SEASON_TURNING of it has passed. The world's first season starts settled."""
+    """How far the season's wave has come: 0 as a season begins, 1 once SEASON_TURNING of it has
+    passed. The world's first season starts settled."""
     quarter = season(turn)
     if (turn < YEAR_LENGTH and quarter == 0) or SEASON_TURNING <= 0:
         return 1.0
@@ -252,14 +274,19 @@ def season_progress(turn: int) -> float:
 
 def temperature_at(y: int, height: int, turn: int) -> float:
     """A row's temperature on a turn, from 0 (hot) to 3 (very cold): its season's, though early in
-    a season it is still turning from the last season's, part way between the two."""
+    a season, until the season's wave has passed it, the last season's or part way between the two."""
     quarter = season(turn)
     now = season_temperature(y, height, quarter)
     progress = season_progress(turn)
     if progress >= 1:
         return float(now)
     before = season_temperature(y, height, (quarter - 1) % 4)
-    return before + (now - before) * progress
+    if now == before:
+        return float(now)
+    band, bands = wave_band(y, height, quarter)
+    reach = progress * (bands + WAVE_FRONT)  # how far the front has come, in bands
+    turned = min(1.0, max(0.0, (reach - band) / WAVE_FRONT))
+    return before + (now - before) * turned
 
 
 def dieback_threshold(x: int, y: int) -> float:

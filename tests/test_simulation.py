@@ -1432,7 +1432,7 @@ class NewTraitTests(unittest.TestCase):
     def test_grass_dies_back_a_tuft_at_a_time_where_it_isnt_medium(self):
         simulation = Simulation(width=20, height=20, population=0, seed=1)
         simulation.grass = {(x, y): 3 for x in range(20) for y in (1, 5)}  # arctic, then temperate
-        simulation.turn = 220  # mid-year, mild: the arctic cold, the temperate zone medium
+        simulation.turn = 240  # mid-year, mild: the arctic cold, the temperate zone medium
         simulation._update_climate()
         for _ in range(GRASS_DIEBACK):
             simulation.turn += 1
