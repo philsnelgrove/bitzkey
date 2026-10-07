@@ -6,7 +6,8 @@ from unittest.mock import patch
 from tools.Brain import ACTIONS, SENSES, Brain
 from tools.Exchange import Imported
 from tools.Genome import encode_dna
-from tools.Simulation import (CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, SEED_OFFSETS, SIGHT_OFFSETS, Simulation, litter_size,
+from tools.Simulation import (CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, PLANT_MEAL, PLANT_MEAL_FOR_SIZE, SEED_OFFSETS,
+                              SIGHT_OFFSETS, SPAWN_SPREAD, UPROOT_BITE, UPROOT_MEALS, Simulation, litter_size,
                               nearby_offsets)
 
 
@@ -348,15 +349,56 @@ class SimulationTests(unittest.TestCase):
             child = self.simulation.agents[-1]
             self.assertEqual(child.brain.depth, max(2, 2 * child.inborn["intellect"]))
 
-    def test_the_brain_senses_which_actions_are_open_and_its_own_genes(self):
+    def test_the_brain_senses_its_own_genes_but_not_which_actions_are_open(self):
         grazer = self.simulation._add_agent(encode_dna("grazer", size=7, intellect=3), 5, 5)
         self.simulation.grass[(5, 5)] = 1
         self.simulation._index_cells()
         senses, options, _ = self.simulation._sense(grazer)
-        for index, action in enumerate(ACTIONS):
-            self.assertEqual(senses[SENSES.index(f"open_{action}")], float(index in options))
-        self.assertEqual(senses[SENSES.index("open_eat")], 1.0)
+        self.assertIn(ACTIONS.index("eat"), options)
+        self.assertFalse([name for name in SENSES if name.startswith("open_")])
         self.assertEqual((senses[SENSES.index("size")], senses[SENSES.index("inborn_intellect")]), (1.0, 3 / 7))
+
+    def test_every_zone_starts_with_plants_and_an_animal_group_is_always_kept(self):
+        for seed in range(1, 6):
+            simulation = Simulation(width=100, height=100, population=90, seed=seed)
+            plants = [agent for agent in simulation.agents if agent.species == "plant"]
+            for rows in simulation._zones():  # arctic, temperate, equator, temperate, arctic
+                self.assertTrue(any(rows[0] - SPAWN_SPREAD <= plant.y <= rows[-1] + SPAWN_SPREAD for plant in plants))
+            self.assertTrue(any(agent.species != "plant" for agent in simulation.agents))
+        few = Simulation(width=100, height=100, population=8, seed=2)  # two groups: not enough for every zone
+        self.assertEqual(len({agent.species == "plant" for agent in few.agents}), 2)  # a plant group and an animal group
+
+    def test_a_starving_grazer_with_food_scarce_may_uproot_a_plant_beside_it(self):
+        simulation = Simulation(width=30, height=30, population=0, seed=3)
+        simulation.grass.clear()
+        simulation.grass_regrowth = 0  # no grass to come
+        grazer = simulation._add_agent(encode_dna("grazer", size=7), 10, 10)  # a big stomach
+        plant = simulation._add_agent(encode_dna("plant", size=0), 11, 10)  # 60 health
+        simulation._index_cells()
+        grazer.hunger = 50
+        self.assertNotIn(ACTIONS.index("uproot"), simulation._sense(grazer)[1])  # not starving
+        grazer.hunger = 85
+        plant.cooldown = 5  # still recovering from a bite: it can't be browsed, but it can be uprooted
+        options, situation = simulation._sense(grazer)[1:]
+        self.assertIn(ACTIONS.index("uproot"), options)
+        self.assertNotIn(ACTIONS.index("browse"), options)
+        meal = (PLANT_MEAL + PLANT_MEAL_FOR_SIZE * 0) * grazer.browsing * UPROOT_MEALS / grazer.stomach
+        simulation._act(grazer, "uproot", situation)
+        self.assertAlmostEqual(grazer.hunger, 85 - meal)
+        self.assertEqual((plant.health, grazer.last_action), (60 - UPROOT_BITE, "uprooted"))
+        grazer.hunger = 85
+        simulation._act(grazer, "uproot", simulation._sense(grazer)[2])
+        self.assertFalse(plant.alive)
+        self.assertEqual(plant.last_action, "uprooted")  # it destroyed the plant
+        for x in (12, 13, 14):  # with food enough about, it waits for the plants to recover
+            simulation._add_agent(encode_dna("plant"), x, 10)
+        simulation._add_agent(encode_dna("plant"), 10, 11)
+        simulation._index_cells()
+        self.assertNotIn(ACTIONS.index("uproot"), simulation._sense(grazer)[1])
+        omnivore = simulation._add_agent(encode_dna("omnivore"), 10, 9)
+        omnivore.hunger = 85
+        simulation._index_cells()
+        self.assertNotIn(ACTIONS.index("uproot"), simulation._sense(omnivore)[1])  # grazers only
 
     def test_a_brain_learns_from_changes_in_its_comfort_not_how_comfortable_it_is(self):
         grazer = self.simulation._add_agent(encode_dna("grazer"), 5, 5)
@@ -490,15 +532,37 @@ class SimulationTests(unittest.TestCase):
         self.assertEqual(turns[-11:], list(range(50, 61)))
 
     def test_history_keeps_within_its_memory_budget(self):
-        simulation = Simulation(width=20, height=20, population=30, seed=4)
+        simulation = Simulation(width=20, height=20, population=0, seed=4)
+        simulation._add_agent(encode_dna("grazer", intellect=0), 5, 5)  # the shallowest brain
         self.assertEqual(simulation._history_room(), (500, 200))  # a small world fits it all
-        with patch("tools.Simulation.HISTORY_BUDGET", 1):  # far too little: the fewest snapshots
-            self.assertEqual(simulation._history_room(), (10, 10))
+        with patch("tools.Simulation.HISTORY_BUDGET", 1):  # far too little: the fewest snapshots, spread out
+            self.assertEqual(simulation._history_room(), (2, 2))
+            self.assertEqual(simulation._snapshot_spacing(2), 16)  # two recent snapshots, as far apart as they may be
             for _ in range(80):
                 simulation.advance()
-            self.assertLessEqual(len(simulation.history), 10 + 10 + 2)
+            self.assertLessEqual(len(simulation.history), 2 + 2 + 2)
             simulation.seek(3)  # every turn can still be reached
             self.assertEqual(simulation.turn, 3)
+
+    def test_a_crowded_history_spaces_its_snapshots_and_still_rebuilds_every_turn_exactly(self):
+        with patch("tools.Simulation.DENSE_HISTORY", 20), patch("tools.Simulation.MIN_SNAPSHOTS", 10),                 patch("tools.Simulation.HISTORY_BUDGET", 1), patch("tools.Simulation.CLIMATE_DAMAGE", 0):
+            simulation = Simulation(width=20, height=20, population=30, seed=4)
+            self.assertEqual(simulation._snapshot_spacing(simulation._history_room()[0]), 4)  # five cover 20 turns
+
+            def state():
+                return ([(agent.identifier, agent.x, agent.y, agent.hunger, agent.health,
+                          agent.brain and agent.brain.copy()) for agent in simulation.agents],
+                        dict(simulation.grass), simulation.random.getstate())
+
+            recorded = {}
+            for turn in range(1, 61):
+                simulation.advance()
+                recorded[turn] = state()
+            self.assertTrue(all(snapshot["turn"] % 4 == 0 for snapshot in simulation.history))
+            self.assertLessEqual(len(simulation.history), 10 + 2)
+            for target in (59, 3, 37, 60, 21):
+                simulation.seek(target)
+                self.assertEqual(state(), recorded[target], f"turn {target}")
 
     def test_plants_seed_less_the_more_plants_shade_them(self):
         plant = self.simulation._add_agent(encode_dna("plant", fertility=7), 5, 5)  # a 10% chance alone

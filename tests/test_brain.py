@@ -45,7 +45,7 @@ class BrainTests(unittest.TestCase):
         self.assertEqual(Brain.random(random.Random(7)).depth, MIN_DEPTH)
 
     def test_there_is_an_input_for_each_action_and_each_ring_and_dot_trait(self):
-        for name in ([f"open_{action}" for action in ACTIONS] + [f"inborn_{trait}" for trait in MIND_TRAITS]
+        for name in ([f"inborn_{trait}" for trait in MIND_TRAITS]
                      + list(BODY_TRAITS) + ["home_temperature", "heat_tolerance", "cold_tolerance"]):
             self.assertIn(name, SENSES)
         genes = gene_senses(encode_dna("predator", temperature=2, cold_tolerance=True, size=7, intellect=7, fear=0))
@@ -120,6 +120,31 @@ class BrainTests(unittest.TestCase):
         # shares more than twice the blame.
         self.assertLess(changes[0], 0)
         self.assertLess(changes[1], 2 * changes[0])
+
+    def test_hidden_layers_are_as_wide_as_the_senses(self):
+        self.assertEqual(HIDDEN_SIZE, INPUT_SIZE)
+
+    def test_a_brain_saved_with_narrower_layers_loads_widened_and_values_alike(self):
+        rng = np.random.default_rng(5)
+        narrow = 12
+        layers = [(rng.uniform(-0.5, 0.5, (narrow, INPUT_SIZE)), rng.uniform(-0.2, 0.2, narrow)),
+                  (rng.uniform(-0.5, 0.5, (narrow, narrow)), rng.uniform(-0.2, 0.2, narrow))]
+        output_weights, output_biases = rng.uniform(-0.3, 0.3, (len(ACTIONS), narrow)), rng.uniform(-0.2, 0.2, len(ACTIONS))
+        record = {"senses": list(SENSES), "actions": list(ACTIONS),
+                  "layers": [{"weights": weights.tolist(), "biases": biases.tolist()} for weights, biases in layers],
+                  "output_weights": output_weights.tolist(), "output_biases": output_biases.tolist()}
+        loaded = Brain.from_record(record)
+        self.assertEqual([weights.shape for weights, _ in loaded.layers], [(HIDDEN_SIZE, INPUT_SIZE), (HIDDEN_SIZE, HIDDEN_SIZE)])
+        senses = rng.uniform(0, 1, INPUT_SIZE)
+        activation = senses
+        for weights, biases in layers:
+            activation = np.tanh(weights @ activation + biases)
+        expected = output_weights @ activation + output_biases
+        for mine, theirs in zip(loaded.values(senses.tolist()), expected, strict=True):
+            self.assertAlmostEqual(mine, theirs, places=12)
+        record["layers"][1]["biases"] = record["layers"][1]["biases"][:5]
+        with self.assertRaisesRegex(ValueError, "neurons in a layer"):
+            Brain.from_record(record)
 
     def test_copy_is_independent(self):
         brain = Brain.random(random.Random(7))

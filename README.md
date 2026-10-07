@@ -24,7 +24,10 @@ A configuration panel opens first. Set:
 
 - the grid width and height (10 to 250 cells)
 - the number of Bitzkeys spawned (up to 600). They appear in groups of 3 to 5
-  sharing one genome, each group within two cells of a random spot.
+  sharing one genome, each group within two cells of a random spot. Every
+  climate zone gets at least one group of plants: the plant groups take a zone
+  each, from the top down, and if too few groups come up plants, the last animal
+  groups become plants instead, though at least one animal group is kept.
 - the grass density: the percent of cells with grass at the start (default 50).
   Each turn, 0.4% of that starting amount grows back, so density means the
   same at any grid size. Grass grows only where it is medium (see Seasons and
@@ -79,7 +82,7 @@ Each imported genome spawns as a group of 3 to
 120 genomes are used, keeping their groups within the 600 population cap. Set
 "Bitzkeys" to 0 to start with only your imports.
 
-ADVANCED opens the advanced rules: 134 numbers that shape how the world plays
+ADVANCED opens the advanced rules: 137 numbers that shape how the world plays
 out, in groups (World, Bodies, Breeding, Feelings, Mind, Fighting, Territory,
 Herding, Food, Plants, Climate, Society and Experiences). Among them are lifespans, metabolism, litter
 sizes, food-aware breeding, the rewards and pains a brain learns from, blows and
@@ -154,8 +157,10 @@ You can rewind to any turn of the run, back to turn 0. Every one of the latest
 500 turns is kept as a snapshot of the world. Older turns are kept as up to 200
 evenly spaced checkpoints, spread further apart as the run grows. The history
 keeps to a memory budget of about 1 GB: when the world is crowded and each
-snapshot is large, fewer recent turns and fewer checkpoints are kept, so
-reaching an old turn may replay more turns, but memory can't run away. Reaching a turn
+snapshot is large, fewer snapshots are kept, the recent ones spaced out (every
+second turn, every fourth and so on, but never more than 16 turns apart) and
+fewer checkpoints, so reaching a turn may replay more turns, but memory can't
+run away. Brains are large, so a crowded world reaches this soon. Reaching a turn
 between checkpoints restores the one before it and replays forward. The
 simulation is deterministic, so the replay repeats the recorded run exactly.
 Stepping or playing forward from the past replays the recorded future.
@@ -365,17 +370,18 @@ neural network, and that brain chooses everything it does. Each turn it senses:
 - how far north or south it is, and how much warmer or colder than home it is
   here and at the edge of its sight to the north and to the south
 - its current temperament
-- which actions are open to it right now, one input each
 - its own genome: each of its dot's traits as born, each of its ring's traits
   (species among them) and its climate genes
 
-Its brain has hidden layers of twelve neurons, twice as many layers as its
+That is 69 senses in all. Its brain has hidden layers of as many neurons as it
+has senses, 69, twice as many layers as its
 inborn intellect, and never fewer than two: from two layers for the dullest to
 fourteen for the brightest. Plants have no brain.
 
-It then picks one of the actions open to it: eat, forage, browse, scavenge,
-feast, rest, court, breed, hunt, attack, defend, flee, herd, go north, go south,
-go east or go west. Each heading walks straight that way as far as its speed
+It then picks one of the actions open to it: eat, forage, browse, uproot,
+scavenge, feast, rest, court, breed, hunt, attack, defend, flee, herd, go north,
+go south, go east or go west. It isn't told which actions are open; it picks
+among them by the values its brain gives every action. Each heading walks straight that way as far as its speed
 allows: north and south stop at the edge of the map, while east and west wrap
 round it, so they are always open. Setting off in a direction is how an animal
 explores: it pleases the curious, and finding grass where none was seen, or
@@ -388,7 +394,13 @@ plant in sight and, once alongside, takes a bite: 45 hunger, up to 70 from the
 largest plants, far more than grass. Each bite costs the plant 15 health, and
 plants regrow 2% of their health each turn. A bitten plant can't be bitten again
 for 8 turns, so browsers move on, but enough bites in time kill one, and a dead
-plant leaves no meat. Plants spread by seed: each turn a well-fed plant has a 3%
+plant leaves no meat. A desperate grazer may uproot a plant beside it instead:
+only once it is starving (80 hunger or more) and food is scarce about it (less
+than the food it would need to breed), but whether the plant has recovered from
+its last bite or not. Uprooting feeds it twice a bite's meal and costs the plant
+45 health, three bites at once, which often kills it; an armed plant still
+strikes back. The hunger, the meal and the damage are advanced rules (the Food
+group). Plants spread by seed: each turn a well-fed plant has a 3%
 to 10% chance, by its fertility, of sprouting a seedling of its own kind, with
 the usual chance of mutation, on a free cell up to five cells away. Seeding
 costs it 20 hunger. A seed doesn't take where more than three plants already

@@ -10,8 +10,8 @@ import numpy as np
 
 from tools.Genome import BODY_TRAITS, MIND_TRAITS, SPECIES, TEMPERATURES, decode_body, decode_climate, decode_mind, share
 
-ACTIONS = ("eat", "forage", "browse", "scavenge", "feast", "rest", "court", "breed", "hunt", "attack", "defend", "flee", "herd",
-           "go_north", "go_south", "go_east", "go_west")
+ACTIONS = ("eat", "forage", "browse", "uproot", "scavenge", "feast", "rest", "court", "breed", "hunt", "attack", "defend",
+           "flee", "herd", "go_north", "go_south", "go_east", "go_west")
 SENSES = (
     "hunger",          # 0..1
     "health",          # 0..1
@@ -53,13 +53,12 @@ SENSES = (
     "warmth_north",    # at the edge of its sight to the north, or the map's edge if nearer
     "warmth_south",    # and to the south
 ) + MIND_TRAITS + (    # then its current temperament, each trait 0..7 scaled to 0..1
-    *(f"open_{action}" for action in ACTIONS),            # 1 for each action open to it now
     *(f"inborn_{trait}" for trait in MIND_TRAITS),        # its dot's traits, as born, 0..1
     *BODY_TRAITS,                                         # its ring's traits, 0..1 (species 0 plant to 1 predator)
     "home_temperature", "heat_tolerance", "cold_tolerance",  # its climate genes: home 0 hot to 1 very cold, flags 0 or 1
 )
 INPUT_SIZE = len(SENSES)
-HIDDEN_SIZE = 12  # neurons in each hidden layer
+HIDDEN_SIZE = INPUT_SIZE  # neurons in each hidden layer: as many as it has senses
 MIN_DEPTH = 2     # hidden layers: twice the inborn intellect, and never fewer than this
 TEMPERATURE = 0.2
 MUTATION = 0.05
@@ -69,6 +68,9 @@ TRACE_DECAY = 0.9  # lambda: how much of each earlier choice's credit carries on
 HEADING_RELUCTANCE = 0.5
 HEADINGS = ("go_north", "go_south", "go_east", "go_west")
 RECORD_DIGITS = 6  # decimal places kept when a brain is exported
+# A new brain's output weights are drawn within this of zero: smaller the wider its layers, so its
+# untaught values spread as they did when layers were twelve neurons wide.
+OUTPUT_SPREAD = 0.3 * math.sqrt(12 / HIDDEN_SIZE)
 
 
 def depth_for(intellect: int) -> int:
@@ -96,17 +98,18 @@ def gene_senses(dna: int) -> dict[str, float]:
     return values
 
 
-def open_senses(actions: Sequence[str]) -> dict[str, float]:
-    """The inputs saying which actions are open to it."""
-    return {f"open_{action}": 1.0 for action in actions}
-
-
 def choice_odds(values: Sequence[float], options: Sequence[int]) -> dict[int, float]:
     """Softmax over the available actions' values."""
     best = max(values[option] for option in options)
     weights = {option: math.exp((values[option] - best) / TEMPERATURE) for option in options}
     total = sum(weights.values())
     return {option: weight / total for option, weight in weights.items()}
+
+
+def _tanh(values: np.ndarray) -> np.ndarray:
+    """tanh as the C library works it out, which the C++ version uses too; numpy's own differs in the
+    last bit now and then."""
+    return np.fromiter(map(math.tanh, values), float, len(values))
 
 
 def _identity_layer() -> tuple[np.ndarray, np.ndarray]:
@@ -117,6 +120,10 @@ def _identity_layer() -> tuple[np.ndarray, np.ndarray]:
 
 class Brain:
     """A tanh network of hidden layers estimating the long-run value of each action.
+
+    Its sums are worked out as products added up by numpy's sum, in its fixed pairwise order, and
+    its tanh by the C library, so that the C++ version, which follows the same order, matches it to
+    the last bit; numpy's matrix product adds up in an order that varies with the machine.
 
     It learns online from temporal-difference targets and is inherited neuron by neuron, so a
     child keeps whole learned features from one parent or the other. Its weights are NumPy
@@ -146,7 +153,7 @@ class Brain:
             bound = math.sqrt(6 / (reads + HIDDEN_SIZE))
             layers.append(([[rng.uniform(-bound, bound) for _ in range(reads)] for _ in range(HIDDEN_SIZE)],
                            [0.0] * HIDDEN_SIZE))
-        return cls(layers, [[rng.uniform(-0.3, 0.3) for _ in range(HIDDEN_SIZE)] for _ in ACTIONS],
+        return cls(layers, [[rng.uniform(-OUTPUT_SPREAD, OUTPUT_SPREAD) for _ in range(HIDDEN_SIZE)] for _ in ACTIONS],
                    [rng.uniform(-0.2, 0.2) - (HEADING_RELUCTANCE if action in HEADINGS else 0.0) for action in ACTIONS])
 
     @classmethod
@@ -191,13 +198,13 @@ class Brain:
             raise ValueError(f"Expected {INPUT_SIZE} inputs, got {activation.size}.")
         activations = [activation]
         for weights, biases in self.layers:
-            activation = np.tanh(weights @ activation + biases)
+            activation = _tanh((weights * activation).sum(axis=1) + biases)
             activations.append(activation)
         return activations
 
     def values(self, inputs: Sequence[float]) -> list[float]:
         """Return the estimated value of every action in this situation."""
-        return (self.output_weights @ self._activations(inputs)[-1] + self.output_biases).tolist()
+        return ((self.output_weights * self._activations(inputs)[-1]).sum(axis=1) + self.output_biases).tolist()
 
     def learn(self, inputs: Sequence[float], action: int, target: float, learning_rate: float) -> None:
         """Move one action's value toward a target, with the error clipped for stability, back
@@ -206,7 +213,7 @@ class Brain:
             return
         activations = self._activations(inputs)
         top = activations[-1]
-        value = float(self.output_weights[action] @ top + self.output_biases[action])
+        value = float((self.output_weights[action] * top).sum() + self.output_biases[action])
         error = max(-1.0, min(1.0, value - target))
         gradient = error * self.output_weights[action]
         self.output_weights[action] -= learning_rate * error * top
@@ -214,7 +221,7 @@ class Brain:
             weights, biases = self.layers[index]
             delta = gradient * (1 - activations[index + 1] * activations[index + 1])
             if index:
-                gradient = weights.T @ delta
+                gradient = (weights * delta[:, None]).sum(axis=0)
             biases -= learning_rate * delta
             weights -= learning_rate * np.outer(delta, activations[index])
         self.output_biases[action] -= learning_rate * error
@@ -233,7 +240,7 @@ class Brain:
         *hidden, (output_weights, output_biases) = self.traces
         activations = self._activations(inputs)
         top = activations[-1]
-        value = float(self.output_weights[action] @ top + self.output_biases[action])
+        value = float((self.output_weights[action] * top).sum() + self.output_biases[action])
         error = max(-1.0, min(1.0, value - target))
         output_weights *= decay
         output_weights[action] += top
@@ -244,7 +251,7 @@ class Brain:
             weights, _ = self.layers[index]
             delta = gradient * (1 - activations[index + 1] * activations[index + 1])
             if index:
-                gradient = weights.T @ delta
+                gradient = (weights * delta[:, None]).sum(axis=0)
             weight_trace, bias_trace = hidden[index]
             weight_trace *= decay
             weight_trace += np.outer(delta, activations[index])
@@ -256,6 +263,13 @@ class Brain:
             biases -= step * bias_trace
         self.output_weights -= step * output_weights
         self.output_biases -= step * output_biases
+
+    @property
+    def nbytes(self) -> int:
+        """The memory its weights and eligibility traces take."""
+        arrays = [array for layer in self.layers for array in layer] + [self.output_weights, self.output_biases]
+        arrays += [array for layer in self.traces or () for array in layer]
+        return sum(array.nbytes for array in arrays)
 
     def copy(self) -> Brain:
         brain = Brain(self.layers, self.output_weights, self.output_biases)
@@ -281,7 +295,9 @@ class Brain:
         """Rebuild an exported brain. Weights are matched to senses and actions by name, so a
         brain saved before a sense or action was added still loads; what it never had starts
         neutral (zero) and what this version no longer has is dropped. A brain saved with a single
-        hidden layer, before brains grew deeper, loads as one layer deep. Raises ValueError."""
+        hidden layer, before brains grew deeper, loads as one layer deep, and one saved with fewer
+        neurons in each layer, before layers grew wider, is widened with idle neurons, weighted
+        zero, which change nothing. Raises ValueError."""
         try:
             senses = [str(name) for name in record["senses"]]
             actions = [str(name) for name in record["actions"]]
@@ -297,24 +313,32 @@ class Brain:
             raise ValueError(f"The brain is incomplete or not numeric ({error}).") from None
         if not layers:
             raise ValueError("The brain has no hidden layers.")
+        width = len(layers[0][0])
         for index, (weights, biases) in enumerate(layers):
-            if len(weights) != HIDDEN_SIZE or len(biases) != HIDDEN_SIZE:
-                raise ValueError(f"The brain has {len(weights)} neurons in a layer; this version uses {HIDDEN_SIZE}.")
-            reads = len(senses) if index == 0 else HIDDEN_SIZE
+            if len(weights) != width or len(biases) != width or not 0 < width <= HIDDEN_SIZE:
+                raise ValueError(f"The brain has {len(weights)} neurons in a layer; this version uses up to {HIDDEN_SIZE}, "
+                                 "the same in every layer.")
+            reads = len(senses) if index == 0 else width
             if any(len(row) != reads for row in weights):
                 raise ValueError("The brain's weights don't match its listed senses and actions.")
         if (len(output_weights) != len(actions) or len(output_biases) != len(actions)
-                or any(len(row) != HIDDEN_SIZE for row in output_weights)):
+                or any(len(row) != width for row in output_weights)):
             raise ValueError("The brain's weights don't match its listed senses and actions.")
 
         sense_at = {name: index for index, name in enumerate(senses)}
         action_at = {name: index for index, name in enumerate(actions)}
-        first_weights, first_biases = layers[0]
-        layers[0] = ([[row[sense_at[name]] if name in sense_at else 0.0 for name in SENSES] for row in first_weights],
-                     first_biases)
+        idle = HIDDEN_SIZE - width  # neurons added to each layer, weighted zero
+        widened = []
+        for index, (weights, biases) in enumerate(layers):
+            if index == 0:
+                rows = [[row[sense_at[name]] if name in sense_at else 0.0 for name in SENSES] for row in weights]
+            else:
+                rows = [row + [0.0] * idle for row in weights]
+            widened.append((rows + [[0.0] * len(rows[0])] * idle, biases + [0.0] * idle))
         return cls(
-            layers,
-            [output_weights[action_at[name]] if name in action_at else [0.0] * HIDDEN_SIZE for name in ACTIONS],
+            widened,
+            [output_weights[action_at[name]] + [0.0] * idle if name in action_at else [0.0] * HIDDEN_SIZE
+             for name in ACTIONS],
             [output_biases[action_at[name]] if name in action_at else 0.0 for name in ACTIONS],
         )
 

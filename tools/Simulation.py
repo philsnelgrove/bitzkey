@@ -31,13 +31,15 @@ MAX_IMPORTED = MAX_POPULATION // SPAWN_GROUP[1]  # imported Bitzkeys, so their g
 SPAWN_SPREAD = 2      # a group's members appear within this many cells of each other's centre
 DENSE_HISTORY = 500   # the latest turns are each kept as a snapshot of the world
 CHECKPOINTS = 200     # older turns are kept as at most this many evenly spaced snapshots
-# History keeps to a memory budget: when a snapshot of the world grows large, fewer recent turns
-# are kept and fewer checkpoints, so that all of them fit. These are rough sizes of what a
-# snapshot holds.
+# History keeps to a memory budget: when a snapshot of the world grows large, fewer snapshots are
+# kept, so that all of them fit. The recent ones are then spaced out, every second turn, fourth or
+# more, to still cover DENSE_HISTORY turns; a turn between them is rebuilt by replaying from the one
+# before. These are rough sizes of what a snapshot holds.
 HISTORY_BUDGET = 1 << 30   # bytes
-MIN_SNAPSHOTS = 20
+MIN_SNAPSHOTS = 4
+MAX_SPACING = 16  # recent snapshots are never further apart, so stepping back a turn replays at most 15
 AGENT_BYTES = 2000         # a Bitzkey's copy
-BRAIN_BYTES = 12000        # a brain's copy, with its eligibility traces
+BRAIN_BYTES = 200          # a brain's copy, besides its weights and eligibility traces
 GRASS_BYTES = 120          # a grass cell's entry
 CORPSE_FERTILITY = 2   # grass grows this many times as fast on and around a corpse
 CORPSE_TURNS = 30
@@ -136,6 +138,11 @@ PLANT_MEAL_FOR_SIZE = 25
 PLANT_BITE = 15        # health a plant loses to each bite
 PLANT_REGROWTH = 0.02  # share of its health pool a plant regrows each turn
 PLANT_RECOVERY = 8     # turns after a bite before a plant can be bitten again
+# A desperate grazer, starving with food scarce about it, may uproot a plant beside it: it eats this
+# many times a bite's meal, and tears this much of the plant's health away, recovering or not.
+UPROOT_HUNGER = 80     # starving: hunger at least this
+UPROOT_MEALS = 2.0
+UPROOT_BITE = 45
 SEED_CHANCE = (0.03, 0.10)  # a well-fed plant's chance each turn of seeding, from least to most fertile
 SEED_COST = 20         # hunger seeding costs a plant
 SEED_HUNGER = 40       # a plant hungrier than this doesn't seed
@@ -587,8 +594,11 @@ class Simulation:
         initial_grass = round(width * height * grass_density / 100)
         self.grass_regrowth = initial_grass * GRASS_REGROWTH
         self._sow(initial_grass)
-        for size in self._group_sizes(population):
-            self._spawn_group(make_dna(self.random.randrange(len(SPECIES)), self.random), size, native=True)
+        sizes = self._group_sizes(population)
+        species = [self.random.randrange(len(SPECIES)) for _ in sizes]
+        homes = self._plant_homes(species)
+        for group, size in enumerate(sizes):
+            self._spawn_group(make_dna(species[group], self.random), size, native=True, rows=homes.get(group))
         for bitzkey in imported:
             self._spawn_group(bitzkey.dna, self.random.randint(*SPAWN_GROUP), bitzkey.brain, bitzkey.mind)
         # Snapshots of the world by turn: every recent turn, then evenly spaced checkpoints back
@@ -640,15 +650,46 @@ class Simulation:
             sizes.append(remaining)
         return sizes
 
+    def _zones(self) -> list[list[int]]:
+        """The climate zones from top to bottom, each the rows it covers outside the winters."""
+        zones: list[list[int]] = []
+        for y in range(self.height):
+            if zones and zone_temperature(zones[-1][0], self.height) == zone_temperature(y, self.height):
+                zones[-1].append(y)
+            else:
+                zones.append([y])
+        return zones
+
+    def _plant_homes(self, species: list[int]) -> dict[int, list[int]]:
+        """So that every zone starts with plants, the starting groups' plant groups take a zone each,
+        top to bottom, until every zone has one; if there are too few, the last animal groups become
+        plants, though one animal group is always kept. Returns the rows each such group's centre may
+        fall in, by group; the rest fall anywhere. `species` is changed in place."""
+        zones = self._zones()
+        plants = [group for group, kind in enumerate(species) if kind == 0]
+        animals = [group for group, kind in enumerate(species) if kind != 0]
+        while len(plants) < len(zones) and len(animals) > 1:
+            group = animals.pop()
+            species[group] = 0
+            plants.append(group)
+        lowest, highest = SPAWN_SPREAD, self.height - SPAWN_SPREAD - 1  # where a group's centre may be
+        homes = {}
+        for group, rows in zip(sorted(plants), zones):
+            centres = [y for y in rows if lowest <= y <= highest]
+            homes[group] = centres or [min(highest, max(lowest, rows[len(rows) // 2]))]
+        return homes
+
     def _spawn_group(self, dna: int, size: int, brain: Brain | None = None,
-                     mind: Mapping[str, float] | None = None, native: bool = False) -> None:
+                     mind: Mapping[str, float] | None = None, native: bool = False,
+                     rows: Sequence[int] | None = None) -> None:
         """Place `size` Bitzkeys of one genome around a random centre, kept clear of the edges
-        so the group is never split across them. Each gets its own copy of `brain` and starts
-        with the temperament in `mind`, if given. `native` groups have random starting genomes:
-        each carries a tolerance flag only with STARTING_TOLERANCE, and plants take the usual
-        temperature of their centre's zone as their home."""
+        so the group is never split across them, and in one of `rows` if given. Each gets its own
+        copy of `brain` and starts with the temperament in `mind`, if given. `native` groups have
+        random starting genomes: each carries a tolerance flag only with STARTING_TOLERANCE, and
+        plants take the usual temperature of their centre's zone as their home."""
         x = self.random.randrange(SPAWN_SPREAD, self.width - SPAWN_SPREAD)
-        y = self.random.randrange(SPAWN_SPREAD, self.height - SPAWN_SPREAD)
+        y = (self.random.randrange(SPAWN_SPREAD, self.height - SPAWN_SPREAD) if rows is None
+             else rows[self.random.randrange(len(rows))])
         if native:  # tolerance is rare at the start
             for flag in (HEAT_TOLERANCE, COLD_TOLERANCE):
                 dna = dna | flag if self.random.random() < STARTING_TOLERANCE else dna & ~flag
@@ -675,19 +716,35 @@ class Simulation:
         return agent
 
     def _history_room(self) -> tuple[int, int]:
-        """How many recent turns to keep every snapshot of, and how many older checkpoints: at
-        most DENSE_HISTORY and CHECKPOINTS, fewer when snapshots of the world are large, so the
-        history fits HISTORY_BUDGET."""
-        brains = sum(agent.brain is not None for agent in self.agents)
-        size = (len(self.agents) * AGENT_BYTES + brains * BRAIN_BYTES + len(self.grass) * GRASS_BYTES
+        """How many recent snapshots to keep, and how many older checkpoints: at most DENSE_HISTORY
+        and CHECKPOINTS, fewer when snapshots of the world are large, so the history fits
+        HISTORY_BUDGET."""
+        brains = sum(BRAIN_BYTES + agent.brain.nbytes for agent in self.agents if agent.brain is not None)
+        size = (len(self.agents) * AGENT_BYTES + brains + len(self.grass) * GRASS_BYTES
                 + len(self.seeds) * SEED_BYTES)
         most = max(MIN_SNAPSHOTS, HISTORY_BUDGET // max(1, size))
         dense = min(DENSE_HISTORY, most // 2)
         return dense, min(CHECKPOINTS, most - dense)
 
+    @staticmethod
+    def _snapshot_spacing(dense: int) -> int:
+        """How many turns apart recent snapshots are: every turn while DENSE_HISTORY of them fit,
+        otherwise the smallest power of two that spreads those that fit over DENSE_HISTORY turns, up
+        to MAX_SPACING."""
+        spacing = 1
+        while spacing * max(1, dense) < DENSE_HISTORY and spacing < MAX_SPACING:
+            spacing *= 2
+        return spacing
+
     def _record(self) -> None:
-        """Snapshot the newest turn, then thin the old ones: turns before the recent window stay
-        only on the checkpoint spacing, which doubles while there are too many of them."""
+        """Snapshot the newest turn, if it falls on the snapshot spacing, then thin the old ones:
+        turns before the recent window stay only on the checkpoint spacing, which doubles while
+        there are too many of them."""
+        dense, checkpoints = self._history_room()
+        spacing = self._snapshot_spacing(dense)
+        self.frontier = self.turn
+        if self.turn % spacing:
+            return  # between snapshots: seeking rebuilds this turn by replaying from the one before
         self.history.append({
             "turn": self.turn,
             "deaths": self.deaths,
@@ -698,9 +755,7 @@ class Simulation:
             "random_state": self.random.getstate(),
             "insights": self.insights.snapshot(),
         })
-        self.frontier = self.turn
-        dense, checkpoints = self._history_room()
-        recent = self.frontier - dense
+        recent = self.frontier - dense * spacing
         while True:
             self.history = [snapshot for snapshot in self.history
                             if snapshot["turn"] >= recent or snapshot["turn"] % self._checkpoint_stride == 0]
@@ -1056,6 +1111,11 @@ class Simulation:
             # middle is further from its home temperature than here.
             if agent.climate_steps(self._climate[herd_middle[1]]) <= discomfort:
                 available.add("herd")
+        uprootable = None
+        if agent.species == "grazer" and agent.hunger >= UPROOT_HUNGER:
+            uprootable = next((other for other in neighbors if other.species == "plant"), None)
+            if uprootable is not None and self._food_supply(agent) < FOOD_NEEDED:
+                available.add("uproot")  # starving, with food scarce: it may tear into a plant beside it
         if agent.y > 0:
             available.add("go_north")
         if agent.y < self.height - 1:
@@ -1100,7 +1160,6 @@ class Simulation:
             warmth_north=self._warmth(agent, max(0, agent.y - sight)),
             warmth_south=self._warmth(agent, min(self.height - 1, agent.y + sight)),
             **{trait: agent.feeling(trait) for trait in MIND_TRAITS},
-            **{f"open_{action}": 1.0 for action in available},
             **agent.genes,
         )
         situation = {"mate": mate, "nurseries": nurseries, "prey": target, "threat": threat,
@@ -1108,7 +1167,7 @@ class Simulation:
                      "grass": grass, "grass_here": grass_here, "carrion": carrion, "kill": kill, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
                      "others": others, "defend_target": defend_target, "for_herd": assailant is None,
                      "herd": herd, "herd_near": herd_near, "herd_middle": herd_middle,
-                     "exposure": min(2, discomfort) / 2 * agent.exposure_share(here)}
+                     "exposure": min(2, discomfort) / 2 * agent.exposure_share(here), "uprootable": uprootable}
         return senses, [ACTIONS.index(action) for action in ACTIONS if action in available], situation
 
     def _wellbeing(self, agent: Bitzkey) -> float:
@@ -1201,6 +1260,8 @@ class Simulation:
             agent.last_action = "foraged"
         elif action == "browse":
             self._browse(agent, situation["flora"])
+        elif action == "uproot":
+            self._uproot(agent, situation["uprootable"])
         elif action == "feast":
             self._feast(agent, situation["kill"])
         elif action == "scavenge":
@@ -1256,6 +1317,20 @@ class Simulation:
             self._die(plant, "eaten")
         elif plant.physique("weapons") > 0:
             self._defend(plant, agent)  # a plant can't flee, but an armed one strikes back
+
+    def _uproot(self, agent: Bitzkey, plant: Bitzkey) -> None:
+        """A starving grazer, with food scarce about it, tears into a plant beside it, recovering from
+        a bite or not: it eats UPROOT_MEALS times a bite's meal, and the plant loses UPROOT_BITE
+        health, often all it has. An armed plant still strikes back."""
+        meal = (PLANT_MEAL + PLANT_MEAL_FOR_SIZE * plant.physique("size")) * agent.browsing * self._plant_yield(plant)
+        agent.nourish(meal * UPROOT_MEALS)
+        plant.health -= UPROOT_BITE
+        plant.cooldown = PLANT_RECOVERY
+        agent.last_action = "uprooted"
+        if not plant.alive:
+            self._die(plant, "uprooted")
+        elif plant.physique("weapons") > 0:
+            self._defend(plant, agent)
 
     def _scavenge(self, agent: Bitzkey, corpse: Bitzkey) -> None:
         """Go to the carrion and, once alongside, eat; a carrion-eater's gut gets the most from it."""
