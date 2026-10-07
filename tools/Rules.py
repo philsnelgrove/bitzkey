@@ -191,6 +191,8 @@ _TABLE: dict[str, list[tuple]] = {
          0.0, 1.0, 0.05),
         ("GRASS_DIEBACK", "Grass dieback", "where it isn't medium, turns for each tuft of a cell's grass to die", 1, 500, 1),
         ("SEED_VIABILITY", "Seed viability", "years a seed waits for its temperature before it dies", 0.0, 5.0, 0.05),
+        ("STARTING_TOLERANCE", "Starting tolerance", "chance a random starting genome carries each tolerance flag",
+         0.0, 1.0, 0.05),
     ],
     "Experiences": [
         (f"EXPERIENCES.{event}.{trait}", f"{event.replace('_', ' ').capitalize()}: {trait}",

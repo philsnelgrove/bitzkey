@@ -54,7 +54,7 @@ class ZoneTests(unittest.TestCase):
 
 
 class FeelingTests(unittest.TestCase):
-    def test_tolerance_spares_an_animal_one_direction_and_plants_none(self):
+    def test_tolerance_spares_an_animal_a_step_in_one_direction_and_plants_none(self):
         simulation = world()
         tender = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM), 1, 1)
         hardy = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM, cold_tolerance=True), 1, 1)
@@ -62,8 +62,10 @@ class FeelingTests(unittest.TestCase):
         plant = simulation._add_agent(encode_dna("plant", temperature=MEDIUM, cold_tolerance=True,
                                                  heat_tolerance=True), 1, 1)
         self.assertEqual([tender.climate_steps(here) for here in (HOT, MEDIUM, COLD, VERY_COLD)], [1, 0, 1, 2])
-        self.assertEqual([hardy.climate_steps(here) for here in (HOT, MEDIUM, COLD, VERY_COLD)], [1, 0, 0, 0])
+        self.assertEqual([hardy.climate_steps(here) for here in (HOT, MEDIUM, COLD, VERY_COLD)], [1, 0, 0, 1])
         self.assertEqual([warm.climate_steps(here) for here in (HOT, MEDIUM, COLD, VERY_COLD)], [0, 0, 1, 2])
+        hot = simulation._add_agent(encode_dna("grazer", temperature=HOT, cold_tolerance=True), 1, 1)
+        self.assertEqual([hot.climate_steps(here) for here in (HOT, MEDIUM, COLD, VERY_COLD)], [0, 0, 1, 2])  # a step less
         self.assertEqual([plant.climate_steps(here) for here in (HOT, MEDIUM, COLD, VERY_COLD)], [1, 0, 1, 2])
 
 
@@ -80,6 +82,21 @@ class EffectTests(unittest.TestCase):
         self.assertAlmostEqual(two_away.hunger, 2 * two_away.burn)
         self.assertEqual((at_home.health, one_away.health), (at_home.max_health, one_away.max_health))
         self.assertAlmostEqual(two_away.health, 0.9 * two_away.max_health)
+
+    def test_starving_out_of_its_temperature_is_dying_of_exposure(self):
+        simulation = world(turn=120)
+        away = simulation._add_agent(encode_dna("grazer", temperature=COLD), 20, 50)  # on the equator: too hot
+        at_home = simulation._add_agent(encode_dna("grazer", temperature=HOT), 40, 50)
+        for animal in (away, at_home):
+            animal.hunger = 99.9
+        simulation._add_agent(encode_dna("predator"), 90, 90)
+        take_turn(simulation)
+        self.assertEqual((away.last_action, at_home.last_action), ("overheated", "starved"))
+
+    def test_tolerance_is_rare_in_the_starting_genomes(self):
+        simulation = Simulation(width=100, height=100, population=600, seed=5)
+        flags = [flag for agent in simulation.agents for flag in agent.climate[1:]]
+        self.assertAlmostEqual(sum(flags) / len(flags), 0.1, delta=0.05)
 
     def test_winter_turns_a_home_zone_hostile_and_the_cold_can_kill(self):
         simulation = world(turn=0)  # turn 1, next, is the north's winter

@@ -11,7 +11,7 @@ from functools import cache, cached_property, lru_cache
 
 from tools.Brain import ACTIONS, SENSES, Brain, choice_odds, depth_for, gene_senses, make_senses
 from tools.Genome import (GENOME, MIND_TRAITS, SPECIES, TRAIT_MAX, body_word, color_from_word, cross, dot_difference, inherit_mind, ring_difference,
-                          BODY_MUTATION_CHANCE, MIND_MUTATION_CHANCE,
+                          BODY_MUTATION_CHANCE, COLD_TOLERANCE, HEAT_TOLERANCE, MIND_MUTATION_CHANCE,
                           TEMPERATURE_SHIFT, TEMPERATURES, decode_body, decode_climate, decode_mind, make_dna, mind_word, share)
 from tools.Census import Census
 from tools.Exchange import Imported
@@ -142,8 +142,8 @@ TEMPERAMENT_RELAPSE = 0.005  # share of the gap back to the inborn value closed 
 # is temperate, medium. Every YEAR_LENGTH turns is a year. Through its first quarter the north,
 # from the top down to and through the equator, is a step colder; through its third quarter the
 # south, from the bottom up to and through the equator, is. Every Bitzkey has a home temperature,
-# and may tolerate heat (zones hotter than home) or cold (zones colder); plants tolerate nothing, and
-# a plant spawned at the start is at home in its zone's usual temperature.
+# and may tolerate heat or cold, feeling a step less of it; plants tolerate nothing, and a plant
+# spawned at the start is at home in its zone's usual temperature.
 DEFAULT_YEAR_LENGTH = 360
 YEAR_LENGTH = DEFAULT_YEAR_LENGTH  # each world sets it from its year length setting
 ARCTIC_SHARE = 0.2
@@ -158,6 +158,7 @@ GRASS_DIEBACK = 20     # where it isn't medium, a cell's grass loses a tuft ever
 FRESH_KILL_TURNS = 1
 FRESH_KILL_MEALS = 3.0
 SEED_VIABILITY = 0.75  # years a seed that falls where it can't grow stays able to germinate
+STARTING_TOLERANCE = 0.1  # the chance a random starting genome carries each tolerance flag
 HOT, MEDIUM, COLD, VERY_COLD = range(len(TEMPERATURES))
 SEASONS = ("northern winter", "mild", "southern winter", "mild")  # by quarter of the year
 SEED_BYTES = 120  # a waiting seed's entry, for the history's memory budget
@@ -299,11 +300,11 @@ class Bitzkey:
 
     def climate_steps(self, here: int) -> int:
         """How many steps a temperature is from home, as it feels it: an animal tolerant of heat
-        doesn't feel hotter, nor one tolerant of cold colder. Plants feel every step."""
+        feels a step less of it, and one tolerant of cold the same. Plants feel every step."""
         home, heat, cold = self.climate
         difference = here - home  # above 0, colder than home
         if self.species != "plant" and ((difference > 0 and cold) or (difference < 0 and heat)):
-            return 0
+            return abs(difference) - 1
         return abs(difference)
 
     @property
@@ -528,6 +529,11 @@ class Simulation:
         """A row's temperature now."""
         return self._climate[y]
 
+    @staticmethod
+    def _exposure(agent: Bitzkey, here: int) -> str:
+        """How the climate killed it: colder than home, it froze; hotter, it overheated."""
+        return "froze" if here > agent.climate[0] else "overheated"
+
     def _update_climate(self) -> None:
         """Each row's temperature this turn, and the rows where grass can grow: the medium ones."""
         self._climate = [temperature_at(y, self.height, self.turn) for y in range(self.height)]
@@ -551,10 +557,14 @@ class Simulation:
                      mind: Mapping[str, float] | None = None, native: bool = False) -> None:
         """Place `size` Bitzkeys of one genome around a random centre, kept clear of the edges
         so the group is never split across them. Each gets its own copy of `brain` and starts
-        with the temperament in `mind`, if given. `native` plants take the usual temperature of
-        their centre's zone as their home."""
+        with the temperament in `mind`, if given. `native` groups have random starting genomes:
+        each carries a tolerance flag only with STARTING_TOLERANCE, and plants take the usual
+        temperature of their centre's zone as their home."""
         x = self.random.randrange(SPAWN_SPREAD, self.width - SPAWN_SPREAD)
         y = self.random.randrange(SPAWN_SPREAD, self.height - SPAWN_SPREAD)
+        if native:  # tolerance is rare at the start
+            for flag in (HEAT_TOLERANCE, COLD_TOLERANCE):
+                dna = dna | flag if self.random.random() < STARTING_TOLERANCE else dna & ~flag
         if native and decode_body(dna)["species"] == "plant":
             dna = dna & ~(0x3 << TEMPERATURE_SHIFT) | zone_temperature(y, self.height) << TEMPERATURE_SHIFT
         for _ in range(size):
@@ -701,11 +711,11 @@ class Simulation:
                 agent.heal(0.005)
             if steps >= 2:
                 agent.health -= CLIMATE_DAMAGE * agent.max_health
-            if agent.hunger >= 100:
-                self._die(agent, "starved")
+            if agent.hunger >= 100:  # out of its temperature, it died of exposure
+                self._die(agent, self._exposure(agent, here) if steps and not plant else "starved")
                 continue
             if agent.health <= 0:
-                self._die(agent, "froze" if here > agent.climate[0] else "overheated")
+                self._die(agent, self._exposure(agent, here))
                 continue
             if self._dies_of_age(agent):
                 self._die(agent, "old age")
