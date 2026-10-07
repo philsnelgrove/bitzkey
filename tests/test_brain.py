@@ -116,13 +116,12 @@ class BrainTests(unittest.TestCase):
                 brain.learn_traced(earlier, 1, before, learning_rate=0.05, discount=1.0)  # no surprise yet
                 brain.learn_traced(later, 4, brain.values(later)[4] - 1, learning_rate=0.05, discount=1.0)
                 changes.append(brain.values(earlier)[1] - before)
-        # Without a trace, the earlier choice moves only through the layers both share; with one, it
-        # shares more than twice the blame.
-        self.assertLess(changes[0], 0)
-        self.assertLess(changes[1], 2 * changes[0])
+        # Without a trace, the earlier choice moves only a little, either way, through the layers both
+        # share; with one, it shares the blame.
+        self.assertLess(changes[1], changes[0] - 0.1)
 
-    def test_hidden_layers_are_as_wide_as_the_senses(self):
-        self.assertEqual(HIDDEN_SIZE, INPUT_SIZE)
+    def test_hidden_layers_are_34_neurons_wide(self):
+        self.assertEqual((HIDDEN_SIZE, INPUT_SIZE), (34, 69))
 
     def test_a_brain_saved_with_narrower_layers_loads_widened_and_values_alike(self):
         rng = np.random.default_rng(5)

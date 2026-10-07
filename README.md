@@ -373,8 +373,8 @@ neural network, and that brain chooses everything it does. Each turn it senses:
 - its own genome: each of its dot's traits as born, each of its ring's traits
   (species among them) and its climate genes
 
-That is 69 senses in all. Its brain has hidden layers of as many neurons as it
-has senses, 69, twice as many layers as its
+That is 69 senses in all. Its brain has hidden layers of 34 neurons, twice as
+many layers as its
 inborn intellect, and never fewer than two: from two layers for the dullest to
 fourteen for the brightest. Plants have no brain.
 

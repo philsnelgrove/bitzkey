@@ -58,7 +58,7 @@ SENSES = (
     "home_temperature", "heat_tolerance", "cold_tolerance",  # its climate genes: home 0 hot to 1 very cold, flags 0 or 1
 )
 INPUT_SIZE = len(SENSES)
-HIDDEN_SIZE = INPUT_SIZE  # neurons in each hidden layer: as many as it has senses
+HIDDEN_SIZE = 34  # neurons in each hidden layer
 MIN_DEPTH = 2     # hidden layers: twice the inborn intellect, and never fewer than this
 TEMPERATURE = 0.2
 MUTATION = 0.05
