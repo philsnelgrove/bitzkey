@@ -135,13 +135,31 @@ folder you can write to. The first launch takes a few seconds while it unpacks.
 ## Exemplars
 
 Either side of the map, five cards a side, evenly spaced, show the living animals
-that most stand out: on the left the smartest (inborn intellect), the largest, the
-oldest, the one with the most children and the latest generation; on the right
-the strongest, the fastest, the best armoured, the most fertile and the best fed.
-Ties go to the oldest, then the first born. Each card shows the Bitzkey, its
-number, its species and what it stands out by, and keeps up as the world runs.
-Click a card to select that Bitzkey, as clicking its dot would, ready to copy,
-export or catalog; the selected one's card is outlined in amber.
+that most stand out. Each card's title is a menu: click it to choose, from 43
+statistics, what that card looks for, and the card shows the animal that is
+highest by it (or lowest, for those that say so). By default the left column shows
+the smartest, the largest, the oldest, the one with the most children and the
+latest generation, and the right the strongest, the fastest, the best armoured,
+the most fertile and the best fed. The choices last for the rest of the session,
+through new worlds. They are:
+
+- temperament, as born: the smartest, most aggressive, most amorous, most
+  sociable, most curious, most fearful, greatest appetite, most patient, most
+  empathetic and most tolerant; and the simplest, gentlest, bravest and most solitary
+- body: the largest and smallest, strongest, best armoured, best armed, fastest
+  and slowest, sharpest-eyed, most fertile, biggest litters and best scavenger
+- climate: the hottest and the coldest home
+- now: the oldest and youngest, most children, latest generation, best fed and
+  hungriest, healthiest and most wounded (by share of full health), longest and
+  shortest lifespan, fastest and slowest metabolism, biggest stomach, deepest
+  brain, most herd-minded, and most changed by experience (how far its
+  temperament has moved from what it was born with)
+
+Plants never count. Ties go to the oldest, then the first born. Each card shows
+the Bitzkey, its number, its species and the value it stands out by, and keeps up
+as the world runs. Click a card to select that Bitzkey, as clicking its dot would,
+ready to copy, export or catalog; the selected one's card is outlined in amber.
+`Esc` or a click elsewhere closes an open menu.
 
 ## Controls
 

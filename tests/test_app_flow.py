@@ -293,13 +293,13 @@ class CatalogFlowTests(unittest.TestCase):
         pg.display.quit()
 
     def test_exemplars_beside_the_map_show_the_living_animals_that_stand_out_and_a_click_selects_one(self):
-        from Main import EXEMPLARS
+        from Main import EXEMPLAR_CHOICES, EXEMPLAR_STATS
         oldest = max(self.animals, key=lambda agent: (agent.age, -agent.identifier))
         oldest.age += 1000
         self.app._draw()
         self.assertEqual(len(self.app._exemplar_cards), 10)  # five a side
         exemplars = self.app._exemplars()
-        self.assertEqual([title for title, _, _ in exemplars], [title for title, _, _ in EXEMPLARS])
+        self.assertEqual([title for title, _, _ in exemplars], [EXEMPLAR_STATS[choice][0] for choice in EXEMPLAR_CHOICES])
         found = dict((title, agent) for title, agent, _ in exemplars)
         self.assertIs(found["OLDEST"], oldest)
         smartest = max(agent.inborn["intellect"] for agent in self.animals)
@@ -311,6 +311,35 @@ class CatalogFlowTests(unittest.TestCase):
         card, identifier = self.app._exemplar_cards[2]
         self.app._click(card.center)
         self.assertEqual((self.app.selected_id, self.app.graph.selection), (oldest.identifier, {oldest.identifier}))
+
+    def test_each_exemplar_cards_title_is_a_menu_of_several_dozen_statistics(self):
+        import Main
+        from Main import EXEMPLAR_CHOICES, EXEMPLAR_STATS, exemplar_text, exemplar_value
+        self.assertGreaterEqual(len(EXEMPLAR_STATS), 36)
+        self.assertEqual(len({title for title, *_ in EXEMPLAR_STATS}), len(EXEMPLAR_STATS))
+        for agent in self.animals:  # every statistic reads, and says something, for every animal
+            for title, kind, name, _ in EXEMPLAR_STATS:
+                self.assertIsInstance(exemplar_value(agent, kind, name), (int, float))
+                self.assertTrue(exemplar_text(agent, kind, name))
+        saved = list(EXEMPLAR_CHOICES)
+        self.addCleanup(lambda: Main.EXEMPLAR_CHOICES.__setitem__(slice(None), saved))
+        self.app._draw()
+        self.app._click(self.app._exemplar_titles[1].center)  # opens the second card's menu
+        self.assertEqual(self.app._exemplar_menu, 1)
+        self.app._draw()
+        self.assertEqual(len(self.app._menu_items), len(EXEMPLAR_STATS))
+        youngest = [title for title, *_ in EXEMPLAR_STATS].index("YOUNGEST")
+        item = next(rect for rect, stat in self.app._menu_items if stat == youngest)
+        self.app._click(item.center)
+        self.assertIsNone(self.app._exemplar_menu)
+        self.assertEqual(EXEMPLAR_CHOICES[1], youngest)
+        title, agent, said = self.app._exemplars()[1]
+        self.assertEqual(title, "YOUNGEST")
+        self.assertEqual(agent.age, min(animal.age for animal in self.app.simulation.living if animal.species != "plant"))
+        self.assertEqual(said, f"age {agent.age}")
+        self.app._click(self.app._exemplar_titles[0].center)  # a click elsewhere just closes it
+        self.app._click((1, 1))
+        self.assertEqual((self.app._exemplar_menu, EXEMPLAR_CHOICES[0]), (None, saved[0]))
 
     def test_a_new_world_starts_with_the_living_bitzkeys_picked_on_the_graph(self):
         from display import Window

@@ -20,7 +20,7 @@ from tools.Brain import ACTIONS
 from display.ColourGraph import ColourGraph
 from tools.Exchange import Imported, bitzkey_record, export_bitzkeys, format_records
 from tools.Genome import genome_record
-from tools.Genome import MIND_TRAITS
+from tools.Genome import MIND_TRAITS, decode_climate
 from tools.Insights import ANIMALS, brain_report
 from tools import Catalog, Rules
 from tools import Simulation as world
@@ -31,21 +31,77 @@ INSIGHTS_TOP = 290  # the insights panel's top, in design pixels: just below the
 MAP_ZOOM_STEP = 1.25  # each wheel notch zooms the map in (or out) by this much
 MAP_ZOOM_MAX = 12.0   # the closest the map zooms in, times its whole-map size
 TRAIL_OPACITY = 0.5   # how faintly a Bitzkey shows on each cell it passed through this turn
-# The exemplars beside the map, five a side: the living animal that most stands out in each way, what
-# it is judged by and what its card says. Ties go to the oldest, then the first born.
-EXEMPLARS = (
-    ("SMARTEST", lambda agent: agent.inborn["intellect"], lambda agent: f"intellect {agent.inborn['intellect']}"),
-    ("LARGEST", lambda agent: int(agent.body["size"]), lambda agent: f"size {agent.body['size']}"),
-    ("OLDEST", lambda agent: agent.age, lambda agent: f"age {agent.age}"),
-    ("MOST CHILDREN", lambda agent: agent.children, lambda agent: f"{agent.children} children"),
-    ("LATEST GENERATION", lambda agent: agent.generation, lambda agent: f"generation {agent.generation}"),
-    ("STRONGEST", lambda agent: int(agent.body["strength"]), lambda agent: f"strength {agent.body['strength']}"),
-    ("FASTEST", lambda agent: int(agent.body["speed"]), lambda agent: f"speed {agent.body['speed']}"),
-    ("BEST ARMOURED", lambda agent: int(agent.body["armour"]), lambda agent: f"armour {agent.body['armour']}"),
-    ("MOST FERTILE", lambda agent: int(agent.body["fertility"]), lambda agent: f"fertility {agent.body['fertility']}"),
-    ("BEST FED", lambda agent: -agent.hunger, lambda agent: f"hunger {int(agent.hunger)}%"),
+# What an exemplar card can show: the living animal that stands out most by a statistic, highest, or
+# lowest where `lowest`. Each is (title, kind, name, lowest): kind "mind" is an inborn temperament
+# trait, "body" a body trait, "home" its home temperature, and "state" what it is now.
+EXEMPLAR_STATS = (
+    ("SMARTEST", "mind", "intellect", False), ("MOST AGGRESSIVE", "mind", "aggression", False),
+    ("MOST AMOROUS", "mind", "libido", False), ("MOST SOCIABLE", "mind", "sociability", False),
+    ("MOST CURIOUS", "mind", "curiosity", False), ("MOST FEARFUL", "mind", "fear", False),
+    ("GREATEST APPETITE", "mind", "appetite", False), ("MOST PATIENT", "mind", "patience", False),
+    ("MOST EMPATHETIC", "mind", "empathy", False), ("MOST TOLERANT", "mind", "tolerance", False),
+    ("SIMPLEST", "mind", "intellect", True), ("GENTLEST", "mind", "aggression", True),
+    ("BRAVEST", "mind", "fear", True), ("MOST SOLITARY", "mind", "sociability", True),
+    ("LARGEST", "body", "size", False), ("SMALLEST", "body", "size", True),
+    ("STRONGEST", "body", "strength", False), ("BEST ARMOURED", "body", "armour", False),
+    ("BEST ARMED", "body", "weapons", False), ("FASTEST", "body", "speed", False),
+    ("SLOWEST", "body", "speed", True), ("SHARPEST-EYED", "body", "sight", False),
+    ("MOST FERTILE", "body", "fertility", False), ("BIGGEST LITTERS", "body", "litter", False),
+    ("BEST SCAVENGER", "body", "carrion", False),
+    ("HOTTEST HOME", "home", "temperature", True), ("COLDEST HOME", "home", "temperature", False),
+    ("OLDEST", "state", "age", False), ("YOUNGEST", "state", "age", True),
+    ("MOST CHILDREN", "state", "children", False), ("LATEST GENERATION", "state", "generation", False),
+    ("BEST FED", "state", "hunger", True), ("HUNGRIEST", "state", "hunger", False),
+    ("HEALTHIEST", "state", "health", False), ("MOST WOUNDED", "state", "health", True),
+    ("LONGEST LIFESPAN", "state", "lifespan", False), ("SHORTEST LIFESPAN", "state", "lifespan", True),
+    ("FASTEST METABOLISM", "state", "burn", False), ("SLOWEST METABOLISM", "state", "burn", True),
+    ("BIGGEST STOMACH", "state", "stomach", False), ("DEEPEST BRAIN", "state", "depth", False),
+    ("MOST HERD-MINDED", "state", "herd", False), ("MOST CHANGED BY EXPERIENCE", "state", "changed", False),
 )
+# The statistic each card shows, left column then right, top to bottom; changed from a card's title,
+# and kept for the rest of the session.
+EXEMPLAR_CHOICES = [[stat[0] for stat in EXEMPLAR_STATS].index(title) for title in (
+    "SMARTEST", "LARGEST", "OLDEST", "MOST CHILDREN", "LATEST GENERATION",
+    "STRONGEST", "FASTEST", "BEST ARMOURED", "MOST FERTILE", "BEST FED")]
+HOMES = ("hot", "medium", "cold", "very cold")
+
+
+def exemplar_value(agent: Bitzkey, kind: str, name: str) -> float:
+    """An animal's statistic, as an exemplar card judges it."""
+    if kind == "mind":
+        return agent.inborn[name]
+    if kind == "body":
+        return int(agent.body[name])
+    if kind == "home":
+        return int(decode_climate(agent.dna)[0])
+    if name == "health":
+        return agent.health / agent.max_health
+    if name == "depth":
+        return agent.brain.depth if agent.brain else 0
+    if name == "herd":
+        return agent.herd_instinct
+    if name == "changed":  # how far experience has moved its temperament from what it was born with
+        return sum(abs(agent.mind[trait] - agent.inborn[trait]) for trait in MIND_TRAITS)
+    return getattr(agent, name)
+
+
+def exemplar_text(agent: Bitzkey, kind: str, name: str) -> str:
+    """What an exemplar card says of an animal's statistic."""
+    value = exemplar_value(agent, kind, name)
+    if kind in ("mind", "body"):
+        return f"{name} {int(value)}"
+    if kind == "home":
+        return f"home {HOMES[int(value)]}"
+    return {"age": lambda: f"age {int(value)}", "children": lambda: f"{int(value)} children",
+            "generation": lambda: f"generation {int(value)}", "hunger": lambda: f"hunger {int(value)}%",
+            "health": lambda: f"health {int(value * 100)}%", "lifespan": lambda: f"lifespan {int(value)} turns",
+            "burn": lambda: f"burn {value:.2f}", "stomach": lambda: f"stomach {value:.2f}",
+            "depth": lambda: f"brain {int(value)} deep", "herd": lambda: f"herd instinct {value:.2f}",
+            "changed": lambda: f"changed {value:.1f}"}[name]()
+
+
 EXEMPLAR_WIDTH = 170  # each column of exemplars, in design pixels
+MENU_ROW, MENU_COLUMN = 20, 200  # an exemplar menu's rows and columns, in design pixels
 
 
 class BitzkeyApp:
@@ -86,6 +142,9 @@ class BitzkeyApp:
         self._add_button: pg.Rect | None = None
         self._catalog_button: pg.Rect | None = None
         self._exemplar_cards: list[tuple[pg.Rect, int]] = []  # each card beside the map, and whom it shows
+        self._exemplar_titles: list[pg.Rect] = []  # each card's title, a menu of statistics, card by card
+        self._exemplar_menu: int | None = None  # the card whose menu is open
+        self._menu_items: list[tuple[pg.Rect, int]] = []  # the open menu's choices, and which statistic each is
         self.renewal = ""  # the Bitzkeys to start a new world with, on leaving for one
         self._export_button = pg.Rect(0, 0, 0, 0)
         self.message = ""
@@ -133,7 +192,9 @@ class BitzkeyApp:
                         self._leave(dialog)
                         return "configure"
                 elif event.type == pg.KEYDOWN:
-                    if event.key == pg.K_ESCAPE:
+                    if event.key == pg.K_ESCAPE and self._exemplar_menu is not None:
+                        self._exemplar_menu = None  # just closes the menu
+                    elif event.key == pg.K_ESCAPE:
                         if self.show_census:
                             if self._leave_graph():
                                 return "configure"
@@ -264,6 +325,15 @@ class BitzkeyApp:
             self._say(f"Moved to turn {self.simulation.turn}.")
 
     def _click(self, position: tuple[int, int]) -> None:
+        if self._exemplar_menu is not None:  # a click picks a statistic or closes the menu
+            picked = [stat for item, stat in self._menu_items if item.collidepoint(position)]
+            if picked:
+                EXEMPLAR_CHOICES[self._exemplar_menu] = picked[0]
+            self._exemplar_menu = None
+            return
+        if titled := [slot for slot, title in enumerate(self._exemplar_titles) if title.collidepoint(position)]:
+            self._exemplar_menu = titled[0]
+            return
         if self._add_button and self._add_button.collidepoint(position):
             self._toggle_export()
         elif self._catalog_button and self._catalog_button.collidepoint(position):
@@ -457,12 +527,16 @@ class BitzkeyApp:
         self.show_insights = False  # selecting shows the inspector
 
     def _exemplars(self) -> list[tuple[str, Bitzkey | None, str]]:
-        """Each exemplar's title, the living animal that is it, if any, and what its card says."""
+        """Each card's title, the living animal that stands out most by its statistic, if any, and what
+        the card says. Ties go to the oldest, then the first born."""
         animals = [agent for agent in self.simulation.living if agent.species != "plant"]
         found = []
-        for title, judged, said in EXEMPLARS:
-            best = max(animals, key=lambda agent: (judged(agent), agent.age, -agent.identifier), default=None)
-            found.append((title, best, said(best) if best else "none alive"))
+        for choice in EXEMPLAR_CHOICES:
+            title, kind, name, lowest = EXEMPLAR_STATS[choice]
+            sign = -1 if lowest else 1
+            best = max(animals, key=lambda agent: (sign * exemplar_value(agent, kind, name), agent.age, -agent.identifier),
+                       default=None)
+            found.append((title, best, exemplar_text(best, kind, name) if best else "none alive"))
         return found
 
     def _exemplar_columns(self) -> tuple[pg.Rect, pg.Rect]:
@@ -539,6 +613,7 @@ class BitzkeyApp:
         self._draw_exemplars()
         self._draw_sidebar()
         self._draw_footer()
+        self._draw_exemplar_menu()  # over everything but the graph and dialogs
         if self.show_census:
             note = self.message if pg.time.get_ticks() < self.message_until else None
             self.graph.draw(self.screen, self.simulation, note)
@@ -606,7 +681,7 @@ class BitzkeyApp:
     def _draw_exemplars(self) -> None:
         """Five cards a side, evenly spaced, each the living animal that stands out in its way; a
         click selects it."""
-        self._exemplar_cards = []
+        self._exemplar_cards, self._exemplar_titles = [], []
         exemplars = self._exemplars()
         gap = UI(8)
         for column, picks in zip(self._exemplar_columns(), (exemplars[:5], exemplars[5:])):
@@ -616,7 +691,15 @@ class BitzkeyApp:
                 chosen = agent is not None and agent.identifier == self.selected_id
                 pg.draw.rect(self.screen, (27, 37, 37), card, border_radius=UI(5))
                 pg.draw.rect(self.screen, (238, 183, 110) if chosen else (54, 68, 62), card, 1, border_radius=UI(5))  # the selected one lit
-                self._text(title, (card.left + UI(10), card.top + UI(8)), (157, 177, 159), self.small)
+                heading = pg.Rect(card.left + UI(5), card.top + UI(5), card.width - UI(10), UI(22))  # a menu of statistics
+                pg.draw.rect(self.screen, (44, 57, 52), heading, border_radius=UI(4))
+                if self._exemplar_menu == len(self._exemplar_titles):
+                    pg.draw.rect(self.screen, (131, 205, 143), heading, 1, border_radius=UI(4))
+                self._text(self._fit(title, heading.width - UI(26)), (heading.left + UI(5), heading.top + UI(3)),
+                           (220, 229, 211), self.small)
+                x, y = heading.right - UI(10), heading.centery
+                pg.draw.polygon(self.screen, (220, 229, 211), [(x - UI(4), y - UI(2)), (x + UI(4), y - UI(2)), (x, y + UI(3))])
+                self._exemplar_titles.append(heading)
                 if agent is None:
                     self._text(said, (card.left + UI(10), card.top + UI(28)), (116, 139, 124), self.small)
                     continue
@@ -628,6 +711,33 @@ class BitzkeyApp:
                            self.small)
                 self._text(said, (x, point[1] + UI(2)), (149, 170, 150), self.small)
                 self._exemplar_cards.append((card, agent.identifier))
+
+    def _draw_exemplar_menu(self) -> None:
+        """The open card's statistics, beneath its title, in as many columns as the screen needs."""
+        self._menu_items = []
+        if self._exemplar_menu is None or self._exemplar_menu >= len(self._exemplar_titles):
+            return
+        heading = self._exemplar_titles[self._exemplar_menu]
+        row, column = UI(MENU_ROW), UI(MENU_COLUMN)
+        top = heading.bottom + UI(2)
+        rows = max(1, min(len(EXEMPLAR_STATS), (self.screen.get_height() - top - UI(12)) // row))
+        columns = -(-len(EXEMPLAR_STATS) // rows)
+        rows = -(-len(EXEMPLAR_STATS) // columns)  # as even as the columns allow
+        width = columns * column + UI(8)
+        left = heading.left if self._exemplar_menu < 5 else heading.right - width  # toward the map
+        left = max(UI(4), min(self.screen.get_width() - width - UI(4), left))
+        panel = pg.Rect(left, top, width, rows * row + UI(8))
+        pg.draw.rect(self.screen, (27, 37, 37), panel, border_radius=UI(5))
+        pg.draw.rect(self.screen, (131, 205, 143), panel, 1, border_radius=UI(5))
+        current = EXEMPLAR_CHOICES[self._exemplar_menu]
+        for stat, (title, _, _, _) in enumerate(EXEMPLAR_STATS):
+            item = pg.Rect(panel.left + UI(4) + stat // rows * column, panel.top + UI(4) + stat % rows * row,
+                           column, row)
+            if item.collidepoint(pg.mouse.get_pos()):
+                pg.draw.rect(self.screen, (44, 57, 52), item, border_radius=UI(3))
+            self._text(title, (item.left + UI(6), item.top + UI(2)),
+                       (131, 205, 143) if stat == current else (220, 229, 211), self.small)
+            self._menu_items.append((item, stat))
 
     def _draw_sidebar(self) -> None:
         sidebar_x = self.screen.get_width() - self._sidebar_width()
