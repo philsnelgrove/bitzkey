@@ -235,14 +235,13 @@ class BitzkeyApp:
         return True
 
     def _seek(self, turn: int) -> None:
-        """Pause and move the world to a turn already simulated. A long replay says so first."""
+        """Pause and move the world to a turn already simulated, as far back as the history reaches."""
         self.playing = False
-        if self.simulation.replay_cost(turn) > 30:
-            self._say(f"Replaying to turn {turn}...")
-            self._draw()
-            pg.display.flip()
         self.simulation.seek(turn)
-        self._say(f"Moved to turn {turn}.")
+        if turn < self.simulation.turn:
+            self._say(f"The history reaches back only to turn {self.simulation.turn}; moved there.")
+        else:
+            self._say(f"Moved to turn {self.simulation.turn}.")
 
     def _click(self, position: tuple[int, int]) -> None:
         if self._add_button and self._add_button.collidepoint(position):
@@ -846,6 +845,8 @@ class BitzkeyApp:
         height = self.screen.get_height()
         pg.draw.rect(self.screen, (27, 37, 37), (0, height - UI(52), self.screen.get_width(), UI(52)))
         history = f"HISTORY  {self.simulation.turn}/{self.simulation.frontier}"
+        if self.simulation.earliest:  # the oldest turns no longer fit the disk budget
+            history += f"  FROM {self.simulation.earliest}"
         self._text(history, (UI(22), height - UI(36)), (158, 181, 160), self.small)
         label = UI.font("segoeui", 13, bold=True).render(f"EXPORT ALL SELECTED ({len(self.export_list)})", True,
                                                          (19, 26, 27) if self.export_list else (220, 229, 211))

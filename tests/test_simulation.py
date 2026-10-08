@@ -496,108 +496,74 @@ class SimulationTests(unittest.TestCase):
         self.assertGreater(hunter.mind["fear"], 3)
         self.assertGreater(victim.mind["fear"], victim.inborn["fear"])
 
-    def test_seeking_rebuilds_any_turn_exactly_even_between_checkpoints(self):
-        with patch("tools.Simulation.DENSE_HISTORY", 10), patch("tools.Simulation.CHECKPOINTS", 4), \
-                patch("tools.Simulation.CLIMATE_DAMAGE", 0):  # a world that lasts
+    def test_every_turn_is_on_disk_reached_at_once_exactly_and_deleted_on_closing(self):
+        with patch("tools.Simulation.CLIMATE_DAMAGE", 0):  # a world that lasts
             simulation = Simulation(width=20, height=20, population=30, seed=4)
 
             def state():  # copies, since the live objects carry on changing
                 return ([(agent.identifier, agent.dna, agent.x, agent.y, agent.hunger, agent.health,
-                          dict(agent.mind), agent.brain and agent.brain.copy(), agent.meat)
+                          dict(agent.mind), agent.brain and agent.brain.copy(), agent.meat, list(agent.trail))
                          for agent in simulation.agents],
                         dict(simulation.grass), simulation.deaths, simulation.random.getstate())
 
             recorded = {0: state()}
-            for turn in range(1, 81):
-                simulation.advance()
-                recorded[turn] = state()
-
-            self.assertLessEqual(len(simulation.history), 1 + 4 + 2)
-            for target in (37, 3, 0, 61, 79, 80, 17, 18):
-                simulation.seek(target)
-                self.assertEqual(simulation.turn, target)
-                self.assertEqual(state(), recorded[target], f"turn {target}")
-
-    def test_old_turns_are_kept_as_evenly_spaced_checkpoints(self):
-        with patch("tools.Simulation.DENSE_HISTORY", 10), patch("tools.Simulation.CHECKPOINTS", 4), \
-                patch("tools.Simulation.CLIMATE_DAMAGE", 0):  # a world that lasts
-            simulation = Simulation(width=20, height=20, population=10, seed=4)
-            for _ in range(60):
-                simulation.advance()
-
-        turns = [snapshot["turn"] for snapshot in simulation.history]
-        older = [turn for turn in turns if turn < 48]  # before the recent window: one snapshot, at 48
-        self.assertEqual(turns[0], 0)
-        self.assertLessEqual(len(older), 4)
-        self.assertTrue(all(turn % simulation._checkpoint_stride == 0 for turn in older))
-        self.assertEqual(turns[-1], 48)  # a snapshot every 16 turns
-
-    def test_history_keeps_within_its_disk_budget(self):
-        simulation = Simulation(width=20, height=20, population=10, seed=4)
-        self.assertEqual(simulation._history_room(), (32, 200))  # a small world fits it all: 32 cover 500 turns
-        with patch("tools.Simulation.HISTORY_BUDGET", 1):  # far too little: the fewest snapshots
-            self.assertEqual(simulation._history_room(), (2, 2))
-            for _ in range(160):
-                simulation.advance()
-            self.assertLessEqual(len(simulation.history), 2 + 2 + 2)
-            self.assertEqual(len(list(simulation.history_folder.iterdir())), len(simulation.history))  # thinned ones deleted
-            simulation.seek(3)  # every turn can still be reached
-            self.assertEqual(simulation.turn, 3)
-
-    def test_the_history_is_on_disk_every_16_turns_rebuilds_every_turn_exactly_and_is_deleted_on_closing(self):
-        with patch("tools.Simulation.CLIMATE_DAMAGE", 0):  # a world that lasts
-            simulation = Simulation(width=20, height=20, population=30, seed=4)
-
-            def state():
-                return ([(agent.identifier, agent.x, agent.y, agent.hunger, agent.health,
-                          agent.brain and agent.brain.copy()) for agent in simulation.agents],
-                        dict(simulation.grass), simulation.random.getstate())
-
-            recorded = {}
             for turn in range(1, 61):
                 simulation.advance()
                 recorded[turn] = state()
-            self.assertEqual([entry["turn"] for entry in simulation.history], [0, 16, 32, 48])
-            self.assertTrue(all(entry["path"].exists() for entry in simulation.history))
-            for target in (59, 3, 37, 60, 21, 47, 48):
-                simulation.seek(target)
-                self.assertEqual(state(), recorded[target], f"turn {target}")
+            simulation.flush_history()
+            self.assertEqual([entry["turn"] for entry in simulation.history], list(range(61)))
+            self.assertEqual(len(list(simulation.history_folder.iterdir())), 61)  # every turn a file
+            with patch.object(Simulation, "_take_turn", side_effect=AssertionError("replayed")):
+                for target in (37, 3, 0, 59, 60, 17, 18, 60):  # every one at once, with no replaying
+                    simulation.seek(target)
+                    self.assertEqual(simulation.turn, target)
+                    self.assertEqual(state(), recorded[target], f"turn {target}")
+                simulation.seek(57)
+                simulation.advance()  # stepping on through the recorded run brings back each turn
+                self.assertEqual(state(), recorded[58])
+            simulation.seek(60)
+            simulation.advance()  # and from the latest, the world carries on
+            self.assertEqual(simulation.frontier, 61)
             folder = simulation.history_folder
             simulation.close()
             self.assertFalse(folder.exists())
 
-    def test_the_turns_since_the_latest_disk_snapshot_are_in_memory_and_reached_at_once(self):
+    def test_history_keeps_within_its_disk_budget_by_letting_the_oldest_turns_go(self):
         with patch("tools.Simulation.CLIMATE_DAMAGE", 0):  # a world that lasts
             simulation = Simulation(width=20, height=20, population=30, seed=4)
-
-            def state():
-                return ([(agent.identifier, agent.x, agent.y, agent.hunger, agent.health,
-                          agent.brain and agent.brain.copy()) for agent in simulation.agents],
-                        dict(simulation.grass), simulation.random.getstate())
-
-            recorded = {}
-            for turn in range(1, 21):
+            budget = 10 * simulation.history[-1]["bytes"]
+            with patch("tools.Simulation.HISTORY_BUDGET", budget):
+                for _ in range(40):
+                    simulation.advance()
+            simulation.flush_history()
+            turns = [entry["turn"] for entry in simulation.history]
+            self.assertGreater(simulation.earliest, 0)
+            self.assertEqual(turns, list(range(simulation.earliest, 41)))  # the newest, every one
+            self.assertLessEqual(sum(entry["bytes"] for entry in simulation.history), budget)
+            self.assertEqual(len(list(simulation.history_folder.iterdir())), len(turns))  # the oldest deleted
+            simulation.seek(0)  # as far back as it reaches
+            self.assertEqual(simulation.turn, simulation.earliest)
+            self.assertFalse(simulation.rewind())
+            with patch("tools.Simulation.HISTORY_BUDGET", 1):  # far too little: only the newest is kept
+                simulation.seek(40)
                 simulation.advance()
-                recorded[turn] = state()
-            self.assertEqual([entry["turn"] for entry in simulation.recent], [17, 18, 19, 20])  # 16 is on the disk
-            with patch.object(Simulation, "_take_turn", side_effect=AssertionError("replayed")):
-                for target in (18, 20, 17, 19, 18):  # every one at once, with no replaying
-                    self.assertEqual(simulation.replay_cost(target), 0)
-                    simulation.seek(target)
-                    self.assertEqual(state(), recorded[target], f"turn {target}")
-            simulation.seek(5)  # older turns still replay from the disk
-            self.assertEqual(state(), recorded[5])
-            simulation.seek(20)
-            for _ in range(12):
-                simulation.advance()
-            self.assertEqual(simulation.recent, [])  # turn 32's snapshot on the disk let them go
-            self.assertEqual([entry["turn"] for entry in simulation.history], [0, 16, 32])
+            self.assertEqual([entry["turn"] for entry in simulation.history], [41])
+
+    def test_a_history_the_disk_cant_take_is_reported(self):
+        simulation = Simulation(width=20, height=20, population=10, seed=4)
+        simulation.flush_history()
+        import shutil
+        shutil.rmtree(simulation.history_folder)  # nowhere to write
+        simulation.advance()
+        with self.assertRaises(OSError):
+            simulation.flush_history()
 
     def test_a_history_left_behind_is_cleared_away_once_stale(self):
         import os
         import time
         from tools.Simulation import STALE_HISTORY_HOURS, remove_stale_histories
         old, new = Simulation(width=20, height=20, population=0, seed=1), Simulation(width=20, height=20, population=0, seed=2)
+        old.flush_history()
         long_ago = time.time() - (STALE_HISTORY_HOURS + 1) * 3600
         os.utime(old.history_folder, (long_ago, long_ago))
         remove_stale_histories()
@@ -624,9 +590,8 @@ class SimulationTests(unittest.TestCase):
             seeded.append(count)
         self.assertEqual(seeded, [3, 2, 1, 0])  # a chance of 10%, then two thirds, a third and none
 
-    def test_rewinding_reaches_turn_zero_however_long_the_run(self):
-        with patch("tools.Simulation.DENSE_HISTORY", 5), patch("tools.Simulation.CHECKPOINTS", 2), \
-                patch("tools.Simulation.CLIMATE_DAMAGE", 0):  # a world that lasts
+    def test_rewinding_reaches_turn_zero_while_the_history_fits_its_budget(self):
+        with patch("tools.Simulation.CLIMATE_DAMAGE", 0):  # a world that lasts
             simulation = Simulation(width=20, height=20, population=10, seed=4)
             for _ in range(30):
                 simulation.advance()

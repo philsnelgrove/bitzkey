@@ -112,7 +112,7 @@ A run ends by itself when every animal has died, leaving only plants and grass,
 or when the world is full, with every cell taken by a living Bitzkey. The world
 then stops at that turn and the colour graph opens, saying when and why it
 ended. Space won't carry it on, but you can still rewind and scrub through the
-whole run, and replaying up to the end stops there again. RETURN TO MAP closes
+whole run the history keeps, and playing up to the end stops there again. RETURN TO MAP closes
 the graph to look over the map as it ended; G opens the graph again. Closing the
 graph with G or Esc returns to the configuration panel, first asking to leave if
 Bitzkeys wait on the export list. R restarts the same world.
@@ -163,22 +163,23 @@ folder you can write to. The first launch takes a few seconds while it unpacks.
   list, ready for a new world. Bitzkeys on the export list are lost unless
   exported first, and the dialog warns about them. Closing the window quits.
 
-You can rewind to any turn of the run, back to turn 0. The history is written
-to the disk rather than kept in memory, leaving the memory for the brains: every
-16 turns a snapshot of the world goes into a file, in a folder of the world's
-own among the system's temporary files. The snapshots of the latest 500 turns
-are kept, and older turns as up to 200 evenly spaced checkpoints, spread further
-apart as the run grows. The history keeps to a disk budget of 10 GB: when the
-world is crowded and each snapshot is large (a crowded world's can be 100 MB),
-fewer checkpoints are kept. The folder is deleted when you leave the world,
-restart it or quit; one left behind by a crash is cleared away the next time
-Bitzkey starts, once it is a day old. The turns since the latest snapshot on the
-disk (up to 15) are also each kept whole in memory, so stepping back and forth
-among the newest turns is instant; once the next snapshot is written, they are
-let go. Reaching an older turn restores the snapshot before it from the disk and
-replays forward, at most 15 turns. The
-simulation is deterministic, so the replay repeats the recorded run exactly.
-Stepping or playing forward from the past replays the recorded future.
+You can rewind to any turn the history keeps. The history is kept on the disk
+rather than in memory, leaving the memory for the brains: every turn, whole, goes
+into a file, in a folder of the world's own among the system's temporary files.
+The files are written on a thread of their own while the world carries on, so no
+turn waits for the disk and there is no pause when the history saves; if the
+disk falls behind by more than 8 turns, the world waits for it. Reaching any
+turn kept brings it straight back from its file, with nothing to replay.
+
+Every turn is kept, back to turn 0, until the history's files fill a disk budget
+of 25 GB. The oldest turns are then deleted, one by one as new ones are written,
+so the history reaches back only as far as the budget allows; the footer then
+shows the earliest turn kept (HISTORY 5200/8100 FROM 2100). A turn's file grows
+with the brains alive, about 200 KB a brain, so a world of 100 animals keeps
+some 1,200 turns, and a quiet one many more. The folder is deleted when you
+leave the world, restart it or quit; one left behind by a crash is cleared away
+the next time Bitzkey starts, once it is a day old. Stepping or playing forward
+from the past steps through the recorded future.
 
 ## Genome
 
@@ -575,9 +576,9 @@ alive at evenly spaced turns, spacing them further apart as the run grows.
 
 The graph is also a time scrubber. A playhead marks the present. Drag along the
 timeline beneath the bars, or right-click anywhere on the graph, to move the
-world to that turn; it pauses there. Space plays on, replaying the recorded
-future, which stays visible but faded. On long runs, a far jump may take a
-moment while it replays, and says so. The mouse wheel zooms the time axis around
+world to that turn; it pauses there, or at the earliest turn the history
+keeps, if that is later. Space plays on through the recorded future, which stays
+visible but faded. The mouse wheel zooms the time axis around
 the cursor, down to 10 turns. `Shift`+wheel, or a sideways wheel, pans the
 zoomed view, and zooming all the way out shows the whole run again.
 
