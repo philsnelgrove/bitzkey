@@ -86,13 +86,15 @@ def build_bars(simulation: Simulation, part: str, chart: pg.Rect, first: int = 0
                last: int | None = None, sort: str = "colour") -> tuple[list[Bar], float]:
     """Lay out one bar per stretch of turns from `first` to `last` (by default the whole run),
     each stacking the Bitzkeys alive at its end; the bar holding the present shows it exactly.
-    Within a species they are sorted by colour, or by the trait `sort` names and then colour.
+    Within a species they are sorted by colour, or by the trait `sort` names and then colour; a
+    trait sorts only the living, the dead being remembered by their colour alone, beneath them.
     Returns the bars and the population the chart tops at."""
     last = simulation.frontier if last is None else last
     turns = last - first + 1
     count = max(1, min(chart.width // BAR_PIXELS, turns))
     now = simulation.turn
     present = tuple(agent.identifier for agent in simulation.living)
+    alive = set(present)
     lineage = simulation.lineage
     moments = []
     for index in range(count):
@@ -107,8 +109,8 @@ def build_bars(simulation: Simulation, part: str, chart: pg.Rect, first: int = 0
     def order(identifier: int) -> tuple:  # by species, plants at the bottom, then by the sort
         if identifier not in keys:
             dna = lineage[identifier]
-            keys[identifier] = (SPECIES.index(decode_body(dna)["species"]),
-                                0 if sort == "colour" else trait_of(dna, sort), colour_order(colour_of(dna, part)),
+            trait = 0 if sort == "colour" else trait_of(dna, sort) if identifier in alive else -1
+            keys[identifier] = (SPECIES.index(decode_body(dna)["species"]), trait, colour_order(colour_of(dna, part)),
                                 body_word(dna) if part == "ring" else mind_word(dna), identifier)
         return keys[identifier]
 
@@ -264,7 +266,7 @@ class ColourGraph:
         timeline = pg.Rect(chart.left, chart.bottom + UI(4), chart.width, UI(24))
         buttons = {}
         right = panel.right - UI(24)
-        for name, width in (("save", 76), ("copy", 76), ("clear", 76), ("living", 116), ("sort", 170)):
+        for name, width in (("save", 76), ("copy", 76), ("clear", 76), ("sort", 170)):
             buttons[name] = pg.Rect(right - UI(width), panel.top + UI(18), UI(width), UI(30))
             right -= UI(width + 8)
         right = panel.right - UI(24)  # beneath the timeline, at the right: what the run's end offers
@@ -325,8 +327,6 @@ class ColourGraph:
                 self.menu_open = True
             elif layout["clear"].collidepoint(event.pos):
                 self.select(set())
-            elif layout["living"].collidepoint(event.pos):
-                self.select(self.selection & self._alive)  # drop the dead from the selection
             elif timeline.collidepoint(event.pos):
                 self._scrub = self.turn_at(event.pos[0])
             elif chart.collidepoint(event.pos):
@@ -340,11 +340,12 @@ class ColourGraph:
                 shift, ctrl = modifiers & pg.KMOD_SHIFT, modifiers & pg.KMOD_CTRL
                 if max(abs(event.pos[0] - start[0]), abs(event.pos[1] - start[1])) < UI(DRAG_THRESHOLD):
                     hit = bitzkey_at(self._bars, start)
-                    picked = set() if hit is None else {hit}
+                    picked = set() if hit is None else {hit} & self._alive  # only the living can be picked
                     self.select(picked, "remove" if ctrl else "toggle" if shift else "replace")
                 else:
                     box = self._box(start, event.pos).clip(chart)
-                    self.select(bitzkeys_in(self._bars, box), "remove" if ctrl else "add" if shift else "replace")
+                    self.select(bitzkeys_in(self._bars, box) & self._alive,
+                                "remove" if ctrl else "add" if shift else "replace")
         return None
 
     @staticmethod
@@ -357,6 +358,8 @@ class ColourGraph:
     def draw(self, screen: pg.Surface, simulation: Simulation, note: str | None) -> None:
         self._size = screen.get_size()
         self._alive = {agent.identifier for agent in simulation.living}
+        if self.selection - self._alive:  # the dead are forgotten but for their colour
+            self.select(self.selection & self._alive)
         self._now, self._frontier = simulation.turn, simulation.frontier
         self.ended = simulation.ended
         layout = self.layout()
@@ -373,7 +376,7 @@ class ColourGraph:
         self._text(screen, "Every Bitzkey alive over time, in its own colour.    TAB  ring / dot    C  copy    "
                    f"S  save    K  catalog    G or ESC  {closing}",
                    (panel.left + UI(24), panel.top + UI(54)), (144, 170, 151), self.small)
-        for name, text in (("living", "LIVING ONLY"), ("clear", "CLEAR"), ("copy", "COPY"), ("save", "SAVE")):
+        for name, text in (("clear", "CLEAR"), ("copy", "COPY"), ("save", "SAVE")):
             pg.draw.rect(screen, (44, 57, 52), layout[name], border_radius=UI(4))
             label = self.font.render(text, True, (220, 229, 211))
             screen.blit(label, label.get_rect(center=layout[name].center))
@@ -429,11 +432,9 @@ class ColourGraph:
                    (panel.left + UI(24), panel.bottom - UI(28)), (144, 170, 151), self.small)
         if self.menu_open:
             self._draw_menu(screen)
-        elif hovered is not None and not self._press:
-            agent = next((item for item in simulation.agents if item.identifier == hovered), None)
-            known = agent is not None
-            draw_tooltip(screen, agent or Bitzkey(hovered, simulation.lineage[hovered], 0, 0), known, self._mouse,
-                         simulation.temperature(agent.y) if known else None)
+        elif hovered in self._alive and not self._press:  # the dead show only their colour, below
+            agent = next(item for item in simulation.agents if item.identifier == hovered)
+            draw_tooltip(screen, agent, True, self._mouse, simulation.temperature(agent.y))
 
     def _draw_sort_button(self, screen: pg.Surface, button: pg.Rect) -> None:
         pg.draw.rect(screen, (44, 57, 52), button, border_radius=UI(4))
@@ -533,11 +534,9 @@ class ColourGraph:
 
     def _describe(self, simulation: Simulation, hovered: int | None) -> str:
         living = {agent.identifier for agent in simulation.living}
-        alive = len(self.selection & living)
-        chosen = (f"{len(self.selection)} selected ({alive} alive)" if self.selection
-                  else "Nothing selected")
+        chosen = f"{len(self.selection)} selected" if self.selection else "Nothing selected"
         if self.sort != "colour":
-            chosen = f"Each species sorted by {self.sort}, lowest at the bottom.     " + chosen
+            chosen = f"The living sorted by {self.sort}, lowest at the bottom.     " + chosen
         if simulation.turn < simulation.frontier:
             chosen = f"Rewound to turn {simulation.turn} of {simulation.frontier}.     " + chosen
         elif simulation.end_reason:
@@ -546,8 +545,9 @@ class ColourGraph:
         if hovered is None:
             return chosen
         dna = simulation.lineage[hovered]
-        state = "alive" if hovered in living else "dead"
-        return (f"{chosen}     |     #{hovered:03d}  {decode_body(dna)['species']}  {state}   "
+        if hovered not in living:  # remembered by its colour alone
+            return f"{chosen}     |     dead   ring {body_word(dna):08X}   dot {mind_word(dna):08X}"
+        return (f"{chosen}     |     #{hovered:03d}  {decode_body(dna)['species']}  alive   "
                 f"ring {body_word(dna):08X}   dot {mind_word(dna):08X}")
 
     def _render(self, simulation: Simulation, chart: pg.Rect) -> pg.Surface:

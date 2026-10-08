@@ -182,8 +182,8 @@ class SimulationFlowTests(unittest.TestCase):
     def test_leaving_greys_out_the_button_and_deletes_the_history(self):
         for _ in range(20):
             self.app.simulation.advance()
-        folder = self.app.simulation.history_folder
-        self.assertTrue(any(folder.iterdir()))  # snapshots on the disk
+        world = self.app.simulation
+        self.assertTrue(world.history)  # turns kept to rewind to
         for event in (key(pg.K_ESCAPE), key(pg.K_RETURN)):
             pg.event.post(event)
 
@@ -193,7 +193,7 @@ class SimulationFlowTests(unittest.TestCase):
         self.assertIn(("leave", "Leaving, please be patient"), dialog.buttons)
         self.assertEqual(dialog.caption, "Cleaning up messy neural networks...")
         self.assertIsNone(dialog.handle(key(pg.K_RETURN), self.app.screen.get_size()))  # nothing more to press
-        self.assertFalse(folder.exists())
+        self.assertFalse(world.history)  # let go
 
     def test_escape_then_stay_keeps_the_simulation_running(self):
         pg.event.post(key(pg.K_ESCAPE))
@@ -313,11 +313,11 @@ class CatalogFlowTests(unittest.TestCase):
         self.app.show_census = True
         self.app.graph.select({self.animals[0].identifier, dead.identifier})
         self.app._draw()
+        self.assertEqual(self.app.graph.selection, {self.animals[0].identifier})  # the dead are let go
         button = self.app.graph.layout()["catalog"]
         self.assertEqual(self.app.graph.handle(pg.event.Event(pg.MOUSEBUTTONDOWN, button=1, pos=button.center)), "catalog")
         self.app._catalog_picked()
         self.assertEqual([Catalog.inspected(entry).identifier for entry in Catalog.load()], [self.animals[0].identifier])
-        self.assertIn("1 dead left out", self.app.message)
         self.app.show_census = False
         self.app.selected_id = self.animals[1].identifier
         self.app._toggle_export()

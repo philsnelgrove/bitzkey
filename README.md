@@ -159,27 +159,17 @@ folder you can write to. The first launch takes a few seconds while it unpacks.
 - `F11`: switch between fullscreen and a window
 - `Escape`: close the colour graph; otherwise ask whether to leave the simulation.
   Leaving greys out the button ("Leaving, please be patient") while the world's
-  recorded history is deleted from the disk, and returns to the configuration panel. The panel keeps its settings and import
+  recorded history is let go, and returns to the configuration panel. The panel keeps its settings and import
   list, ready for a new world. Bitzkeys on the export list are lost unless
   exported first, and the dialog warns about them. Closing the window quits.
 
-You can rewind to any turn the history keeps. The history is kept on the disk
-rather than in memory, leaving the memory for the brains: every turn, whole, goes
-into a file, in a folder of the world's own among the system's temporary files.
-The files are written on a thread of their own while the world carries on, so no
-turn waits for the disk and there is no pause when the history saves; if the
-disk falls behind by more than 8 turns, the world waits for it. Reaching any
-turn kept brings it straight back from its file, with nothing to replay.
-
-Every turn is kept, back to turn 0, until the history's files fill a disk budget
-of 25 GB. The oldest turns are then deleted, one by one as new ones are written,
-so the history reaches back only as far as the budget allows; the footer then
-shows the earliest turn kept (HISTORY 5200/8100 FROM 2100). A turn's file grows
-with the brains alive, about 200 KB a brain, so a world of 100 animals keeps
-some 1,200 turns, and a quiet one many more. The folder is deleted when you
-leave the world, restart it or quit; one left behind by a crash is cleared away
-the next time Bitzkey starts, once it is a day old. Stepping or playing forward
-from the past steps through the recorded future.
+You can rewind the map to any of the latest 100 turns. The history keeps the
+world at each of them whole, in memory, so reaching one is instant, with nothing
+to replay and nothing written to the disk. When a crowded world's brains make
+them large, fewer turns are kept, so the history stays within about 1 GB; the
+footer shows the earliest turn kept (HISTORY 8100/8100 FROM 8001). Older turns
+live on only in the colour graph. Stepping or playing forward from the past steps
+through the recorded future.
 
 ## Genome
 
@@ -574,6 +564,8 @@ so similar colours flow together from bar to bar. The SORT menu at the top sorts
 each species by a trait instead: any of the ten mind traits, the body traits, or
 the climate genes (home temperature, heat tolerance, cold tolerance), taken from
 the genome, lowest at the bottom (for temperature, hottest at the bottom). Slices with the same value are then
+sorted by colour. A trait sorts only the Bitzkeys living now; the dead are
+remembered by their colour alone, and sit beneath the living in each species,
 sorted by colour. Colour value is the default. A bar's height is the
 population. `Tab` switches between ring
 (body) and dot (mind) colours. The timeline shades each winter quarter and marks
@@ -583,24 +575,24 @@ alive at evenly spaced turns, spacing them further apart as the run grows.
 The graph is also a time scrubber. A playhead marks the present. Drag along the
 timeline beneath the bars, or right-click anywhere on the graph, to move the
 world to that turn; it pauses there, or at the earliest turn the history
-keeps, if that is later. Space plays on through the recorded future, which stays
+keeps (the latest 100), if that is later. Space plays on through the recorded future, which stays
 visible but faded. The mouse wheel zooms the time axis around
 the cursor, down to 10 turns. `Shift`+wheel, or a sideways wheel, pans the
 zoomed view, and zooming all the way out shows the whole run again.
 
-Pick Bitzkeys straight from the graph:
+Pick Bitzkeys straight from the graph. Only the living can be picked, and one
+that dies drops out of the selection:
 
 - click a slice to select that Bitzkey; click empty space to clear
 - drag a box to select every Bitzkey it touches, in every bar it spans
-- LIVING ONLY drops the dead from the selection
 - hold `Shift` to add to the selection (`Shift`-click toggles one), or `Ctrl` to
   remove from it
 
 A selected Bitzkey stays lit in every bar it appears in while the others fade.
-Hovering over a slice shows a tooltip with that Bitzkey's details, as the sidebar
-shows them for a selected one: genome codes, temperament, body, hunger, health,
-age and latest chances. A Bitzkey no longer in the world, or not yet born at the
-turn shown, has only its genome to show. The line under the chart also names it.
+Hovering over a living Bitzkey's slice shows a tooltip with its details, as the
+sidebar shows them for a selected one: genome codes, temperament, body, hunger,
+health, age and latest chances. The line under the chart also names it. A dead
+Bitzkey shows only its ring and dot colours there.
 
 The graph and the map share one selection. Close the graph and the Bitzkeys picked
 on it stay ringed on the map, while the sidebar shows no single Bitzkey and counts

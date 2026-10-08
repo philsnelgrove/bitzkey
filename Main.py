@@ -532,7 +532,7 @@ class BitzkeyApp:
                 continue
             radius = self._dot_radius(agent, largest)
             self._draw_bitzkey(agent, point, radius, self._corpse_opacity(agent))
-            if agent.identifier == self.selected_id or agent.identifier in self.graph.selection:
+            if agent.identifier == self.selected_id or (agent.alive and agent.identifier in self.graph.selection):
                 pg.draw.circle(self.screen, SELECTED, point, radius + RING_WIDTH + UI(3), max(1, UI(1)))
             if agent.identifier in self.export_list:
                 pg.draw.circle(self.screen, EXPORTING, point, radius + RING_WIDTH + UI(6), max(1, UI(1)))

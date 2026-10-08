@@ -4,14 +4,10 @@ from __future__ import annotations
 
 import bisect
 import math
-import pickle
-import queue
 import random
 import shutil
 import tempfile
-import threading
 import time
-import weakref
 from collections import deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
@@ -38,16 +34,16 @@ CROWDING_LIMIT = 10    # litters shrink as crowding nears this; at it, an animal
 SPAWN_GROUP = (3, 5)  # Bitzkeys spawn in groups of this many sharing one genome
 MAX_IMPORTED = MAX_POPULATION // SPAWN_GROUP[1]  # imported Bitzkeys, so their groups fit that number
 SPAWN_SPREAD = 2      # a group's members appear within this many cells of each other's centre
-# The history is kept on disk, not in memory: every turn, whole, as a file in a folder of the world's own
-# among the temporary files, deleted when the world is closed. The files are written on a thread of
-# their own while the world carries on, so no turn waits for the disk; at most HISTORY_QUEUE turns wait
-# to be written before the world waits for them. Any turn kept is reached at once, with nothing to
-# replay. The history keeps to a disk budget: once its files fill HISTORY_BUDGET, the oldest turns are
-# deleted, so it reaches back only as far as the budget allows; the newest turn is always kept.
-HISTORY_BUDGET = 25 << 30   # bytes
-HISTORY_QUEUE = 8
-HISTORY_PREFIX = "bitzkey-history-"  # the history folders' names start so
-STALE_HISTORY_HOURS = 24  # a history folder left this long by a run that never closed it is cleared away
+# The history is kept in memory: the world at each of the latest HISTORY_TURNS turns, whole, so the map
+# can be rewound to any of them at once, with nothing to replay. When a crowded world's brains make them
+# large, fewer are kept, so they fit HISTORY_MEMORY; the newest turn is always kept. Older turns live on
+# only in the colour graph.
+HISTORY_TURNS = 100
+HISTORY_MEMORY = 1 << 30  # bytes, near enough
+AGENT_BYTES = 1000  # what a Bitzkey takes in the history, besides its brain, near enough
+# Earlier versions kept the history on disk, in folders among the temporary files.
+HISTORY_PREFIX = "bitzkey-history-"  # their names start so
+STALE_HISTORY_HOURS = 24  # one left this long by a run that never closed it is cleared away
 CORPSE_FERTILITY = 2   # grass grows this many times as fast on and around a corpse
 CORPSE_TURNS = 30
 BREED_RESERVE = 10  # hunger a parent must still have spare after paying to breed
@@ -557,6 +553,11 @@ class Bitzkey:
     def ring_color(self) -> tuple[int, int, int]:
         return color_from_word(body_word(self.dna))
 
+    @property
+    def brain_bytes(self) -> int:
+        """The memory its brain, and those of the young it carries, take."""
+        return sum(brain.nbytes for brain in (self.brain, *(young[2] for young in self.womb)) if brain is not None)
+
     def copy(self) -> Bitzkey:
         return replace(self, brain=self.brain.copy() if self.brain else None, mind=self.mind.copy(),
                        trail=list(self.trail),
@@ -579,8 +580,8 @@ def litter_size(parents: Sequence[tuple[int, int]], species: str = "") -> int:
 
 
 def remove_stale_histories() -> None:
-    """Clear away history folders left among the temporary files by runs that never closed them,
-    once they are STALE_HISTORY_HOURS old, so a crash doesn't leave them filling the disk."""
+    """Clear away history folders that earlier versions left among the temporary files, once they are
+    STALE_HISTORY_HOURS old, so they don't go on filling the disk."""
     cutoff = time.time() - STALE_HISTORY_HOURS * 3600
     for folder in Path(tempfile.gettempdir()).glob(HISTORY_PREFIX + "*"):
         try:
@@ -588,61 +589,6 @@ def remove_stale_histories() -> None:
                 shutil.rmtree(folder, ignore_errors=True)
         except OSError:
             pass
-
-
-class _HistoryWriter:
-    """Writes the history's files on a thread of its own, in the order given, so the world needn't wait
-    for the disk; a file is deleted the same way, after it is written. A failure, such as a full disk,
-    is raised the next time the world hands over a file or waits for them."""
-
-    def __init__(self) -> None:
-        self._jobs: queue.Queue = queue.Queue(maxsize=HISTORY_QUEUE)
-        self._failure: OSError | None = None
-        self._thread = threading.Thread(target=self._run, name="bitzkey-history", daemon=True)
-        self._thread.start()
-
-    def _run(self) -> None:
-        while True:
-            job = self._jobs.get()
-            try:
-                if job is None:
-                    return
-                path, data = job
-                if self._failure is None:
-                    if data is None:
-                        path.unlink(missing_ok=True)
-                    else:
-                        path.write_bytes(data)
-            except OSError as failure:
-                self._failure = failure
-            finally:
-                self._jobs.task_done()
-
-    def _raise_failure(self) -> None:
-        if self._failure is not None:
-            raise OSError(f"Couldn't write the history; is the disk full? ({self._failure})")
-
-    def write(self, path: Path, data: bytes) -> None:
-        self._raise_failure()
-        self._jobs.put((path, data))  # waits while HISTORY_QUEUE are waiting
-
-    def delete(self, path: Path) -> None:
-        self._jobs.put((path, None))
-
-    def wait(self) -> None:
-        """Until every file handed over is written (or deleted)."""
-        self._jobs.join()
-        self._raise_failure()
-
-    def stop(self) -> None:
-        if self._thread.is_alive():
-            self._jobs.put(None)
-            self._thread.join()
-
-
-def _close_history(writer: _HistoryWriter, folder: Path) -> None:
-    writer.stop()
-    shutil.rmtree(folder, ignore_errors=True)
 
 
 class Simulation:
@@ -711,12 +657,9 @@ class Simulation:
             self._spawn_group(make_dna(species[group], self.random), size, native=True, rows=homes.get(group))
         for bitzkey in imported:
             self._spawn_group(bitzkey.dna, self.random.randint(*SPAWN_GROUP), bitzkey.brain, bitzkey.mind)
-        # The world at every turn kept, oldest first, each as a file.
-        self.history: deque[dict] = deque()  # each {"turn": the turn, "path": its file, "bytes": its size}
-        self.history_folder = Path(tempfile.mkdtemp(prefix=HISTORY_PREFIX))
-        self._history_bytes = 0  # the size of all the history's files
-        self._writer = _HistoryWriter()
-        self._close_history = weakref.finalize(self, _close_history, self._writer, self.history_folder)
+        # The world at every turn kept, oldest first, each a whole copy.
+        self.history: deque[dict] = deque()  # each {"turn": the turn, "state": the world, "bytes": its size}
+        self._history_bytes = 0  # the size of them all, near enough
         self.frontier = 0  # the latest turn simulated; seeking never goes past it
         self._take_census()
         self._record()
@@ -827,50 +770,40 @@ class Simulation:
         return agent
 
     def close(self) -> None:
-        """Delete the history's files. The world can't be rewound after; it is closed when left."""
-        self._close_history()
+        """Let the history go. The world can't be rewound after; it is closed when left."""
         self.history = deque()
+        self._history_bytes = 0
 
     @property
     def earliest(self) -> int:
         """The oldest turn the history still keeps."""
         return self.history[0]["turn"] if self.history else self.turn
 
-    def flush_history(self) -> None:
-        """Wait until every turn handed to the disk is written."""
-        self._writer.wait()
-
     def _record(self) -> None:
-        """Hand the newest turn to the disk, then delete the oldest while the history is over its
-        budget."""
+        """Keep a copy of the newest turn, then let the oldest go while the history holds more than
+        HISTORY_TURNS turns or HISTORY_MEMORY bytes."""
         self.frontier = self.turn
-        data = pickle.dumps(self._state(), protocol=pickle.HIGHEST_PROTOCOL)
-        path = self.history_folder / f"turn-{self.turn:08d}.pickle"
-        self._writer.write(path, data)
-        self.history.append({"turn": self.turn, "path": path, "bytes": len(data)})
-        self._history_bytes += len(data)
-        while self._history_bytes > HISTORY_BUDGET and len(self.history) > 1:
-            oldest = self.history.popleft()
-            self._history_bytes -= oldest["bytes"]
-            self._writer.delete(oldest["path"])
-
-    def _state(self) -> dict:
-        """The world now, as the history keeps it."""
-        return {"turn": self.turn, "deaths": self.deaths, "next_identifier": self.next_identifier,
-                "agents": self.agents, "grass": self.grass, "seeds": self.seeds,
-                "random_state": self.random.getstate(), "insights": self.insights.snapshot()}
+        if self.history and self.history[-1]["turn"] == self.turn:  # recorded again, as it now is
+            self._history_bytes -= self.history.pop()["bytes"]
+        agents = [agent.copy() for agent in self.agents]
+        size = sum(AGENT_BYTES + agent.brain_bytes for agent in agents)
+        self.history.append({"turn": self.turn, "bytes": size, "state": {
+            "turn": self.turn, "deaths": self.deaths, "next_identifier": self.next_identifier, "agents": agents,
+            "grass": self.grass.copy(), "seeds": list(self.seeds), "random_state": self.random.getstate(),
+            "insights": self.insights.snapshot()}})
+        self._history_bytes += size
+        while len(self.history) > 1 and (len(self.history) > HISTORY_TURNS or self._history_bytes > HISTORY_MEMORY):
+            self._history_bytes -= self.history.popleft()["bytes"]
 
     def _restore(self, entry: dict) -> None:
-        """Bring back a turn from its file, once the files are written."""
-        self.flush_history()
-        with entry["path"].open("rb") as file:
-            snapshot = pickle.load(file)
+        """Bring back a turn the history keeps, as a copy, so the history's stays as it was."""
+        snapshot = entry["state"]
         self.turn = snapshot["turn"]
         self.deaths = snapshot["deaths"]
         self.next_identifier = snapshot["next_identifier"]
-        self.agents = snapshot["agents"]
-        self.grass = snapshot["grass"]
-        self.seeds = snapshot["seeds"]
+        self.agents = [agent.copy() for agent in snapshot["agents"]]
+        self.grass = snapshot["grass"].copy()
+        self.seeds = list(snapshot["seeds"])
         self.random.setstate(snapshot["random_state"])
         self.insights.restore(snapshot["insights"])
         self._update_climate()
@@ -878,7 +811,7 @@ class Simulation:
 
     def seek(self, target: int) -> None:
         """Move the world to any turn the history keeps, from the earliest to the latest simulated,
-        by bringing it back from its file."""
+        by bringing back its copy."""
         target = max(self.earliest, min(self.frontier, target))
         if target != self.turn:
             self._restore(self.history[target - self.earliest])

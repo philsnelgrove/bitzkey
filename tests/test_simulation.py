@@ -7,7 +7,7 @@ import tools.Simulation as simulation_module
 from tools.Brain import ACTIONS, SENSES, Brain
 from tools.Exchange import Imported
 from tools.Genome import encode_dna
-from tools.Simulation import (BIRTH_REACH, PLANT_GESTATION, Bitzkey, gestation, CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, PLANT_MEAL, PLANT_MEAL_FOR_SIZE, SEED_OFFSETS,
+from tools.Simulation import (AGENT_BYTES, BIRTH_REACH, PLANT_GESTATION, Bitzkey, gestation, CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, PLANT_MEAL, PLANT_MEAL_FOR_SIZE, SEED_OFFSETS,
                               SIGHT_OFFSETS, SPAWN_SPREAD, UPROOT_BITE, UPROOT_MEALS, Simulation, litter_size,
                               nearby_offsets)
 
@@ -512,7 +512,7 @@ class SimulationTests(unittest.TestCase):
         self.assertGreater(hunter.mind["fear"], 3)
         self.assertGreater(victim.mind["fear"], victim.inborn["fear"])
 
-    def test_every_turn_is_on_disk_reached_at_once_exactly_and_deleted_on_closing(self):
+    def test_the_latest_turns_are_kept_in_memory_and_reached_at_once_exactly(self):
         with patch("tools.Simulation.CLIMATE_DAMAGE", 0):  # a world that lasts
             simulation = Simulation(width=20, height=20, population=30, seed=4)
 
@@ -526,9 +526,7 @@ class SimulationTests(unittest.TestCase):
             for turn in range(1, 61):
                 simulation.advance()
                 recorded[turn] = state()
-            simulation.flush_history()
             self.assertEqual([entry["turn"] for entry in simulation.history], list(range(61)))
-            self.assertEqual(len(list(simulation.history_folder.iterdir())), 61)  # every turn a file
             with patch.object(Simulation, "_take_turn", side_effect=AssertionError("replayed")):
                 for target in (37, 3, 0, 59, 60, 17, 18, 60):  # every one at once, with no replaying
                     simulation.seek(target)
@@ -540,50 +538,39 @@ class SimulationTests(unittest.TestCase):
             simulation.seek(60)
             simulation.advance()  # and from the latest, the world carries on
             self.assertEqual(simulation.frontier, 61)
-            folder = simulation.history_folder
             simulation.close()
-            self.assertFalse(folder.exists())
+            self.assertEqual(len(simulation.history), 0)
 
-    def test_history_keeps_within_its_disk_budget_by_letting_the_oldest_turns_go(self):
-        with patch("tools.Simulation.CLIMATE_DAMAGE", 0):  # a world that lasts
+    def test_the_history_keeps_only_the_latest_turns_and_fits_its_memory(self):
+        with patch("tools.Simulation.CLIMATE_DAMAGE", 0), patch("tools.Simulation.HISTORY_TURNS", 10):
             simulation = Simulation(width=20, height=20, population=30, seed=4)
-            budget = 10 * simulation.history[-1]["bytes"]
-            with patch("tools.Simulation.HISTORY_BUDGET", budget):
-                for _ in range(40):
-                    simulation.advance()
-            simulation.flush_history()
-            turns = [entry["turn"] for entry in simulation.history]
-            self.assertGreater(simulation.earliest, 0)
-            self.assertEqual(turns, list(range(simulation.earliest, 41)))  # the newest, every one
-            self.assertLessEqual(sum(entry["bytes"] for entry in simulation.history), budget)
-            self.assertEqual(len(list(simulation.history_folder.iterdir())), len(turns))  # the oldest deleted
+            for _ in range(40):
+                simulation.advance()
+            self.assertEqual([entry["turn"] for entry in simulation.history], list(range(31, 41)))
             simulation.seek(0)  # as far back as it reaches
-            self.assertEqual(simulation.turn, simulation.earliest)
+            self.assertEqual(simulation.turn, 31)
             self.assertFalse(simulation.rewind())
-            with patch("tools.Simulation.HISTORY_BUDGET", 1):  # far too little: only the newest is kept
-                simulation.seek(40)
+            simulation.seek(40)
+            with patch("tools.Simulation.HISTORY_MEMORY", 1):  # far too little: only the newest is kept
                 simulation.advance()
             self.assertEqual([entry["turn"] for entry in simulation.history], [41])
-
-    def test_a_history_the_disk_cant_take_is_reported(self):
-        simulation = Simulation(width=20, height=20, population=10, seed=4)
-        simulation.flush_history()
-        import shutil
-        shutil.rmtree(simulation.history_folder)  # nowhere to write
-        simulation.advance()
-        with self.assertRaises(OSError):
-            simulation.flush_history()
+        brains = sum(agent.brain_bytes for agent in simulation.agents)
+        self.assertGreater(brains, 0)
+        self.assertEqual(simulation._history_bytes, brains + AGENT_BYTES * len(simulation.agents))
 
     def test_a_history_left_behind_is_cleared_away_once_stale(self):
         import os
         import time
         from tools.Simulation import STALE_HISTORY_HOURS, remove_stale_histories
-        old, new = Simulation(width=20, height=20, population=0, seed=1), Simulation(width=20, height=20, population=0, seed=2)
-        old.flush_history()
+        import tempfile
+        from pathlib import Path
+        from tools.Simulation import HISTORY_PREFIX
+        old, new = (Path(tempfile.mkdtemp(prefix=HISTORY_PREFIX)) for _ in range(2))  # as earlier versions left them
         long_ago = time.time() - (STALE_HISTORY_HOURS + 1) * 3600
-        os.utime(old.history_folder, (long_ago, long_ago))
+        os.utime(old, (long_ago, long_ago))
         remove_stale_histories()
-        self.assertEqual((old.history_folder.exists(), new.history_folder.exists()), (False, True))
+        self.assertEqual((old.exists(), new.exists()), (False, True))
+        new.rmdir()
 
     def test_plants_seed_less_the_more_plants_shade_them(self):
         plant = self.simulation._add_agent(encode_dna("plant", fertility=7), 5, 5)  # a 10% chance alone

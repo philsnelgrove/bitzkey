@@ -42,9 +42,11 @@ class BuildBarsTests(unittest.TestCase):
     def test_a_trait_sorts_each_species_lowest_at_the_bottom(self):
         for sort in ("intellect", "weapons", "temperature", "cold tolerance"):
             bars, _ = build_bars(self.simulation, "ring", CHART, sort=sort)
-            for bar in bars:
+            living = {agent.identifier for agent in self.simulation.living}
+            for bar in bars:  # the living sorted by the trait; the dead, remembered by colour alone, beneath them
                 stacked = [(decode_body(self.simulation.lineage[identifier])["species"],
-                            trait_of(self.simulation.lineage[identifier], sort)) for identifier, _, _ in bar.slices]
+                            trait_of(self.simulation.lineage[identifier], sort) if identifier in living else -1)
+                           for identifier, _, _ in bar.slices]
                 for (species, value), (next_species, next_value) in zip(stacked, stacked[1:]):
                     if species == next_species:
                         self.assertLessEqual(value, next_value)
@@ -194,7 +196,7 @@ class TimeTravelTests(unittest.TestCase):
 
 
 class SpeciesBandTests(unittest.TestCase):
-    def test_bars_stack_by_species_and_living_only_drops_the_dead(self):
+    def test_bars_stack_by_species_and_the_dead_drop_out_of_the_selection(self):
         from tools.Genome import encode_dna
         simulation = Simulation(width=20, height=20, population=0, seed=1)
         order = ["predator", "plant", "grazer", "omnivore", "grazer"]
@@ -210,8 +212,13 @@ class SpeciesBandTests(unittest.TestCase):
         pg.init()
         surface = pg.Surface((1200, 820))
         graph.draw(surface, simulation, None)
-        graph.handle(pg.event.Event(pg.MOUSEBUTTONDOWN, button=1, pos=graph.layout()["living"].center))
         self.assertEqual(graph.selection, {agent.identifier for agent in agents[1:]})
+        graph._bars = [Bar(0, 0, 10, [(agents[0].identifier, 0.0, 10.0), (agents[1].identifier, 10.0, 20.0)])]
+        for point in ((5, 5), (5, 15)):  # the dead can't be picked; the living can
+            graph.handle(pg.event.Event(pg.MOUSEBUTTONDOWN, button=1, pos=point))
+            graph._press = (point, 0)
+            graph.handle(pg.event.Event(pg.MOUSEBUTTONUP, button=1, pos=point))
+        self.assertEqual(graph.selection, {agents[1].identifier})
 
 
 if __name__ == "__main__":
