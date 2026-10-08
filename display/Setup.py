@@ -334,6 +334,13 @@ class SetupScreen:
             self._tell(f"{len(rules)} advanced rule{'s' if len(rules) != 1 else ''} changed from the defaults.")
         return None
 
+    def start_with(self, text: str) -> dict | None:
+        """Start a new world at once, with the settings as they were and these Bitzkeys alone in the
+        import box, as if pasted there; if they can't be read, wait on the panel as usual."""
+        self.form.clear_import()
+        self.form.paste(text)
+        return self._values() if self.form.can_start else self.run()
+
     def _paste(self) -> None:
         try:
             text = pg.scrap.get_text()

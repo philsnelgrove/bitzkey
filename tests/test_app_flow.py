@@ -292,6 +292,53 @@ class CatalogFlowTests(unittest.TestCase):
         pg.event.clear()
         pg.display.quit()
 
+    def test_exemplars_beside_the_map_show_the_living_animals_that_stand_out_and_a_click_selects_one(self):
+        from Main import EXEMPLARS
+        oldest = max(self.animals, key=lambda agent: (agent.age, -agent.identifier))
+        oldest.age += 1000
+        self.app._draw()
+        self.assertEqual(len(self.app._exemplar_cards), 10)  # five a side
+        exemplars = self.app._exemplars()
+        self.assertEqual([title for title, _, _ in exemplars], [title for title, _, _ in EXEMPLARS])
+        found = dict((title, agent) for title, agent, _ in exemplars)
+        self.assertIs(found["OLDEST"], oldest)
+        smartest = max(agent.inborn["intellect"] for agent in self.animals)
+        self.assertEqual(found["SMARTEST"].inborn["intellect"], smartest)
+        self.assertNotEqual(found["BEST FED"].species, "plant")
+        left, right = self.app._exemplar_columns()
+        view = self.app._map_view()[0]
+        self.assertTrue(left.right < view.left and view.right < right.left)  # either side of the map
+        card, identifier = self.app._exemplar_cards[2]
+        self.app._click(card.center)
+        self.assertEqual((self.app.selected_id, self.app.graph.selection), (oldest.identifier, {oldest.identifier}))
+
+    def test_a_new_world_starts_with_the_living_bitzkeys_picked_on_the_graph(self):
+        from display import Window
+        from display.Setup import SetupScreen
+        chosen = self.animals[:2]
+        self.app.show_census = True
+        self.app.graph.select({agent.identifier for agent in chosen})
+        self.app._draw()
+        button = self.app.graph.layout()["renew"]
+        self.assertEqual(self.app.graph.handle(pg.event.Event(pg.MOUSEBUTTONDOWN, button=1, pos=button.center)), "renew")
+        self.assertTrue(self.app._renew())
+        self.assertIsNone(self.app.simulation)  # it left
+        self.assertEqual([imported.dna for imported in import_bitzkeys(self.app.renewal)], [agent.dna for agent in chosen])
+        self.assertEqual(pg.scrap.get_text(), self.app.renewal)  # copied to the clipboard too
+        setup = SetupScreen(Window.open_window(fullscreen=False),
+                            {"width": 30, "height": 30, "population": 20, "grass_density": 5, "seed": 1})
+        setup.form.import_text = "something old"
+        settings = setup.start_with(self.app.renewal)
+        self.assertEqual(setup.form.import_text, self.app.renewal)  # the import box cleared, then pasted into
+        self.assertEqual([imported.dna for imported in settings["imported"]], [agent.dna for agent in chosen])
+        self.assertEqual((settings["width"], settings["seed"]), (30, 1))
+
+    def test_a_new_world_needs_living_bitzkeys_picked(self):
+        self.app.graph.select(set())
+        self.assertFalse(self.app._renew())
+        self.assertIsNotNone(self.app.simulation)
+        self.assertIn("Pick living Bitzkeys", self.app.message)
+
     def test_a_selected_bitzkey_goes_into_the_catalog_from_the_sidebar_button_or_k(self):
         from tools import Catalog
         self.app.selected_id = self.animals[0].identifier

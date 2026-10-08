@@ -132,6 +132,17 @@ Windows blocks scripts, run
 The executable saves `reports\` and `exports\` beside itself, so keep it in a
 folder you can write to. The first launch takes a few seconds while it unpacks.
 
+## Exemplars
+
+Either side of the map, five cards a side, evenly spaced, show the living animals
+that most stand out: on the left the smartest (inborn intellect), the largest, the
+oldest, the one with the most children and the latest generation; on the right
+the strongest, the fastest, the best armoured, the most fertile and the best fed.
+Ties go to the oldest, then the first born. Each card shows the Bitzkey, its
+number, its species and what it stands out by, and keeps up as the world runs.
+Click a card to select that Bitzkey, as clicking its dot would, ready to copy,
+export or catalog; the selected one's card is outlined in amber.
+
 ## Controls
 
 - `Space`: pause or resume
@@ -599,6 +610,11 @@ The graph and the map share one selection. Close the graph and the Bitzkeys pick
 on it stay ringed on the map, while the sidebar shows no single Bitzkey and counts
 how many are picked. Clicking a dot on the map selects just that one, on the
 graph as well.
+
+START A NEW WORLD WITH THE SELECTED, beneath the graph, starts again with the
+living Bitzkeys picked: it copies them to the clipboard, leaves this world, clears
+the import box on the configuration panel, pastes them in, and starts a new world
+at once with the panel's settings, them alone imported.
 
 Then press `C` or COPY to put the selection on the clipboard, or `S` or SAVE to
 write a `.json` file into `exports/`. CLEAR empties the selection. Living

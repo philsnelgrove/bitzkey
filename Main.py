@@ -31,6 +31,21 @@ INSIGHTS_TOP = 290  # the insights panel's top, in design pixels: just below the
 MAP_ZOOM_STEP = 1.25  # each wheel notch zooms the map in (or out) by this much
 MAP_ZOOM_MAX = 12.0   # the closest the map zooms in, times its whole-map size
 TRAIL_OPACITY = 0.5   # how faintly a Bitzkey shows on each cell it passed through this turn
+# The exemplars beside the map, five a side: the living animal that most stands out in each way, what
+# it is judged by and what its card says. Ties go to the oldest, then the first born.
+EXEMPLARS = (
+    ("SMARTEST", lambda agent: agent.inborn["intellect"], lambda agent: f"intellect {agent.inborn['intellect']}"),
+    ("LARGEST", lambda agent: int(agent.body["size"]), lambda agent: f"size {agent.body['size']}"),
+    ("OLDEST", lambda agent: agent.age, lambda agent: f"age {agent.age}"),
+    ("MOST CHILDREN", lambda agent: agent.children, lambda agent: f"{agent.children} children"),
+    ("LATEST GENERATION", lambda agent: agent.generation, lambda agent: f"generation {agent.generation}"),
+    ("STRONGEST", lambda agent: int(agent.body["strength"]), lambda agent: f"strength {agent.body['strength']}"),
+    ("FASTEST", lambda agent: int(agent.body["speed"]), lambda agent: f"speed {agent.body['speed']}"),
+    ("BEST ARMOURED", lambda agent: int(agent.body["armour"]), lambda agent: f"armour {agent.body['armour']}"),
+    ("MOST FERTILE", lambda agent: int(agent.body["fertility"]), lambda agent: f"fertility {agent.body['fertility']}"),
+    ("BEST FED", lambda agent: -agent.hunger, lambda agent: f"hunger {int(agent.hunger)}%"),
+)
+EXEMPLAR_WIDTH = 170  # each column of exemplars, in design pixels
 
 
 class BitzkeyApp:
@@ -70,6 +85,8 @@ class BitzkeyApp:
         self._dialog_kind = ""
         self._add_button: pg.Rect | None = None
         self._catalog_button: pg.Rect | None = None
+        self._exemplar_cards: list[tuple[pg.Rect, int]] = []  # each card beside the map, and whom it shows
+        self.renewal = ""  # the Bitzkeys to start a new world with, on leaving for one
         self._export_button = pg.Rect(0, 0, 0, 0)
         self.message = ""
         self.message_until = 0
@@ -180,6 +197,9 @@ class BitzkeyApp:
                         self._close_graph()  # at the run's end, to look over the map before leaving
                     elif action == "catalog":
                         self._catalog_picked()
+                    elif action == "renew":
+                        if self._renew():
+                            return "renew"
                     elif action:
                         self._export_graph(to_file=action == "save")
                 elif event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
@@ -250,6 +270,8 @@ class BitzkeyApp:
             self._catalog_selected()
         elif self._export_button.collidepoint(position):
             self._open_export_dialog()
+        elif picked := [identifier for card, identifier in self._exemplar_cards if card.collidepoint(position)]:
+            self._select(picked[0])
         else:
             self._select_at(position)
 
@@ -272,6 +294,19 @@ class BitzkeyApp:
             self.export_list.clear()
             self._say(f"Cleared {count} Bitzkey{'s' if count != 1 else ''} from the export list.")
         return None
+
+    def _renew(self) -> bool:
+        """Copy the living Bitzkeys picked on the graph to the clipboard and leave, to start a new
+        world with them alone imported. Returns whether it left."""
+        living = {agent.identifier: agent for agent in self.simulation.living}
+        chosen = [living[identifier] for identifier in sorted(self.graph.selection) if identifier in living]
+        if not chosen:
+            self._say("Pick living Bitzkeys on the graph first, then start a new world with them.")
+            return False
+        self.renewal = export_bitzkeys(chosen)
+        self._copy(self.renewal, f"{len(chosen)} Bitzkey{'s' if len(chosen) != 1 else ''}")
+        self._leave(Dialog("Starting a new world", [], [("leave", "LEAVE")], cancel="leave"))
+        return True
 
     def _leave(self, dialog: Dialog) -> None:
         """Say that it's leaving, then delete the world's history from the disk and let it go."""
@@ -414,20 +449,42 @@ class BitzkeyApp:
                 nearest_distance = distance
         on_view = self._map_view()[0].collidepoint(position)  # zoomed in, the board reaches under the sidebar
         if nearest and on_view and board.collidepoint(position) and nearest_distance < max(UI(9), min(cell_width, cell_height) * 1.6):
-            self.selected_id = nearest.identifier
-            self.graph.select({nearest.identifier})  # the map and the graph share one selection
-            self.show_insights = False  # selecting shows the inspector
+            self._select(nearest.identifier)
+
+    def _select(self, identifier: int) -> None:
+        self.selected_id = identifier
+        self.graph.select({identifier})  # the map and the graph share one selection
+        self.show_insights = False  # selecting shows the inspector
+
+    def _exemplars(self) -> list[tuple[str, Bitzkey | None, str]]:
+        """Each exemplar's title, the living animal that is it, if any, and what its card says."""
+        animals = [agent for agent in self.simulation.living if agent.species != "plant"]
+        found = []
+        for title, judged, said in EXEMPLARS:
+            best = max(animals, key=lambda agent: (judged(agent), agent.age, -agent.identifier), default=None)
+            found.append((title, best, said(best) if best else "none alive"))
+        return found
+
+    def _exemplar_columns(self) -> tuple[pg.Rect, pg.Rect]:
+        """The columns either side of the map where the exemplars show."""
+        area = self._board_area()
+        width = UI(EXEMPLAR_WIDTH)
+        return (pg.Rect(area.left + UI(16), area.top + UI(21), width, area.height - UI(42)),
+                pg.Rect(area.right - UI(16) - width, area.top + UI(21), width, area.height - UI(42)))
 
     def _sidebar_width(self) -> int:
         return min(UI(340), max(UI(290), self.screen.get_width() // 3))
 
     def _map_view(self) -> tuple[pg.Rect, float]:
         """Where the map shows, and the scale at which the whole map fits it."""
+        view = self._board_area().inflate(-UI(42) - 2 * UI(EXEMPLAR_WIDTH + 16), -UI(42))  # between the exemplars
+        return view, min(view.width / self.width, view.height / self.height)
+
+    def _board_area(self) -> pg.Rect:
+        """The space left of the sidebar, between the header and the footer."""
         UI.fit(self.screen.get_size())
         screen_width, screen_height = self.screen.get_size()
-        board_area = pg.Rect(0, UI(62), screen_width - self._sidebar_width(), screen_height - UI(140))
-        view = board_area.inflate(-UI(42), -UI(42))
-        return view, min(view.width / self.width, view.height / self.height)
+        return pg.Rect(0, UI(62), screen_width - self._sidebar_width(), screen_height - UI(140))
 
     def _clamped_centre(self, centre: tuple[float, float], view: pg.Rect, scale: float) -> tuple[float, float]:
         """The view's middle kept so the map fills the view where it can, or centred where it can't."""
@@ -479,6 +536,7 @@ class BitzkeyApp:
         self.screen.fill((19, 26, 27))
         self._draw_header()
         self._draw_world()
+        self._draw_exemplars()
         self._draw_sidebar()
         self._draw_footer()
         if self.show_census:
@@ -544,6 +602,32 @@ class BitzkeyApp:
             pg.draw.line(self.screen, GRID, (board.left, py), (board.right, py), 1)
         pg.draw.rect(self.screen, (80, 99, 85), board, 1)
         self.screen.set_clip(None)
+
+    def _draw_exemplars(self) -> None:
+        """Five cards a side, evenly spaced, each the living animal that stands out in its way; a
+        click selects it."""
+        self._exemplar_cards = []
+        exemplars = self._exemplars()
+        gap = UI(8)
+        for column, picks in zip(self._exemplar_columns(), (exemplars[:5], exemplars[5:])):
+            height = (column.height - 4 * gap) // 5
+            for index, (title, agent, said) in enumerate(picks):
+                card = pg.Rect(column.left, column.top + index * (height + gap), column.width, height)
+                chosen = agent is not None and agent.identifier == self.selected_id
+                pg.draw.rect(self.screen, (27, 37, 37), card, border_radius=UI(5))
+                pg.draw.rect(self.screen, (238, 183, 110) if chosen else (54, 68, 62), card, 1, border_radius=UI(5))  # the selected one lit
+                self._text(title, (card.left + UI(10), card.top + UI(8)), (157, 177, 159), self.small)
+                if agent is None:
+                    self._text(said, (card.left + UI(10), card.top + UI(28)), (116, 139, 124), self.small)
+                    continue
+                radius = max(1, min(UI(16), height // 5))
+                point = (card.left + UI(10) + radius + RING_WIDTH, card.top + (height + UI(20)) // 2)
+                draw_bitzkey(self.screen, agent.dna, point, radius)
+                x = point[0] + radius + UI(12)
+                self._text(f"#{agent.identifier:03d}  {agent.species}", (x, point[1] - UI(16)), (231, 236, 222),
+                           self.small)
+                self._text(said, (x, point[1] + UI(2)), (149, 170, 150), self.small)
+                self._exemplar_cards.append((card, agent.identifier))
 
     def _draw_sidebar(self) -> None:
         sidebar_x = self.screen.get_width() - self._sidebar_width()
@@ -907,14 +991,17 @@ def main() -> None:
     options = parse_args()
     world.remove_stale_histories()  # left behind by a run that ended without closing its world
     setup = SetupScreen(Window.open_window(fullscreen=not options.windowed), vars(options))
-    while (settings := setup.run()) is not None:
+    settings = setup.run()
+    while settings is not None:
         Rules.apply(settings.pop("rules", {}))  # the advanced rules hold for this world and its restarts
         app = BitzkeyApp(**settings)
         outcome = app.run()
         if app.simulation is not None:
-            app.simulation.close()  # its history's files go with it
+            app.simulation.close()  # its history goes with it
         if outcome == "quit":
             break
+        # A new world with the Bitzkeys picked on the graph starts at once; otherwise, back to the panel.
+        settings = setup.start_with(app.renewal) if outcome == "renew" else setup.run()
     pg.quit()
 
 

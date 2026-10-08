@@ -277,8 +277,8 @@ class ColourGraph:
 
     def _bottom_buttons(self) -> list[tuple[str, int]]:
         """The buttons beneath the timeline, from the right, and their widths: at the run's end, a way
-        back to the map; and always, a way to catalog the Bitzkeys picked."""
-        return ([("map", 140)] if self.ended else []) + [("catalog", 150)]
+        back to the map; and always, ways to catalog the Bitzkeys picked and to start a new world with them."""
+        return ([("map", 140)] if self.ended else []) + [("catalog", 150), ("renew", 310)]
 
     def menu_items(self) -> list[tuple[str, pg.Rect]]:
         """The sort menu's choices under its button, a small gap before the mind traits, the body
@@ -320,7 +320,7 @@ class ColourGraph:
                 self.seek_turn = self.turn_at(event.pos[0])
                 return "seek"
         elif event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
-            for action in ("copy", "save", "map", "catalog"):
+            for action in ("copy", "save", "map", "catalog", "renew"):
                 if action in layout and layout[action].collidepoint(event.pos):
                     return action
             if layout["sort"].collidepoint(event.pos):
@@ -421,7 +421,8 @@ class ColourGraph:
         room = min([layout[name].left for name, _ in self._bottom_buttons()], default=panel.right) - panel.left - UI(40)
         self._text(screen, fit_text(self._describe(simulation, hovered), self.font, room),
                    (panel.left + UI(24), timeline.bottom + UI(10)), (220, 229, 211), self.font)
-        for name, text in (("map", "RETURN TO MAP"), ("catalog", "ADD TO CATALOG")):
+        for name, text in (("map", "RETURN TO MAP"), ("catalog", "ADD TO CATALOG"),
+                           ("renew", "START A NEW WORLD WITH THE SELECTED")):
             if name in layout:
                 lit = name == "map"
                 pg.draw.rect(screen, (238, 183, 110) if lit else (44, 57, 52), layout[name], border_radius=UI(4))
