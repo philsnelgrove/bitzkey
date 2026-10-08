@@ -280,12 +280,13 @@ very cold, the temperate zone cold, the equator medium. The third quarter is
 mild again. Through the fourth quarter (the southern winter) the same happens
 from the bottom up to and through the equator. The sidebar shows the year and season.
 
-The weather doesn't change all at once: it comes in a wave. A winter washes in
-from its hemisphere's edge, the top of the map for the north and the bottom for
-the south, down or up to the far side of the equator, and as it ends ebbs back
-the way it came, from the equator to the edge. The wave crosses the hemisphere in
-bands of two rows over the first half of each season (45 turns of a 360-turn
-year), about a row and a third a turn. At its front four bands stand part way
+The weather doesn't change all at once: it comes in waves, one in each climate
+zone, all setting off together as the season turns, so no zone waits on another
+and an animal can always see where the weather is headed. In each zone a winter
+washes in from the side toward its hemisphere's edge (the top of the map for the
+north, the bottom for the south) across to the side toward the equator, and as it
+ends ebbs back the way it came. Each wave crosses its zone in bands of two rows
+over the first half of each season (45 turns of a 360-turn year). At its front four bands stand part way
 between the old weather and the new, each a quarter step further on than the
 band ahead of it, so the change comes as a staircase an animal can see within
 its sight: winter behind the front, the old season ahead of it. Each band turns

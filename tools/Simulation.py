@@ -179,8 +179,9 @@ CLIMATE_HUNGER = 2.0   # an animal a step or more from home, or a plant too hot,
 CLIMATE_DAMAGE = 0.1   # for each step from home, a Bitzkey loses this share of its full health a turn; plants from two
 PLANT_CLIMATE_YIELD = 0.0  # a plant out of its temperature gives this share of its food
 GRASS_DIEBACK = 20     # where it isn't medium, a cell's grass loses a tuft every this many turns
-# The weather turns in a wave. A winter washes in from its hemisphere's edge to the equator, and as
-# it ends ebbs back the way it came, over this share of each season. The wave moves in bands of
+# The weather turns in waves, one in each climate zone, all setting off together as the season turns,
+# so no zone waits on another. In each, a winter washes in from the side toward its hemisphere's edge
+# toward the equator, and as it ends ebbs back the way it came, over this share of each season. The wave moves in bands of
 # WAVE_BAND rows; at its front, WAVE_FRONT bands stand part way between the old weather and the new,
 # in even steps, so the change comes as a staircase. The climate's effects move with it.
 SEASON_TURNING = 0.5
@@ -271,14 +272,24 @@ def season_temperature(y: int, height: int, quarter: int) -> int:
     return zone_temperature(y, height) + in_winter(y, height, quarter)
 
 
+def zone_rows(y: int, height: int) -> tuple[int, int]:
+    """The first and last rows of the climate zone a row lies in."""
+    zone = zone_temperature(y, height)
+    first, last = y, y
+    while first > 0 and zone_temperature(first - 1, height) == zone:
+        first -= 1
+    while last < height - 1 and zone_temperature(last + 1, height) == zone:
+        last += 1
+    return first, last
+
+
 def wave_band(y: int, height: int, quarter: int) -> tuple[int, int]:
-    """As the weather turns into a quarter of the year, which band of the wave a row is in, counted
-    in the order the wave reaches them, and how many bands the wave crosses. A winter washes in from
-    its hemisphere's edge toward the equator (the second and fourth quarters), and ebbs back from the
-    equator toward the edge (the third and first)."""
+    """As the weather turns into a quarter of the year, which band of its zone's wave a row is in,
+    counted in the order the wave reaches them, and how many bands the wave crosses. Every zone's wave
+    sets off at once. A winter washes in from the side toward its hemisphere's edge toward the
+    equator (the second and fourth quarters), and ebbs back the other way (the third and first)."""
     north = quarter in (1, 2)
-    rows = [row for row in range(height) if in_winter(row, height, 1 if north else 3)]
-    first, last = rows[0], rows[-1]
+    first, last = zone_rows(y, height)
     inward = quarter in (1, 3)
     offset = y - first if north == inward else last - y
     return offset // WAVE_BAND, (last - first) // WAVE_BAND + 1
