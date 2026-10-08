@@ -84,7 +84,7 @@ Each imported genome spawns as a group of 3 to
 120 genomes are used, keeping their groups within the 600 population cap. Set
 "Bitzkeys" to 0 to start with only your imports.
 
-ADVANCED opens the advanced rules: 137 numbers that shape how the world plays
+ADVANCED opens the advanced rules: 139 numbers that shape how the world plays
 out, in groups (World, Bodies, Breeding, Feelings, Mind, Fighting, Territory,
 Herding, Food, Plants, Climate, Society and Experiences). Among them are lifespans, metabolism, litter
 sizes, food-aware breeding, the rewards and pains a brain learns from, blows and
@@ -228,7 +228,7 @@ their young.
 | strength | the other half of its striking force |
 | armour | the other half of its toughness, which reduces damage taken by up to 60% |
 | weapons | sharpen blows by up to 75%, and spines hurt anyone who attacks |
-| speed | cells moved per step of foraging, fleeing or heading off in a direction (1 to 4; grazers move half as far again, rounded up: 2, 3, 5 or 6) |
+| speed | cells moved per step of foraging, fleeing or going off in a direction (1 to 4; grazers move half as far again, rounded up: 2, 3, 5 or 6) |
 | sight | how far it sees (2 to 9 cells) |
 | fertility | high: cheap, frequent breeding and weak, hungry young; low: costly, rare breeding and well-fed young |
 | litter | young per birth: 1 to 6. A high litter trait and a small body both make litters bigger, half each, averaged over both parents, so small animals tend to have large litters and large animals small ones. Predators have half as many young, rounded up (1 to 3). Each young needs a free cell around the parent (sides first, then corners), and the litter shares the energy its parents give. |
@@ -395,15 +395,20 @@ fourteen for the brightest. Plants have no brain.
 
 It then picks one of the actions open to it: eat, forage, browse, uproot,
 scavenge, feast, rest, court, breed, hunt, attack, defend, flee, herd, go north,
-go south, go east or go west. It isn't told which actions are open; it picks
-among them by the values its brain gives every action. Each heading walks straight that way as far as its speed
-allows: north and south stop at the edge of the map, while east and west wrap
-round it, so they are always open. Setting off in a direction is how an animal
-explores: it pleases the curious, and finding grass where none was seen, or
-walking into a hunter, shapes its curiosity. A new brain starts out valuing the
-four headings a little below its other actions, so an untaught animal doesn't
-march away from its range, its herd and its food before it has learned where to
-go. Foraging walks toward the
+go south, go east, go west, walk north, walk south, walk east or walk west. It
+isn't told which actions are open; it picks among them by the values its brain
+gives every action. Each go heads straight that way as far as its speed allows,
+and each walk a single cell: north and south stop at the edge of the map, while
+east and west wrap round it, so they are always open. Moving costs food: a walk
+saves half the turn's burn, as resting does, while a go costs a quarter of a
+turn's burn more for each cell beyond the first, so a fast grazer going six cells
+pays two and a quarter turns' burn. Setting off in a direction, going or
+walking, is how an animal explores: it pleases the curious, and finding grass
+where none was seen, or walking into a hunter, shapes its curiosity. A new brain
+starts out valuing the eight headings a little below its other actions, so an
+untaught animal doesn't march away from its range, its herd and its food before
+it has learned where to go. What a walk saves and what going far costs are
+advanced rules (the Bodies group). Foraging walks toward the
 nearest grass in sight; a tuft sates 35 hunger. Grazers get 1.25 times the food in grass and plants; omnivores half of grass and three quarters of plants. Browsing walks to the nearest
 plant in sight and, once alongside, takes a bite: 45 hunger, up to 70 from the
 largest plants, far more than grass. Each bite costs the plant 15 health, and
@@ -503,8 +508,13 @@ slowest, their lifespan rising steadily between, so it scales with the year
 length. From 70% of its lifespan, a Bitzkey's chance of
 dying of old age grows each turn: about half reach their lifespan, and almost
 none live past 1.3 times it. Dying of old age is not held against the brain's
-last choice. A blow costs the striker food, and one that leaves it starved kills
-it there ("exhausted"). A dead Bitzkey is dimmed and crossed through in red, and fades
+last choice. A blow or a long go costs an animal food, and one that leaves it
+starved kills it there ("exhausted"); so does breeding ("bred to death"), and a
+plant that spends the last of its food on a seed dies of it ("seeded to death").
+Each is a death like any other: counted, learnt from by its brain and seen by
+its herd. Should any other cost ever starve a body without its death being
+recorded, it is recorded as "starved" at the start of the next turn, so no
+body lingers uncounted. A dead Bitzkey is dimmed and crossed through in red, and fades
 away as its corpse decays, vanishing when the corpse is gone. A dot big enough
 to hold an icon (3px or more) is black, carrying its species' icon in the dot's
 colour with a thin light grey outline: a tree for plants, a leaf for grazers, an apple for omnivores and a

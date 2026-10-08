@@ -73,6 +73,10 @@ BREED_JOY = 1.0
 FIGHT_JOY = 0.5
 COMPANY_JOY = 0.1
 CURIOSITY_JOY = 0.15   # pleasure of setting off in a direction, scaled by curiosity
+# Moving costs food. A walk, a single cell, saves this share of the turn's burn, as resting does; going
+# as far as its speed allows costs this share of a turn's burn more for each cell beyond the first.
+WALK_REST = 0.5
+GO_EFFORT = 0.25
 FEAR_DREAD = 0.3
 UNEASE = 0.1           # how much an intolerant animal minds other species close by
 CLIMATE_UNEASE = 0.5   # discomfort two or more steps from home, half that one step; less for the hardy
@@ -211,11 +215,14 @@ EXPERIENCES = {
     "panicked": {"fear": 0.0067},
 }
 
-# Setting off in a direction: the step in x and y, and what it then says it did. The top and bottom
-# of the map are barriers; east and west wrap round.
-HEADINGS = {"go_north": (0, -1, "went north"), "go_south": (0, 1, "went south"),
-            "go_east": (1, 0, "went east"), "go_west": (-1, 0, "went west")}
-TRAVELLED = {went for _, _, went in HEADINGS.values()}
+# Setting off in a direction: the step in x and y, whether it is a walk of a single cell (else it goes
+# as far as its speed allows), and what it then says it did. The top and bottom of the map are
+# barriers; east and west wrap round.
+HEADINGS = {"go_north": (0, -1, False, "went north"), "go_south": (0, 1, False, "went south"),
+            "go_east": (1, 0, False, "went east"), "go_west": (-1, 0, False, "went west"),
+            "walk_north": (0, -1, True, "walked north"), "walk_south": (0, 1, True, "walked south"),
+            "walk_east": (1, 0, True, "walked east"), "walk_west": (-1, 0, True, "walked west")}
+TRAVELLED = {went for *_, went in HEADINGS.values()}
 GRASS_SEEN = SENSES.index("grass_seen")
 MAX_SIGHT = 2 + TRAIT_MAX
 SIGHT_OFFSETS = sorted(
@@ -869,6 +876,9 @@ class Simulation:
         self.turn += 1
         self._update_climate()
         self._index_cells()
+        for agent in self.agents:  # a body some cost starved, its death not yet recorded: recorded now
+            if agent.died_turn is None and not agent.alive:
+                self._die(agent, "starved" if agent.hunger >= 100 else "killed")
         order = self.living
         self._plants = sum(agent.species == "plant" for agent in order)
         self._population = len(order) - self._plants  # animals; the population cap is theirs alone
@@ -955,6 +965,8 @@ class Simulation:
         plant.hunger += SEED_COST
         plant.children += 1
         plant.last_action = "seeded"
+        if not plant.alive:  # it spent the last of its food on the seed
+            self._die(plant, "seeded to death")
         if abs(self._climate[cell[1]] - decode_climate(dna)[0]) >= 0.5:  # too hot or cold to grow: the seed waits
             self.seeds.append((*cell, dna, plant.generation + 1, self.turn))
             return
@@ -1114,7 +1126,7 @@ class Simulation:
             if hunter is None and alarm_source is not None:
                 hunter = alarm_source  # the herd's alarm: flight from whatever struck a herd-mate
 
-        available = {"rest", "go_east", "go_west"}
+        available = {"rest", "go_east", "go_west", "walk_east", "walk_west"}
         if grass_here:
             available.add("eat")
         if grass:
@@ -1151,9 +1163,9 @@ class Simulation:
             if uprootable is not None and self._food_supply(agent) < FOOD_NEEDED:
                 available.add("uproot")  # starving, with food scarce: it may tear into a plant beside it
         if agent.y > 0:
-            available.add("go_north")
+            available.update(("go_north", "walk_north"))
         if agent.y < self.height - 1:
-            available.add("go_south")
+            available.update(("go_south", "walk_south"))
 
         senses = make_senses(
             hunger=min(1.0, agent.hunger / 100),
@@ -1327,8 +1339,16 @@ class Simulation:
             self._move_toward(agent, *situation["herd_middle"])
             agent.last_action = "herded"
         elif action in HEADINGS:
-            dx, dy, went = HEADINGS[action]
-            self._move(agent, (agent.x + dx * agent.steps) % self.width, self._within(agent.y + dy * agent.steps))
+            dx, dy, walk, went = HEADINGS[action]
+            cells = 1 if walk else agent.steps
+            y = self._within(agent.y + dy * cells)
+            moved = abs(y - agent.y) if dy else cells  # north and south stop at the map's edge
+            self._move(agent, (agent.x + dx * cells) % self.width, y)
+            if walk:
+                agent.hunger = max(0, agent.hunger - agent.burn * WALK_REST)
+            else:
+                agent.hunger += agent.burn * GO_EFFORT * max(0, moved - 1)
+                self._exhausted(agent)
             agent.reward += CURIOSITY_JOY * agent.feeling("curiosity")
             agent.last_action = went
         elif action == "flee":
@@ -1452,8 +1472,8 @@ class Simulation:
         self._exhausted(agent)
 
     def _exhausted(self, agent: Bitzkey) -> None:
-        """A blow's effort can leave the striker starved: it dies there, rather than lingering as
-        a body whose death was never recorded."""
+        """A blow's effort, or a long way gone, can leave an animal starved: it dies there, rather than
+        lingering as a body whose death was never recorded."""
         if not agent.alive and agent.died_turn is None:
             self._die(agent, "exhausted")
 

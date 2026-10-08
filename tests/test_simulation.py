@@ -2,6 +2,7 @@ import math
 import random
 import unittest
 from unittest.mock import patch
+import tools.Simulation as simulation_module
 
 from tools.Brain import ACTIONS, SENSES, Brain
 from tools.Exchange import Imported
@@ -658,24 +659,25 @@ class SimulationTests(unittest.TestCase):
         self.assertEqual(simulation.end_reason, "full")
 
     def test_an_ended_simulation_stops_but_can_still_be_rewound(self):
-        simulation = Simulation(width=20, height=20, population=10, seed=1)
-        for _ in range(16):
-            simulation.advance()
-        for agent in simulation.living:
-            if agent.species != "plant":
-                agent.health = 0
-                simulation._die(agent, "killed")
-        simulation._record()  # the end, as a recorded turn: one with a snapshot, as the killing can't be replayed
-        simulation.frontier = simulation.turn
+        with patch("tools.Simulation.CLIMATE_DAMAGE", 0):  # a world that lasts until it is ended
+            simulation = Simulation(width=20, height=20, population=30, seed=4)
+            for _ in range(16):
+                simulation.advance()
+            for agent in simulation.living:
+                if agent.species != "plant":
+                    agent.health = 0
+                    simulation._die(agent, "killed")
+            simulation._record()  # the end, as a recorded turn: one with a snapshot, as the killing can't be replayed
+            simulation.frontier = simulation.turn
 
-        simulation.advance()
-        self.assertTrue(simulation.ended)
-        self.assertEqual(simulation.turn, 16)
-        simulation.seek(2)
-        self.assertFalse(simulation.ended)
-        for _ in range(20):
             simulation.advance()
-        self.assertEqual(simulation.turn, 16)
+            self.assertTrue(simulation.ended)
+            self.assertEqual(simulation.turn, 16)
+            simulation.seek(2)
+            self.assertFalse(simulation.ended)
+            for _ in range(20):
+                simulation.advance()
+            self.assertEqual(simulation.turn, 16)
 
     def test_rewind_and_replay_are_exact(self):
         simulation = Simulation(width=20, height=20, population=30, seed=4)
@@ -1289,10 +1291,41 @@ class NewTraitTests(unittest.TestCase):
         self.assertNotIn(grazer, self.simulation.agents)  # it decayed and was cleared away
 
     def test_no_body_is_left_without_a_recorded_death(self):
-        simulation = Simulation(width=60, height=60, seed=1)
-        for _ in range(200):
-            simulation.advance()
-        self.assertEqual([agent for agent in simulation.agents if not agent.alive and agent.died_turn is None], [])
+        # Every turn, and with rules that make moving, striking and seeding costly enough to starve.
+        harsh = {"GO_EFFORT": 2.0, "STRIKE_EFFORT": 2.0, "SEED_COST": 100, "SEED_HUNGER": 100}
+        for rules in ({}, harsh):
+            with patch.dict(simulation_module.__dict__, rules):
+                for seed in (1, 2, 3):
+                    simulation = Simulation(width=40, height=40, population=120, seed=seed)
+                    for _ in range(120):
+                        simulation.advance()
+                        ghosts = [agent for agent in simulation.agents if not agent.alive and agent.died_turn is None]
+                        self.assertEqual(ghosts, [], f"seed {seed}, turn {simulation.turn}, rules {rules}")
+                        if simulation.ended:
+                            break
+
+    def test_starving_is_recorded_and_its_body_handled_however_it_comes(self):
+        simulation = Simulation(width=30, height=30, population=0, seed=3)
+        grazer = simulation._add_agent(encode_dna("grazer", intellect=7, empathy=7), 10, 10)
+        herd_mate = simulation._add_agent(grazer.dna, 11, 10)
+        simulation._index_cells()
+        simulation._think(grazer)  # a decision to learn from
+        grazer.hunger = 100.5  # starved by something that recorded nothing
+        before = grazer.brain.copy()
+        deaths = simulation.deaths
+        simulation.advance()
+        self.assertEqual((grazer.last_action, grazer.died_turn, simulation.deaths), ("starved", 1, deaths + 1))
+        self.assertEqual(grazer.meat, 0)  # a starved body leaves nothing to eat
+        self.assertIsNone(grazer.brain)
+        self.assertNotEqual(before, herd_mate.brain)  # its herd saw it fail
+        self.assertGreater(herd_mate.seen_failure, 0)
+
+        plant = simulation._add_agent(encode_dna("plant", fertility=7), 20, 20)
+        plant.hunger = 30
+        simulation._index_cells()
+        with patch("tools.Simulation.SEED_COST", 100), patch.object(simulation.random, "random", return_value=0.0):
+            simulation._seed(plant)
+        self.assertEqual((plant.last_action, plant.died_turn), ("seeded to death", simulation.turn))
 
     def test_striking_burns_food_by_the_damage_dealt(self):
         target = self.simulation._add_agent(encode_dna("grazer", size=7), 5, 5)

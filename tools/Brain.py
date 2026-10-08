@@ -11,7 +11,8 @@ import numpy as np
 from tools.Genome import BODY_TRAITS, MIND_TRAITS, SPECIES, TEMPERATURES, decode_body, decode_climate, decode_mind, share
 
 ACTIONS = ("eat", "forage", "browse", "uproot", "scavenge", "feast", "rest", "court", "breed", "hunt", "attack", "defend",
-           "flee", "herd", "go_north", "go_south", "go_east", "go_west")
+           "flee", "herd", "go_north", "go_south", "go_east", "go_west", "walk_north", "walk_south", "walk_east",
+           "walk_west")
 SENSES = (
     "hunger",          # 0..1
     "health",          # 0..1
@@ -66,7 +67,7 @@ TRACE_DECAY = 0.9  # lambda: how much of each earlier choice's credit carries on
 # A new brain values setting off in a direction this much below its other actions, so an untaught
 # brain doesn't march straight away from its range, its herd and its food before it has learned where to go.
 HEADING_RELUCTANCE = 0.5
-HEADINGS = ("go_north", "go_south", "go_east", "go_west")
+HEADINGS = ("go_north", "go_south", "go_east", "go_west", "walk_north", "walk_south", "walk_east", "walk_west")
 RECORD_DIGITS = 6  # decimal places kept when a brain is exported
 # A new brain's output weights are drawn within this of zero: smaller the wider its layers, so its
 # untaught values spread as they did when layers were twelve neurons wide.

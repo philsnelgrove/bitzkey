@@ -96,7 +96,7 @@ class BrainTests(unittest.TestCase):
         with patch("tools.Brain.HEADING_RELUCTANCE", 0.0):
             eager = Brain.random(random.Random(7))
         for action, (mine, theirs) in zip(ACTIONS, zip(reluctant.output_biases, eager.output_biases), strict=True):
-            self.assertAlmostEqual(mine, theirs - (0.5 if action.startswith("go_") else 0.0))
+            self.assertAlmostEqual(mine, theirs - (0.5 if action.startswith(("go_", "walk_")) else 0.0))
 
     def test_a_first_traced_lesson_is_an_ordinary_lesson(self):
         traced, plain = Brain.random(random.Random(7), 3), Brain.random(random.Random(7), 3)

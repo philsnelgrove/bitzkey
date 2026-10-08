@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from tools.Brain import ACTIONS, SENSES
 from tools.Genome import decode_climate, encode_dna
-from tools.Simulation import (COLD, CURIOSITY_JOY, DEATH_PENALTY, GRASS_DIEBACK, dieback_threshold, season_progress, season_temperature, wave_band, HOT, KILL_MEAL, KILL_MEAL_FOR_SIZE, LEARNING_RATE, MEDIUM, PLANT_MEAL,
+from tools.Simulation import (COLD, CURIOSITY_JOY, DEATH_PENALTY, GO_EFFORT, WALK_REST, GRASS_DIEBACK, dieback_threshold, season_progress, season_temperature, wave_band, HOT, KILL_MEAL, KILL_MEAL_FOR_SIZE, LEARNING_RATE, MEDIUM, PLANT_MEAL,
                               SOCIAL_MEMORY, SOCIAL_MOOD, VERY_COLD, Simulation, season, temperature_at, year,
                               zone_temperature)
 
@@ -298,6 +298,30 @@ class SenseTests(unittest.TestCase):
         simulation._act(bottom, "go_south", situation)
         self.assertEqual(bottom.y, 99)  # stopped by the edge
         self.assertNotIn(ACTIONS.index("go_south"), simulation._sense(bottom)[1])
+
+    def test_a_walk_moves_one_cell_for_half_a_turns_food_and_going_further_costs_more(self):
+        simulation = world(turn=0)
+        grazer = simulation._add_agent(encode_dna("grazer", speed=7, curiosity=7), 50, 50)  # six cells a step
+        options, situation = simulation._sense(grazer)[1:]
+        walks = {ACTIONS.index(name) for name in ("walk_north", "walk_south", "walk_east", "walk_west")}
+        self.assertTrue(walks <= set(options))
+        grazer.hunger = 50
+        simulation._act(grazer, "walk_north", situation)
+        self.assertEqual((grazer.x, grazer.y, grazer.last_action), (50, 49, "walked north"))
+        self.assertAlmostEqual(grazer.hunger, 50 - grazer.burn * WALK_REST)  # saves half the turn's burn, as resting does
+        self.assertAlmostEqual(grazer.reward, CURIOSITY_JOY)  # walking explores too
+        grazer.hunger = 50
+        simulation._act(grazer, "go_south", situation)
+        self.assertEqual(grazer.y, 55)
+        self.assertAlmostEqual(grazer.hunger, 50 + grazer.burn * GO_EFFORT * 5)  # a quarter of a turn's burn for each cell past one
+        simulation._act(grazer, "walk_west", situation)
+        self.assertEqual((grazer.x, grazer.last_action), (49, "walked west"))
+        edge = simulation._add_agent(encode_dna("grazer", speed=7), 50, 97)
+        edge.hunger = 50
+        simulation._act(edge, "go_south", simulation._sense(edge)[2])
+        self.assertEqual(edge.y, 99)
+        self.assertAlmostEqual(edge.hunger, 50 + edge.burn * GO_EFFORT * 1)  # only the two cells it could go
+        self.assertNotIn(ACTIONS.index("walk_south"), simulation._sense(edge)[1])
 
     def test_an_animal_can_always_head_east_or_west_round_the_map_and_enjoys_setting_off(self):
         simulation = world(turn=0)
