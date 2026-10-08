@@ -264,13 +264,6 @@ class Brain:
         self.output_weights -= step * output_weights
         self.output_biases -= step * output_biases
 
-    @property
-    def nbytes(self) -> int:
-        """The memory its weights and eligibility traces take."""
-        arrays = [array for layer in self.layers for array in layer] + [self.output_weights, self.output_biases]
-        arrays += [array for layer in self.traces or () for array in layer]
-        return sum(array.nbytes for array in arrays)
-
     def copy(self) -> Brain:
         brain = Brain(self.layers, self.output_weights, self.output_biases)
         if self.traces is not None:

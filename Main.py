@@ -22,12 +22,14 @@ from tools.Exchange import Imported, bitzkey_record, export_bitzkeys, format_rec
 from tools.Genome import genome_record
 from tools.Genome import MIND_TRAITS
 from tools.Insights import ANIMALS, brain_report
-from tools import Rules
+from tools import Catalog, Rules
 from tools import Simulation as world
 from tools.Simulation import SEASONS, SPECIES, Bitzkey, Simulation, season, year
 
 REPORT_DIR = Config.APP_DIR / "reports"
 INSIGHTS_TOP = 290  # the insights panel's top, in design pixels: just below the population counts
+MAP_ZOOM_STEP = 1.25  # each wheel notch zooms the map in (or out) by this much
+MAP_ZOOM_MAX = 12.0   # the closest the map zooms in, times its whole-map size
 
 
 class BitzkeyApp:
@@ -50,6 +52,11 @@ class BitzkeyApp:
         self.selected_id: int | None = None
         self.show_insights = False
         self.show_census = False
+        # The map's zoom (1 shows it all) and the cell at the middle of the view, while zoomed in;
+        # while it is dragged, where the drag began and the middle then.
+        self.map_zoom = 1.0
+        self.map_centre: tuple[float, float] = (width / 2, height / 2)
+        self._pan_from: tuple[tuple[int, int], tuple[float, float]] | None = None
         self.graph = ColourGraph()
         # Bitzkeys added to export, by identifier: their genome and their record when added.
         self.export_list: dict[int, tuple[int, dict]] = {}
@@ -61,6 +68,7 @@ class BitzkeyApp:
         self.dialog: Dialog | None = None
         self._dialog_kind = ""
         self._add_button: pg.Rect | None = None
+        self._catalog_button: pg.Rect | None = None
         self._export_button = pg.Rect(0, 0, 0, 0)
         self.message = ""
         self.message_until = 0
@@ -109,7 +117,8 @@ class BitzkeyApp:
                 elif event.type == pg.KEYDOWN:
                     if event.key == pg.K_ESCAPE:
                         if self.show_census:
-                            self._close_graph()
+                            if self._leave_graph():
+                                return "configure"
                         else:
                             self._ask_to_leave()
                     elif event.key == pg.K_F11:
@@ -126,6 +135,7 @@ class BitzkeyApp:
                         self.playing = False
                         self.simulation.rewind()
                     elif event.key == pg.K_r:
+                        self.simulation.close()
                         self.simulation = self._new_world()
                         self.selected_id = None
                         self.graph.reset()
@@ -135,7 +145,8 @@ class BitzkeyApp:
                         self._save_report()
                     elif event.key == pg.K_g:
                         if self.show_census:
-                            self._close_graph()
+                            if self._leave_graph():
+                                return "configure"
                         else:
                             self.show_census = True
                     elif event.key == pg.K_TAB and self.show_census:
@@ -149,15 +160,25 @@ class BitzkeyApp:
                         self._export_graph(to_file=True)
                     elif event.key == pg.K_a and not self.show_census:
                         self._toggle_export()
+                    elif event.key == pg.K_k:
+                        self._catalog_picked() if self.show_census else self._catalog_selected()
                     elif event.key == pg.K_e:
                         self._open_export_dialog()
+                    elif event.key == pg.K_z and not self.show_census:
+                        self.map_zoom, self.map_centre = 1.0, (self.width / 2, self.height / 2)
                 elif self.show_insights and not self.show_census and self._scroll_event(event):
+                    pass
+                elif not self.show_census and self._map_event(event):
                     pass
                 elif self.show_census and event.type in (pg.MOUSEBUTTONDOWN, pg.MOUSEBUTTONUP, pg.MOUSEMOTION,
                                                          pg.MOUSEWHEEL):
                     action = self.graph.handle(event)
                     if action == "seek":
                         self._seek(self.graph.seek_turn)
+                    elif action == "map":
+                        self._close_graph()  # at the run's end, to look over the map before leaving
+                    elif action == "catalog":
+                        self._catalog_picked()
                     elif action:
                         self._export_graph(to_file=action == "save")
                 elif event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
@@ -199,6 +220,19 @@ class BitzkeyApp:
         if self.graph.selection and self.graph.selection != {self.selected_id}:
             self.selected_id = None
 
+    def _leave_graph(self) -> bool:
+        """Close the graph with G or ESC. Before the run's end, that returns to the map; after it, it
+        leaves for the configuration panel, asking first only if Bitzkeys wait on the export list.
+        Returns whether to leave now."""
+        if not self.simulation.ended:
+            self._close_graph()
+            return False
+        if self.export_list:
+            self._ask_to_leave()
+            return False
+        self._leave(Dialog("Leaving this simulation", [], [("leave", "LEAVE")], cancel="leave"))
+        return True
+
     def _seek(self, turn: int) -> None:
         """Pause and move the world to a turn already simulated. A long replay says so first."""
         self.playing = False
@@ -212,6 +246,8 @@ class BitzkeyApp:
     def _click(self, position: tuple[int, int]) -> None:
         if self._add_button and self._add_button.collidepoint(position):
             self._toggle_export()
+        elif self._catalog_button and self._catalog_button.collidepoint(position):
+            self._catalog_selected()
         elif self._export_button.collidepoint(position):
             self._open_export_dialog()
         else:
@@ -229,6 +265,8 @@ class BitzkeyApp:
             return "leave" if choice == "leave" else None
         if choice in ("save", "copy"):
             self._export_chosen(to_file=choice == "save")
+        elif choice == "catalog":
+            self._catalog_export_list()
         elif choice == "clear":
             count = len(self.export_list)
             self.export_list.clear()
@@ -236,17 +274,13 @@ class BitzkeyApp:
         return None
 
     def _leave(self, dialog: Dialog) -> None:
-        """Say that it's leaving, then let go of the world's history a piece at a time, keeping the
-        window responsive while its brains are freed."""
+        """Say that it's leaving, then delete the world's history from the disk and let it go."""
         dialog.start("leave", "Leaving, please be patient", "Cleaning up messy neural networks...")
         self.dialog = dialog
         self.playing = False
         self._draw()
         pg.display.flip()
-        history = self.simulation.history
-        while history:
-            del history[-25:]
-            pg.event.pump()
+        self.simulation.close()
         self.simulation = None
 
     def _ask_to_leave(self) -> None:
@@ -270,9 +304,10 @@ class BitzkeyApp:
                  "The living export as they are now, with what they have learned since."]
         if gone:
             lines.append(f"{gone} {'have' if gone != 1 else 'has'} died; they export as they were when added.")
-        lines.append("Save them to a file in exports/, or copy them to the clipboard.")
+        lines.append("Save them to a file in exports/, copy them to the clipboard, or add them to the catalog.")
         self._open("export", Dialog("Export all selected", lines, [
-            ("clear", "CLEAR LIST"), ("cancel", "CANCEL"), ("copy", "COPY"), ("save", "SAVE FILE")], cancel="cancel"))
+            ("clear", "CLEAR LIST"), ("cancel", "CANCEL"), ("catalog", "CATALOG"), ("copy", "COPY"),
+            ("save", "SAVE FILE")], cancel="cancel"))
 
     # The export list
 
@@ -317,6 +352,55 @@ class BitzkeyApp:
         path.write_text(text + "\n", encoding="utf-8")
         self._say(f"Saved {what} to exports/{path.name}")
 
+    # The catalog
+
+    def _add_to_catalog(self, entries: list[dict], what: str, skipped: str = "") -> None:
+        try:
+            added = Catalog.add(entries)
+        except (ValueError, OSError) as error:
+            self._say(f"Couldn't add to the catalog: {error}")
+            return
+        already = len(entries) - added
+        note = f"Added {what} to the catalog" if added else f"{what[0].upper()}{what[1:]} already in the catalog"
+        if added and already:
+            note += f" ({already} already there)"
+        self._say(note + "." + (f" {skipped}" if skipped else ""))
+
+    def _catalog_selected(self) -> None:
+        """Catalog the Bitzkey selected on the map, as it is now, brain and all."""
+        agent = next((item for item in self.simulation.agents if item.identifier == self.selected_id), None)
+        if agent is None or not agent.alive:
+            self._say("Select a living Bitzkey first, then add it to the catalog.")
+            return
+        self._add_to_catalog([Catalog.entry_for(agent, self.simulation.turn)], f"#{agent.identifier:03d}")
+
+    def _catalog_picked(self) -> None:
+        """Catalog the living Bitzkeys picked on the colour graph; the dead have lost their brains."""
+        if not self.graph.selection:
+            self._say("Pick Bitzkeys on the graph first, then add them to the catalog.")
+            return
+        living = {agent.identifier: agent for agent in self.simulation.living}
+        chosen = [living[identifier] for identifier in sorted(self.graph.selection) if identifier in living]
+        dead = len(self.graph.selection) - len(chosen)
+        skipped = f"{dead} dead left out: their brains are gone." if dead else ""
+        if not chosen:
+            self._say("Only living Bitzkeys can be catalogued, with their brains; " + skipped)
+            return
+        self._add_to_catalog([Catalog.entry_for(agent, self.simulation.turn) for agent in chosen],
+                             f"{len(chosen)} Bitzkey{'s' if len(chosen) != 1 else ''}", skipped)
+
+    def _catalog_export_list(self) -> None:
+        """Catalog the export list: the living as they are now, the dead as they were when added to it."""
+        agents = {agent.identifier: agent for agent in self.simulation.agents}
+        entries = []
+        for identifier, (dna, saved) in self.export_list.items():
+            agent = agents.get(identifier)
+            if agent is not None and agent.alive and agent.dna == dna:
+                entries.append(Catalog.entry_for(agent, self.simulation.turn))
+            else:
+                entries.append({**saved, "catalog": {"identifier": identifier}})
+        self._add_to_catalog(entries, f"{len(entries)} Bitzkey{'s' if len(entries) != 1 else ''} from the export list")
+
     def _select_at(self, position: tuple[int, int]) -> None:
         board, cell_width, cell_height = self._board_geometry()
         nearest = None
@@ -328,7 +412,8 @@ class BitzkeyApp:
             if distance < nearest_distance:
                 nearest = agent
                 nearest_distance = distance
-        if nearest and board.collidepoint(position) and nearest_distance < max(UI(9), min(cell_width, cell_height) * 1.6):
+        on_view = self._map_view()[0].collidepoint(position)  # zoomed in, the board reaches under the sidebar
+        if nearest and on_view and board.collidepoint(position) and nearest_distance < max(UI(9), min(cell_width, cell_height) * 1.6):
             self.selected_id = nearest.identifier
             self.graph.select({nearest.identifier})  # the map and the graph share one selection
             self.show_insights = False  # selecting shows the inspector
@@ -336,16 +421,58 @@ class BitzkeyApp:
     def _sidebar_width(self) -> int:
         return min(UI(340), max(UI(290), self.screen.get_width() // 3))
 
-    def _board_geometry(self) -> tuple[pg.Rect, float, float]:
+    def _map_view(self) -> tuple[pg.Rect, float]:
+        """Where the map shows, and the scale at which the whole map fits it."""
         UI.fit(self.screen.get_size())
         screen_width, screen_height = self.screen.get_size()
         board_area = pg.Rect(0, UI(62), screen_width - self._sidebar_width(), screen_height - UI(140))
-        scale = min((board_area.width - UI(42)) / self.width, (board_area.height - UI(42)) / self.height)
-        board_width = scale * self.width
-        board_height = scale * self.height
-        board = pg.Rect(0, 0, round(board_width), round(board_height))
-        board.center = board_area.center
-        return board, board_width / self.width, board_height / self.height
+        view = board_area.inflate(-UI(42), -UI(42))
+        return view, min(view.width / self.width, view.height / self.height)
+
+    def _clamped_centre(self, centre: tuple[float, float], view: pg.Rect, scale: float) -> tuple[float, float]:
+        """The view's middle kept so the map fills the view where it can, or centred where it can't."""
+        clamped = []
+        for middle, cells, pixels in zip(centre, (self.width, self.height), view.size):
+            half = pixels / 2 / scale  # half the view, in cells
+            clamped.append(cells / 2 if cells <= 2 * half else min(cells - half, max(half, middle)))
+        return clamped[0], clamped[1]
+
+    def _board_geometry(self) -> tuple[pg.Rect, float, float]:
+        """The whole map's rectangle on screen, at the current zoom (larger than the view when zoomed
+        in), and the size of a cell."""
+        view, fit = self._map_view()
+        scale = fit * self.map_zoom
+        centre_x, centre_y = self._clamped_centre(self.map_centre, view, scale)
+        board = pg.Rect(round(view.centerx - centre_x * scale), round(view.centery - centre_y * scale),
+                        round(scale * self.width), round(scale * self.height))
+        return board, scale, scale
+
+    def _map_event(self, event: pg.event.Event) -> bool:
+        """Zoom the map with the wheel around the pointer, and pan it by dragging with the right or
+        middle button; the world carries on meanwhile. Returns whether the event was used."""
+        view, fit = self._map_view()
+        if event.type == pg.MOUSEWHEEL and view.collidepoint(pg.mouse.get_pos()):
+            board, scale, _ = self._board_geometry()
+            x, y = pg.mouse.get_pos()
+            cell = ((x - board.left) / scale, (y - board.top) / scale)  # the cell under the pointer stays put
+            self.map_zoom = max(1.0, min(MAP_ZOOM_MAX, self.map_zoom * MAP_ZOOM_STEP ** event.y))
+            scale = fit * self.map_zoom
+            self.map_centre = self._clamped_centre(
+                (cell[0] - (x - view.centerx) / scale, cell[1] - (y - view.centery) / scale), view, scale)
+            return True
+        if event.type == pg.MOUSEBUTTONDOWN and event.button in (2, 3) and view.collidepoint(event.pos):
+            self._pan_from = (event.pos, self._clamped_centre(self.map_centre, view, fit * self.map_zoom))
+            return True
+        if event.type == pg.MOUSEBUTTONUP and event.button in (2, 3) and self._pan_from:
+            self._pan_from = None
+            return True
+        if event.type == pg.MOUSEMOTION and self._pan_from:
+            (start_x, start_y), (centre_x, centre_y) = self._pan_from
+            scale = fit * self.map_zoom
+            self.map_centre = self._clamped_centre(
+                (centre_x - (event.pos[0] - start_x) / scale, centre_y - (event.pos[1] - start_y) / scale), view, scale)
+            return True
+        return False
 
     def _draw(self) -> None:
         UI.fit(self.screen.get_size())
@@ -373,6 +500,9 @@ class BitzkeyApp:
 
     def _draw_world(self) -> None:
         board, cell_width, cell_height = self._board_geometry()
+        view = self._map_view()[0].inflate(2, 2)
+        self.screen.set_clip(view)  # zoomed in, only part of the map shows
+        reach = view.inflate(2 * cell_width + UI(20), 2 * cell_height + UI(20))  # what may show, near enough
         for y in range(self.height):  # each row in its temperature's colour
             top, bottom = round(board.top + y * cell_height), round(board.top + (y + 1) * cell_height)
             pg.draw.rect(self.screen, zone_colour(self.simulation.temperature(y)),
@@ -380,11 +510,15 @@ class BitzkeyApp:
         for x, y in self.simulation.grass:
             point = (round(board.left + (x + 0.5) * cell_width),
                      round(board.top + (y + 0.5) * cell_height))
+            if not reach.collidepoint(point):
+                continue
             pg.draw.circle(self.screen, GRASS, point, max(1, round(min(cell_width, cell_height) * 0.18)))
         largest = max(DOT_RADIUS_RANGE[1], round(min(cell_width, cell_height) * 0.45))
         for agent in self.simulation.agents:
             point = (round(board.left + (agent.x + 0.5) * cell_width),
                      round(board.top + (agent.y + 0.5) * cell_height))
+            if not reach.collidepoint(point):
+                continue
             radius = self._dot_radius(agent, largest)
             self._draw_bitzkey(agent, point, radius, self._corpse_opacity(agent))
             if agent.identifier == self.selected_id or agent.identifier in self.graph.selection:
@@ -398,6 +532,7 @@ class BitzkeyApp:
             py = round(board.top + y * cell_height)
             pg.draw.line(self.screen, GRID, (board.left, py), (board.right, py), 1)
         pg.draw.rect(self.screen, (80, 99, 85), board, 1)
+        self.screen.set_clip(None)
 
     def _draw_sidebar(self) -> None:
         sidebar_x = self.screen.get_width() - self._sidebar_width()
@@ -422,7 +557,7 @@ class BitzkeyApp:
             self._text(str(counts.get(species, 0)), (x + width - UI(32), y), (231, 236, 222), self.font)
 
         pg.draw.line(self.screen, (54, 68, 62), (x, UI(286)), (x + width, UI(286)), 1)
-        self._add_button = None
+        self._add_button = self._catalog_button = None
         if self.show_insights:
             self._draw_insights(x, width)
             return
@@ -439,9 +574,14 @@ class BitzkeyApp:
 
         draw_details(self.screen, agent, x, lambda offset: UI(332 + offset), width,
                      here=self.simulation.temperature(agent.y))
-        self._text("C  copy as JSON      A  add to / remove from export", (x, UI(719)), (116, 139, 124), self.small)
+        self._text("C  copy as JSON      A  export      K  catalog", (x, UI(719)), (116, 139, 124), self.small)
         chosen = agent.identifier in self.export_list
-        self._add_button = pg.Rect(x, UI(737), width, UI(28))
+        half = (width - UI(8)) // 2
+        self._add_button = pg.Rect(x, UI(737), half, UI(28))
+        self._catalog_button = pg.Rect(x + half + UI(8), UI(737), width - half - UI(8), UI(28))
+        pg.draw.rect(self.screen, (44, 57, 52), self._catalog_button, border_radius=UI(5))
+        label = UI.font("segoeui", 13, bold=True).render("ADD TO CATALOG", True, (220, 229, 211))
+        self.screen.blit(label, label.get_rect(center=self._catalog_button.center))
         pg.draw.rect(self.screen, (44, 57, 52), self._add_button, border_radius=UI(5))
         if chosen:
             pg.draw.rect(self.screen, (238, 183, 110), self._add_button, 1, border_radius=UI(5))
@@ -706,8 +846,8 @@ class BitzkeyApp:
         if pg.time.get_ticks() < self.message_until:
             self._text(self._fit(self.message, room), (UI(185), height - UI(36)), (238, 183, 110), self.small)
             return
-        self._text(self._fit("SPACE  pause   LEFT / RIGHT  rewind / step   I  insights   B  report   G  graph   "
-                             "E  export   R  restart   F11  window   ESC  menu", room),
+        self._text(self._fit("SPACE  pause   LEFT / RIGHT  rewind / step   WHEEL / Z  zoom   I  insights   B  report   "
+                             "G  graph   E  export   R  restart   F11  window   ESC  menu", room),
                    (UI(185), height - UI(36)), (187, 199, 181), self.small)
 
     def _fit(self, text: str, width: int) -> str:
@@ -752,10 +892,15 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     """Configure a world, run it, and come back to the configuration panel until the user quits."""
     options = parse_args()
+    world.remove_stale_histories()  # left behind by a run that ended without closing its world
     setup = SetupScreen(Window.open_window(fullscreen=not options.windowed), vars(options))
     while (settings := setup.run()) is not None:
         Rules.apply(settings.pop("rules", {}))  # the advanced rules hold for this world and its restarts
-        if BitzkeyApp(**settings).run() == "quit":
+        app = BitzkeyApp(**settings)
+        outcome = app.run()
+        if app.simulation is not None:
+            app.simulation.close()  # its history's files go with it
+        if outcome == "quit":
             break
     pg.quit()
 

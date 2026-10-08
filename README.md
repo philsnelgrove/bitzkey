@@ -61,7 +61,9 @@ genomes into its text box with Ctrl+V or PASTE. Alternatively, load a file with
 LOAD FILE, or drag the file onto the window. Several pasted blocks, one after
 another, are all read. The line under the box says how many genomes of each
 species are ready, or what can't be read; START waits until the text reads
-cleanly or is cleared. DESIGN opens the Bitzkey designer. It shows all 20 traits
+cleanly or is cleared. FROM CATALOG opens the catalog of your favourite
+Bitzkeys (see The Catalog) and adds the one you pick, trained brain and all.
+DESIGN opens the Bitzkey designer. It shows all 20 traits
 of a genome, mind and body, each adjustable with its - and + buttons, the arrow
 keys (`Shift` for steps of five), or by typing a digit from 0 to 7. Below each
 column is a climate gene, from 0 to 3: hardiness under the mind (none, heat, cold
@@ -110,8 +112,10 @@ A run ends by itself when every animal has died, leaving only plants and grass,
 or when the world is full, with every cell taken by a living Bitzkey. The world
 then stops at that turn and the colour graph opens, saying when and why it
 ended. Space won't carry it on, but you can still rewind and scrub through the
-whole run, and replaying up to the end stops there again. R restarts the same
-world, and Esc returns to the configuration panel.
+whole run, and replaying up to the end stops there again. RETURN TO MAP closes
+the graph to look over the map as it ended; G opens the graph again. Closing the
+graph with G or Esc returns to the configuration panel, first asking to leave if
+Bitzkeys wait on the export list. R restarts the same world.
 
 ## Build a Windows Executable
 
@@ -133,35 +137,43 @@ folder you can write to. The first launch takes a few seconds while it unpacks.
 - `Space`: pause or resume
 - `Left Arrow`: rewind one recorded turn
 - `Right Arrow`: advance one turn while paused, or replay a recorded turn
+- Mouse wheel over the map: zoom in and out around the pointer, without
+  pausing; drag with the right or middle button to pan; `Z`: the whole map again
 - `R`: restart with the same launch settings
 - `I`: toggle the insights panel (scroll it with the wheel or its scroll bar)
 - `B`: save a brain report to `reports/`
-- `G`: open or close the colour graph; `Tab` switches it between rings and dots
+- `G`: open or close the colour graph; `Tab` switches it between rings and dots.
+  Once the run has ended, closing it returns to the configuration panel.
 - `C`: copy the selected Bitzkey's genome and brain to the clipboard as JSON
 - `A` or ADD TO EXPORT (under the selected Bitzkey): add it to, or remove it from,
   the export list. Bitzkeys on the list wear an amber ring in the world.
+- `K` or ADD TO CATALOG (beside it): add the selected Bitzkey to the catalog,
+  as it is now, brain and all. On the colour graph, `K` or ADD TO CATALOG adds
+  the living Bitzkeys picked there.
 - `E` or EXPORT ALL SELECTED (bottom right): save the export list to a file in
   `exports/` or copy it to the clipboard. Living Bitzkeys export as they are now,
   with what they've learned since being added. Any that have died export as they
-  were when added, brain included. The dialog can also clear the list.
+  were when added, brain included. The dialog can also add the whole list to the
+  catalog, or clear it.
 - Click a Bitzkey: inspect its genome, current state and the odds of its last choice
 - `F11`: switch between fullscreen and a window
 - `Escape`: close the colour graph; otherwise ask whether to leave the simulation.
   Leaving greys out the button ("Leaving, please be patient") while the world's
-  recorded history and brains are freed, which can take a few seconds for a long run
-  and return to the configuration panel. The panel keeps its settings and import
+  recorded history is deleted from the disk, and returns to the configuration panel. The panel keeps its settings and import
   list, ready for a new world. Bitzkeys on the export list are lost unless
   exported first, and the dialog warns about them. Closing the window quits.
 
-You can rewind to any turn of the run, back to turn 0. Every one of the latest
-500 turns is kept as a snapshot of the world. Older turns are kept as up to 200
-evenly spaced checkpoints, spread further apart as the run grows. The history
-keeps to a memory budget of about 1 GB: when the world is crowded and each
-snapshot is large, fewer snapshots are kept, the recent ones spaced out (every
-second turn, every fourth and so on, but never more than 16 turns apart) and
-fewer checkpoints, so reaching a turn may replay more turns, but memory can't
-run away. Brains are large, so a crowded world reaches this soon. Reaching a turn
-between checkpoints restores the one before it and replays forward. The
+You can rewind to any turn of the run, back to turn 0. The history is written
+to the disk rather than kept in memory, leaving the memory for the brains: every
+16 turns a snapshot of the world goes into a file, in a folder of the world's
+own among the system's temporary files. The snapshots of the latest 500 turns
+are kept, and older turns as up to 200 evenly spaced checkpoints, spread further
+apart as the run grows. The history keeps to a disk budget of 10 GB: when the
+world is crowded and each snapshot is large (a crowded world's can be 100 MB),
+fewer checkpoints are kept. The folder is deleted when you leave the world,
+restart it or quit; one left behind by a crash is cleared away the next time
+Bitzkey starts, once it is a day old. Reaching a turn restores the snapshot
+before it and replays forward, at most 15 turns from a recent one. The
 simulation is deterministic, so the replay repeats the recorded run exactly.
 Stepping or playing forward from the past replays the recorded future.
 
@@ -577,6 +589,24 @@ write a `.json` file into `exports/`. CLEAR empties the selection. Living
 Bitzkeys export with their temperament and brain. Dead ones have no brain, and
 those no longer on the board export as their genome only. With nothing
 selected, COPY and SAVE take everyone alive.
+
+## The Catalog
+
+The catalog keeps your favourite Bitzkeys between runs, in `catalog.json` beside
+`exports/`. Add one with ADD TO CATALOG (or `K`) under the selected Bitzkey, the
+living ones picked on the colour graph, or the whole export list from its dialog.
+Each is kept as it was when added: its genome, its current temperament and its
+trained brain, along with what the inspector showed of it then (its hunger,
+health, age, generation, children, last action and the chances it last gave its
+options). The dead can't be added from the graph, their brains being gone. The
+same Bitzkey added twice is kept once.
+
+FROM CATALOG on the configuration panel opens it: every Bitzkey catalogued, listed
+with when it was added, and the one picked shown large beside its inspector
+panel. ADD TO IMPORT (`Enter`) adds it to the import list, brain and all, REMOVE
+(`Delete`) takes it out of the catalog for good after asking, and CLOSE (`Esc`)
+returns. Each entry is written as an export record, so `catalog.json` can also be
+loaded like any export file.
 
 ## Export Format
 

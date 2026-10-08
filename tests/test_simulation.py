@@ -511,7 +511,7 @@ class SimulationTests(unittest.TestCase):
                 simulation.advance()
                 recorded[turn] = state()
 
-            self.assertLessEqual(len(simulation.history), 10 + 4 + 2)
+            self.assertLessEqual(len(simulation.history), 1 + 4 + 2)
             for target in (37, 3, 0, 61, 79, 80, 17, 18):
                 simulation.seek(target)
                 self.assertEqual(simulation.turn, target)
@@ -525,29 +525,27 @@ class SimulationTests(unittest.TestCase):
                 simulation.advance()
 
         turns = [snapshot["turn"] for snapshot in simulation.history]
-        older = [turn for turn in turns if turn < 60 - 10]
+        older = [turn for turn in turns if turn < 48]  # before the recent window: one snapshot, at 48
         self.assertEqual(turns[0], 0)
         self.assertLessEqual(len(older), 4)
         self.assertTrue(all(turn % simulation._checkpoint_stride == 0 for turn in older))
-        self.assertEqual(turns[-11:], list(range(50, 61)))
+        self.assertEqual(turns[-1], 48)  # a snapshot every 16 turns
 
-    def test_history_keeps_within_its_memory_budget(self):
-        simulation = Simulation(width=20, height=20, population=0, seed=4)
-        simulation._add_agent(encode_dna("grazer", intellect=0), 5, 5)  # the shallowest brain
-        self.assertEqual(simulation._history_room(), (500, 200))  # a small world fits it all
-        with patch("tools.Simulation.HISTORY_BUDGET", 1):  # far too little: the fewest snapshots, spread out
+    def test_history_keeps_within_its_disk_budget(self):
+        simulation = Simulation(width=20, height=20, population=10, seed=4)
+        self.assertEqual(simulation._history_room(), (32, 200))  # a small world fits it all: 32 cover 500 turns
+        with patch("tools.Simulation.HISTORY_BUDGET", 1):  # far too little: the fewest snapshots
             self.assertEqual(simulation._history_room(), (2, 2))
-            self.assertEqual(simulation._snapshot_spacing(2), 16)  # two recent snapshots, as far apart as they may be
-            for _ in range(80):
+            for _ in range(160):
                 simulation.advance()
             self.assertLessEqual(len(simulation.history), 2 + 2 + 2)
+            self.assertEqual(len(list(simulation.history_folder.iterdir())), len(simulation.history))  # thinned ones deleted
             simulation.seek(3)  # every turn can still be reached
             self.assertEqual(simulation.turn, 3)
 
-    def test_a_crowded_history_spaces_its_snapshots_and_still_rebuilds_every_turn_exactly(self):
-        with patch("tools.Simulation.DENSE_HISTORY", 20), patch("tools.Simulation.MIN_SNAPSHOTS", 10),                 patch("tools.Simulation.HISTORY_BUDGET", 1), patch("tools.Simulation.CLIMATE_DAMAGE", 0):
+    def test_the_history_is_on_disk_every_16_turns_rebuilds_every_turn_exactly_and_is_deleted_on_closing(self):
+        with patch("tools.Simulation.CLIMATE_DAMAGE", 0):  # a world that lasts
             simulation = Simulation(width=20, height=20, population=30, seed=4)
-            self.assertEqual(simulation._snapshot_spacing(simulation._history_room()[0]), 4)  # five cover 20 turns
 
             def state():
                 return ([(agent.identifier, agent.x, agent.y, agent.hunger, agent.health,
@@ -558,11 +556,24 @@ class SimulationTests(unittest.TestCase):
             for turn in range(1, 61):
                 simulation.advance()
                 recorded[turn] = state()
-            self.assertTrue(all(snapshot["turn"] % 4 == 0 for snapshot in simulation.history))
-            self.assertLessEqual(len(simulation.history), 10 + 2)
-            for target in (59, 3, 37, 60, 21):
+            self.assertEqual([entry["turn"] for entry in simulation.history], [0, 16, 32, 48])
+            self.assertTrue(all(entry["path"].exists() for entry in simulation.history))
+            for target in (59, 3, 37, 60, 21, 47, 48):
                 simulation.seek(target)
                 self.assertEqual(state(), recorded[target], f"turn {target}")
+            folder = simulation.history_folder
+            simulation.close()
+            self.assertFalse(folder.exists())
+
+    def test_a_history_left_behind_is_cleared_away_once_stale(self):
+        import os
+        import time
+        from tools.Simulation import STALE_HISTORY_HOURS, remove_stale_histories
+        old, new = Simulation(width=20, height=20, population=0, seed=1), Simulation(width=20, height=20, population=0, seed=2)
+        long_ago = time.time() - (STALE_HISTORY_HOURS + 1) * 3600
+        os.utime(old.history_folder, (long_ago, long_ago))
+        remove_stale_histories()
+        self.assertEqual((old.history_folder.exists(), new.history_folder.exists()), (False, True))
 
     def test_plants_seed_less_the_more_plants_shade_them(self):
         plant = self.simulation._add_agent(encode_dna("plant", fertility=7), 5, 5)  # a 10% chance alone
@@ -621,23 +632,23 @@ class SimulationTests(unittest.TestCase):
 
     def test_an_ended_simulation_stops_but_can_still_be_rewound(self):
         simulation = Simulation(width=20, height=20, population=10, seed=1)
-        for _ in range(5):
+        for _ in range(16):
             simulation.advance()
         for agent in simulation.living:
             if agent.species != "plant":
                 agent.health = 0
                 simulation._die(agent, "killed")
-        simulation._record()  # the end, as a recorded turn
+        simulation._record()  # the end, as a recorded turn: one with a snapshot, as the killing can't be replayed
         simulation.frontier = simulation.turn
 
         simulation.advance()
         self.assertTrue(simulation.ended)
-        self.assertEqual(simulation.turn, 5)
+        self.assertEqual(simulation.turn, 16)
         simulation.seek(2)
         self.assertFalse(simulation.ended)
-        for _ in range(10):
+        for _ in range(20):
             simulation.advance()
-        self.assertEqual(simulation.turn, 5)
+        self.assertEqual(simulation.turn, 16)
 
     def test_rewind_and_replay_are_exact(self):
         simulation = Simulation(width=20, height=20, population=30, seed=4)

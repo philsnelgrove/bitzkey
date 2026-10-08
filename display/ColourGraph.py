@@ -124,6 +124,15 @@ def build_bars(simulation: Simulation, part: str, chart: pg.Rect, first: int = 0
     return bars, peak
 
 
+def fit_text(text: str, font: pg.font.Font, width: int) -> str:
+    """The text, cut short with an ellipsis if it is wider than `width`."""
+    if font.size(text)[0] <= width:
+        return text
+    while text and font.size(text + "...")[0] > width:
+        text = text[:-1]
+    return text.rstrip() + "..."
+
+
 def bitzkey_at(bars: list[Bar], point: tuple[int, int]) -> int | None:
     x, y = point
     for bar in bars:
@@ -161,6 +170,7 @@ class ColourGraph:
         self.menu_open = False  # the sort menu
         self.selection: set[int] = set()
         self.view: tuple[int, int] | None = None  # the turns shown when zoomed in; None shows the run
+        self.ended = False                        # whether the run is over, when last drawn
         self.seek_turn = 0                        # where a "seek" asks the world to go
         self._selection_version = 0
         self._size = (0, 0)
@@ -257,7 +267,16 @@ class ColourGraph:
         for name, width in (("save", 76), ("copy", 76), ("clear", 76), ("living", 116), ("sort", 170)):
             buttons[name] = pg.Rect(right - UI(width), panel.top + UI(18), UI(width), UI(30))
             right -= UI(width + 8)
+        right = panel.right - UI(24)  # beneath the timeline, at the right: what the run's end offers
+        for name, width in self._bottom_buttons():
+            buttons[name] = pg.Rect(right - UI(width), timeline.bottom + UI(6), UI(width), UI(28))
+            right -= UI(width + 8)
         return {"panel": panel, "chart": chart, "timeline": timeline, **buttons}
+
+    def _bottom_buttons(self) -> list[tuple[str, int]]:
+        """The buttons beneath the timeline, from the right, and their widths: at the run's end, a way
+        back to the map; and always, a way to catalog the Bitzkeys picked."""
+        return ([("map", 140)] if self.ended else []) + [("catalog", 150)]
 
     def menu_items(self) -> list[tuple[str, pg.Rect]]:
         """The sort menu's choices under its button, a small gap before the mind traits, the body
@@ -272,8 +291,9 @@ class ColourGraph:
         return items
 
     def handle(self, event: pg.event.Event) -> str | None:
-        """Handle a mouse event. Returns "copy" or "save" when a button asks for an export, and
-        "seek" when the world should move to `seek_turn`."""
+        """Handle a mouse event. Returns "copy" or "save" when a button asks for an export, "catalog"
+        when it asks to catalog the Bitzkeys picked, "seek" when the world should move to `seek_turn`,
+        and "map" when the run is over and the map is wanted."""
         layout = self.layout()
         chart, timeline = layout["chart"], layout["timeline"]
         if self.menu_open and event.type == pg.MOUSEBUTTONDOWN:  # a click picks a choice or closes the menu
@@ -298,8 +318,8 @@ class ColourGraph:
                 self.seek_turn = self.turn_at(event.pos[0])
                 return "seek"
         elif event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
-            for action in ("copy", "save"):
-                if layout[action].collidepoint(event.pos):
+            for action in ("copy", "save", "map", "catalog"):
+                if action in layout and layout[action].collidepoint(event.pos):
                     return action
             if layout["sort"].collidepoint(event.pos):
                 self.menu_open = True
@@ -338,6 +358,7 @@ class ColourGraph:
         self._size = screen.get_size()
         self._alive = {agent.identifier for agent in simulation.living}
         self._now, self._frontier = simulation.turn, simulation.frontier
+        self.ended = simulation.ended
         layout = self.layout()
         panel, chart, timeline = layout["panel"], layout["chart"], layout["timeline"]
         shade = pg.Surface(self._size, pg.SRCALPHA)
@@ -348,8 +369,9 @@ class ColourGraph:
         title = "RING / BODY" if self.part == "ring" else "DOT / MIND"
         self._text(screen, f"COLOUR GRAPH  /  {title}", (panel.left + UI(24), panel.top + UI(18)), (229, 239, 220),
                    self.bold)
+        closing = "new world" if self.ended else "close"
         self._text(screen, "Every Bitzkey alive over time, in its own colour.    TAB  ring / dot    C  copy    "
-                   "S  save to exports/    G or ESC  close",
+                   f"S  save    K  catalog    G or ESC  {closing}",
                    (panel.left + UI(24), panel.top + UI(54)), (144, 170, 151), self.small)
         for name, text in (("living", "LIVING ONLY"), ("clear", "CLEAR"), ("copy", "COPY"), ("save", "SAVE")):
             pg.draw.rect(screen, (44, 57, 52), layout[name], border_radius=UI(4))
@@ -393,8 +415,15 @@ class ColourGraph:
             screen.blit(veil, box.topleft)
             pg.draw.rect(screen, (245, 238, 206), box, 1)
 
-        self._text(screen, self._describe(simulation, hovered), (panel.left + UI(24), timeline.bottom + UI(10)),
-                   (220, 229, 211), self.font)
+        room = min([layout[name].left for name, _ in self._bottom_buttons()], default=panel.right) - panel.left - UI(40)
+        self._text(screen, fit_text(self._describe(simulation, hovered), self.font, room),
+                   (panel.left + UI(24), timeline.bottom + UI(10)), (220, 229, 211), self.font)
+        for name, text in (("map", "RETURN TO MAP"), ("catalog", "ADD TO CATALOG")):
+            if name in layout:
+                lit = name == "map"
+                pg.draw.rect(screen, (238, 183, 110) if lit else (44, 57, 52), layout[name], border_radius=UI(4))
+                label = self.font.render(text, True, (19, 26, 27) if lit else (220, 229, 211))
+                screen.blit(label, label.get_rect(center=layout[name].center))
         self._text(screen, "Select: click, or drag a box (SHIFT adds, CTRL removes)    Time: drag the timeline, "
                    "or right-click    Zoom: wheel, SHIFT+wheel pans",
                    (panel.left + UI(24), panel.bottom - UI(28)), (144, 170, 151), self.small)

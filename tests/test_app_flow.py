@@ -54,6 +54,47 @@ class SimulationFlowTests(unittest.TestCase):
         self.assertIsNotNone(self.app.selected_id)
         self.assertFalse(self.app.show_insights)
 
+    def test_the_map_zooms_round_the_pointer_and_pans_while_the_world_runs_on(self):
+        view, _ = self.app._map_view()
+        board, scale, _ = self.app._board_geometry()
+        pointer = (view.left + view.width // 3, view.top + view.height // 3)
+        cell = ((pointer[0] - board.left) / scale, (pointer[1] - board.top) / scale)
+        with patch.object(pg.mouse, "get_pos", return_value=pointer):
+            self.assertTrue(self.app._map_event(pg.event.Event(pg.MOUSEWHEEL, x=0, y=3)))
+        board, zoomed, _ = self.app._board_geometry()
+        self.assertAlmostEqual(zoomed, scale * 1.25 ** 3)
+        self.assertAlmostEqual((pointer[0] - board.left) / zoomed, cell[0], delta=0.05)  # the cell under the pointer stays put
+        self.assertAlmostEqual((pointer[1] - board.top) / zoomed, cell[1], delta=0.05)
+        self.assertTrue(self.app.playing)
+        start = board.topleft
+        self.app._map_event(pg.event.Event(pg.MOUSEBUTTONDOWN, button=3, pos=view.center))
+        self.app._map_event(pg.event.Event(pg.MOUSEMOTION, pos=(view.centerx + 30, view.centery), buttons=(0, 0, 1)))
+        self.app._map_event(pg.event.Event(pg.MOUSEBUTTONUP, button=3, pos=(view.centerx + 30, view.centery)))
+        board, _, _ = self.app._board_geometry()
+        self.assertEqual(board.left - start[0], 30)  # dragged right, the map follows
+        for _ in range(40):  # it never pans past the map's edge
+            self.app._map_event(pg.event.Event(pg.MOUSEBUTTONDOWN, button=3, pos=view.center))
+            self.app._map_event(pg.event.Event(pg.MOUSEMOTION, pos=(view.centerx + 300, view.centery), buttons=(0, 0, 1)))
+            self.app._map_event(pg.event.Event(pg.MOUSEBUTTONUP, button=3, pos=view.center))
+        board, _, _ = self.app._board_geometry()
+        self.assertLessEqual(abs(board.left - view.left), 1)
+        board, zoomed, _ = self.app._board_geometry()  # picking still finds the Bitzkey under the pointer
+        point = (round(board.left + (self.animal.x + 0.5) * zoomed), round(board.top + (self.animal.y + 0.5) * zoomed))
+        if view.collidepoint(point):
+            self.app.selected_id = None
+            self.app._click(point)
+            self.assertEqual(self.app.selected_id, self.animal.identifier)
+        self.app._draw()  # zoomed in, it draws only what shows
+        with patch.object(pg.mouse, "get_pos", return_value=view.center):
+            self.app._map_event(pg.event.Event(pg.MOUSEWHEEL, x=0, y=-30))
+        self.assertEqual(self.app.map_zoom, 1.0)  # no further out than the whole map
+        self.app.map_zoom = 4.0
+        pg.event.post(key(pg.K_z))
+        with patch.object(BitzkeyApp, "_draw"), patch.object(pg.display, "flip"),                 patch.object(BitzkeyApp, "_tick", side_effect=[None, KeyboardInterrupt]):
+            with self.assertRaises(KeyboardInterrupt):
+                self.app.run()
+        self.assertEqual(self.app.map_zoom, 1.0)  # Z shows the whole map again
+
     def test_a_pick_on_the_graph_stays_selected_on_the_map_with_no_one_inspected(self):
         others = [agent.identifier for agent in self.app.simulation.living][:3]
         self.app.show_census = True
@@ -130,7 +171,7 @@ class SimulationFlowTests(unittest.TestCase):
 
         self.assertEqual(self.app._dialog_kind, "export")
         self.assertIn("1 Bitzkey added to export.", self.app.dialog.lines)
-        self.assertEqual([choice for choice, _ in self.app.dialog.buttons], ["clear", "cancel", "copy", "save"])
+        self.assertEqual([choice for choice, _ in self.app.dialog.buttons], ["clear", "cancel", "catalog", "copy", "save"])
 
     def test_escape_then_leave_returns_to_the_configuration_panel(self):
         for event in (key(pg.K_ESCAPE), key(pg.K_RETURN)):
@@ -138,10 +179,11 @@ class SimulationFlowTests(unittest.TestCase):
 
         self.assertEqual(self.app.run(), "configure")
 
-    def test_leaving_greys_out_the_button_and_frees_the_history(self):
-        for _ in range(5):
+    def test_leaving_greys_out_the_button_and_deletes_the_history(self):
+        for _ in range(20):
             self.app.simulation.advance()
-        history = self.app.simulation.history
+        folder = self.app.simulation.history_folder
+        self.assertTrue(any(folder.iterdir()))  # snapshots on the disk
         for event in (key(pg.K_ESCAPE), key(pg.K_RETURN)):
             pg.event.post(event)
 
@@ -151,7 +193,7 @@ class SimulationFlowTests(unittest.TestCase):
         self.assertIn(("leave", "Leaving, please be patient"), dialog.buttons)
         self.assertEqual(dialog.caption, "Cleaning up messy neural networks...")
         self.assertIsNone(dialog.handle(key(pg.K_RETURN), self.app.screen.get_size()))  # nothing more to press
-        self.assertEqual(history, [])
+        self.assertFalse(folder.exists())
 
     def test_escape_then_stay_keeps_the_simulation_running(self):
         pg.event.post(key(pg.K_ESCAPE))
@@ -181,6 +223,45 @@ class SimulationFlowTests(unittest.TestCase):
         self.assertTrue(self.app.show_census)
         self.assertIn("every animal has died", self.app.message)
 
+    def _end_the_run(self):
+        for agent in self.app.simulation.living:
+            if agent.species != "plant":
+                agent.health = 0
+                self.app.simulation._die(agent, "killed")
+        self.app.elapsed = 10
+        self.app._tick()
+        self.app._draw()  # the graph learns the run is over
+
+    def test_at_the_run_end_the_graph_offers_the_map_and_closing_it_leaves(self):
+        self.app._draw()
+        self.assertNotIn("map", self.app.graph.layout())  # not before the end
+        self._end_the_run()
+        button = self.app.graph.layout()["map"]
+        self.assertEqual(self.app.graph.handle(pg.event.Event(pg.MOUSEBUTTONDOWN, button=1, pos=button.center)), "map")
+        pg.event.post(pg.event.Event(pg.MOUSEBUTTONDOWN, button=1, pos=button.center))
+        pg.event.post(pg.event.Event(pg.QUIT))
+        self.assertEqual(self.app.run(), "quit")
+        self.assertFalse(self.app.show_census)  # RETURN TO MAP shows the map at the end
+
+        self.app.show_census = True
+        pg.event.post(key(pg.K_ESCAPE))  # closing the graph at the end leaves for the configuration panel
+        self.assertEqual(self.app.run(), "configure")
+
+    def test_at_the_run_end_closing_the_graph_asks_first_if_bitzkeys_await_export(self):
+        self.app._toggle_export()
+        self._end_the_run()
+        pg.event.post(key(pg.K_g))
+        pg.event.post(pg.event.Event(pg.QUIT))
+        self.assertEqual(self.app.run(), "quit")
+        self.assertEqual(self.app.dialog.title, "Leave this simulation?")
+
+    def test_before_the_run_end_closing_the_graph_returns_to_the_map(self):
+        self.app.show_census = True
+        pg.event.post(key(pg.K_ESCAPE))
+        pg.event.post(pg.event.Event(pg.QUIT))
+        self.assertEqual(self.app.run(), "quit")
+        self.assertFalse(self.app.show_census)
+
     def test_the_world_pauses_while_a_dialog_is_open(self):
         turn = self.app.simulation.turn
         self.app._ask_to_leave()
@@ -190,6 +271,73 @@ class SimulationFlowTests(unittest.TestCase):
         self.app.run()
 
         self.assertEqual(self.app.simulation.turn, turn)
+
+
+class CatalogFlowTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+        self.folder = tempfile.TemporaryDirectory()
+        patcher = patch("tools.Catalog.CATALOG_PATH", Path(self.folder.name) / "catalog.json")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(self.folder.cleanup)
+        self.app = BitzkeyApp(30, 30, 30, 5, 3)
+        pg.event.clear()
+        for _ in range(5):
+            self.app.simulation.advance()
+        self.animals = [agent for agent in self.app.simulation.living if agent.brain]
+
+    def tearDown(self):
+        pg.event.clear()
+        pg.display.quit()
+
+    def test_a_selected_bitzkey_goes_into_the_catalog_from_the_sidebar_button_or_k(self):
+        from tools import Catalog
+        self.app.selected_id = self.animals[0].identifier
+        self.app._draw()  # lays out the sidebar's buttons
+        self.app._click(self.app._catalog_button.center)
+        self.assertEqual([Catalog.inspected(entry).identifier for entry in Catalog.load()], [self.animals[0].identifier])
+        self.assertIn("Added", self.app.message)
+        self.app.selected_id = self.animals[1].identifier
+        pg.event.post(key(pg.K_k))
+        pg.event.post(pg.event.Event(pg.QUIT))
+        self.app.run()
+        self.assertEqual(len(Catalog.load()), 2)
+
+    def test_the_graph_catalogs_the_living_it_picked_and_the_export_list_catalogs_its_own(self):
+        from tools import Catalog
+        dead = self.animals[2]
+        dead.health = 0
+        self.app.simulation._die(dead, "killed")
+        self.app.show_census = True
+        self.app.graph.select({self.animals[0].identifier, dead.identifier})
+        self.app._draw()
+        button = self.app.graph.layout()["catalog"]
+        self.assertEqual(self.app.graph.handle(pg.event.Event(pg.MOUSEBUTTONDOWN, button=1, pos=button.center)), "catalog")
+        self.app._catalog_picked()
+        self.assertEqual([Catalog.inspected(entry).identifier for entry in Catalog.load()], [self.animals[0].identifier])
+        self.assertIn("1 dead left out", self.app.message)
+        self.app.show_census = False
+        self.app.selected_id = self.animals[1].identifier
+        self.app._toggle_export()
+        self.app._open_export_dialog()
+        self.app._answer("catalog")
+        self.assertEqual(len(Catalog.load()), 2)
+
+    def test_from_catalog_on_the_setup_screen_adds_a_bitzkey_with_its_brain_to_the_import(self):
+        from display import Window
+        from display.CatalogScreen import CatalogScreen
+        from display.Setup import SetupScreen
+        from tools import Catalog
+        entry = Catalog.entry_for(self.animals[0], self.app.simulation.turn)
+        setup = SetupScreen(Window.open_window(fullscreen=False),
+                            {"width": 30, "height": 30, "population": 20, "grass_density": 5, "seed": 1})
+        with patch.object(CatalogScreen, "run", return_value=("import", entry)):
+            setup._click(setup._layout()["catalog"].center)
+        [imported] = setup.form.imports[0]
+        self.assertEqual(imported.dna, self.animals[0].dna)
+        self.assertIsNotNone(imported.brain)
 
 
 class ConfigPanelTests(unittest.TestCase):

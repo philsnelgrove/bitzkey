@@ -12,6 +12,7 @@ import pygame as pg
 from config.Globals import Config
 from display import Window
 from display.Advanced import AdvancedScreen
+from display.CatalogScreen import CatalogScreen
 from display.Ui import UI
 from display.Designer import Designer
 from display.Dialog import Dialog
@@ -309,6 +310,18 @@ class SetupScreen:
             self._tell(f"Added a designed {decode_body(dna)['species']} to the import list.")
         return None
 
+    def _catalog(self) -> str | None:
+        """Open the catalog; a Bitzkey picked there joins the bottom of the import text, brain and
+        all. Returns "quit" if the window was closed meanwhile."""
+        outcome, entry = CatalogScreen(self.screen).run()
+        self.screen = pg.display.get_surface()
+        if outcome == "quit":
+            return "quit"
+        if entry is not None:
+            self.form.paste(format_records([entry]))
+            self._tell("Added a Bitzkey from the catalog to the import list, with its trained brain.")
+        return None
+
     def _advanced(self) -> str | None:
         """Open the advanced rules; applying them keeps them for the worlds started from here.
         Returns "quit" if the window was closed meanwhile."""
@@ -378,6 +391,8 @@ class SetupScreen:
         paste.topright = (load.left - UI(8), section.top)
         design = pg.Rect(0, 0, UI(80), UI(28))
         design.topright = (paste.left - UI(8), section.top)
+        catalog = pg.Rect(0, 0, UI(122), UI(28))
+        catalog.topright = (design.left - UI(8), section.top)
         box = pg.Rect(section.left, section.top + UI(36), section.width, UI(16 * self.TEXT_LINES + 12))
         start = pg.Rect(0, 0, UI(180), UI(44))
         start.bottomleft = (card.centerx + UI(6), card.bottom - UI(42))
@@ -385,7 +400,7 @@ class SetupScreen:
         quit.bottomright = (card.centerx - UI(6), card.bottom - UI(42))
         advanced = pg.Rect(0, 0, UI(120), UI(28))
         advanced.topright = (card.right - UI(20), card.top + UI(28))
-        return {"card": card, "rows": rows, "box": box, "design": design, "paste": paste, "load": load,
+        return {"card": card, "rows": rows, "box": box, "catalog": catalog, "design": design, "paste": paste, "load": load,
                 "clear": clear, "start": start, "quit": quit, "advanced": advanced}
 
     @staticmethod
@@ -406,6 +421,8 @@ class SetupScreen:
             return "quit"
         if layout["design"].collidepoint(position):
             return self._design()
+        if layout["catalog"].collidepoint(position):
+            return self._catalog()
         if layout["advanced"].collidepoint(position):
             return self._advanced()
         if layout["paste"].collidepoint(position):
@@ -494,7 +511,8 @@ class SetupScreen:
         box = layout["box"]
         focused = self.form.on_import
         self._text("IMPORT BITZKEYS", (box.left, layout["paste"].top + UI(5)), (232, 236, 219), self.font)
-        for name, label in (("design", "DESIGN"), ("paste", "PASTE"), ("load", "LOAD FILE"), ("clear", "CLEAR")):
+        for name, label in (("catalog", "FROM CATALOG"), ("design", "DESIGN"), ("paste", "PASTE"), ("load", "LOAD FILE"),
+                            ("clear", "CLEAR")):
             button = layout[name]
             pg.draw.rect(self.screen, (44, 57, 52), button, border_radius=UI(4))
             text = self.button_font.render(label, True, (220, 229, 211))
@@ -505,8 +523,8 @@ class SetupScreen:
         lines = self.form.import_text.split("\n")
         if not self.form.import_text and not focused:
             lines, color = ["Paste exported genomes here (CTRL+V), drop a file onto the window,",
-                            "load one, or DESIGN your own. Imported Bitzkeys join the ones",
-                            "spawned above."], (116, 139, 124)
+                            "load one, pick one FROM CATALOG, or DESIGN your own. Imported",
+                            "Bitzkeys join the ones spawned above."], (116, 139, 124)
         else:
             lines, color = lines[-self.TEXT_LINES:], (187, 199, 181)
             if focused and pg.time.get_ticks() // 500 % 2:

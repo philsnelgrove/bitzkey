@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import bisect
 import math
+import pickle
 import random
+import shutil
+import tempfile
+import time
+import weakref
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from functools import cache, cached_property, lru_cache
 from itertools import accumulate
+from pathlib import Path
 
 from tools.Brain import ACTIONS, SENSES, Brain, choice_odds, depth_for, gene_senses, make_senses
 from tools.Genome import (GENOME, MIND_TRAITS, SPECIES, TRAIT_MAX, body_word, color_from_word, cross, dot_difference, inherit_mind, ring_difference,
@@ -29,18 +35,18 @@ CROWDING_LIMIT = 10    # litters shrink as crowding nears this; at it, an animal
 SPAWN_GROUP = (3, 5)  # Bitzkeys spawn in groups of this many sharing one genome
 MAX_IMPORTED = MAX_POPULATION // SPAWN_GROUP[1]  # imported Bitzkeys, so their groups fit that number
 SPAWN_SPREAD = 2      # a group's members appear within this many cells of each other's centre
-DENSE_HISTORY = 500   # the latest turns are each kept as a snapshot of the world
+# The history is written to disk, not kept in memory: a snapshot of the world every SNAPSHOT_SPACING
+# turns, each a file in a folder of the world's own among the temporary files, deleted when the world
+# is closed. A turn between snapshots is rebuilt by replaying from the one before.
+SNAPSHOT_SPACING = 16
+DENSE_HISTORY = 500   # the latest turns keep every snapshot
 CHECKPOINTS = 200     # older turns are kept as at most this many evenly spaced snapshots
-# History keeps to a memory budget: when a snapshot of the world grows large, fewer snapshots are
-# kept, so that all of them fit. The recent ones are then spaced out, every second turn, fourth or
-# more, to still cover DENSE_HISTORY turns; a turn between them is rebuilt by replaying from the one
-# before. These are rough sizes of what a snapshot holds.
-HISTORY_BUDGET = 1 << 30   # bytes
+# The history keeps to a disk budget: when snapshots of the world grow large, fewer are kept, so that
+# all of them fit, though never fewer than MIN_SNAPSHOTS.
+HISTORY_BUDGET = 10 << 30   # bytes
 MIN_SNAPSHOTS = 4
-MAX_SPACING = 16  # recent snapshots are never further apart, so stepping back a turn replays at most 15
-AGENT_BYTES = 2000         # a Bitzkey's copy
-BRAIN_BYTES = 200          # a brain's copy, besides its weights and eligibility traces
-GRASS_BYTES = 120          # a grass cell's entry
+HISTORY_PREFIX = "bitzkey-history-"  # the history folders' names start so
+STALE_HISTORY_HOURS = 24  # a history folder left this long by a run that never closed it is cleared away
 CORPSE_FERTILITY = 2   # grass grows this many times as fast on and around a corpse
 CORPSE_TURNS = 30
 BREED_RESERVE = 10  # hunger a parent must still have spare after paying to breed
@@ -184,7 +190,6 @@ STARTING_TOLERANCE = 0.1  # the chance a random starting genome carries each tol
 HARDINESS = 0.5  # the share of exposure's extra hunger and damage an animal tolerant of it suffers
 HOT, MEDIUM, COLD, VERY_COLD = range(len(TEMPERATURES))
 SEASONS = ("mild", "northern winter", "mild", "southern winter")  # by quarter of the year
-SEED_BYTES = 120  # a waiting seed's entry, for the history's memory budget
 
 # How experiences reshape temperament, in shares of a trait's full range before scaling by
 # plasticity.
@@ -531,6 +536,18 @@ def litter_size(parents: Sequence[tuple[int, int]], species: str = "") -> int:
     return math.ceil(litter * PREDATOR_LITTERS) if species == "predator" else litter
 
 
+def remove_stale_histories() -> None:
+    """Clear away history folders left among the temporary files by runs that never closed them,
+    once they are STALE_HISTORY_HOURS old, so a crash doesn't leave them filling the disk."""
+    cutoff = time.time() - STALE_HISTORY_HOURS * 3600
+    for folder in Path(tempfile.gettempdir()).glob(HISTORY_PREFIX + "*"):
+        try:
+            if folder.is_dir() and folder.stat().st_mtime < cutoff:
+                shutil.rmtree(folder, ignore_errors=True)
+        except OSError:
+            pass
+
+
 def _turn_of(snapshot: dict) -> int:
     return snapshot["turn"]
 
@@ -601,10 +618,13 @@ class Simulation:
             self._spawn_group(make_dna(species[group], self.random), size, native=True, rows=homes.get(group))
         for bitzkey in imported:
             self._spawn_group(bitzkey.dna, self.random.randint(*SPAWN_GROUP), bitzkey.brain, bitzkey.mind)
-        # Snapshots of the world by turn: every recent turn, then evenly spaced checkpoints back
+        # Snapshots of the world by turn, as files: recent ones, then evenly spaced checkpoints back
         # to turn 0. The simulation is deterministic, so any turn between snapshots is rebuilt
         # exactly by replaying from the snapshot before it.
-        self.history: list[dict] = []
+        self.history: list[dict] = []  # each {"turn": the turn, "path": its file}
+        self.history_folder = Path(tempfile.mkdtemp(prefix=HISTORY_PREFIX))
+        self._snapshot_bytes = 0  # the size of the latest snapshot written
+        self._close_history = weakref.finalize(self, shutil.rmtree, self.history_folder, ignore_errors=True)
         self.frontier = 0  # the latest turn simulated; seeking never goes past it
         self._checkpoint_stride = 1
         self._take_census()
@@ -715,61 +735,56 @@ class Simulation:
         self._cells.setdefault((x, y), []).append(agent)
         return agent
 
+    def close(self) -> None:
+        """Delete the history's files. The world can't be rewound after; it is closed when left."""
+        self._close_history()
+        self.history = []
+
     def _history_room(self) -> tuple[int, int]:
-        """How many recent snapshots to keep, and how many older checkpoints: at most DENSE_HISTORY
-        and CHECKPOINTS, fewer when snapshots of the world are large, so the history fits
-        HISTORY_BUDGET."""
-        brains = sum(BRAIN_BYTES + agent.brain.nbytes for agent in self.agents if agent.brain is not None)
-        size = (len(self.agents) * AGENT_BYTES + brains + len(self.grass) * GRASS_BYTES
-                + len(self.seeds) * SEED_BYTES)
-        most = max(MIN_SNAPSHOTS, HISTORY_BUDGET // max(1, size))
-        dense = min(DENSE_HISTORY, most // 2)
+        """How many recent snapshots to keep, and how many older checkpoints: enough recent ones to
+        cover DENSE_HISTORY turns, and CHECKPOINTS, but fewer when snapshots of the world are large,
+        so the history fits HISTORY_BUDGET."""
+        most = max(MIN_SNAPSHOTS, HISTORY_BUDGET // max(1, self._snapshot_bytes))
+        dense = min(-(-DENSE_HISTORY // SNAPSHOT_SPACING), most // 2)
         return dense, min(CHECKPOINTS, most - dense)
 
-    @staticmethod
-    def _snapshot_spacing(dense: int) -> int:
-        """How many turns apart recent snapshots are: every turn while DENSE_HISTORY of them fit,
-        otherwise the smallest power of two that spreads those that fit over DENSE_HISTORY turns, up
-        to MAX_SPACING."""
-        spacing = 1
-        while spacing * max(1, dense) < DENSE_HISTORY and spacing < MAX_SPACING:
-            spacing *= 2
-        return spacing
-
     def _record(self) -> None:
-        """Snapshot the newest turn, if it falls on the snapshot spacing, then thin the old ones:
-        turns before the recent window stay only on the checkpoint spacing, which doubles while
-        there are too many of them."""
-        dense, checkpoints = self._history_room()
-        spacing = self._snapshot_spacing(dense)
+        """Snapshot the newest turn to a file, if it falls on the snapshot spacing, then thin the old
+        ones: turns before the recent window stay only on the checkpoint spacing, which doubles
+        while there are too many of them."""
         self.frontier = self.turn
-        if self.turn % spacing:
+        if self.turn % SNAPSHOT_SPACING:
             return  # between snapshots: seeking rebuilds this turn by replaying from the one before
-        self.history.append({
-            "turn": self.turn,
-            "deaths": self.deaths,
-            "next_identifier": self.next_identifier,
-            "agents": [agent.copy() for agent in self.agents],
-            "grass": self.grass.copy(),
-            "seeds": list(self.seeds),
-            "random_state": self.random.getstate(),
-            "insights": self.insights.snapshot(),
-        })
-        recent = self.frontier - dense * spacing
+        path = self.history_folder / f"turn-{self.turn:08d}.pickle"
+        snapshot = {"turn": self.turn, "deaths": self.deaths, "next_identifier": self.next_identifier,
+                    "agents": self.agents, "grass": self.grass, "seeds": self.seeds,
+                    "random_state": self.random.getstate(), "insights": self.insights.snapshot()}
+        with path.open("wb") as file:
+            pickle.dump(snapshot, file, protocol=pickle.HIGHEST_PROTOCOL)
+        self._snapshot_bytes = path.stat().st_size
+        self.history.append({"turn": self.turn, "path": path})
+        dense, checkpoints = self._history_room()
+        recent = self.frontier - dense * SNAPSHOT_SPACING
         while True:
-            self.history = [snapshot for snapshot in self.history
-                            if snapshot["turn"] >= recent or snapshot["turn"] % self._checkpoint_stride == 0]
+            kept = [entry for entry in self.history
+                    if entry["turn"] >= recent or entry["turn"] % self._checkpoint_stride == 0]
+            for entry in self.history:
+                if entry not in kept:
+                    entry["path"].unlink(missing_ok=True)
+            self.history = kept
             if bisect.bisect_left(self.history, recent, key=_turn_of) <= checkpoints:
                 break
             self._checkpoint_stride *= 2
 
-    def _restore(self, snapshot: dict) -> None:
+    def _restore(self, entry: dict) -> None:
+        with entry["path"].open("rb") as file:
+            snapshot = pickle.load(file)
         self.turn = snapshot["turn"]
         self.deaths = snapshot["deaths"]
         self.next_identifier = snapshot["next_identifier"]
-        self.agents = [agent.copy() for agent in snapshot["agents"]]
-        self.grass = snapshot["grass"].copy()
-        self.seeds = list(snapshot["seeds"])
+        self.agents = snapshot["agents"]
+        self.grass = snapshot["grass"]
+        self.seeds = snapshot["seeds"]
         self.random.setstate(snapshot["random_state"])
         self.insights.restore(snapshot["insights"])
         self._update_climate()
