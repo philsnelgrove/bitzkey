@@ -305,8 +305,11 @@ class AdvancedScreen:
             pg.draw.rect(self.screen, color, button, border_radius=UI(6))
             text = self.bold.render(label, True, ink)
             self.screen.blit(text, text.get_rect(center=button.center))
+        warning = Rules.WARNINGS.get(RULES[self.form.focus].key)
         if pg.time.get_ticks() < self.note_until:
             hint = self.small.render(self.note, True, (238, 183, 110))
+        elif warning:  # the chosen rule's warning, in full
+            hint = self.small.render(self._fit(warning, card.width - UI(48)), True, (238, 183, 110))
         else:
             hint = self.small.render("UP/DOWN  choose   LEFT/RIGHT  adjust (SHIFT x10)   PGUP/PGDN  jump   "
                                      "ENTER  apply   ESC  cancel", True, (130, 152, 136))
@@ -318,8 +321,9 @@ class AdvancedScreen:
             pg.draw.rect(self.screen, (131, 205, 143), row, 1, border_radius=UI(5))
         minus, box, plus = self._buttons(row)
         self._text(rule.label.upper(), (row.left + UI(14), row.top + UI(3)), (232, 236, 219), self.font)
-        self._text(self._fit(rule.hint, minus.left - row.left - UI(28)), (row.left + UI(14), row.top + UI(21)),
-                   (130, 152, 136), self.small)
+        warned = rule.key in Rules.WARNINGS  # a cost to heed: its hint in amber, the warning in full when chosen
+        self._text(self._fit(("WARNING  " if warned else "") + rule.hint, minus.left - row.left - UI(28)),
+                   (row.left + UI(14), row.top + UI(21)), (238, 183, 110) if warned else (130, 152, 136), self.small)
         for button, sign in ((minus, "-"), (plus, "+")):
             pg.draw.rect(self.screen, (44, 57, 52), button, border_radius=UI(4))
             label = self.bold.render(sign, True, (220, 229, 211))

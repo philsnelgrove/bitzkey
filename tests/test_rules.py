@@ -16,6 +16,21 @@ class RulesTests(unittest.TestCase):
     def tearDown(self):
         Rules.apply({})
 
+    def test_the_rewind_history_is_set_in_the_world_rules_with_a_warning_about_memory(self):
+        from tools import Simulation as world
+        for key in ("HISTORY_TURNS", "HISTORY_MEMORY"):
+            self.assertEqual(BY_KEY[key].group, "World")
+            self.assertIn("MEMORY", Rules.WARNINGS[key])
+        self.assertTrue(BY_KEY["HISTORY_TURNS"].integer)
+        top = BY_KEY["HISTORY_TURNS"]
+        self.assertEqual((Rules.shown(top, top.maximum), Rules.shown(top, 100)), ("ALL", "100"))
+        try:
+            Rules.apply({"HISTORY_TURNS": 250, "HISTORY_MEMORY": 4.0})
+            self.assertEqual((world.HISTORY_TURNS, world.HISTORY_MEMORY), (250, 4.0))
+        finally:
+            Rules.apply({})
+        self.assertEqual((world.HISTORY_TURNS, world.HISTORY_MEMORY), (100, 1.0))
+
     def test_every_default_is_within_its_rule_and_of_its_kind(self):
         self.assertEqual(len(BY_KEY), len(RULES))
         for rule in RULES:

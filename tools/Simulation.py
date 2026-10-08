@@ -34,12 +34,14 @@ CROWDING_LIMIT = 10    # litters shrink as crowding nears this; at it, an animal
 SPAWN_GROUP = (3, 5)  # Bitzkeys spawn in groups of this many sharing one genome
 MAX_IMPORTED = MAX_POPULATION // SPAWN_GROUP[1]  # imported Bitzkeys, so their groups fit that number
 SPAWN_SPREAD = 2      # a group's members appear within this many cells of each other's centre
+SPAWN_AT_HOME = 1     # 1: a group appears in rows whose usual temperature is its home (the nearest, if none); 0: anywhere
 # The history is kept in memory: the world at each of the latest HISTORY_TURNS turns, whole, so the map
 # can be rewound to any of them at once, with nothing to replay. When a crowded world's brains make them
-# large, fewer are kept, so they fit HISTORY_MEMORY; the newest turn is always kept. Older turns live on
+# large, fewer are kept, so they fit HISTORY_MEMORY gigabytes; the newest turn is always kept. Older turns live on
 # only in the colour graph.
 HISTORY_TURNS = 100
-HISTORY_MEMORY = 1 << 30  # bytes, near enough
+HISTORY_ALL = 5000  # at this many history turns or more, every turn is kept, so far as the memory allows
+HISTORY_MEMORY = 1.0  # GB, near enough
 AGENT_BYTES = 1000  # what a Bitzkey takes in the history, besides its brain, near enough
 # Earlier versions kept the history on disk, in folders among the temporary files.
 HISTORY_PREFIX = "bitzkey-history-"  # their names start so
@@ -748,10 +750,13 @@ class Simulation:
                      mind: Mapping[str, float] | None = None, native: bool = False,
                      rows: Sequence[int] | None = None) -> None:
         """Place `size` Bitzkeys of one genome around a random centre, kept clear of the edges
-        so the group is never split across them, and in one of `rows` if given. Each gets its own
+        so the group is never split across them, and in one of `rows` if given; otherwise, with
+        SPAWN_AT_HOME, in its home zone. Each gets its own
         copy of `brain` and starts with the temperament in `mind`, if given. `native` groups have
         random starting genomes: each carries a tolerance flag only with STARTING_TOLERANCE, and
         plants take the usual temperature of their centre's zone as their home."""
+        if rows is None and SPAWN_AT_HOME:
+            rows = self._home_rows(decode_climate(dna)[0])
         x = self.random.randrange(SPAWN_SPREAD, self.width - SPAWN_SPREAD)
         y = (self.random.randrange(SPAWN_SPREAD, self.height - SPAWN_SPREAD) if rows is None
              else rows[self.random.randrange(len(rows))])
@@ -764,6 +769,13 @@ class Simulation:
             self._add_agent(dna, x + self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD),
                             y + self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD),
                             brain=brain.copy() if brain else None, mind=mind)
+
+    def _home_rows(self, home: int) -> list[int]:
+        """The rows a group's centre may fall in whose usual temperature is `home`, or nearest it:
+        a very cold home has no zone of its own outside the winters, so it takes the arctic."""
+        centres = range(SPAWN_SPREAD, self.height - SPAWN_SPREAD)
+        nearest = min(abs(zone_temperature(y, self.height) - home) for y in centres)
+        return [y for y in centres if abs(zone_temperature(y, self.height) - home) == nearest]
 
     def _add_agent(self, dna: int, x: int, y: int, brain: Brain | None = None,
                    mind: Mapping[str, float] | None = None) -> Bitzkey:
@@ -792,7 +804,7 @@ class Simulation:
 
     def _record(self) -> None:
         """Keep a copy of the newest turn, then let the oldest go while the history holds more than
-        HISTORY_TURNS turns or HISTORY_MEMORY bytes."""
+        HISTORY_TURNS turns or HISTORY_MEMORY gigabytes."""
         self.frontier = self.turn
         if self.history and self.history[-1]["turn"] == self.turn:  # recorded again, as it now is
             self._history_bytes -= self.history.pop()["bytes"]
@@ -803,7 +815,9 @@ class Simulation:
             "grass": self.grass.copy(), "seeds": list(self.seeds), "random_state": self.random.getstate(),
             "insights": self.insights.snapshot()}})
         self._history_bytes += size
-        while len(self.history) > 1 and (len(self.history) > HISTORY_TURNS or self._history_bytes > HISTORY_MEMORY):
+        most = HISTORY_MEMORY * (1 << 30)
+        turns = float("inf") if HISTORY_TURNS >= HISTORY_ALL else HISTORY_TURNS
+        while len(self.history) > 1 and (len(self.history) > turns or self._history_bytes > most):
             self._history_bytes -= self.history.popleft()["bytes"]
 
     def _restore(self, entry: dict) -> None:

@@ -7,7 +7,8 @@ the same rules with the same keys, limits and steps (`bitzkey_cli --rules`). Rul
 `apply` sets them all, and a world plays by whatever was set when it runs. Settings the
 configuration panel already covers (world size, population, grass density, the population cap and
 mutation rates) are not repeated here, nor are numbers that fix the genome's or the brain's layout,
-how starting groups are sized, or how much history is kept.
+or how starting groups are sized. How much rewind history is kept is a rule, with a warning about the
+memory it takes.
 """
 
 from __future__ import annotations
@@ -48,6 +49,10 @@ _TABLE: dict[str, list[tuple]] = {
         ("CORPSE_FERTILITY", "Corpse fertility", "grass grows this many times as fast on and around a corpse", 1, 10, 1),
         ("CORPSE_TURNS", "Corpse turns", "turns a corpse lasts while its meat rots away", 1, 500, 5),
         ("SPAWN_SPREAD", "Spawn spread", "a starting group appears within this many cells of its centre", 0, 4, 1),
+        ("SPAWN_AT_HOME", "Spawn at home", "1: starting and imported groups appear where their home temperature is usual; 0: anywhere", 0, 1, 1),
+        ("HISTORY_TURNS", "History turns", "turns of the world kept whole, to rewind the map to; at the top, all",
+         1, world.HISTORY_ALL, 10),
+        ("HISTORY_MEMORY", "History memory", "most memory, in GB, the rewind history may take", 0.1, 64.0, 0.1),
     ],
     "Bodies": [
         ("LIFESPAN_YEARS.0", "Lifespan, shortest", "years of life expected for the smallest bodies, plant or animal",
@@ -230,6 +235,14 @@ _TABLE: dict[str, list[tuple]] = {
     ],
 }
 
+# Rules whose top value means "all": history turns there keep every turn, so far as the memory allows.
+ALL_AT_TOP = {"HISTORY_TURNS"}
+# Warnings shown with a rule, in full when it is chosen: costs it runs up beyond the simulation itself.
+WARNINGS: dict[str, str] = {
+    "HISTORY_TURNS": "MEMORY: each turn kept holds the whole world, about 200 KB a brain (some 20 MB a turn with 100 animals), up to the history memory limit",
+    "HISTORY_MEMORY": "MEMORY: keep this well below your computer's free memory, or Bitzkey will slow to a crawl or crash",
+}
+
 RULES = tuple(Rule(key, group, label, hint, minimum, maximum, step)
               for group, rows in _TABLE.items() for key, label, hint, minimum, maximum, step in rows)
 BY_KEY = {rule.key: rule for rule in RULES}
@@ -305,5 +318,8 @@ def changed(values: Mapping[str, float]) -> dict[str, float]:
 
 
 def shown(rule: Rule, value: float) -> str:
-    """A value as the panel shows it: up to six significant digits, no trailing zeros."""
+    """A value as the panel shows it: up to six significant digits, no trailing zeros; a rule whose top
+    means "all" says so there."""
+    if rule.key in ALL_AT_TOP and value >= rule.maximum:
+        return "ALL"
     return str(int(value)) if rule.integer else f"{value:.6g}"

@@ -182,6 +182,13 @@ footer shows the earliest turn kept (HISTORY 8100/8100 FROM 8001). Older turns
 live on only in the colour graph. Stepping or playing forward from the past steps
 through the recorded future.
 
+Both limits are advanced rules (the World group): History turns, from 1 up to ALL,
+which keeps every turn so far as the memory allows, and History memory, in GB.
+Both carry a warning, shown in amber, and in full when the rule is chosen: each
+turn kept holds the whole world, about 200 KB a living brain (some 20 MB a turn
+with 100 animals), so set the memory well below what your computer has free, or
+Bitzkey will slow to a crawl or crash.
+
 ## Genome
 
 Each Bitzkey is drawn as an inner dot inside a 2px ring (a dot big enough for
@@ -320,7 +327,7 @@ seeds; a step from home it gives grazing animals no food, and too hot it needs
 twice the food itself. One step from home doesn't hurt a plant, but two steps
 cost it 20% of its health a turn and three 30%, rising steadily between one step
 and two while the weather turns. The plants spawned at the start are at home in
-their zone's usual temperature (an imported plant keeps its own). A seed lies in the ground 10 turns
+their zone's usual temperature (an imported plant keeps its own). Every other starting or imported group appears where its home temperature is usual, so it starts at home: a very cold home, with no zone of its own outside the winters, starts in the arctic. The Spawn at home rule (World group) turns this off, so groups appear anywhere. A seed lies in the ground 10 turns
 before it can sprout. One that falls where it is the wrong
 temperature waits there, and sprouts when its cell is nearer its temperature than any other and
 has room, for up to three quarters of a year; after that it dies. Grass grows

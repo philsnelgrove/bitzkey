@@ -375,6 +375,22 @@ class SimulationTests(unittest.TestCase):
         self.assertFalse([name for name in SENSES if name.startswith("open_")])
         self.assertEqual((senses[SENSES.index("size")], senses[SENSES.index("inborn_intellect")]), (1.0, 3 / 7))
 
+    def test_groups_spawn_where_their_home_temperature_is_usual(self):
+        from tools.Genome import decode_climate
+        from tools.Simulation import zone_temperature
+        for seed in range(1, 4):
+            simulation = Simulation(width=100, height=100, population=90, seed=seed)
+            for agent in simulation.agents:  # each within the spread of a centre at home
+                home = decode_climate(agent.dna)[0]
+                nearby = [zone_temperature(y, 100) for y in range(agent.y - SPAWN_SPREAD, agent.y + SPAWN_SPREAD + 1)]
+                self.assertIn(min(home, 2), nearby, f"#{agent.identifier} at row {agent.y}")  # very cold homes take the arctic
+        simulation = Simulation(width=100, height=100, population=0, seed=1)
+        self.assertEqual(simulation._home_rows(HOT), list(range(40, 60)))
+        self.assertEqual(simulation._home_rows(3), list(range(2, 20)) + list(range(80, 98)))  # very cold: the arctic
+        with patch("tools.Simulation.SPAWN_AT_HOME", 0):
+            anywhere = Simulation(width=100, height=100, population=90, seed=1)
+        self.assertGreater(len({agent.y // 20 for agent in anywhere.agents}), 1)
+
     def test_every_zone_starts_with_plants_and_an_animal_group_is_always_kept(self):
         for seed in range(1, 6):
             simulation = Simulation(width=100, height=100, population=90, seed=seed)
@@ -551,9 +567,14 @@ class SimulationTests(unittest.TestCase):
             self.assertEqual(simulation.turn, 31)
             self.assertFalse(simulation.rewind())
             simulation.seek(40)
-            with patch("tools.Simulation.HISTORY_MEMORY", 1):  # far too little: only the newest is kept
+            with patch("tools.Simulation.HISTORY_TURNS", 5000):  # "all": every turn from here on
+                for _ in range(20):
+                    simulation.advance()
+            self.assertEqual(len(simulation.history), 30)
+            simulation.seek(60)
+            with patch("tools.Simulation.HISTORY_MEMORY", 1e-9):  # far too little: only the newest is kept
                 simulation.advance()
-            self.assertEqual([entry["turn"] for entry in simulation.history], [41])
+            self.assertEqual([entry["turn"] for entry in simulation.history], [61])
         brains = sum(agent.brain_bytes for agent in simulation.agents)
         self.assertGreater(brains, 0)
         self.assertEqual(simulation._history_bytes, brains + AGENT_BYTES * len(simulation.agents))
