@@ -7,9 +7,20 @@ import tools.Simulation as simulation_module
 from tools.Brain import ACTIONS, SENSES, Brain
 from tools.Exchange import Imported
 from tools.Genome import encode_dna
-from tools.Simulation import (CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, PLANT_MEAL, PLANT_MEAL_FOR_SIZE, SEED_OFFSETS,
+from tools.Simulation import (BIRTH_REACH, PLANT_GESTATION, Bitzkey, gestation, CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, PLANT_MEAL, PLANT_MEAL_FOR_SIZE, SEED_OFFSETS,
                               SIGHT_OFFSETS, SPAWN_SPREAD, UPROOT_BITE, UPROOT_MEALS, Simulation, litter_size,
                               nearby_offsets)
+
+
+def deliver(simulation: Simulation, first: Bitzkey, second: Bitzkey, litter: int | None = 1) -> None:
+    """Mate two animals and, rather than wait out the gestation, give birth at once: to a litter of
+    `litter` young, or of the size breeding sets with None."""
+    if litter is None:
+        simulation._breed(first, second)
+    else:
+        with patch("tools.Simulation.litter_size", return_value=litter):
+            simulation._breed(first, second)
+    simulation._give_birth(first)
 
 
 def lay_plenty_of_grass(simulation: Simulation) -> None:
@@ -159,7 +170,11 @@ class SimulationTests(unittest.TestCase):
         mate.cooldown = 0
         for x, y in ((5, 4), (4, 5), (6, 5), (4, 4), (6, 4), (4, 6), (6, 6)):  # every cell around but the mate's
             self.simulation._add_agent(encode_dna("plant"), x, y)
-        self.assertNotIn(breed, self.simulation._sense(agent)[1])
+        self.assertIn(breed, self.simulation._sense(agent)[1])  # room still, two cells away
+        with patch("tools.Simulation.BIRTH_REACH", 1):
+            self.assertNotIn(breed, self.simulation._sense(agent)[1])
+        agent.womb = [(dna, {}, None, 0.0, 1)]
+        self.assertNotIn(breed, self.simulation._sense(agent)[1])  # already carrying young
 
     def test_animals_shun_mates_whose_ring_or_dot_differ_too_far_from_their_own(self):
         dna = encode_dna("grazer", size=2, fear=3)
@@ -292,7 +307,7 @@ class SimulationTests(unittest.TestCase):
         second = self.simulation._add_agent(dna, 5, 6)
         self.simulation._index_cells()
 
-        self.simulation._breed(first, second, [(5, 4)])
+        deliver(self.simulation, first, second)
 
         child = self.simulation.agents[-1]
         self.assertEqual((child.x, child.y), (5, 4))
@@ -310,10 +325,11 @@ class SimulationTests(unittest.TestCase):
         self.simulation._index_cells()
         self.simulation._population = 2
 
-        self.simulation._breed(first, second, [(5, 4)])
+        self.simulation._breed(first, second)
 
         self.assertFalse(first.alive)
         self.assertEqual((first.last_action, first.died_turn, first.brain), ("bred to death", 0, None))
+        self.assertEqual((first.womb, first.due_turn), ([], None))  # the young it carried die with it
         self.assertEqual(self.simulation.deaths, 1)
         self.assertTrue(second.alive)
 
@@ -323,7 +339,7 @@ class SimulationTests(unittest.TestCase):
         second = self.simulation._add_agent(dna, 5, 6)
         self.simulation._index_cells()
 
-        self.simulation._breed(first, second, [(5, 4)])
+        deliver(self.simulation, first, second)
 
         child = self.simulation.agents[-1]
         for index, weights in enumerate(child.brain.layers[0][0]):
@@ -346,7 +362,7 @@ class SimulationTests(unittest.TestCase):
         for _ in range(5):
             first.cooldown = second.cooldown = 0
             first.hunger = second.hunger = 0
-            self.simulation._breed(first, second, [(5, 4)])
+            deliver(self.simulation, first, second)
             child = self.simulation.agents[-1]
             self.assertEqual(child.brain.depth, max(2, 2 * child.inborn["intellect"]))
 
@@ -424,7 +440,7 @@ class SimulationTests(unittest.TestCase):
         self.simulation._index_cells()
 
         self.simulation.mind_mutation = 0
-        self.simulation._breed(first, second, [(5, 4)])
+        deliver(self.simulation, first, second)
 
         child = self.simulation.agents[-1]
         # its mind starts at the average of its parents' current minds, not their genes
@@ -440,14 +456,14 @@ class SimulationTests(unittest.TestCase):
         dna = encode_dna("grazer", fertility=7)
         first = self.simulation._add_agent(dna, 5, 5)
         second = self.simulation._add_agent(dna, 5, 6)
-        first.hunger = 96  # has 4 left to give, though breeding costs 10
+        second.hunger = 96  # has 4 left to give, though breeding costs 10
         self.simulation._index_cells()
         self.simulation._population = 2
 
-        self.simulation._breed(first, second, [(5, 4)])
+        deliver(self.simulation, first, second)
 
-        self.assertEqual(self.simulation.agents[-1].hunger, 100 - (4 + 10))
-        self.assertEqual(first.last_action, "bred to death")
+        self.assertEqual(self.simulation.agents[-1].hunger, 100 - (10 + 4))
+        self.assertEqual(second.last_action, "bred to death")
 
     def test_intellect_decides_whether_brain_learns(self):
         slow = self.simulation._add_agent(encode_dna("grazer", intellect=0), 1, 1)
@@ -669,6 +685,7 @@ class NewTraitTests(unittest.TestCase):
         self.simulation = Simulation(width=12, height=12, population=0, seed=3)
         self.simulation.grass.clear()
 
+    @patch("tools.Simulation.SMALL_LITTERS", 1.0)
     def test_litter_size_sets_how_many_young_share_the_parents_energy(self):
         lay_plenty_of_grass(self.simulation)
         dna = encode_dna("grazer", fertility=7, litter=7)
@@ -676,24 +693,23 @@ class NewTraitTests(unittest.TestCase):
         second = self.simulation._add_agent(dna, 5, 6)
         self.simulation._index_cells()
         self.simulation._population = 2
-        cells = self.simulation._free_cells_near(first)
 
-        self.simulation._breed(first, second, cells)
+        deliver(self.simulation, first, second, litter=None)
 
         young = self.simulation.agents[2:]
-        self.assertEqual(len(cells), 7)  # every cell around the parent but its mate's
         self.assertEqual(len(young), 6)
         for child in young:  # the parents give 10% of their small stomachs each, shared six ways
             self.assertAlmostEqual(child.hunger, 100 - 2 * 10 * 0.5 / 6 / child.stomach)
         self.assertEqual((first.children, second.children), (6, 6))
 
+    @patch("tools.Simulation.SMALL_LITTERS", 1.0)
     def test_large_bodies_with_a_low_litter_trait_have_single_young(self):
         dna = encode_dna("grazer", fertility=7, litter=0, size=7)
         first = self.simulation._add_agent(dna, 5, 5)
         second = self.simulation._add_agent(dna, 5, 6)
         self.simulation._index_cells()
 
-        self.simulation._breed(first, second, self.simulation._free_cells_near(first))
+        deliver(self.simulation, first, second, litter=None)
 
         self.assertEqual(len(self.simulation.agents), 3)
 
@@ -701,11 +717,14 @@ class NewTraitTests(unittest.TestCase):
         for litter in range(8):
             sizes = [litter_size([(litter, size)] * 2) for size in range(8)]
             self.assertEqual(sizes, sorted(sizes, reverse=True), f"litter trait {litter}")
-        self.assertEqual((litter_size([(7, 0)] * 2), litter_size([(0, 7)] * 2)), (6, 1))
+        self.assertEqual((litter_size([(7, 0)] * 2), litter_size([(0, 7)] * 2)), (12, 1))  # twice the usual, smallest
+        with patch("tools.Simulation.SMALL_LITTERS", 1.0):
+            self.assertEqual(litter_size([(7, 0)] * 2), 6)
+        self.assertEqual(litter_size([(4, 3)] * 2), round(4 * (1 + 4 / 7)))  # a middling body, part way
         self.assertEqual(litter_size([(7, 0), (0, 7)]), litter_size([(3, 3)] * 2))  # parents average out
         # predators have half the litters, rounded up
         self.assertEqual([litter_size([(7, 0)] * 2, species) for species in ("grazer", "omnivore", "predator")],
-                         [6, 6, 3])
+                         [12, 12, 6])
         self.assertEqual(litter_size([(0, 7)] * 2, "predator"), 1)
         self.assertEqual(litter_size([(4, 3)] * 2, "predator"), math.ceil(litter_size([(4, 3)] * 2) / 2))
 
@@ -972,7 +991,7 @@ class NewTraitTests(unittest.TestCase):
             first.hunger = second.hunger = first.cooldown = second.cooldown = 0
             first.mind = dict(second.mind)  # alike, so the child's mind is exactly theirs
             before = dict(first.mind)  # breeding itself shifts the parents' minds
-            stable._breed(first, second, [(5, 4)])
+            deliver(stable, first, second)
             child = stable.agents.pop()
             self.assertEqual(child.mind, before)
             self.assertEqual(child.body, first.body)
@@ -1148,6 +1167,7 @@ class NewTraitTests(unittest.TestCase):
         simulation._index_cells()
         self.assertLess(simulation._food_supply(corner), expected / 2)
 
+    @patch("tools.Simulation.SMALL_LITTERS", 1.0)
     def test_scarce_food_stops_breeding_and_plenty_allows_full_litters(self):
         dna = encode_dna("grazer", fertility=7, litter=7)
         first = self.simulation._add_agent(dna, 5, 5)
@@ -1158,16 +1178,17 @@ class NewTraitTests(unittest.TestCase):
         self.assertNotIn(breed, self.simulation._sense(first)[1])  # no grass: no young to feed them on
         lay_plenty_of_grass(self.simulation)
         self.assertIn(breed, self.simulation._sense(first)[1])
-        self.simulation._breed(first, second, self.simulation._free_cells_near(first))
+        deliver(self.simulation, first, second, litter=None)
         self.assertEqual(len(self.simulation.agents), 2 + 6)
 
+    @patch("tools.Simulation.SMALL_LITTERS", 1.0)
     def test_a_litter_shrinks_as_food_runs_short(self):
         dna = encode_dna("grazer", fertility=7, litter=7)
         first = self.simulation._add_agent(dna, 5, 5)
         second = self.simulation._add_agent(dna, 5, 6)
         self.simulation._index_cells()
         with patch.object(Simulation, "_food_supply", return_value=4.5):  # three quarters of plenty
-            self.simulation._breed(first, second, self.simulation._free_cells_near(first))
+            deliver(self.simulation, first, second, litter=None)
         self.assertEqual(len(self.simulation.agents), 2 + 5)  # six young at three quarters: 4.5, rounded up
 
     def test_a_distant_hunter_is_watched_but_not_fled(self):
@@ -1319,7 +1340,45 @@ class NewTraitTests(unittest.TestCase):
             self.assertAlmostEqual(attacker.hunger, max(0, 50 - 5 / 0.5) + 0.2 * damage / 0.5)
         self.assertGreater(brute.hunger, weak.hunger)
 
-    def test_a_parent_hemmed_in_has_single_young(self):
+    def test_the_mother_carries_her_young_for_a_gestation_set_by_her_size_then_gives_birth(self):
+        self.assertEqual([gestation(size) for size in (0, 1, 4, 7)], [10, 16, 33, 50])
+        with patch("tools.Simulation.CLIMATE_DAMAGE", 0):
+            simulation = Simulation(width=30, height=30, population=0, seed=3)
+            lay_plenty_of_grass(simulation)
+            dna = encode_dna("grazer", fertility=7, litter=7)  # the smallest: ten turns, and twelve young
+            first, second = simulation._add_agent(dna, 15, 15), simulation._add_agent(dna, 15, 16)
+            simulation._index_cells()
+            simulation._breed(first, second)
+            self.assertEqual((len(first.womb), first.due_turn, len(simulation.agents)), (12, 10, 2))
+            self.assertEqual(second.womb, [])  # the parent that chose to breed carries them
+            self.assertFalse(first.can_breed)
+            with patch.object(Simulation, "_think"):
+                for _ in range(9):
+                    first.hunger = second.hunger = 0
+                    simulation._take_turn()
+                self.assertEqual(len(simulation.agents), 2)
+                simulation._take_turn()
+            young = simulation.agents[2:]
+            self.assertEqual((len(young), first.womb, first.due_turn), (12, [], None))
+            self.assertEqual({child.generation for child in young}, {1})
+            reach = [max(abs(child.x - first.x), abs(child.y - first.y)) for child in young]
+            self.assertTrue(all(1 <= cells <= BIRTH_REACH for cells in reach))
+            self.assertIn(2, reach)  # more than the eight cells beside her
+            self.assertEqual(simulation._population, 14)
+
+    def test_young_die_with_the_mother_carrying_them(self):
+        dna = encode_dna("grazer", fertility=7, litter=7)
+        first = self.simulation._add_agent(dna, 5, 5)
+        second = self.simulation._add_agent(dna, 5, 6)
+        self.simulation._index_cells()
+        self.simulation._breed(first, second)
+        self.assertTrue(first.womb)
+        self.simulation._die(first, "killed")
+        self.assertEqual((first.womb, first.due_turn), ([], None))
+        self.assertEqual(len(self.simulation.agents), 2)
+
+    @patch("tools.Simulation.BIRTH_REACH", 1)
+    def test_a_mother_hemmed_in_bears_only_the_young_there_is_room_for(self):
         dna = encode_dna("grazer", fertility=7, litter=7)
         first = self.simulation._add_agent(dna, 5, 5)
         second = self.simulation._add_agent(dna, 5, 6)
@@ -1327,9 +1386,10 @@ class NewTraitTests(unittest.TestCase):
             self.simulation._add_agent(encode_dna("plant"), x, y)
         self.simulation._index_cells()
 
-        self.simulation._breed(first, second, self.simulation._free_cells_near(first))
+        deliver(self.simulation, first, second, litter=None)
 
         self.assertEqual([(agent.x, agent.y) for agent in self.simulation.agents[8:]], [(5, 4)])
+        self.assertEqual(first.womb, [])  # the rest are lost
 
     def test_large_bodies_outlive_small_ones_plant_or_animal(self):
         large = self.simulation._add_agent(encode_dna("grazer", size=7), 2, 2)
@@ -1398,8 +1458,8 @@ class NewTraitTests(unittest.TestCase):
         self.simulation._index_cells()
 
         young = []
-        for parents, cell in ((large, (6, 5)), (small, (2, 1)), (mixed, (10, 9))):
-            self.simulation._breed(*parents, [cell])
+        for parents in (large, small, mixed):
+            deliver(self.simulation, *parents)
             young.append(self.simulation.agents[-1])
 
         cost = large[0].breeding_cost
@@ -1643,6 +1703,12 @@ class NewTraitTests(unittest.TestCase):
 
         with patch.object(self.simulation.random, "random", return_value=0.0):
             self.simulation._seed(plant)  # onto the equator, where it is at home
+        self.assertEqual((len(self.simulation.agents), len(self.simulation.seeds)), (1, 1))  # in the ground
+        self.simulation.turn += PLANT_GESTATION - 1
+        self.simulation._germinate()
+        self.assertEqual(len(self.simulation.agents), 1)  # not yet
+        self.simulation.turn += 1
+        self.simulation._germinate()
 
         seedling = self.simulation.agents[-1]
         self.assertIsNot(seedling, plant)
@@ -1685,6 +1751,7 @@ class NewTraitTests(unittest.TestCase):
         self.simulation._index_cells()
         self.assertIn(ACTIONS.index("breed"), self.simulation._sense(agent)[1])
 
+    @patch("tools.Simulation.SMALL_LITTERS", 1.0)
     def test_crowding_shrinks_litters_and_at_its_limit_stops_breeding(self):
         simulation = Simulation(width=30, height=30, population=0, seed=3)
         dna = encode_dna("grazer", fertility=7, litter=7)  # a litter of six where there is room
@@ -1694,7 +1761,7 @@ class NewTraitTests(unittest.TestCase):
         simulation._index_cells()
         simulation._population = len(simulation.agents)
 
-        simulation._breed(first, second, simulation._free_cells_near(first))
+        deliver(simulation, first, second, litter=None)
         self.assertEqual(len(simulation.agents) - 7, 4)  # six young, cut by the three predators within four cells
 
         for dx in range(-4, 5):

@@ -57,6 +57,11 @@ MATE_RING_DIFFERENCE = 0.05
 MATE_DOT_DIFFERENCE = 0.20
 LITTER_RANGE = (1, 6)  # young per birth, while there is room around the parent
 LITTER_SIZE_WEIGHT = 0.5  # how much of litter size comes from small bodies; the rest from the litter trait
+SMALL_LITTERS = 2.0  # the smallest bodies' litters are this many times the usual, falling evenly to the usual for the largest
+# Turns an animal carries its young, from mating to birth: from the first for the smallest body to the
+# second for the largest, evenly between, rounded half up.
+GESTATION = (10, 50)
+BIRTH_REACH = 2  # young are born on the free cells nearest their mother, up to this many cells away
 # Years a Bitzkey, plant or animal, is expected to live: the smallest bodies, with the fastest
 # metabolisms; middling ones; and the largest, with the slowest. Between them, lifespan rises steadily
 # with the metabolism slowing.
@@ -191,6 +196,7 @@ WAVE_FRONT = 4
 FRESH_KILL_TURNS = 1
 FRESH_KILL_MEALS = 3.0
 SEED_VIABILITY = 0.75  # years a seed that falls where it can't grow stays able to germinate
+PLANT_GESTATION = 10  # turns a seed lies in the ground before it can sprout
 STARTING_TOLERANCE = 0.1  # the chance a random starting genome carries each tolerance flag
 HARDINESS = 0.5  # the share of exposure's extra hunger and damage an animal tolerant of it suffers
 HOT, MEDIUM, COLD, VERY_COLD = range(len(TEMPERATURES))
@@ -315,6 +321,23 @@ def dieback_threshold(x: int, y: int) -> float:
 
 
 @cache
+def birth_offsets(reach: int) -> tuple[tuple[int, int], ...]:
+    """Where young may be born around their mother, nearest first: the sides, then the corners, then
+    each ring further out, up to `reach`, its nearest cells first."""
+    further = sorted(((dx, dy) for dy in range(-reach, reach + 1) for dx in range(-reach, reach + 1)
+                      if max(abs(dx), abs(dy)) > 1),
+                     key=lambda offset: (max(abs(offset[0]), abs(offset[1])), offset[0] ** 2 + offset[1] ** 2,
+                                         offset[1], offset[0]))
+    return ((0, -1), (1, 0), (0, 1), (-1, 0), (1, -1), (1, 1), (-1, 1), (-1, -1), *further)
+
+
+def gestation(size: int) -> int:
+    """Turns an animal of this body size carries its young."""
+    shortest, longest = GESTATION
+    return shortest + int((longest - shortest) * size / TRAIT_MAX + 0.5)
+
+
+@cache
 def nearby_offsets(radius: int) -> tuple[tuple[int, int], ...]:
     """The offsets within `radius` steps, the animal's own cell among them, column by column."""
     return tuple((dx, dy) for dx in range(-radius, radius + 1)
@@ -357,6 +380,10 @@ class Bitzkey:
     meat: float = 0.0  # a corpse's meat left for scavengers
     rot: float = 0.0   # meat lost to rot each turn
     trail: list[tuple[int, int]] = field(default_factory=list)  # the cells it passed through this turn, for the map
+    # The young it carries, conceived at mating, each (dna, mind, brain, energy, generation), and the
+    # turn they are born.
+    womb: list[tuple] = field(default_factory=list)
+    due_turn: int | None = None
     # Current temperament: starts at the inborn values and is reshaped by experience.
     mind: dict[str, float] = field(default_factory=dict)
     # The last decision, kept until the next one so the brain can learn from how it turned out.
@@ -510,8 +537,8 @@ class Bitzkey:
 
     @property
     def can_breed(self) -> bool:
-        """Ready, and able to pay for breeding with energy to spare."""
-        return self.cooldown == 0 and self.hunger + self.breeding_cost <= 100 - BREED_RESERVE
+        """Ready, not carrying young, and able to pay for breeding with energy to spare."""
+        return self.cooldown == 0 and not self.womb and self.hunger + self.breeding_cost <= 100 - BREED_RESERVE
 
     @property
     def digestion(self) -> float:
@@ -532,17 +559,22 @@ class Bitzkey:
 
     def copy(self) -> Bitzkey:
         return replace(self, brain=self.brain.copy() if self.brain else None, mind=self.mind.copy(),
-                       trail=list(self.trail))
+                       trail=list(self.trail),
+                       womb=[(dna, dict(mind), brain.copy() if brain else None, energy, generation)
+                             for dna, mind, brain, energy, generation in self.womb])
 
 
 def litter_size(parents: Sequence[tuple[int, int]], species: str = "") -> int:
     """Young per birth, before space limits it, from each parent's (litter trait, size): a high
-    litter trait and a small body both make for bigger litters. Predators have half as many,
-    rounded up."""
+    litter trait and a small body both make for bigger litters, and the smallest bodies have
+    SMALL_LITTERS times as many, falling evenly to the usual for the largest. Predators have half
+    as many, rounded up."""
     smallest, largest = LITTER_RANGE
     tendency = sum((1 - LITTER_SIZE_WEIGHT) * share(litter) + LITTER_SIZE_WEIGHT * (1 - share(size))
                    for litter, size in parents) / len(parents)
     litter = smallest + int(tendency * (largest - smallest) + 0.5)
+    small = 1 - sum(share(size) for _, size in parents) / len(parents)
+    litter = int(litter * (1 + (SMALL_LITTERS - 1) * small) + 0.5)
     return math.ceil(litter * PREDATOR_LITTERS) if species == "predator" else litter
 
 
@@ -934,6 +966,8 @@ class Simulation:
                 agent.last_action = "photosynthesized"
                 self._seed(agent)
                 continue
+            if agent.due_turn is not None and agent.due_turn <= self.turn:
+                self._give_birth(agent)
             agent.seen_success *= SOCIAL_MEMORY
             agent.seen_failure *= SOCIAL_MEMORY
             self._settle(agent)
@@ -954,8 +988,8 @@ class Simulation:
         self._take_census()
 
     def _seed(self, plant: Bitzkey) -> None:
-        """A well-fed plant may sprout a seedling of its own kind on a free cell up to SEED_REACH away,
-        unless plants already crowd that spot. Plants compete for light: the more plants grow
+        """A well-fed plant may sow a seed of its own kind on a free cell up to SEED_REACH away, unless
+        plants already crowd that spot; it lies PLANT_GESTATION turns in the ground before it can sprout. Plants compete for light: the more plants grow
         within LIGHT_RADIUS, the less likely a plant is to seed, and with LIGHT_LIMIT it doesn't."""
         if plant.hunger > SEED_HUNGER:
             return
@@ -979,10 +1013,7 @@ class Simulation:
         plant.last_action = "seeded"
         if not plant.alive:  # it spent the last of its food on the seed
             self._die(plant, "seeded to death")
-        if abs(self._climate[cell[1]] - decode_climate(dna)[0]) >= 0.5:  # too hot or cold to grow: the seed waits
-            self.seeds.append((*cell, dna, plant.generation + 1, self.turn))
-            return
-        self._sprout(dna, cell, plant.generation + 1)
+        self.seeds.append((*cell, dna, plant.generation + 1, self.turn))
 
     def _wither_grass(self) -> None:
         """Grass dies back where it isn't medium: a tuft a cell every GRASS_DIEBACK turns, the cells
@@ -1010,15 +1041,15 @@ class Simulation:
         self._plants += 1
 
     def _germinate(self) -> None:
-        """Waiting seeds sprout once their cell is at their temperature and there is room, unless
-        they have waited SEED_VIABILITY of a year, when they are dead."""
+        """Seeds sprout once they have lain PLANT_GESTATION turns, their cell is at their temperature
+        and there is room, unless they have waited SEED_VIABILITY of a year, when they are dead."""
         viable = SEED_VIABILITY * YEAR_LENGTH
         waiting = []
         for seed in self.seeds:
             x, y, dna, generation, sown = seed
             if self.turn - sown >= viable:
                 continue
-            if abs(self._climate[y] - decode_climate(dna)[0]) < 0.5 and self._room_for_seedling((x, y)):
+            if self.turn - sown >= PLANT_GESTATION and abs(self._climate[y] - decode_climate(dna)[0]) < 0.5 and self._room_for_seedling((x, y)):
                 self._sprout(dna, (x, y), generation)
             else:
                 waiting.append(seed)
@@ -1286,6 +1317,7 @@ class Simulation:
             if cause != "old age":  # its herd sees it fail
                 self._witness(agent, -DEATH_PENALTY)
         agent.brain = None
+        agent.womb, agent.due_turn = [], None  # the young it carried die with it
         agent.health = min(agent.health, 0.0)  # whatever the cause, a recorded death leaves it dead
         agent.died_turn = self.turn
         agent.last_action = cause
@@ -1334,7 +1366,7 @@ class Simulation:
             agent.last_action = "courted"
         elif action == "breed":
             agent.last_action = "mated"  # before breeding, so a parent that dies of it says so
-            self._breed(agent, situation["mate"], situation["nurseries"])
+            self._breed(agent, situation["mate"])
         elif action == "hunt":
             quarry = situation["quarry"]
             self._move_toward(agent, quarry.x, quarry.y)
@@ -1533,39 +1565,37 @@ class Simulation:
             victim.panicked = True
             self._experience(victim, "panicked")
 
-    def _breed(self, first: Bitzkey, second: Bitzkey, cells: list[tuple[int, int]]) -> None:
-        """Fertile parents breed cheaply and often. Their litter, 1 to 6 young (bigger for a high
-        litter trait and small bodies, smaller where animals crowd around, and no more than the
-        free cells around), shares the energy
-        both parents give up. Animals only choose to breed when both can afford it, but a parent
-        can only give what it has left. Each child inherits a mix of its parents' brains, and
-        starts its temperament at the average of its parents' current temperaments, which its
-        dot then shows."""
+    def _breed(self, first: Bitzkey, second: Bitzkey) -> None:
+        """Fertile parents breed cheaply and often. The parent that chose to breed conceives a
+        litter, LITTER_RANGE young (bigger for a high litter trait and small bodies, smaller where
+        animals crowd around), and carries it for its gestation before giving birth. The young
+        share the energy both parents give up now. Animals only choose to breed when both can
+        afford it, but a parent can only give what it has left. Each child inherits a mix of its
+        parents' brains, and starts its temperament at the average of its parents' current
+        temperaments, which its dot then shows."""
         litter = litter_size([(int(parent.body["litter"]), int(parent.body["size"])) for parent in (first, second)],
                              first.species)
         litter = max(1, int(litter * (1 - self._crowding(first, second) / CROWDING_LIMIT) + 0.5))
         litter = max(1, int(litter * min(1.0, self._food_supply(first) / (2 * FOOD_NEEDED)) + 0.5))
-        cells = cells[:max(1, min(litter, self._room()))]
+        litter = max(1, min(litter, self._room()))
         costs = [parent.breeding_cost for parent in (first, second)]
         # Energy in absolute terms: a share of each parent's stomach, refilled in the young's.
         given = sum(min(cost, max(0.0, 100 - parent.hunger)) * parent.stomach
                     for cost, parent in zip(costs, (first, second)))
-        for cell in cells:
+        generation = max(first.generation, second.generation) + 1
+        for _ in range(litter):
             # The child's mind starts at the average of its parents' current minds, mutated, and
             # its dot is written from that mind, so experience is inherited and shows. Its brain,
             # a mix of its parents', is as deep as its own inborn intellect makes it.
             mind = inherit_mind(first.mind, second.mind, self.random, self.mind_mutation)
             dna = cross(first.dna, second.dna, self.random, mind, body_chance=self.body_mutation)
             brain = Brain.inherit(first.brain, second.brain, self.random, depth_for(decode_mind(dna)["intellect"]))
-            child = self._add_agent(dna, *cell, brain=brain)
-            child.mind = mind
-            child.hunger = max(0.0, 100 - given / len(cells) / child.stomach)
-            child.generation = max(first.generation, second.generation) + 1
-            self._population += 1
+            first.womb.append((dna, mind, brain, given / litter, generation))
+        first.due_turn = self.turn + gestation(int(first.body["size"]))
         for parent, cost in zip((first, second), costs, strict=True):
             parent.hunger += cost
             parent.cooldown = round(20 - 15 * parent.physique("fertility"))
-            parent.children += len(cells)
+            parent.children += litter
             parent.reward += BREED_JOY * parent.feeling("libido")
             if not parent.alive:
                 self._die(parent, "bred to death")
@@ -1605,10 +1635,25 @@ class Simulation:
         return sum(other.species != "plant" and other is not partner
                    for other in self._nearby(agent, CROWDING_RADIUS))
 
+    def _give_birth(self, mother: Bitzkey) -> None:
+        """The young it carries are born on the free cells nearest it, as many as there are cells
+        and the population cap allows; the rest are lost. Each starts with its share of the energy
+        its parents gave."""
+        cells = self._free_cells_near(mother)
+        born = int(min(len(mother.womb), len(cells), max(0, self._room())))
+        for (dna, mind, brain, energy, generation), cell in zip(mother.womb[:born], cells):
+            child = self._add_agent(dna, *cell, brain=brain)
+            child.mind = mind
+            child.hunger = max(0.0, 100 - energy / child.stomach)
+            child.generation = generation
+            self._population += 1
+        mother.womb, mother.due_turn = [], None
+
     def _free_cells_near(self, agent: Bitzkey) -> list[tuple[int, int]]:
-        """The empty cells around an animal, sides before corners, where young can be born."""
+        """The empty cells around an animal, up to BIRTH_REACH away and nearest first, where young
+        can be born."""
         cells = []
-        for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0), (1, -1), (1, 1), (-1, 1), (-1, -1)):
+        for dx, dy in birth_offsets(BIRTH_REACH):
             if not 0 <= agent.y + dy < self.height:  # beyond the top or bottom of the map
                 continue
             cell = ((agent.x + dx) % self.width, agent.y + dy)

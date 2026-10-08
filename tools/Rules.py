@@ -76,6 +76,12 @@ _TABLE: dict[str, list[tuple]] = {
          0.0, 1.0, 0.05),
         ("PREDATOR_LITTERS", "Predator litters", "predators' litters are this share of the usual, rounded up",
          0.05, 2.0, 0.05),
+        ("SMALL_LITTERS", "Small-body litter boost",
+         "the smallest bodies' litters are this many times the usual, falling to the usual for the largest", 1.0, 4.0, 0.25),
+        ("GESTATION.0", "Shortest gestation", "turns the smallest animals carry their young", 1, 500, 1),
+        ("GESTATION.1", "Longest gestation", "turns the largest animals carry their young", 1, 500, 1),
+        ("BIRTH_REACH", "Birth reach", "young are born on free cells up to this many cells from their mother", 1, 5, 1),
+        ("PLANT_GESTATION", "Plant gestation", "turns a seed lies in the ground before it can sprout", 0, 500, 1),
         ("CROWDING_RADIUS", "Crowding radius", "animals within this many cells crowd a would-be parent", 1, 12, 1),
         ("CROWDING_LIMIT", "Crowding limit", "litters shrink as crowding nears this; at it, no breeding", 1, 100, 1),
         ("FORAGE_RADIUS", "Forage radius", "food and mouths are weighed within this many cells", 1, 12, 1),
@@ -228,7 +234,7 @@ RULES = tuple(Rule(key, group, label, hint, minimum, maximum, step)
               for group, rows in _TABLE.items() for key, label, hint, minimum, maximum, step in rows)
 BY_KEY = {rule.key: rule for rule in RULES}
 # Pairs that must stay in order, smaller first, and pairs that must differ (lifespan divides by the gap).
-ORDERED = (("LITTER_RANGE.0", "LITTER_RANGE.1"), ("LIFESPAN_YEARS.0", "LIFESPAN_YEARS.1"),
+ORDERED = (("LITTER_RANGE.0", "LITTER_RANGE.1"), ("GESTATION.0", "GESTATION.1"), ("LIFESPAN_YEARS.0", "LIFESPAN_YEARS.1"),
            ("LIFESPAN_YEARS.1", "LIFESPAN_YEARS.2"))
 DISTINCT = (("METABOLISM.0", "METABOLISM.1"),)
 _PARTS = {"fewest": (0, 0), "most": (0, 1), "strength": (1,)}

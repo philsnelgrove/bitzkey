@@ -232,7 +232,7 @@ their young.
 | speed | cells moved per step of foraging, fleeing or going off in a direction (1 to 4; grazers move half as far again, rounded up: 2, 3, 5 or 6) |
 | sight | how far it sees (2 to 9 cells) |
 | fertility | high: cheap, frequent breeding and weak, hungry young; low: costly, rare breeding and well-fed young |
-| litter | young per birth: 1 to 6. A high litter trait and a small body both make litters bigger, half each, averaged over both parents, so small animals tend to have large litters and large animals small ones. Predators have half as many young, rounded up (1 to 3). Each young needs a free cell around the parent (sides first, then corners), and the litter shares the energy its parents give. |
+| litter | young per birth: 1 to 6, before the small-body boost. A high litter trait and a small body both make litters bigger, half each, averaged over both parents, so small animals tend to have large litters and large animals small ones. On top of that, the smallest bodies have twice as many young, falling evenly to the usual number for the largest (up to 12 in all). Predators have half as many young, rounded up. Each young is born on a free cell up to two cells from its mother (the sides first, then the corners, then the ring beyond), and the litter shares the energy its parents give. |
 | carrion | how much of carrion's meat nourishes it: 20% at 0, all of it at 7 |
 
 There is no metabolism gene: size sets it. The smallest bodies run at 1.6 and
@@ -318,7 +318,8 @@ seeds; a step from home it gives grazing animals no food, and too hot it needs
 twice the food itself. One step from home doesn't hurt a plant, but two steps
 cost it 20% of its health a turn and three 30%, rising steadily between one step
 and two while the weather turns. The plants spawned at the start are at home in
-their zone's usual temperature (an imported plant keeps its own). A seed that falls where it is the wrong
+their zone's usual temperature (an imported plant keeps its own). A seed lies in the ground 10 turns
+before it can sprout. One that falls where it is the wrong
 temperature waits there, and sprouts when its cell is nearer its temperature than any other and
 has room, for up to three quarters of a year; after that it dies. Grass grows
 only where it is medium right now, so in a winter it grows on the equator and
@@ -422,7 +423,7 @@ its last bite or not. Uprooting feeds it twice a bite's meal and costs the plant
 45 health, three bites at once, which often kills it; an armed plant still
 strikes back. The hunger, the meal and the damage are advanced rules (the Food
 group). Plants spread by seed: each turn a well-fed plant has a 3%
-to 10% chance, by its fertility, of sprouting a seedling of its own kind, with
+to 10% chance, by its fertility, of sowing a seed of its own kind, with
 the usual chance of mutation, on a free cell up to five cells away. Seeding
 costs it 20 hunger. A seed doesn't take where more than three plants already
 grow within two cells. There is no limit on the number of plants, but they
@@ -479,8 +480,13 @@ Each parent pays 10 to 25% of its stomach to breed, less the more fertile it is.
 only breed, or court, when both partners can afford it and still have at least
 10 hunger to spare afterwards, so nothing breeds itself to death. The litter
 shares exactly the energy its parents gave, so a large parent gives more food
-than a small one, and the same food fills a small newborn more. Each newborn needs a free
-neighbouring cell, and if a population cap is set, the world holds at most that
+than a small one, and the same food fills a small newborn more. Breeding starts a
+gestation: the parent that chose to breed conceives the litter at once, and
+carries it for 10 turns if it is the smallest body, up to 50 for the largest,
+evenly between; it can't breed again until it has given birth, and if it dies
+first, its young die with it. The young's genes, minds and brains are fixed at
+mating. At birth, each newborn needs a free cell within two cells of its mother,
+nearest first; those with no room are lost, and if a population cap is set, the world holds at most that
 many living animals (plants don't count toward it). Crowding also
 limits breeding: for each other animal within four cells of a would-be parent,
 besides its partner, its litter shrinks by a tenth, and with ten or more around,
