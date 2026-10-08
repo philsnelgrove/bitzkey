@@ -35,9 +35,11 @@ CROWDING_LIMIT = 10    # litters shrink as crowding nears this; at it, an animal
 SPAWN_GROUP = (3, 5)  # Bitzkeys spawn in groups of this many sharing one genome
 MAX_IMPORTED = MAX_POPULATION // SPAWN_GROUP[1]  # imported Bitzkeys, so their groups fit that number
 SPAWN_SPREAD = 2      # a group's members appear within this many cells of each other's centre
-# The history is written to disk, not kept in memory: a snapshot of the world every SNAPSHOT_SPACING
-# turns, each a file in a folder of the world's own among the temporary files, deleted when the world
-# is closed. A turn between snapshots is rebuilt by replaying from the one before.
+# The history is written to disk: a snapshot of the world every SNAPSHOT_SPACING turns, each a file in a
+# folder of the world's own among the temporary files, deleted when the world is closed. The turns since
+# the latest of them are each kept whole in memory as well, so the newest are reached at once, until the
+# next snapshot is written and they are let go. An older turn between snapshots is rebuilt by
+# replaying from the one before.
 SNAPSHOT_SPACING = 16
 DENSE_HISTORY = 500   # the latest turns keep every snapshot
 CHECKPOINTS = 200     # older turns are kept as at most this many evenly spaced snapshots
@@ -625,6 +627,7 @@ class Simulation:
         self.history_folder = Path(tempfile.mkdtemp(prefix=HISTORY_PREFIX))
         self._snapshot_bytes = 0  # the size of the latest snapshot written
         self._close_history = weakref.finalize(self, shutil.rmtree, self.history_folder, ignore_errors=True)
+        self.recent: list[dict] = []  # each turn since the latest snapshot on the disk, whole, in memory
         self.frontier = 0  # the latest turn simulated; seeking never goes past it
         self._checkpoint_stride = 1
         self._take_census()
@@ -739,6 +742,7 @@ class Simulation:
         """Delete the history's files. The world can't be rewound after; it is closed when left."""
         self._close_history()
         self.history = []
+        self.recent = []
 
     def _history_room(self) -> tuple[int, int]:
         """How many recent snapshots to keep, and how many older checkpoints: enough recent ones to
@@ -753,14 +757,13 @@ class Simulation:
         ones: turns before the recent window stay only on the checkpoint spacing, which doubles
         while there are too many of them."""
         self.frontier = self.turn
-        if self.turn % SNAPSHOT_SPACING:
-            return  # between snapshots: seeking rebuilds this turn by replaying from the one before
+        if self.turn % SNAPSHOT_SPACING:  # between snapshots on the disk: a whole copy in memory
+            self.recent.append({"turn": self.turn, "state": self._state(copy=True)})
+            return
+        self.recent = []  # the disk now covers them
         path = self.history_folder / f"turn-{self.turn:08d}.pickle"
-        snapshot = {"turn": self.turn, "deaths": self.deaths, "next_identifier": self.next_identifier,
-                    "agents": self.agents, "grass": self.grass, "seeds": self.seeds,
-                    "random_state": self.random.getstate(), "insights": self.insights.snapshot()}
         with path.open("wb") as file:
-            pickle.dump(snapshot, file, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump(self._state(copy=False), file, protocol=pickle.HIGHEST_PROTOCOL)
         self._snapshot_bytes = path.stat().st_size
         self.history.append({"turn": self.turn, "path": path})
         dense, checkpoints = self._history_room()
@@ -776,15 +779,28 @@ class Simulation:
                 break
             self._checkpoint_stride *= 2
 
+    def _state(self, copy: bool) -> dict:
+        """The world now, as a snapshot holds it; copied, for one kept in memory while it carries on."""
+        return {"turn": self.turn, "deaths": self.deaths, "next_identifier": self.next_identifier,
+                "agents": [agent.copy() for agent in self.agents] if copy else self.agents,
+                "grass": self.grass.copy() if copy else self.grass, "seeds": list(self.seeds),
+                "random_state": self.random.getstate(), "insights": self.insights.snapshot()}
+
     def _restore(self, entry: dict) -> None:
-        with entry["path"].open("rb") as file:
-            snapshot = pickle.load(file)
+        """Bring back a snapshot: one in memory as a copy, so it stays as it was; one on the disk read."""
+        if "state" in entry:
+            snapshot = entry["state"]
+            agents, grass = [agent.copy() for agent in snapshot["agents"]], snapshot["grass"].copy()
+        else:
+            with entry["path"].open("rb") as file:
+                snapshot = pickle.load(file)
+            agents, grass = snapshot["agents"], snapshot["grass"]
         self.turn = snapshot["turn"]
         self.deaths = snapshot["deaths"]
         self.next_identifier = snapshot["next_identifier"]
-        self.agents = snapshot["agents"]
-        self.grass = snapshot["grass"]
-        self.seeds = snapshot["seeds"]
+        self.agents = agents
+        self.grass = grass
+        self.seeds = list(snapshot["seeds"])
         self.random.setstate(snapshot["random_state"])
         self.insights.restore(snapshot["insights"])
         self._update_climate()
@@ -792,7 +808,10 @@ class Simulation:
 
     def _start_for(self, target: int) -> tuple[dict | None, int]:
         """Where seeking `target` would start (a snapshot to restore, or None to carry on from the
-        present) and how many turns must then be replayed."""
+        present) and how many turns must then be replayed: none for a turn kept in memory."""
+        held = next((entry for entry in self.recent if entry["turn"] == target), None)
+        if held is not None:
+            return (None, 0) if self.turn == target else (held, 0)
         snapshot = self.history[bisect.bisect_right(self.history, target, key=_turn_of) - 1]
         if snapshot["turn"] <= self.turn <= target:
             return None, target - self.turn

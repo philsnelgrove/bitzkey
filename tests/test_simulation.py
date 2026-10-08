@@ -565,6 +565,33 @@ class SimulationTests(unittest.TestCase):
             simulation.close()
             self.assertFalse(folder.exists())
 
+    def test_the_turns_since_the_latest_disk_snapshot_are_in_memory_and_reached_at_once(self):
+        with patch("tools.Simulation.CLIMATE_DAMAGE", 0):  # a world that lasts
+            simulation = Simulation(width=20, height=20, population=30, seed=4)
+
+            def state():
+                return ([(agent.identifier, agent.x, agent.y, agent.hunger, agent.health,
+                          agent.brain and agent.brain.copy()) for agent in simulation.agents],
+                        dict(simulation.grass), simulation.random.getstate())
+
+            recorded = {}
+            for turn in range(1, 21):
+                simulation.advance()
+                recorded[turn] = state()
+            self.assertEqual([entry["turn"] for entry in simulation.recent], [17, 18, 19, 20])  # 16 is on the disk
+            with patch.object(Simulation, "_take_turn", side_effect=AssertionError("replayed")):
+                for target in (18, 20, 17, 19, 18):  # every one at once, with no replaying
+                    self.assertEqual(simulation.replay_cost(target), 0)
+                    simulation.seek(target)
+                    self.assertEqual(state(), recorded[target], f"turn {target}")
+            simulation.seek(5)  # older turns still replay from the disk
+            self.assertEqual(state(), recorded[5])
+            simulation.seek(20)
+            for _ in range(12):
+                simulation.advance()
+            self.assertEqual(simulation.recent, [])  # turn 32's snapshot on the disk let them go
+            self.assertEqual([entry["turn"] for entry in simulation.history], [0, 16, 32])
+
     def test_a_history_left_behind_is_cleared_away_once_stale(self):
         import os
         import time

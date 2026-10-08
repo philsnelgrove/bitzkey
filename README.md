@@ -172,8 +172,11 @@ apart as the run grows. The history keeps to a disk budget of 10 GB: when the
 world is crowded and each snapshot is large (a crowded world's can be 100 MB),
 fewer checkpoints are kept. The folder is deleted when you leave the world,
 restart it or quit; one left behind by a crash is cleared away the next time
-Bitzkey starts, once it is a day old. Reaching a turn restores the snapshot
-before it and replays forward, at most 15 turns from a recent one. The
+Bitzkey starts, once it is a day old. The turns since the latest snapshot on the
+disk (up to 15) are also each kept whole in memory, so stepping back and forth
+among the newest turns is instant; once the next snapshot is written, they are
+let go. Reaching an older turn restores the snapshot before it from the disk and
+replays forward, at most 15 turns. The
 simulation is deterministic, so the replay repeats the recorded run exactly.
 Stepping or playing forward from the past replays the recorded future.
 
