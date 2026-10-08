@@ -357,6 +357,7 @@ class Bitzkey:
     herd_assailant: int | None = None  # what struck a herd-mate close by, from alongside it: it may defend against it
     meat: float = 0.0  # a corpse's meat left for scavengers
     rot: float = 0.0   # meat lost to rot each turn
+    trail: list[tuple[int, int]] = field(default_factory=list)  # the cells it passed through this turn, for the map
     # Current temperament: starts at the inborn values and is reshaped by experience.
     mind: dict[str, float] = field(default_factory=dict)
     # The last decision, kept until the next one so the brain can learn from how it turned out.
@@ -531,7 +532,8 @@ class Bitzkey:
         return color_from_word(body_word(self.dna))
 
     def copy(self) -> Bitzkey:
-        return replace(self, brain=self.brain.copy() if self.brain else None, mind=self.mind.copy())
+        return replace(self, brain=self.brain.copy() if self.brain else None, mind=self.mind.copy(),
+                       trail=list(self.trail))
 
 
 def litter_size(parents: Sequence[tuple[int, int]], species: str = "") -> int:
@@ -877,6 +879,7 @@ class Simulation:
         self._update_climate()
         self._index_cells()
         for agent in self.agents:  # a body some cost starved, its death not yet recorded: recorded now
+            agent.trail.clear()  # last turn's way is forgotten
             if agent.died_turn is None and not agent.alive:
                 self._die(agent, "starved" if agent.hunger >= 100 else "killed")
         order = self.living
@@ -1680,6 +1683,16 @@ class Simulation:
         return max(0, min(self.height - 1, y))
 
     def _move(self, agent: Bitzkey, x: int, y: int) -> None:
+        # Each cell left behind on the way, the shorter way round east or west; a move goes straight
+        # or diagonally, so every cell on the way is a whole one.
+        dx, dy = x - agent.x, y - agent.y
+        if dx > self.width // 2:
+            dx -= self.width
+        elif dx < -(self.width // 2):
+            dx += self.width
+        cells = max(abs(dx), abs(dy))
+        agent.trail.extend(((agent.x + dx * step // cells) % self.width, agent.y + dy * step // cells)
+                           for step in range(cells))
         self._cells[(agent.x, agent.y)].remove(agent)
         agent.x, agent.y = x, y
         self._cells.setdefault((x, y), []).append(agent)

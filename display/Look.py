@@ -52,6 +52,14 @@ def outline_offsets(width: int) -> list[tuple[int, int]]:
                    for step in range(16)})
 
 
+def bitzkey_layer(dna: int, radius: int, ring_width: int = RING_WIDTH, alive: bool = True) -> pg.Surface:
+    """A Bitzkey drawn alone, centred on a clear square, to be blitted as faintly as wanted."""
+    reach = radius + ring_width + 1
+    layer = pg.Surface((2 * reach + 1, 2 * reach + 1), pg.SRCALPHA)
+    draw_bitzkey(layer, dna, (reach, reach), radius, ring_width, alive)
+    return layer
+
+
 def draw_bitzkey(surface: pg.Surface, dna: int, point: tuple[int, int], radius: int,
                  ring_width: int = RING_WIDTH, alive: bool = True, opacity: float = 1.0) -> None:
     """The dot inside its ring. A dot big enough to hold its species' icon is black, with the icon
@@ -61,10 +69,9 @@ def draw_bitzkey(surface: pg.Surface, dna: int, point: tuple[int, int], radius: 
     if opacity <= 0:
         return
     if opacity < 1:
-        reach = radius + ring_width + 1
-        layer = pg.Surface((2 * reach + 1, 2 * reach + 1), pg.SRCALPHA)
-        draw_bitzkey(layer, dna, (reach, reach), radius, ring_width, alive)
+        layer = bitzkey_layer(dna, radius, ring_width, alive)
         layer.set_alpha(round(255 * opacity))
+        reach = layer.get_width() // 2
         surface.blit(layer, (point[0] - reach, point[1] - reach))
         return
     dot, ring, outline = color_from_word(mind_word(dna)), color_from_word(body_word(dna)), OUTLINE

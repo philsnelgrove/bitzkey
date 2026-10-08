@@ -1304,6 +1304,22 @@ class NewTraitTests(unittest.TestCase):
                         if simulation.ended:
                             break
 
+    def test_a_move_leaves_a_trail_of_the_cells_it_passed_through_that_lasts_the_turn(self):
+        simulation = Simulation(width=30, height=30, population=0, seed=3)
+        grazer = simulation._add_agent(encode_dna("grazer", speed=7), 10, 10)  # six cells a step
+        simulation._index_cells()
+        simulation._move(grazer, 16, 10)
+        self.assertEqual(grazer.trail, [(10, 10), (11, 10), (12, 10), (13, 10), (14, 10), (15, 10)])
+        simulation._move(grazer, 17, 11)
+        self.assertEqual(grazer.trail[-1], (16, 10))
+        grazer.trail.clear()
+        simulation._move(grazer, 1, 11)  # the short way round, east across the edge
+        self.assertEqual(grazer.trail, [(x % 30, 11) for x in range(17, 31)])
+        copied = grazer.copy()
+        simulation.advance()  # a new turn forgets the last one's way
+        self.assertNotIn((17, 11), grazer.trail)
+        self.assertEqual(copied.trail[0], (17, 11))  # though a copy, as history holds, keeps its own
+
     def test_starving_is_recorded_and_its_body_handled_however_it_comes(self):
         simulation = Simulation(width=30, height=30, population=0, seed=3)
         grazer = simulation._add_agent(encode_dna("grazer", intellect=7, empathy=7), 10, 10)

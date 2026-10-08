@@ -514,7 +514,10 @@ plant that spends the last of its food on a seed dies of it ("seeded to death").
 Each is a death like any other: counted, learnt from by its brain and seen by
 its herd. Should any other cost ever starve a body without its death being
 recorded, it is recorded as "starved" at the start of the next turn, so no
-body lingers uncounted. A dead Bitzkey is dimmed and crossed through in red, and fades
+body lingers uncounted. A Bitzkey that moved this turn leaves a trail: its
+picture at half strength on each cell it passed through on the way, back to
+where it set off (the shorter way round east or west). The trail lasts only
+until the next turn. A dead Bitzkey is dimmed and crossed through in red, and fades
 away as its corpse decays, vanishing when the corpse is gone. A dot big enough
 to hold an icon (3px or more) is black, carrying its species' icon in the dot's
 colour with a thin light grey outline: a tree for plants, a leaf for grazers, an apple for omnivores and a

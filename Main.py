@@ -12,8 +12,8 @@ from config.Globals import Config
 from display import Window
 from display.Dialog import Dialog
 from display.Inspector import draw_details
-from display.Look import (DOT_RADIUS_RANGE, EXPORTING, GRASS, GRID, RING_WIDTH, SELECTED, dot_radius, draw_bitzkey,
-                          zone_colour)
+from display.Look import (DOT_RADIUS_RANGE, EXPORTING, GRASS, GRID, RING_WIDTH, SELECTED, bitzkey_layer, dot_radius,
+                          draw_bitzkey, zone_colour)
 from display.Setup import EXPORT_DIR, SetupScreen
 from display.Ui import UI
 from tools.Brain import ACTIONS
@@ -30,6 +30,7 @@ REPORT_DIR = Config.APP_DIR / "reports"
 INSIGHTS_TOP = 290  # the insights panel's top, in design pixels: just below the population counts
 MAP_ZOOM_STEP = 1.25  # each wheel notch zooms the map in (or out) by this much
 MAP_ZOOM_MAX = 12.0   # the closest the map zooms in, times its whole-map size
+TRAIL_OPACITY = 0.5   # how faintly a Bitzkey shows on each cell it passed through this turn
 
 
 class BitzkeyApp:
@@ -514,6 +515,17 @@ class BitzkeyApp:
                 continue
             pg.draw.circle(self.screen, GRASS, point, max(1, round(min(cell_width, cell_height) * 0.18)))
         largest = max(DOT_RADIUS_RANGE[1], round(min(cell_width, cell_height) * 0.45))
+        for agent in self.simulation.agents:  # the way each came this turn, faint, beneath them all
+            layer = None
+            for x, y in agent.trail:
+                point = (round(board.left + (x + 0.5) * cell_width), round(board.top + (y + 0.5) * cell_height))
+                if (x, y) == (agent.x, agent.y) or not reach.collidepoint(point):
+                    continue
+                if layer is None:
+                    layer = bitzkey_layer(agent.dna, self._dot_radius(agent, largest), alive=agent.alive)
+                    layer.set_alpha(round(255 * TRAIL_OPACITY))
+                half = layer.get_width() // 2
+                self.screen.blit(layer, (point[0] - half, point[1] - half))
         for agent in self.simulation.agents:
             point = (round(board.left + (agent.x + 0.5) * cell_width),
                      round(board.top + (agent.y + 0.5) * cell_height))
