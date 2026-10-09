@@ -153,7 +153,6 @@ SHARED_DIET = 0.5      # how much an animal of another species eating some of th
 # grazers against omnivores), so a scarce prey is left alone to recover.
 SWITCH_SHARE = 0.25
 STRIKE_EFFORT = 0.2    # food burned for each point of damage a blow deals
-PREDATOR_LITTERS = 0.5  # predators' litters are this share of the usual size, rounded up
 STRIKE_FORCE = 3.5     # scales every blow: the best-armed, mightiest predator kills the largest, best-armoured grazer in three
 PREDATOR_WEAPONS = 3.0  # a predator's natural weapons count this many times over, striking and stinging
 GRAZER_DEFENCE_STRENGTH = 5  # a grazer can strike back only with strength above this
@@ -617,7 +616,7 @@ class Bitzkey:
                              for dna, mind, brain, energy, generation in self.womb])
 
 
-def litter_size(parents: Sequence[tuple[int, int]], species: str = "") -> int:
+def litter_size(parents: Sequence[tuple[int, int]]) -> int:
     """Young per birth, before space limits it, from each parent's (litter trait, size): a high
     litter trait and a small body both make for bigger litters, and the smallest bodies have
     SMALL_LITTERS times as many, falling evenly to the usual for the largest. Predators have half
@@ -628,7 +627,7 @@ def litter_size(parents: Sequence[tuple[int, int]], species: str = "") -> int:
     litter = smallest + int(tendency * (largest - smallest) + 0.5)
     small = 1 - sum(share(size) for _, size in parents) / len(parents)
     litter = int(litter * (1 + (SMALL_LITTERS - 1) * small) + 0.5)
-    return math.ceil(litter * PREDATOR_LITTERS) if species == "predator" else litter
+    return litter
 
 
 def remove_stale_histories() -> None:
@@ -1688,8 +1687,7 @@ class Simulation:
         afford it, but a parent can only give what it has left. Each child inherits a mix of its
         parents' brains, and starts its temperament at the average of its parents' current
         temperaments, which its dot then shows."""
-        litter = litter_size([(int(parent.body["litter"]), int(parent.body["size"])) for parent in (first, second)],
-                             first.species)
+        litter = litter_size([(int(parent.body["litter"]), int(parent.body["size"])) for parent in (first, second)])
         litter = max(1, int(litter * (1 - self._crowding(first, second) / CROWDING_LIMIT) + 0.5))
         litter = max(1, int(litter * min(1.0, self._food_supply(first) / (2 * FOOD_NEEDED)) + 0.5))
         litter = max(1, min(litter, self._room()))

@@ -277,7 +277,7 @@ class Designer:
                      f"Lives about {sample.lifespan:.0f} turns."]
         else:
             fertility = sample.physique("fertility")
-            litter = litter_size([(int(body["litter"]), int(body["size"]))] * 2, species)
+            litter = litter_size([(int(body["litter"]), int(body["size"]))] * 2)
             facts = [f"A {species}.  Health {sample.max_health:.0f}.  Metabolism {sample.metabolism:.2f}.",
                      f"Stomach {sample.stomach:.2f}.  Burns {sample.burn:.2f} hunger a turn.",
                      f"Moves {sample.steps} cell{'s' if sample.steps != 1 else ''} a step.  Sees {sample.sight} cells.",

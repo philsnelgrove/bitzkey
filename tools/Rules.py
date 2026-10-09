@@ -81,8 +81,6 @@ _TABLE: dict[str, list[tuple]] = {
         ("LITTER_RANGE.1", "Largest litter", "most young per birth, while there is room", 1, 20, 1),
         ("LITTER_SIZE_WEIGHT", "Small-body litters", "share of litter size from small bodies; the rest from the trait",
          0.0, 1.0, 0.05),
-        ("PREDATOR_LITTERS", "Predator litters", "predators' litters are this share of the usual, rounded up",
-         0.05, 2.0, 0.05),
         ("SMALL_LITTERS", "Small-body litter boost",
          "the smallest bodies' litters are this many times the usual, falling to the usual for the largest", 1.0, 4.0, 0.25),
         ("GESTATION.0", "Shortest gestation", "turns the smallest animals carry their young", 1, 500, 1),

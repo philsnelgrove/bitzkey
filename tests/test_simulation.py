@@ -730,11 +730,6 @@ class NewTraitTests(unittest.TestCase):
             self.assertEqual(litter_size([(7, 0)] * 2), 6)
         self.assertEqual(litter_size([(4, 3)] * 2), round(4 * (1 + 4 / 7)))  # a middling body, part way
         self.assertEqual(litter_size([(7, 0), (0, 7)]), litter_size([(3, 3)] * 2))  # parents average out
-        # predators have half the litters, rounded up
-        self.assertEqual([litter_size([(7, 0)] * 2, species) for species in ("grazer", "omnivore", "predator")],
-                         [12, 12, 6])
-        self.assertEqual(litter_size([(0, 7)] * 2, "predator"), 1)
-        self.assertEqual(litter_size([(4, 3)] * 2, "predator"), math.ceil(litter_size([(4, 3)] * 2) / 2))
 
     def test_a_struck_animal_can_defend_against_its_assailant_alongside(self):
         grazer = self.simulation._add_agent(encode_dna("grazer", size=7, strength=7), 5, 5)
