@@ -41,12 +41,15 @@ class Dialog:
 
     def _layout(self, size: tuple[int, int]) -> dict:
         width, height = size
-        panel = pg.Rect(0, 0, UI(560), UI(150 + 24 * len(self.lines)))
+        widths = [max(UI(110), UI.font("segoeui", 13, bold=True).size(label)[0] + UI(32)) for _, label in self.buttons]
+        lines = [UI.font("segoeui", 15).size(line)[0] for line in self.lines] + [
+            UI.font("segoeui", 22, bold=True).size(self.title)[0]]
+        needed = max(sum(widths) + UI(10) * (len(widths) - 1), max(lines)) + UI(48)  # its widest line, or its buttons
+        panel = pg.Rect(0, 0, min(width - UI(40), max(UI(560), needed)), UI(150 + 24 * len(self.lines)))
         panel.center = (width // 2, height // 2)
         buttons = {}
         right = panel.right - UI(24)
-        for choice, label in reversed(self.buttons):
-            button_width = max(UI(110), UI.font("segoeui", 13, bold=True).size(label)[0] + UI(32))
+        for (choice, _), button_width in zip(reversed(self.buttons), reversed(widths)):
             buttons[choice] = pg.Rect(right - button_width, panel.bottom - UI(64), button_width, UI(40))
             right -= button_width + UI(10)
         return {"panel": panel, "buttons": buttons}
