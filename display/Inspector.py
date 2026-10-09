@@ -72,7 +72,7 @@ def draw_details(screen: pg.Surface, agent: Bitzkey, x: int, at: Callable[[float
     _text(screen, f"RING / BODY  {body_word(agent.dna):08X}", (x, at(47)), (211, 219, 201), mono)
 
     body_x = x + min(UI(168), width // 2 + UI(18))
-    _text(screen, "MIND      born   now" if known else "MIND      born", (x, at(74)), (149, 170, 150), small)
+    _text(screen, "MIND      born   now" if known else "MIND      born", (x, at(74)), (149, 170, 150), mono_small)
     _text(screen, "BODY", (body_x, at(74)), (149, 170, 150), small)
     for index, trait in enumerate(MIND_TRAITS):
         born, now = agent.inborn[trait], agent.mind[trait]
