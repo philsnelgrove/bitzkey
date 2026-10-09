@@ -249,3 +249,58 @@ def _mean(samples: list[dict[str, float]], action: str) -> float:
 
 def _join(ranked: list[tuple[float, str, int]]) -> str:
     return ", ".join(f"{label} {share:.0%} (n={size})" for share, label, size in ranked)
+
+
+# The two reports a viewer can open: every death so far by cause and species, and one animal's brain probed
+# with the standard situations. Each is laid out as lines of text in a fixed-width font.
+
+SPECIES_ORDER = ("plant", "grazer", "omnivore", "predator")
+SHORT_ACTIONS = {"eat": "eat", "forage": "forage", "browse": "browse", "uproot": "uproot", "scavenge": "scaven",
+                 "feast": "feast", "rest": "rest", "court": "court", "breed": "breed", "hunt": "hunt",
+                 "attack": "attack", "defend": "defend", "flee": "flee", "herd": "herd", "go_north": "go N",
+                 "go_south": "go S", "go_east": "go E", "go_west": "go W", "walk_north": "walk N",
+                 "walk_south": "walk S", "walk_east": "walk E", "walk_west": "walk W"}
+CELL = 7  # characters to a column of figures
+SITUATION = 42  # characters to the situations' column
+
+
+def death_report_lines(death_causes: Mapping[str, Mapping[str, int]]) -> list[str]:
+    """Every death so far: a row for each cause, the most common first, a column for each species, and the totals."""
+    causes: dict[str, int] = {}
+    for counts in death_causes.values():
+        for cause, count in counts.items():
+            causes[cause] = causes.get(cause, 0) + count
+    lines = [f"{'CAUSE':<18}" + "".join(f"{species.upper():>10}" for species in SPECIES_ORDER) + f"{'ALL':>10}"]
+    for cause, total in sorted(causes.items(), key=lambda item: (-item[1], item[0])):
+        lines.append(f"{cause:<18}" + "".join(f"{death_causes.get(species, {}).get(cause, 0):>10}" for species in SPECIES_ORDER)
+                     + f"{total:>10}")
+    totals = [sum(death_causes.get(species, {}).values()) for species in SPECIES_ORDER]
+    lines.append(f"{'ALL':<18}" + "".join(f"{total:>10}" for total in totals) + f"{sum(totals):>10}")
+    return lines
+
+
+def brain_matrix(animal: Bitzkey) -> list[tuple[str, dict[str, float]]]:
+    """The animal's chance of choosing each action open to it, in each standard situation its species can meet,
+    with its own temperament."""
+    rows = []
+    for title, situation, actions, species_list in SCENARIOS:
+        if animal.species not in species_list:
+            continue
+        senses = make_senses(**situation, **{trait: animal.feeling(trait) for trait in MIND_TRAITS}, **animal.genes)
+        odds = choice_odds(animal.brain.values(senses), [ACTIONS.index(action) for action in actions])
+        rows.append((title, {ACTIONS[option]: chance for option, chance in odds.items()}))
+    return rows
+
+
+def brain_matrix_lines(animal: Bitzkey) -> list[str]:
+    """The brain matrix as a table: a row for each situation, a column for each action any of them offers, the
+    likeliest choice in each row marked; an action not open in a situation shows a dot."""
+    rows = brain_matrix(animal)
+    used = [action for action in ACTIONS if any(action in chances for _, chances in rows)]
+    lines = [f"{'SITUATION':<{SITUATION}}" + "".join(f"{SHORT_ACTIONS[action]:>{CELL}}" for action in used)]
+    for title, chances in rows:
+        best = max(chances, key=chances.get)
+        cells = "".join((f"{chances[action]:.0%}" + ("*" if action == best else " ")).rjust(CELL) if action in chances
+                        else "· ".rjust(CELL) for action in used)
+        lines.append(f"{title[:SITUATION - 1]:<{SITUATION}}" + cells)
+    return lines

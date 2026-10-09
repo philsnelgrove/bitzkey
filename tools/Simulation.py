@@ -693,6 +693,7 @@ class Simulation:
         self.lineage: dict[int, int] = {}
         self.turn = 0
         self.deaths = 0
+        self.death_causes: dict[str, dict[str, int]] = {}  # every death so far, by species and then cause
         self.next_identifier = 0
         self.agents: list[Bitzkey] = []
         self._cells: dict[tuple[int, int], list[Bitzkey]] = {}
@@ -866,6 +867,7 @@ class Simulation:
         size = sum(AGENT_BYTES + agent.brain_bytes for agent in agents)
         self.history.append({"turn": self.turn, "bytes": size, "state": {
             "turn": self.turn, "deaths": self.deaths, "next_identifier": self.next_identifier, "agents": agents,
+            "death_causes": {species: dict(causes) for species, causes in self.death_causes.items()},
             "grass": self.grass.copy(), "seeds": list(self.seeds), "random_state": self.random.getstate(),
             "insights": self.insights.snapshot()}})
         self._history_bytes += size
@@ -879,6 +881,7 @@ class Simulation:
         snapshot = entry["state"]
         self.turn = snapshot["turn"]
         self.deaths = snapshot["deaths"]
+        self.death_causes = {species: dict(causes) for species, causes in snapshot["death_causes"].items()}
         self.next_identifier = snapshot["next_identifier"]
         self.agents = [agent.copy() for agent in snapshot["agents"]]
         self.grass = snapshot["grass"].copy()
@@ -1403,6 +1406,8 @@ class Simulation:
         if agent.species != "plant":
             self._kills.setdefault((agent.x, agent.y), []).append(agent)
         self.deaths += 1
+        causes = self.death_causes.setdefault(agent.species, {})
+        causes[cause] = causes.get(cause, 0) + 1
         if agent.species == "plant":
             self._plants -= 1
         else:

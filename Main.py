@@ -11,6 +11,7 @@ import pygame as pg
 from config.Globals import Config
 from display import Window
 from display.Dialog import Dialog
+from display.Report import Report
 from display.Inspector import draw_details
 from display.Look import (DOT_RADIUS_RANGE, EXPORTING, GRASS, GRID, RING_WIDTH, bitzkey_layer, dot_radius, draw_reticle, map_dot_radii,
                           draw_bitzkey, zone_colour)
@@ -22,7 +23,7 @@ from display.ColourGraph import ColourGraph
 from tools.Exchange import Imported, bitzkey_record, export_bitzkeys, format_records
 from tools.Genome import genome_record
 from tools.Genome import MIND_TRAITS, decode_climate
-from tools.Insights import ANIMALS, brain_report
+from tools.Insights import ANIMALS, brain_matrix_lines, brain_report, death_report_lines
 from tools import Catalog, Rules
 from tools import Simulation as world
 from tools.Simulation import SEASONS, SPECIES, Bitzkey, Simulation, season, year
@@ -140,6 +141,9 @@ class BitzkeyApp:
         self._insights_height = 0
         self._scroll_grip: int | None = None
         self.dialog: Dialog | None = None
+        self.report: Report | None = None  # the death report or a brain inspected, while open
+        self._deaths_button: pg.Rect | None = None  # on the insights panel
+        self._brains_button: pg.Rect | None = None  # beneath the selected Bitzkey's details
         self._dialog_kind = ""
         self._add_button: pg.Rect | None = None
         self._catalog_button: pg.Rect | None = None
@@ -190,6 +194,9 @@ class BitzkeyApp:
                     return "quit"
                 if event.type == pg.VIDEORESIZE:
                     self.screen = Window.resize(event)
+                elif self.report:
+                    if self.report.handle(event, self.screen.get_size()):
+                        self.report = None
                 elif self.dialog:
                     dialog = self.dialog
                     choice = dialog.handle(event, self.screen.get_size())
@@ -286,7 +293,7 @@ class BitzkeyApp:
     def _tick(self) -> None:
         """While playing, advance a turn every 0.24 s, and stop to show the graph once the
         simulation has ended."""
-        if not self.playing or self.dialog:
+        if not self.playing or self.dialog or self.report:
             return
         if self.simulation.ended:
             self._finish()
@@ -347,7 +354,11 @@ class BitzkeyApp:
         if titled := [slot for slot, title in enumerate(self._exemplar_titles) if title.collidepoint(position)]:
             self._exemplar_menu = titled[0]
             return
-        if self._add_button and self._add_button.collidepoint(position):
+        if self._deaths_button and self._deaths_button.collidepoint(position):
+            self._open_death_report()
+        elif self._brains_button and self._brains_button.collidepoint(position):
+            self._inspect_brains()
+        elif self._add_button and self._add_button.collidepoint(position):
             self._toggle_export()
         elif self._catalog_button and self._catalog_button.collidepoint(position):
             self._catalog_selected()
@@ -676,6 +687,25 @@ class BitzkeyApp:
             self.graph.draw(self.screen, self.simulation, note)
         if self.dialog:
             self.dialog.draw(self.screen)
+        if self.report:
+            self.report.draw(self.screen)
+
+    def _open_death_report(self) -> None:
+        """Every death so far, by cause and species."""
+        total = self.simulation.deaths
+        self.report = Report("Death report", f"Every death in this world up to turn {self.simulation.turn}: {total} in all, "
+                             "by cause and species.", death_report_lines(self.simulation.death_causes))
+
+    def _inspect_brains(self) -> None:
+        """Pause, and show the selected Bitzkey's chance of choosing each action in each standard situation."""
+        agent = next((item for item in self.simulation.agents if item.identifier == self.selected_id), None)
+        if agent is None or agent.brain is None:
+            self._say("Only a living animal has a brain to inspect.")
+            return
+        self.playing = False
+        self.report = Report(f"Brains of #{agent.identifier:03d}, {agent.species}",
+                             "Its chance of choosing each action open to it, in each standard situation, with its temperament "
+                             "now. * marks the likeliest; · an action not open.", brain_matrix_lines(agent))
 
     def _draw_header(self) -> None:
         pg.draw.rect(self.screen, (27, 37, 37), (0, 0, self.screen.get_width(), UI(62)))
@@ -828,7 +858,7 @@ class BitzkeyApp:
             self._text(str(counts.get(species, 0)), (x + width - UI(32), y), (231, 236, 222), self.font)
 
         pg.draw.line(self.screen, (54, 68, 62), (x, UI(286)), (x + width, UI(286)), 1)
-        self._add_button = self._catalog_button = None
+        self._add_button = self._catalog_button = self._deaths_button = self._brains_button = None
         if self.show_insights:
             self._draw_insights(x, width)
             return
@@ -859,6 +889,11 @@ class BitzkeyApp:
         label = UI.font("segoeui", 13, bold=True).render("REMOVE FROM EXPORT" if chosen else "ADD TO EXPORT", True,
                                                          (238, 183, 110) if chosen else (220, 229, 211))
         self.screen.blit(label, label.get_rect(center=self._add_button.center))
+        if agent.brain is not None:  # a living animal: its brain can be inspected, beside the heading
+            self._brains_button = pg.Rect(x + width - UI(130), UI(299), UI(130), UI(26))
+            pg.draw.rect(self.screen, (44, 57, 52), self._brains_button, border_radius=UI(5))
+            label = UI.font("segoeui", 13, bold=True).render("INSPECT BRAINS", True, (220, 229, 211))
+            self.screen.blit(label, label.get_rect(center=self._brains_button.center))
 
     @staticmethod
     def _dot_radius(agent: Bitzkey, largest: int = DOT_RADIUS_RANGE[1], smallest: int = DOT_RADIUS_RANGE[0]) -> int:
@@ -948,6 +983,12 @@ class BitzkeyApp:
                 self._text(species[:4].upper(), (column, at(y + 46)), (149, 170, 150), self.small)
             return y + 66
 
+        button = pg.Rect(x + width - UI(130), at(INSIGHTS_TOP + 9), UI(130), UI(26))  # every death so far, opened
+        if view.colliderect(button):
+            self._deaths_button = button.clip(view)
+            pg.draw.rect(self.screen, (44, 57, 52), button, border_radius=UI(5))
+            label = UI.font("segoeui", 13, bold=True).render("DEATH REPORT", True, (220, 229, 211))
+            self.screen.blit(label, label.get_rect(center=button.center))
         y = heading("BEHAVIOUR", "% of chances taken, recent turns", INSIGHTS_TOP + 11)
         for action in ACTIONS:
             self._text(action.upper(), (x, at(y)), (149, 170, 150), self.small)

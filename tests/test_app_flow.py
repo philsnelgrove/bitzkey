@@ -173,6 +173,22 @@ class SimulationFlowTests(unittest.TestCase):
         self.assertIn("1 Bitzkey added to export.", self.app.dialog.lines)
         self.assertEqual([choice for choice, _ in self.app.dialog.buttons], ["clear", "cancel", "catalog", "copy", "save"])
 
+    def test_the_death_report_and_inspecting_brains_open_their_reports(self):
+        self.app.show_insights = True
+        self.app._draw()
+        self.app._click(self.app._deaths_button.center)
+        self.assertEqual(self.app.report.title, "Death report")
+        self.assertTrue(self.app.report.lines[0].startswith("CAUSE"))
+        self.app.report.handle(key(pg.K_ESCAPE), self.app.screen.get_size())
+        self.app.report = None
+        self.app.show_insights = False
+        self.app.playing = True
+        self.app._draw()
+        self.app._click(self.app._brains_button.center)
+        self.assertFalse(self.app.playing)  # paused to look
+        self.assertTrue(self.app.report.title.startswith("Brains of #"))
+        self.assertTrue(self.app.report.lines[0].startswith("SITUATION"))
+
     def test_escape_then_leave_returns_to_the_configuration_panel(self):
         for event in (key(pg.K_ESCAPE), key(pg.K_RETURN)):
             pg.event.post(event)

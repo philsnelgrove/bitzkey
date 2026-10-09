@@ -1321,6 +1321,33 @@ class NewTraitTests(unittest.TestCase):
             hunts += predator.last_action in ("hunted", "pounced")
         self.assertGreater(hunts, 30)  # an untrained brain, overwhelmingly drawn to the hunt
 
+    def test_deaths_are_counted_by_species_and_cause_and_rewound(self):
+        from tools.Insights import death_report_lines
+        world = Simulation(width=30, height=30, population=60, seed=4)
+        for _ in range(60):
+            world.advance()
+        counted = sum(sum(causes.values()) for causes in world.death_causes.values())
+        self.assertEqual(counted, world.deaths)
+        lines = death_report_lines(world.death_causes)
+        self.assertTrue(lines[-1].endswith(f"{world.deaths:>10}"))  # the total of totals
+        later = {species: dict(causes) for species, causes in world.death_causes.items()}
+        world.seek(world.turn - 20)
+        self.assertEqual(sum(sum(causes.values()) for causes in world.death_causes.values()), world.deaths)
+        while world.turn < world.frontier:
+            world.advance()
+        self.assertEqual(world.death_causes, later)  # replayed, not counted twice
+
+    def test_a_brain_matrix_shows_each_situation_its_species_meets(self):
+        from tools.Insights import SCENARIOS, brain_matrix, brain_matrix_lines
+        grazer = self.simulation._add_agent(encode_dna("grazer"), 5, 5)
+        rows = brain_matrix(grazer)
+        self.assertEqual(len(rows), sum("grazer" in species for *_, species in SCENARIOS))
+        for _, chances in rows:
+            self.assertAlmostEqual(sum(chances.values()), 1.0)
+        lines = brain_matrix_lines(grazer)
+        self.assertEqual(len(lines), len(rows) + 1)
+        self.assertNotIn("hunt", lines[0].split())  # a grazer never meets a chance to hunt
+
     def test_weak_grazers_cannot_strike_back(self):
         weak = self.simulation._add_agent(encode_dna("grazer", strength=5), 5, 5)
         strong = self.simulation._add_agent(encode_dna("grazer", strength=6), 9, 9)

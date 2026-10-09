@@ -764,6 +764,15 @@ sidebar, or drag the scroll bar on its right edge. It shows, by species:
   raised it above the inborn average and amber where it has lowered it.
 - Keenest by action: for every action, the trait group most likely to take it.
 
+DEATH REPORT, at the top of the insights panel, opens a table of every death in the world so far: a row
+for each cause, the most common first, a column for each species, and the totals. It keeps to the turn
+shown, so rewinding takes back the deaths after it.
+
+INSPECT BRAINS, beside the selected Bitzkey's heading, pauses the world and opens a matrix of the
+standard situations its species can meet (the same as the brain report's): in each, its chance of
+choosing every action open to it, with its temperament now. The likeliest in each row is marked with *,
+and an action not open there shows as a dot. Scroll either table with the wheel or the arrow keys.
+
 Press `B` to save a brain report to `reports/`. The report puts every living
 brain in the same standard situations, such as a fed animal with a willing mate
 beside it or a wounded animal beside a hunter, each with its own current
