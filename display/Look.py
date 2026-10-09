@@ -59,6 +59,21 @@ def outline_offsets(width: int) -> list[tuple[int, int]]:
                    for step in range(16)})
 
 
+def draw_reticle(surface: pg.Surface, point: tuple[int, int], radius: int) -> None:
+    """The ring round a selected Bitzkey, like a target's sights: a white ring inside a black one,
+    each two pixels, so it shows on light ground and dark, with a pip at north, east, south and west."""
+    x, y = point
+    pg.draw.circle(surface, (0, 0, 0), point, radius + 2, 2)
+    pg.draw.circle(surface, (255, 255, 255), point, radius, 2)
+    reach = radius + 2
+    length = max(3, radius // 2)
+    for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0)):
+        start = (x + dx * reach, y + dy * reach)
+        end = (x + dx * (reach + length), y + dy * (reach + length))
+        pg.draw.line(surface, (0, 0, 0), start, end, 4)
+        pg.draw.line(surface, (255, 255, 255), start, end, 2)
+
+
 def bitzkey_layer(dna: int, radius: int, ring_width: int = RING_WIDTH, alive: bool = True) -> pg.Surface:
     """A Bitzkey drawn alone, centred on a clear square, to be blitted as faintly as wanted."""
     reach = radius + ring_width + 1

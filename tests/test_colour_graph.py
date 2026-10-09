@@ -152,14 +152,17 @@ class TimeTravelTests(unittest.TestCase):
         self.assertEqual(self.click(pg.MOUSEBUTTONDOWN, self.chart.left + 1, self.chart.centery, button=3), "seek")
         self.assertEqual(self.graph.seek_turn, 0)
 
-    def test_the_wheel_zooms_around_the_cursor_and_back_out_to_the_whole_run(self):
+    def test_the_wheel_zooms_pinned_to_the_present_or_around_the_cursor_and_back_out_to_the_whole_run(self):
         x = self.graph.x_of(80)
-        self.graph.zoom(3, x)
+        self.graph.zoom(3, x)  # from the whole run: pinned to the latest turn, the living in view
         first, last = self.graph.window()
         self.assertLess(last - first + 1, 101)
-        self.assertLessEqual(first, 80)
-        self.assertGreaterEqual(last, 80)
-        self.assertAlmostEqual(self.graph.turn_at(x), 80, delta=1)
+        self.assertEqual(last, 100)
+        self.graph.pan(-3)  # back into the past: now the wheel zooms around the cursor
+        x = self.graph.x_of(self.graph.window()[0] + 5)
+        under = self.graph.turn_at(x)
+        self.graph.zoom(1, x)
+        self.assertAlmostEqual(self.graph.turn_at(x), under, delta=1)
 
         self.graph.zoom(40, x)
         self.assertEqual(self.graph.window()[1] - self.graph.window()[0] + 1, MIN_VIEW)
@@ -171,8 +174,10 @@ class TimeTravelTests(unittest.TestCase):
         self.graph.zoom(5, self.graph.x_of(50))
         first, last = self.graph.window()
 
+        self.graph.pan(-1)
+        self.assertLess(self.graph.window()[0], first)
         self.graph.pan(1)
-        self.assertGreater(self.graph.window()[0], first)
+        self.assertEqual(self.graph.window()[0], first)
         self.graph.pan(-1000)
         self.assertEqual(self.graph.window()[0], 0)
         self.assertEqual(self.graph.window()[1] - self.graph.window()[0], last - first)
@@ -196,6 +201,21 @@ class TimeTravelTests(unittest.TestCase):
 
 
 class SpeciesBandTests(unittest.TestCase):
+    def test_a_zoomed_view_reaching_the_latest_turn_keeps_up_with_it(self):
+        graph = ColourGraph()
+        graph._frontier = 400
+        graph.zoom(4, 10_000)  # zoomed in at the right-hand end
+        first, last = graph.window()
+        self.assertTrue(graph.pinned)
+        self.assertEqual(last, 400)
+        graph._frontier = 450  # the run goes on
+        self.assertEqual(graph.window(), (first + 50, 450))
+        graph.pan(-3)  # panned back into the past, it stays put
+        self.assertFalse(graph.pinned)
+        held = graph.window()
+        graph._frontier = 500
+        self.assertEqual(graph.window(), held)
+
     def test_bars_stack_by_species_and_the_dead_drop_out_of_the_selection(self):
         from tools.Genome import encode_dna
         simulation = Simulation(width=20, height=20, population=0, seed=1)

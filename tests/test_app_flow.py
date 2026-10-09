@@ -362,6 +362,35 @@ class CatalogFlowTests(unittest.TestCase):
         self.assertEqual([imported.dna for imported in settings["imported"]], [agent.dna for agent in chosen])
         self.assertEqual((settings["width"], settings["seed"]), (30, 1))
 
+    def test_a_selected_bitzkey_that_dies_is_let_go_and_the_sidebar_returns_to_neutral(self):
+        chosen = self.animals[0]
+        self.app._select(chosen.identifier)
+        chosen.health = 0
+        self.app.simulation._die(chosen, "killed")
+        self.app._draw()
+        self.assertIsNone(self.app.selected_id)
+        self.assertEqual(self.app.graph.selection, set())  # nothing left to speak of as picked
+
+    def test_on_the_map_a_click_picks_ctrl_adds_or_removes_a_marquee_picks_many_and_empty_ground_deselects(self):
+        board, cell, _ = self.app._board_geometry()
+        def at(agent):
+            return round(board.left + (agent.x + 0.5) * cell), round(board.top + (agent.y + 0.5) * cell)
+        first, second = self.animals[0], next(a for a in self.animals[1:] if (a.x, a.y) != (self.animals[0].x, self.animals[0].y))
+        self.app._pick_on_map(at(first), at(first), False)
+        self.assertEqual((self.app.selected_id, self.app.graph.selection), (first.identifier, {first.identifier}))
+        self.app._pick_on_map(at(second), at(second), True)  # CTRL: added
+        self.assertEqual((self.app.selected_id, self.app.graph.selection), (None, {first.identifier, second.identifier}))
+        self.app._pick_on_map(at(first), at(first), True)  # CTRL again: taken out
+        self.assertEqual((self.app.selected_id, self.app.graph.selection), (second.identifier, {second.identifier}))
+        empty = (board.left + 1, board.top + 1)
+        while self.app._living_at(empty) is not None:
+            empty = (empty[0] + 7, empty[1])
+        self.app._pick_on_map(empty, empty, False)  # nothing there: deselected
+        self.assertEqual((self.app.selected_id, self.app.graph.selection), (None, set()))
+        self.app._pick_on_map(board.topleft, board.bottomright, False)  # a marquee over the whole map
+        self.assertEqual(self.app.graph.selection, {agent.identifier for agent in self.app.simulation.living})
+        self.app._draw()  # the picked show their sights
+
     def test_a_new_world_needs_living_bitzkeys_picked(self):
         self.app.graph.select(set())
         self.assertFalse(self.app._renew())

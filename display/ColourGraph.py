@@ -172,6 +172,7 @@ class ColourGraph:
         self.menu_open = False  # the sort menu
         self.selection: set[int] = set()
         self.view: tuple[int, int] | None = None  # the turns shown when zoomed in; None shows the run
+        self.pinned = False  # the zoomed view reaches the latest turn, and keeps up with it as the run goes on
         self.ended = False                        # whether the run is over, when last drawn
         self.seek_turn = 0                        # where a "seek" asks the world to go
         self._selection_version = 0
@@ -218,6 +219,9 @@ class ColourGraph:
         """The first and last turn shown."""
         if self.view is None:
             return 0, self._frontier
+        if self.pinned and self.view[1] != self._frontier:  # kept at the latest turn, the living in view
+            span = self.view[1] - self.view[0]
+            self.view = (max(0, self._frontier - span), self._frontier)
         first, last = self.view
         return max(0, first), min(self._frontier, last)
 
@@ -233,8 +237,8 @@ class ColourGraph:
         return round(chart.left + (turn - first + 0.5) * chart.width / (last - first + 1))
 
     def zoom(self, notches: int, x: int) -> None:
-        """Zoom in (positive notches) or out around the turn at `x`; zooming out to the whole run
-        returns to it."""
+        """Zoom in (positive notches) or out around the turn at `x`, or, while the view reaches the
+        latest turn, keeping it there; zooming out to the whole run returns to it."""
         first, last = self.window()
         span = last - first + 1
         whole = self._frontier + 1
@@ -242,10 +246,14 @@ class ColourGraph:
         if new_span >= whole:
             self.view = None
             return
+        if self.view is None or self.pinned:  # reaching the latest turn, it stays pinned there, the living in view
+            self.view, self.pinned = (whole - new_span, whole - 1), True
+            return
         centre = self.turn_at(x)
         new_first = round(centre - (centre - first) * new_span / span)
         new_first = max(0, min(whole - new_span, new_first))
         self.view = (new_first, new_first + new_span - 1)
+        self.pinned = self.view[1] >= self._frontier
 
     def pan(self, notches: int) -> None:
         """Slide the zoomed view a tenth of its width per notch, later for positive notches."""
@@ -255,6 +263,7 @@ class ColourGraph:
         span = last - first + 1
         new_first = max(0, min(self._frontier + 1 - span, first + notches * max(1, span // 10)))
         self.view = (new_first, new_first + span - 1)
+        self.pinned = self.view[1] >= self._frontier
 
     # Input
 

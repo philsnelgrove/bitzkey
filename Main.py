@@ -12,7 +12,7 @@ from config.Globals import Config
 from display import Window
 from display.Dialog import Dialog
 from display.Inspector import draw_details
-from display.Look import (DOT_RADIUS_RANGE, EXPORTING, GRASS, GRID, RING_WIDTH, SELECTED, bitzkey_layer, dot_radius, map_dot_radii,
+from display.Look import (DOT_RADIUS_RANGE, EXPORTING, GRASS, GRID, RING_WIDTH, bitzkey_layer, dot_radius, draw_reticle, map_dot_radii,
                           draw_bitzkey, zone_colour)
 from display.Setup import EXPORT_DIR, SetupScreen
 from display.Ui import UI
@@ -30,6 +30,7 @@ REPORT_DIR = Config.APP_DIR / "reports"
 INSIGHTS_TOP = 290  # the insights panel's top, in design pixels: just below the population counts
 MAP_ZOOM_STEP = 1.25  # each wheel notch zooms the map in (or out) by this much
 MAP_ZOOM_MAX = 12.0   # the closest the map zooms in, times its whole-map size
+DRAG_THRESHOLD = 5    # design pixels a press must move on the map to draw a marquee rather than click
 TRAIL_OPACITY = 0.5   # how faintly a Bitzkey shows on each cell it passed through this turn
 # What an exemplar card can show: the living animal that stands out most by a statistic, highest, or
 # lowest where `lowest`. Each is (title, kind, name, lowest): kind "mind" is an inborn temperament
@@ -142,6 +143,8 @@ class BitzkeyApp:
         self._add_button: pg.Rect | None = None
         self._catalog_button: pg.Rect | None = None
         self._exemplar_cards: list[tuple[pg.Rect, int]] = []  # each card beside the map, and whom it shows
+        # A left press on the map, while it is held: where it began and whether CTRL was down.
+        self._marquee_from: tuple[tuple[int, int], bool] | None = None
         self._exemplar_titles: list[pg.Rect] = []  # each card's title, a menu of statistics, card by card
         self._exemplar_menu: int | None = None  # the card whose menu is open
         self._menu_items: list[tuple[pg.Rect, int]] = []  # the open menu's choices, and which statistic each is
@@ -264,7 +267,13 @@ class BitzkeyApp:
                     elif action:
                         self._export_graph(to_file=action == "save")
                 elif event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
-                    self._click(event.pos)
+                    if self._exemplar_menu is None and self._map_view()[0].collidepoint(event.pos):
+                        self._marquee_from = (event.pos, bool(pg.key.get_mods() & pg.KMOD_CTRL))
+                    else:
+                        self._click(event.pos)
+                elif event.type == pg.MOUSEBUTTONUP and event.button == 1 and self._marquee_from:
+                    (start, adding), self._marquee_from = self._marquee_from, None
+                    self._pick_on_map(start, event.pos, adding)
 
             self._tick()
             self._draw()
@@ -342,8 +351,8 @@ class BitzkeyApp:
             self._open_export_dialog()
         elif picked := [identifier for card, identifier in self._exemplar_cards if card.collidepoint(position)]:
             self._select(picked[0])
-        else:
-            self._select_at(position)
+        elif self._map_view()[0].collidepoint(position):  # a click on the map, pressed and let go at once
+            self._pick_on_map(position, position, bool(pg.key.get_mods() & pg.KMOD_CTRL))
 
     # Dialogs
 
@@ -506,20 +515,42 @@ class BitzkeyApp:
                 entries.append({**saved, "catalog": {"identifier": identifier}})
         self._add_to_catalog(entries, f"{len(entries)} Bitzkey{'s' if len(entries) != 1 else ''} from the export list")
 
-    def _select_at(self, position: tuple[int, int]) -> None:
+    def _pick_on_map(self, start: tuple[int, int], end: tuple[int, int], adding: bool) -> None:
+        """Finish a left press on the map. A click picks the living Bitzkey under the pointer, or
+        clears the selection on empty ground; a drag picks every living Bitzkey in its marquee. With
+        CTRL (`adding`), a click adds the Bitzkey to the selection or takes it out, and a marquee adds
+        to it."""
+        if max(abs(end[0] - start[0]), abs(end[1] - start[1])) < UI(DRAG_THRESHOLD):
+            hit = self._living_at(start)
+            if adding:
+                picked = self.graph.selection ^ {hit} if hit is not None else set(self.graph.selection)
+            else:
+                picked = {hit} if hit is not None else set()
+        else:
+            board, cell_width, cell_height = self._board_geometry()
+            box = pg.Rect(min(start[0], end[0]), min(start[1], end[1]), abs(end[0] - start[0]) + 1,
+                          abs(end[1] - start[1]) + 1)
+            inside = {agent.identifier for agent in self.simulation.living
+                      if box.collidepoint(board.left + (agent.x + 0.5) * cell_width,
+                                          board.top + (agent.y + 0.5) * cell_height)}
+            picked = (self.graph.selection | inside) if adding else inside
+        self.graph.select(picked)  # the map and the graph share one selection
+        self.selected_id = next(iter(picked)) if len(picked) == 1 else None  # one picked shows in the inspector
+        if self.selected_id is not None:
+            self.show_insights = False
+
+    def _living_at(self, position: tuple[int, int]) -> int | None:
+        """The living Bitzkey whose dot is nearest the pointer, if near enough to have been clicked."""
         board, cell_width, cell_height = self._board_geometry()
-        nearest = None
-        nearest_distance = float("inf")
-        for agent in self.simulation.agents:
-            point = (board.left + (agent.x + 0.5) * cell_width,
-                     board.top + (agent.y + 0.5) * cell_height)
+        nearest, nearest_distance = None, float("inf")
+        for agent in self.simulation.living:
+            point = (board.left + (agent.x + 0.5) * cell_width, board.top + (agent.y + 0.5) * cell_height)
             distance = pg.Vector2(position).distance_to(point)
             if distance < nearest_distance:
-                nearest = agent
-                nearest_distance = distance
-        on_view = self._map_view()[0].collidepoint(position)  # zoomed in, the board reaches under the sidebar
-        if nearest and on_view and board.collidepoint(position) and nearest_distance < max(UI(9), min(cell_width, cell_height) * 1.6):
-            self._select(nearest.identifier)
+                nearest, nearest_distance = agent, distance
+        if nearest and board.collidepoint(position) and nearest_distance < max(UI(9), min(cell_width, cell_height) * 1.6):
+            return nearest.identifier
+        return None
 
     def _select(self, identifier: int) -> None:
         self.selected_id = identifier
@@ -605,8 +636,20 @@ class BitzkeyApp:
             return True
         return False
 
+    def _forget_the_dead(self) -> None:
+        """Let go of any Bitzkey selected or picked that has died, so the sidebar returns to its
+        neutral state rather than speaking of a selection no longer there."""
+        if self.simulation is None:
+            return
+        living = {agent.identifier for agent in self.simulation.living}
+        if self.selected_id is not None and self.selected_id not in living:
+            self.selected_id = None
+        if self.graph.selection - living:
+            self.graph.select(self.graph.selection & living)
+
     def _draw(self) -> None:
         UI.fit(self.screen.get_size())
+        self._forget_the_dead()
         self.screen.fill((19, 26, 27))
         self._draw_header()
         self._draw_world()
@@ -666,9 +709,18 @@ class BitzkeyApp:
             radius = self._dot_radius(agent, largest, smallest)
             self._draw_bitzkey(agent, point, radius, self._corpse_opacity(agent))
             if agent.identifier == self.selected_id or (agent.alive and agent.identifier in self.graph.selection):
-                pg.draw.circle(self.screen, SELECTED, point, radius + RING_WIDTH + UI(3), max(1, UI(1)))
+                draw_reticle(self.screen, point, radius + RING_WIDTH + UI(3))
             if agent.identifier in self.export_list:
                 pg.draw.circle(self.screen, EXPORTING, point, radius + RING_WIDTH + UI(6), max(1, UI(1)))
+        if self._marquee_from:  # the marquee being drawn
+            start, mouse = self._marquee_from[0], pg.mouse.get_pos()
+            if max(abs(mouse[0] - start[0]), abs(mouse[1] - start[1])) >= UI(DRAG_THRESHOLD):
+                box = pg.Rect(min(start[0], mouse[0]), min(start[1], mouse[1]), abs(mouse[0] - start[0]) + 1,
+                              abs(mouse[1] - start[1]) + 1)
+                veil = pg.Surface(box.size, pg.SRCALPHA)
+                veil.fill((245, 238, 206, 40))
+                self.screen.blit(veil, box.topleft)
+                pg.draw.rect(self.screen, (245, 238, 206), box, 1)
         for x in range(0, self.width + 1, 10):
             px = round(board.left + x * cell_width)
             pg.draw.line(self.screen, GRID, (px, board.top), (px, board.bottom), 1)

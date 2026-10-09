@@ -171,6 +171,11 @@ ready to copy, export or catalog; the selected one's card is outlined in amber.
   The Bitzkeys zoom with the map: the largest body's dot, ring and all, fills a
   cell, and the smallest, always big enough for its icon, grows with it in
   proportion
+- Click a dot on the map to select that Bitzkey, or empty ground to select none;
+  drag a box with the left button to select every living Bitzkey inside it.
+  `Ctrl`-click adds a Bitzkey to the selection or takes it out again, and
+  `Ctrl`-drag adds a box's worth. Each selected Bitzkey wears a target's sights:
+  a white ring inside a black one, with a pip at each point of the compass
 - `R`: restart with the same launch settings
 - `I`: toggle the insights panel (scroll it with the wheel or its scroll bar)
 - `B`: save a brain report to `reports/`
@@ -626,8 +631,10 @@ The graph is also a time scrubber. A playhead marks the present. Drag along the
 timeline beneath the bars, or right-click anywhere on the graph, to move the
 world to that turn; it pauses there, or at the earliest turn the history
 keeps (the latest 100), if that is later. Space plays on through the recorded future, which stays
-visible but faded. The mouse wheel zooms the time axis around
-the cursor, down to 10 turns. `Shift`+wheel, or a sideways wheel, pans the
+visible but faded. The mouse wheel zooms the time axis down to 10 turns,
+keeping the latest turn at the right while the view reaches it, so the living
+stay in view as the run goes on; once panned back into the past, it zooms around
+the cursor instead. `Shift`+wheel, or a sideways wheel, pans the
 zoomed view, and zooming all the way out shows the whole run again.
 
 Pick Bitzkeys straight from the graph. Only the living can be picked, and one
@@ -647,7 +654,8 @@ Bitzkey shows only its ring and dot colours there.
 The graph and the map share one selection. Close the graph and the Bitzkeys picked
 on it stay ringed on the map, while the sidebar shows no single Bitzkey and counts
 how many are picked. Clicking a dot on the map selects just that one, on the
-graph as well.
+graph as well; a box dragged on the map selects every living Bitzkey in it, and
+`Ctrl` adds to the selection or takes from it.
 
 START A NEW WORLD WITH THE SELECTED, beneath the graph, starts again with the
 living Bitzkeys picked: it copies them to the clipboard, leaves this world, clears
