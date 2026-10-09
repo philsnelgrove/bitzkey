@@ -1362,7 +1362,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertTrue(Simulation._willing(first, kin))
         self.assertFalse(Simulation._willing(first, stranger))
 
-    def test_predators_weigh_grazers_against_omnivores(self):
+    def test_predators_always_hunt_grazers_and_omnivores(self):
         simulation = Simulation(width=30, height=30, population=0, seed=3)
         simulation.grass.clear()
         predator = simulation._add_agent(encode_dna("predator"), 15, 15)
@@ -1370,9 +1370,9 @@ class NewTraitTests(unittest.TestCase):
             simulation._add_agent(encode_dna("omnivore"), x, 14)
         grazer = simulation._add_agent(encode_dna("grazer"), 16, 15)
         simulation._index_cells()
-        self.assertEqual(simulation._prey_switching(predator), (False, True))  # one grazer in six
+        self.assertEqual(simulation._prey_switching(predator), (True, True))  # however few grazers are near
         simulation._sense(predator)
-        self.assertFalse(simulation._is_prey(predator, grazer))
+        self.assertTrue(simulation._is_prey(predator, grazer))
         rival = simulation._add_agent(encode_dna("predator") ^ (0xFFFF << 48), 14, 15)
         self.assertFalse(simulation._is_prey(predator, rival))  # other kinds only when hungry
         predator.hunger = 95

@@ -2055,19 +2055,18 @@ class Simulation:
         return tuple(strength * min(1.0, max(0.0, count - tolerated) / TERRITORY_RAMP) for count in (rivals, own))
 
     def _prey_switching(self, hunter: Bitzkey) -> tuple[bool, bool]:
-        """Which prey a hunter goes after: each kind only while it makes up at least SWITCH_SHARE of
-        the food weighed within FORAGE_RADIUS (grazers against plants for an omnivore, grazers
-        against omnivores for a predator), or while none of that food is near at all."""
+        """Which prey a hunter goes after, grazers and omnivores. A predator always hunts both. An omnivore
+        hunts grazers only while they make up at least SWITCH_SHARE of the food weighed within
+        FORAGE_RADIUS, against plants, or while none of that food is near at all."""
+        if hunter.species == "predator":
+            return True, True  # grazers and omnivores are always prey to a predator
         grazers = omnivores = plants = 0
         for other in self._nearby(hunter, FORAGE_RADIUS):
             grazers += other.species == "grazer"
             omnivores += other.species == "omnivore"
             plants += other.species == "plant"
-        if hunter.species == "omnivore":
-            total = grazers + plants
-            return (total == 0 or grazers / total >= SWITCH_SHARE), False
-        total = grazers + omnivores
-        return (total == 0 or grazers / total >= SWITCH_SHARE), True  # omnivores are always prey
+        total = grazers + plants
+        return (total == 0 or grazers / total >= SWITCH_SHARE), False
 
     @classmethod
     def _is_prey(cls, hunter: Bitzkey, other: Bitzkey) -> bool:

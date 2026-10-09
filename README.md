@@ -562,11 +562,11 @@ kind, and another species eating some of the same food is half a mouth (an
 omnivore to a grazer, or a predator to an omnivore). Below three meals a mouth it
 doesn't breed; between three and six, its litter shrinks in proportion. Other
 kinds of predator may still be hunted, but they are rivals for prey, not a food
-supply to breed on. Hunters also switch prey: a hunter only goes after grazers while they
+supply to breed on. Omnivores also switch prey: an omnivore only goes after grazers while they
 make up at least a quarter of the food it weighs within six cells (grazers
-against plants, for an omnivore; grazers against omnivores, for a predator), or
-while none of that food is near. Predators always hunt omnivores. A prey that has become scarce is left alone,
-and doesn't flee a hunter that isn't interested in it, so it can recover.
+against plants), or while none of that food is near, so grazers that have become scarce
+are left alone by omnivores, and don't flee one that isn't interested in them, so they can recover.
+Predators don't switch: grazers and omnivores are always prey to them.
 Territorial fights, between omnivores or between predators, go on regardless. Reaching 100% hunger or zero health is fatal, and so, in
 time, is age. Plants and animals alike live about a year at the smallest body
 and fastest metabolism, five years at a middling one and ten at the largest and
