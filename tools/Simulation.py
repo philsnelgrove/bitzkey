@@ -110,6 +110,7 @@ PREDATOR_SIGHT = 3  # predators see prey this many cells further than they other
 MAX_PREDATOR_SIGHT = 3
 HUNT_STEPS = 1      # and chase it this many more steps a turn
 PRIMAL_FEAR = 0.5
+PREDATOR_INTELLIGENCE = 2.0  # a predator's intellect counts this many times over in all it does, up to the full range
 PREDATOR_FEAR = 0.5  # a predator feels this share of its fear's effects: dread, panic, keeping close to its herd
 PREDATOR_LOOMS = 2   # sizing up a fight for primal fear, a predator counts as this many steps larger and stronger
 PRIMAL_FEAR_PREDATORS = 1 / 3
@@ -192,7 +193,7 @@ SEED_REACH = 5         # how far, in cells, a seed may land from its plant
 LIGHT_RADIUS = 3       # plants compete for light with the plants within this many cells
 LIGHT_LIMIT = 3        # each such plant cuts a plant's chance of seeding by this share, to none at this many
 PLANT_CROWDING = 3     # a seed doesn't take where more than this many plants grow within two cells
-TEMPERAMENT_RELAPSE = 0.005  # share of the gap back to the inborn value closed each turn
+TEMPERAMENT_RELAPSE = 0.0005  # share of the gap back to the inborn value closed each turn
 # Climate. The map is banded into zones across its height: ARCTIC_SHARE at the top and at the
 # bottom is arctic, cold; a strip of EQUATOR_SHARE across the middle is the equator, hot; the rest
 # is temperate, medium. Every YEAR_LENGTH turns is a year, starting mild. Through its second quarter
@@ -231,19 +232,20 @@ SEASONS = ("mild", "northern winter", "mild", "southern winter")  # by quarter o
 # How experiences reshape temperament, in shares of a trait's full range before scaling by
 # plasticity.
 EXPERIENCES = {
-    "kill": {"aggression": 0.04, "fear": -0.02},
+    "kill": {"aggression": 0.04, "fear": -0.02, "intellect": 0.002},
     "hit": {"aggression": 0.0067},
     "stung": {"aggression": -0.0133, "fear": 0.0133},
     "wounded": {"fear": 0.0333, "aggression": -0.0067},
     "wounded_alone": {"sociability": 0.02},
-    "bred": {"libido": 0.02, "sociability": 0.0133},
+    "bred": {"libido": 0.02, "sociability": 0.0133, "intellect": 0.002},
     "bred_into_hunger": {"libido": -0.0533},
     "starving": {"appetite": 0.0033, "patience": -0.0033},
-    "foraged_meal": {"patience": 0.0067},
-    "discovery": {"curiosity": 0.01},
+    "foraged_meal": {"patience": 0.0067, "intellect": 0.0003},
+    "discovery": {"curiosity": 0.01, "intellect": 0.002},
     "ambushed": {"curiosity": -0.02, "fear": 0.0133},
-    "defended": {"fear": -0.0133, "aggression": 0.0067},
+    "defended": {"fear": -0.0133, "aggression": 0.0067, "intellect": 0.002},
     "panicked": {"fear": 0.0067},
+    "lesson": {"intellect": 0.0001},  # a choice that turned out well, learnt from
 }
 
 # Setting off in a direction: the step in x and y, whether it is a walk of a single cell (else it goes
@@ -367,6 +369,12 @@ def birth_offsets(reach: int) -> tuple[tuple[int, int], ...]:
                      key=lambda offset: (max(abs(offset[0]), abs(offset[1])), offset[0] ** 2 + offset[1] ** 2,
                                          offset[1], offset[0]))
     return ((0, -1), (1, 0), (0, 1), (-1, 0), (1, -1), (1, 1), (-1, 1), (-1, -1), *further)
+
+
+def thinking_intellect(intellect: int, species: str) -> int:
+    """An inborn intellect as it counts for the brain's depth and how much it replays: a predator's
+    PREDATOR_INTELLIGENCE times over, up to the full range."""
+    return min(TRAIT_MAX, int(intellect * (PREDATOR_INTELLIGENCE if species == "predator" else 1.0)))
 
 
 def evolved(parent: int, child: int) -> int:
@@ -504,6 +512,12 @@ class Bitzkey:
     def physique(self, trait: str) -> float:
         """A body trait as a share of its full range."""
         return share(int(self.body[trait]))
+
+    @property
+    def intelligence(self) -> float:
+        """Its intellect now, as a share of the full range, as it counts in all it does: a predator's
+        PREDATOR_INTELLIGENCE times over, up to the full range."""
+        return min(1.0, self.feeling("intellect") * (PREDATOR_INTELLIGENCE if self.species == "predator" else 1.0))
 
     @property
     def fearfulness(self) -> float:
@@ -846,7 +860,7 @@ class Simulation:
         if mind:
             agent.mind.update({trait: mind[trait] for trait in MIND_TRAITS if trait in mind})
         if agent.species != "plant":  # plants need no brain
-            depth = depth_for(agent.inborn["intellect"])  # twice its inborn intellect, at least two
+            depth = depth_for(thinking_intellect(agent.inborn["intellect"], agent.species))  # twice its inborn intellect, at least two
             agent.brain = Brain.random(self.random, depth) if brain is None else brain.resized(depth)
         self.next_identifier += 1
         self.agents.append(agent)
@@ -1105,7 +1119,7 @@ class Simulation:
 
     def _experience(self, agent: Bitzkey, event: str) -> None:
         """Shift temperament after an experience; intellect sets how far."""
-        plasticity = 0.2 + 0.8 * agent.feeling("intellect")
+        plasticity = 0.2 + 0.8 * agent.intelligence
         for trait, change in EXPERIENCES[event].items():
             agent.mind[trait] = max(0.0, min(float(TRAIT_MAX), agent.mind[trait] + change * TRAIT_MAX * plasticity))
 
@@ -1149,11 +1163,13 @@ class Simulation:
                           + comfort - agent.last_comfort)
                 self._learn(agent, reward + self._discount(agent) * max(valued[option] for option in options),
                             replay=True)
+                if reward > 0:  # a lesson learnt from a choice that turned out well
+                    self._experience(agent, "lesson")
         actions = []
         for (agent, senses, options, situation), valued, comfort in zip(plans, values, comforts):
             if self._primal_fear(agent, situation["hunter"]):
                 # Overcome: it panics, fleeing the hunter, or freezes where it stands, whatever its brain wants.
-                if self.random.random() < PRIMAL_FREEZE * (1 - agent.feeling("intellect")):
+                if self.random.random() < PRIMAL_FREEZE * (1 - agent.intelligence):
                     situation["frozen"] = True
                     options = [ACTIONS.index("rest")]
                 else:
@@ -1363,7 +1379,7 @@ class Simulation:
     @staticmethod
     def _learning_rate(agent: Bitzkey) -> float:
         """How fast its brain learns: with its intellect, boosted further the cleverer it is."""
-        sharpness = agent.feeling("intellect")
+        sharpness = agent.intelligence
         return LEARNING_RATE * sharpness * (1 + LEARNING_BOOST * sharpness)
 
     def _learn(self, agent: Bitzkey, target: float, replay: bool = False) -> None:
@@ -1372,10 +1388,10 @@ class Simulation:
         allows, and remembers this one."""
         rate = self._learning_rate(agent)
         agent.brain.learn_traced(agent.last_senses, agent.last_choice, target, rate, self._discount(agent),
-                                 agent.feeling("intellect"))
+                                 agent.intelligence)
         if not replay:
             return
-        count = REPLAY_PER_INTELLECT * agent.inborn["intellect"]
+        count = REPLAY_PER_INTELLECT * thinking_intellect(agent.inborn["intellect"], agent.species)
         for senses, choice, remembered in agent.memories[-count:] if count else ():  # the latest, up to count
             agent.brain.learn(senses, choice, remembered, rate)
         if count:
@@ -1769,7 +1785,8 @@ class Simulation:
             dna = evolved(first.dna, cross(first.dna, second.dna, self.random, mind, body_chance=self.body_mutation))
             if "predator" in (first.species, second.species):
                 dna = predator_dna(dna)  # a predator's young are predators, whatever crossing over or a mutation made
-            brain = Brain.inherit(first.brain, second.brain, self.random, depth_for(decode_mind(dna)["intellect"]))
+            brain = Brain.inherit(first.brain, second.brain, self.random,
+                                  depth_for(thinking_intellect(decode_mind(dna)["intellect"], decode_body(dna)["species"])))
             if decode_body(dna)["species"] == "predator" and first.species != "predator":
                 # Born a predator of other parents: what they learnt of eating and uprooting it brings to
                 # hunting and feasting.
@@ -2069,7 +2086,7 @@ class Simulation:
             if (observer.brain is None or not self._society(observer, actor)
                     or abs(observer.x - actor.x) + abs(observer.y - actor.y) > observer.sight):
                 continue
-            heed = observer.feeling("empathy") * observer.feeling("intellect")
+            heed = observer.feeling("empathy") * observer.intelligence
             self._witnessed.append((observer, actor.last_senses, actor.last_choice, outcome,
                                     LEARNING_RATE * heed * SOCIAL_LEARNING))  # learnt with the rest, at the end
             observer.reward += SOCIAL_MOOD * heed * outcome

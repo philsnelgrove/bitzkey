@@ -229,7 +229,8 @@ hot, 1 medium, 2 cold, 3 very cold); in the dot, the heat tolerance flag (bit 30
 and the cold tolerance flag (bit 31). See Seasons and Climate.
 
 **Inner dot: mind, emotion and social life.** These traits start at their
-gene values and are then reshaped by experience:
+gene values and are then reshaped by experience, drifting back toward them only very slowly (0.05% of the
+gap a turn):
 
 | Trait | Effect | Experience that shifts it |
 |---|---|---|
@@ -240,7 +241,7 @@ gene values and are then reshaped by experience:
 | fear | dread when hunters are adjacent | wounds, stings and ambushes raise it; kills lower it |
 | appetite | how much hunger hurts | near-starvation raises it |
 | patience | how much it values the future (its learning discount) | meals earned by foraging raise it; starving lowers it |
-| intellect | how deep its brain is (twice its intellect in hidden layers, at least two), how fast it learns (its learning rate, boosted for the bright, how many recent experiences it replays each turn, and how far back it traces an outcome), and how much experience can reshape the mind | fixed |
+| intellect | how deep its brain is (twice its intellect in hidden layers, at least two), how fast it learns (its learning rate, boosted for the bright, how many recent experiences it replays each turn, and how far back it traces an outcome), how much experience can reshape the mind, how much it learns from what it sees, and how rarely primal fear freezes it. A predator's intellect counts twice over in all of these, up to the full range. | kills, breeding, discoveries, successful defences and, a little, good meals raise it; so does, very slightly, every lesson learnt from a choice that turned out well |
 | empathy | pain at seeing an animal wounded or killed nearby; more for its own kind, double for a death. An empathetic hunter feels some of its victim's pain and enjoys fighting less. | fixed |
 | tolerance | ease among other species: they count as company, hunters are less frightening, and attacking gives less pleasure. The intolerant are uneasy whenever other species are near. The tolerant also accept mates that look less like themselves. | fixed |
 

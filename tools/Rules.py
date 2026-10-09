@@ -146,6 +146,8 @@ _TABLE: dict[str, list[tuple]] = {
         ("PRIMAL_FEAR_PREDATORS", "Primal fear, predators", "how susceptible predators are, as a share", 0.0, 1.0, 0.05),
         ("PREDATOR_LOOMS", "Predators loom", "steps larger and stronger a predator counts as, sizing up a fight for primal fear",
          0, 7, 1),
+        ("PREDATOR_INTELLIGENCE", "Predator intelligence", "times over a predator's intellect counts, up to the full range",
+         1.0, 5.0, 0.1),
         ("PREDATOR_FEAR", "Predator fear", "share of fear's effects a predator feels: dread, panic, keeping to its herd",
          0.0, 1.0, 0.05),
         ("PRIMAL_FREEZE", "Primal freeze", "chance an overcome animal freezes rather than flees, at the lowest intellect",

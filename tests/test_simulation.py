@@ -1364,6 +1364,21 @@ class NewTraitTests(unittest.TestCase):
         self.assertAlmostEqual(fearful.fearfulness, 0.5)
         self.assertAlmostEqual(self.simulation._add_agent(encode_dna("grazer", fear=7), 9, 8).fearfulness, 1.0)
 
+    def test_predators_think_twice_as_well_and_good_experiences_sharpen_everyone(self):
+        from tools.Simulation import thinking_intellect
+        predator = self.simulation._add_agent(encode_dna("predator", intellect=3), 5, 5)
+        grazer = self.simulation._add_agent(encode_dna("grazer", intellect=3), 6, 5)
+        self.assertAlmostEqual(predator.intelligence, 6 / 7)
+        self.assertAlmostEqual(grazer.intelligence, 3 / 7)
+        self.assertEqual(self.simulation._add_agent(encode_dna("predator", intellect=5), 7, 7).intelligence, 1.0)  # capped
+        self.assertEqual((thinking_intellect(3, "predator"), thinking_intellect(5, "predator"), thinking_intellect(3, "grazer")),
+                         (6, 7, 3))
+        self.assertEqual(predator.brain.depth, 12)  # twice its doubled intellect
+        before = grazer.mind["intellect"]
+        self.simulation._experience(grazer, "discovery")
+        self.simulation._experience(grazer, "lesson")
+        self.assertGreater(grazer.mind["intellect"], before)
+
     def test_weak_grazers_cannot_strike_back(self):
         weak = self.simulation._add_agent(encode_dna("grazer", strength=5), 5, 5)
         strong = self.simulation._add_agent(encode_dna("grazer", strength=6), 9, 9)
