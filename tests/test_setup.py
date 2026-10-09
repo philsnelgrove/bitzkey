@@ -5,7 +5,7 @@ from display.Setup import SETTINGS, SetupForm, import_summary
 from Main import BitzkeyApp
 from tools.Exchange import Imported, export_bitzkeys
 from tools.Genome import encode_dna
-from tools.Simulation import MAX_IMPORTED, MAX_POPULATION, Bitzkey
+from tools.Simulation import MAX_GRID, MAX_IMPORTED, MAX_POPULATION, Bitzkey
 
 
 def exported(*dnas: int) -> str:
@@ -47,11 +47,11 @@ class SetupFormTests(unittest.TestCase):
 
     def test_typed_value_out_of_range_settles_when_leaving(self):
         form = SetupForm(DEFAULTS)
-        form.type_text("999")
+        form.type_text("9999")
 
         form.move(1)
 
-        self.assertEqual(form.texts["width"], "250")
+        self.assertEqual(form.texts["width"], str(MAX_GRID))
         self.assertEqual(form.focused.key, "height")
 
     def test_seed_can_be_set_and_cleared(self):

@@ -18,7 +18,7 @@ from display.Designer import Designer
 from display.Dialog import Dialog
 from tools.Exchange import Imported, format_records, import_bitzkeys
 from tools.Genome import decode_body, genome_record
-from tools.Simulation import MAX_IMPORTED, MAX_POPULATION, SPAWN_GROUP
+from tools.Simulation import MAX_GRID, MAX_IMPORTED, MAX_POPULATION, SPAWN_GROUP
 
 EXPORT_DIR = Config.APP_DIR / "exports"
 MAX_IMPORT_BYTES = 5_000_000
@@ -38,8 +38,8 @@ class Setting:
 
 
 SETTINGS = (
-    Setting("width", "Grid width", "cells across the world", 10, 250, 10),
-    Setting("height", "Grid height", "cells down the world", 10, 250, 10),
+    Setting("width", "Grid width", "cells across the world", 10, MAX_GRID, 10),
+    Setting("height", "Grid height", "cells down the world", 10, MAX_GRID, 10),
     Setting("population", "Bitzkeys", "spawned at the start, a random mix of species", 0, MAX_POPULATION, 10),
     Setting("grass_density", "Grass density", "percent of cells with grass at the start; regrowth scales too",
             0, 100, 1),

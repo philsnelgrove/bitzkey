@@ -19,7 +19,7 @@ def world(turn: int = 240, size: int = 100) -> Simulation:
 
 def take_turn(simulation: Simulation) -> None:
     """One turn in which animals neither think nor die of age."""
-    with patch.object(Simulation, "_think"), patch.object(Simulation, "_dies_of_age", return_value=False):
+    with patch.object(Simulation, "_think_all"), patch.object(Simulation, "_dies_of_age", return_value=False):
         simulation._take_turn()
 
 
@@ -410,10 +410,30 @@ class SocietyTests(unittest.TestCase):
         with patch.object(witness.brain, "learn") as learns:
             dying.health = 0
             self.simulation._die(dying, "froze")
+            learns.assert_not_called()  # what the herd saw is learnt at the turn's end, with the rest
+            self.simulation._learn_witnessed()
         learns.assert_called_once_with(dying.last_senses, dying.last_choice, -DEATH_PENALTY, LEARNING_RATE)
         self.assertEqual((witness.reward, witness.seen_failure), (SOCIAL_MOOD * -DEATH_PENALTY, 1.0))
         for unmoved in (dull, far, stranger):  # no intellect, out of sight, not of its herd
             self.assertEqual((unmoved.reward, unmoved.seen_failure), (0.0, 0.0))
+
+    def test_an_action_finds_the_world_as_those_before_it_left_it_and_a_stale_plan_fails_softly(self):
+        simulation = world(turn=240)
+        grazer = simulation._add_agent(encode_dna("grazer"), 50, 50)
+        prey = simulation._add_agent(encode_dna("grazer"), 50, 51)
+        predator = simulation._add_agent(encode_dna("predator"), 51, 50)
+        simulation._index_cells()
+        simulation._act(grazer, "eat", {})  # its grass was eaten before it got to it
+        self.assertEqual(grazer.last_action, "found it eaten")
+        prey.health = 0
+        simulation._die(prey, "killed")
+        simulation._act(predator, "attack", {"prey": prey})  # it fell to another first
+        self.assertEqual(predator.last_action, "missed")
+        mate = simulation._add_agent(encode_dna("grazer"), 49, 50)
+        simulation._index_cells()
+        mate.cooldown = 5  # it bred with another first
+        simulation._act(grazer, "breed", {"mate": mate})
+        self.assertEqual((grazer.last_action, grazer.womb), ("was spurned", []))
 
     def test_old_age_teaches_nothing(self):
         bright = encode_dna("grazer", empathy=7, intellect=7, sight=3)
@@ -433,6 +453,7 @@ class SocietyTests(unittest.TestCase):
         self.simulation._index_cells()
         with patch.object(mate.brain, "learn") as learns:
             self.simulation._attack(hunter, prey)
+            self.simulation._learn_witnessed()  # at the turn's end
         self.assertFalse(prey.alive)
         gained = (KILL_MEAL + KILL_MEAL_FOR_SIZE * prey.physique("size")) / hunter.stomach / 100
         learns.assert_called_once_with(hunter.last_senses, hunter.last_choice, gained, LEARNING_RATE)

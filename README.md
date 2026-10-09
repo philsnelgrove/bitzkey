@@ -22,8 +22,8 @@ stretched.
 
 A configuration panel opens first. Set:
 
-- the grid width and height (10 to 250 cells)
-- the number of Bitzkeys spawned (up to 600). They appear in groups of 3 to 5
+- the grid width and height (10 to 1,000 cells)
+- the number of Bitzkeys spawned (up to 20,000; worlds that big want the C++ version thinking on the GPU). They appear in groups of 3 to 5
   sharing one genome, each group within two cells of a random spot. Every
   climate zone gets at least one group of plants: the plant groups take a zone
   each, from the top down, and if too few groups come up plants, the last animal
@@ -81,15 +81,15 @@ and its genes' temperament.
 
 Each imported genome spawns as a group of 3 to
 5 Bitzkeys at a random spot, with fresh brains, so it arrives with mates. Up to
-120 genomes are used, keeping their groups within the 600 population cap. Set
+120 genomes are used. Set
 "Bitzkeys" to 0 to start with only your imports.
 
-ADVANCED opens the advanced rules: 139 numbers that shape how the world plays
+ADVANCED opens the advanced rules: 151 numbers that shape how the world plays
 out, in groups (World, Bodies, Breeding, Feelings, Mind, Fighting, Territory,
 Herding, Food, Plants, Climate, Society and Experiences). Among them are lifespans, metabolism, litter
 sizes, food-aware breeding, the rewards and pains a brain learns from, blows and
 thorns, territory and herd instincts, meals, fresh kills, plant seeding, the climate
-zones, and how each experience reshapes temperament. Each rule has a short note, limits and a step. Choose and adjust
+zones, and how each experience reshapes temperament. Each rule has a short note, limits and a step. Think on the GPU is the C++ version's alone: there, it moves every brain onto the GPUs; the Python version always thinks on the CPU. Choose and adjust
 them as in the configuration panel; PgUp/PgDn jump ten rules, and the wheel scrolls.
 Fractional rules take a typed decimal point, and the experience shifts take a minus
 sign. Changed values show in amber. RESET puts the focused rule back to its default
@@ -381,6 +381,18 @@ tolerance is at the start and how much it spares are
 advanced rules (the Climate group).
 
 ## Behaviour
+
+A turn runs in two halves. First every Bitzkey, in a shuffled order, lives
+through it: it ages, grows hungrier, weathers the climate and may die of it,
+gives birth when its young are due, and plants grow and seed. Then every animal
+left thinks at once: all sense the world as it stands, all their brains weigh the
+actions open to them and learn from how their last choices turned out, and all
+choose. Last they act, one at a time in the same shuffled order, each finding the
+world as those before it left it. So a plan can go stale: grass another ate
+first is gone ("found it eaten"), prey that fell or fled is missed, and a mate
+that died, moved off or bred with another first leaves its suitor spurned. What
+herd-mates learn from watching each other is learnt at the end of the turn,
+all together. Thinking at once is what lets every brain be worked as one batch.
 
 Grass is sown at random, and regrows each turn (see grass density above). On and around a corpse, the
 cell it lies on and the eight cells next to it, grass grows twice as fast

@@ -50,6 +50,7 @@ _TABLE: dict[str, list[tuple]] = {
         ("CORPSE_FERTILITY", "Corpse fertility", "grass grows this many times as fast on and around a corpse", 1, 10, 1),
         ("CORPSE_TURNS", "Corpse turns", "turns a corpse lasts while its meat rots away", 1, 500, 5),
         ("SPAWN_SPREAD", "Spawn spread", "a starting group appears within this many cells of its centre", 0, 4, 1),
+        ("USE_GPU", "Think on the GPU", "C++ only: 1 thinks and learns on every GPU found, in floats, with no rewinding; 0 on the CPU, exactly", 0, 1, 1),
         ("SPAWN_AT_HOME", "Spawn at home", "1: starting and imported groups appear where their home temperature is usual; 0: anywhere", 0, 1, 1),
         ("HISTORY_TURNS", "History turns", "turns of the world kept whole, to rewind the map to; at the top, all",
          1, world.HISTORY_ALL, 10),

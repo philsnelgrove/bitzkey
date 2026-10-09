@@ -1360,7 +1360,7 @@ class NewTraitTests(unittest.TestCase):
             self.assertEqual((len(first.womb), first.due_turn, len(simulation.agents)), (12, 10, 2))
             self.assertEqual(second.womb, [])  # the parent that chose to breed carries them
             self.assertFalse(first.can_breed)
-            with patch.object(Simulation, "_think"):
+            with patch.object(Simulation, "_think_all"):
                 for _ in range(9):
                     first.hunger = second.hunger = 0
                     simulation._take_turn()

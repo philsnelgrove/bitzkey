@@ -28,12 +28,14 @@ GRID_SIZE = 100
 INITIAL_POPULATION = 90
 GRASS_DENSITY = 50      # percent of cells that start with grass
 GRASS_REGROWTH = 0.004  # share of the starting grass that grows back each turn
-MAX_POPULATION = 600   # the most Bitzkeys spawned at the start; a world's population cap is a setting
+MAX_POPULATION = 20000  # the most Bitzkeys spawned at the start; a world's population cap is a setting
 CROWDING_RADIUS = 4    # animals within this many cells count as crowding a would-be parent
 CROWDING_LIMIT = 10    # litters shrink as crowding nears this; at it, an animal doesn't breed
 SPAWN_GROUP = (3, 5)  # Bitzkeys spawn in groups of this many sharing one genome
-MAX_IMPORTED = MAX_POPULATION // SPAWN_GROUP[1]  # imported Bitzkeys, so their groups fit that number
+MAX_IMPORTED = 120  # imported Bitzkeys, each spawning a group of its own
+MAX_GRID = 1000  # the widest and tallest a world can be, in cells
 SPAWN_SPREAD = 2      # a group's members appear within this many cells of each other's centre
+USE_GPU = 0  # the C++ version's: 1 thinks on the GPUs; the Python version always thinks on the CPU
 SPAWN_AT_HOME = 1     # 1: a group appears in rows whose usual temperature is its home (the nearest, if none); 0: anywhere
 # The history is kept in memory: the world at each of the latest HISTORY_TURNS turns, whole, so the map
 # can be rewound to any of them at once, with nothing to replay. When a crowded world's brains make them
@@ -682,6 +684,8 @@ class Simulation:
         self.history: deque[dict] = deque()  # each {"turn": the turn, "state": the world, "bytes": its size}
         self._history_bytes = 0  # the size of them all, near enough
         self.frontier = 0  # the latest turn simulated; seeking never goes past it
+        # What herd-mates saw this turn, to learn from at its end: (observer, senses, choice, outcome, rate).
+        self._witnessed: list[tuple] = []
         self._take_census()
         self._record()
 
@@ -882,7 +886,10 @@ class Simulation:
         return self.turn == self.frontier and self.end_reason is not None
 
     def _take_turn(self) -> None:
-        """One turn."""
+        """One turn. Every Bitzkey first lives through it, in a shuffled order: it ages, hungers,
+        weathers the climate, perhaps dies, and plants grow and seed. Then every animal left thinks
+        at once, sensing the world as it stands and deciding, and they act in the same order, each
+        finding the world as those before it left it."""
         self.turn += 1
         self._update_climate()
         self._index_cells()
@@ -894,6 +901,7 @@ class Simulation:
         self._plants = sum(agent.species == "plant" for agent in order)
         self._population = len(order) - self._plants  # animals; the population cap is theirs alone
         self.random.shuffle(order)
+        thinkers = []
         for agent in order:
             if not agent.alive:
                 continue
@@ -939,7 +947,8 @@ class Simulation:
             self._settle(agent)
             if agent.hunger >= 80:
                 self._experience(agent, "starving")
-            self._think(agent)
+            thinkers.append(agent)
+        self._think_all(thinkers)
 
         self._germinate()
         self._wither_grass()
@@ -1057,54 +1066,82 @@ class Simulation:
     # Decisions and learning
 
     def _think(self, agent: Bitzkey) -> None:
-        """Sense, learn from the previous decision's outcome, then choose and act."""
-        senses, options, situation = self._sense(agent)
-        if agent.last_action in TRAVELLED:
-            if situation["threat"]:
-                self._experience(agent, "ambushed")
-            elif (situation["grass"] or situation["grass_here"]) and not agent.last_senses[GRASS_SEEN]:
-                self._experience(agent, "discovery")
-        values = agent.brain.values(senses)
-        comfort = self._comfort(agent, situation)
-        if agent.last_senses is not None:
-            # What came of its last choice: whatever raised its health (fullness counting with it) or
-            # its mood was a success, whatever lowered them a failure, by how much; both may happen.
-            reward = (agent.reward + self._wellbeing(agent) - agent.last_wellbeing
-                      + comfort - agent.last_comfort)
-            self._learn(agent, reward + self._discount(agent) * max(values[option] for option in options), replay=True)
+        """One animal senses, learns from its previous decision's outcome, then chooses and acts."""
+        self._think_all([agent])
 
-        if agent.panicked and situation["assailant"]:
-            # Fight or flight, decided by fear: it breaks off and flees its assailant.
-            situation["hunter"] = situation["assailant"]
-            situation["panic"] = True
-            options = [ACTIONS.index("flee")]
+    def _think_all(self, agents: list[Bitzkey]) -> None:
+        """Animals think at once, in phases, so that their brains can be worked as one batch: all
+        sense the world as it stands; all their brains value the actions open to them; all learn
+        from their previous decisions; all choose; then each acts in turn, finding the world as
+        those before it left it. What herd-mates learn from watching is learnt last, all together."""
+        # Every hunter first surveys its territory, so that all then sense the same world whatever
+        # their order (and the C++ version can sense on every core at once).
+        for agent in agents:
+            self._survey(agent)
+        plans = []
+        for agent in agents:  # all sense the world as it stands
+            senses, options, situation = self._sense(agent, surveyed=True)
+            if agent.last_action in TRAVELLED:
+                if situation["threat"]:
+                    self._experience(agent, "ambushed")
+                elif (situation["grass"] or situation["grass_here"]) and not agent.last_senses[GRASS_SEEN]:
+                    self._experience(agent, "discovery")
+            plans.append((agent, senses, options, situation))
+        values = [agent.brain.values(senses) for agent, senses, _, _ in plans]  # one batch of brains
+        comforts = [self._comfort(agent, situation) for agent, _, _, situation in plans]
+        for (agent, _, options, _), valued, comfort in zip(plans, values, comforts):
+            if agent.last_senses is not None:
+                # What came of its last choice: whatever raised its health (fullness counting with it) or
+                # its mood was a success, whatever lowered them a failure, by how much; both may happen.
+                reward = (agent.reward + self._wellbeing(agent) - agent.last_wellbeing
+                          + comfort - agent.last_comfort)
+                self._learn(agent, reward + self._discount(agent) * max(valued[option] for option in options),
+                            replay=True)
+        actions = []
+        for (agent, senses, options, situation), valued, comfort in zip(plans, values, comforts):
+            if agent.panicked and situation["assailant"]:
+                # Fight or flight, decided by fear: it breaks off and flees its assailant.
+                situation["hunter"] = situation["assailant"]
+                situation["panic"] = True
+                options = [ACTIONS.index("flee")]
+            odds = choice_odds(valued, options)
+            roll = self.random.random()
+            choice = options[-1]
+            for option in options:
+                roll -= odds[option]
+                if roll < 0:
+                    choice = option
+                    break
+            action = ACTIONS[choice]
+            if not situation.get("panic"):  # a panicked flight was no choice
+                self.insights.record(agent.species, agent.profile, (ACTIONS[option] for option in options), action)
+            agent.odds = {ACTIONS[option]: chance for option, chance in odds.items()}
+            agent.last_senses = senses
+            agent.last_choice = choice
+            agent.last_wellbeing = self._wellbeing(agent)
+            agent.last_comfort = comfort
+            agent.reward = 0.0
+            agent.assailant = None  # the chance to strike back, or need to flee, passes with this turn's choice
+            agent.panicked = False
+            agent.alarm = agent.herd_assailant = None
+            actions.append((agent, action, situation))
+        for agent, action, situation in actions:  # each in turn, in the world as those before it left it
+            if agent.alive:
+                self._act(agent, action, situation)
+        self._learn_witnessed()
 
-        odds = choice_odds(values, options)
-        roll = self.random.random()
-        choice = options[-1]
-        for option in options:
-            roll -= odds[option]
-            if roll < 0:
-                choice = option
-                break
-        action = ACTIONS[choice]
-        if not situation.get("panic"):  # a panicked flight was no choice
-            self.insights.record(agent.species, agent.profile, (ACTIONS[option] for option in options), action)
-        agent.odds = {ACTIONS[option]: chance for option, chance in odds.items()}
-        agent.last_senses = senses
-        agent.last_choice = choice
-        agent.last_wellbeing = self._wellbeing(agent)
-        agent.last_comfort = comfort
-        agent.reward = 0.0
-        agent.assailant = None  # the chance to strike back, or need to flee, passes with this turn's choice
-        agent.panicked = False
-        agent.alarm = agent.herd_assailant = None
-        self._act(agent, action, situation)
-
-    def _sense(self, agent: Bitzkey) -> tuple[list[float], list[int], dict]:
+    def _survey(self, agent: Bitzkey) -> None:
+        """A hunter's view of its territory: how crowded with rivals, and whether its prey are common
+        enough to hunt."""
         if agent.species in TERRITORY:
             agent.rivalry, agent.own_rivalry = self._territory(agent)
             agent.hunts_grazers, agent.hunts_omnivores = self._prey_switching(agent)
+
+    def _sense(self, agent: Bitzkey, surveyed: bool = False) -> tuple[list[float], list[int], dict]:
+        """What an animal senses, the actions open to it, and its situation, surveying its territory
+        first unless it already has this turn."""
+        if not surveyed:
+            self._survey(agent)
         neighbors = self._nearby(agent, 1)
         mate = next((other for other in neighbors if self._compatible(agent, other) and other.can_breed), None)
         nurseries = self._free_cells_near(agent)
@@ -1321,6 +1358,9 @@ class Simulation:
     def _act(self, agent: Bitzkey, action: str, situation: dict) -> None:
         if action == "eat":
             cell = (agent.x, agent.y)
+            if not self.grass.get(cell):  # another got here first
+                agent.last_action = "found it eaten"
+                return
             self.grass[cell] -= 1
             if self.grass[cell] == 0:
                 del self.grass[cell]
@@ -1348,20 +1388,32 @@ class Simulation:
             self._move_toward(agent, suitor.x, suitor.y)
             agent.last_action = "courted"
         elif action == "breed":
+            mate = situation["mate"]
+            if not (mate.alive and mate.can_breed and agent.can_breed and self._beside(agent, mate)):
+                agent.last_action = "was spurned"  # its mate died, moved off or bred with another first
+                return
             agent.last_action = "mated"  # before breeding, so a parent that dies of it says so
-            self._breed(agent, situation["mate"])
+            self._breed(agent, mate)
         elif action == "hunt":
             quarry = situation["quarry"]
             self._move_toward(agent, quarry.x, quarry.y)
             agent.last_action = "hunted"
-            if abs(quarry.x - agent.x) + abs(quarry.y - agent.y) <= 1:
+            if quarry.alive and abs(quarry.x - agent.x) + abs(quarry.y - agent.y) <= 1:
                 self._attack(agent, quarry)
                 if agent.alive:
                     agent.last_action = "pounced"
         elif action == "attack":
-            self._attack(agent, situation["prey"])
+            prey = situation["prey"]
+            if not (prey.alive and self._beside(agent, prey)):
+                agent.last_action = "missed"  # it fell or got away first
+                return
+            self._attack(agent, prey)
         elif action == "defend":
-            self._defend(agent, situation["defend_target"], for_herd=situation["for_herd"])
+            target = situation["defend_target"]
+            if not (target.alive and self._beside(agent, target)):
+                agent.last_action = "missed"
+                return
+            self._defend(agent, target, for_herd=situation["for_herd"])
         elif action == "herd":
             self._move_toward(agent, *situation["herd_middle"])
             agent.last_action = "herded"
@@ -1387,7 +1439,7 @@ class Simulation:
         so from a bigger plant. Each bite wounds the plant, and enough of them kill it. A bitten
         plant can't be bitten again until it has recovered."""
         self._move_toward(agent, plant.x, plant.y)
-        if abs(plant.x - agent.x) + abs(plant.y - agent.y) > 1 or plant.cooldown:
+        if not plant.alive or abs(plant.x - agent.x) + abs(plant.y - agent.y) > 1 or plant.cooldown:
             agent.last_action = "sought plants"
             return
         agent.nourish((PLANT_MEAL + PLANT_MEAL_FOR_SIZE * plant.physique("size")) * agent.browsing * self._plant_yield(plant))
@@ -1403,6 +1455,9 @@ class Simulation:
         """A starving grazer, with food scarce about it, tears into a plant beside it, recovering from
         a bite or not: it eats UPROOT_MEALS times a bite's meal, and the plant loses UPROOT_BITE
         health, often all it has. An armed plant still strikes back."""
+        if not plant.alive:  # another got to it first
+            agent.last_action = "sought plants"
+            return
         meal = (PLANT_MEAL + PLANT_MEAL_FOR_SIZE * plant.physique("size")) * agent.browsing * self._plant_yield(plant)
         agent.nourish(meal * UPROOT_MEALS)
         plant.health -= UPROOT_BITE
@@ -1428,8 +1483,8 @@ class Simulation:
         """Go to the fresh kill and, once alongside, eat it whole: FRESH_KILL_MEALS times the meal of
         making the kill. It isn't scavenging, and nothing is left: the body is gone at the turn's end."""
         self._move_toward(agent, corpse.x, corpse.y)
-        if abs(corpse.x - agent.x) + abs(corpse.y - agent.y) > 1:
-            agent.last_action = "sought a kill"
+        if abs(corpse.x - agent.x) + abs(corpse.y - agent.y) > 1 or not self._fresh(corpse) or corpse.meat <= 0:
+            agent.last_action = "sought a kill"  # out of reach, or already eaten
             return
         agent.nourish(FRESH_KILL_MEALS * (KILL_MEAL + KILL_MEAL_FOR_SIZE * corpse.physique("size")))
         corpse.meat = 0.0
@@ -1869,12 +1924,26 @@ class Simulation:
                     or abs(observer.x - actor.x) + abs(observer.y - actor.y) > observer.sight):
                 continue
             heed = observer.feeling("empathy") * observer.feeling("intellect")
-            observer.brain.learn(actor.last_senses, actor.last_choice, outcome, LEARNING_RATE * heed * SOCIAL_LEARNING)
+            self._witnessed.append((observer, actor.last_senses, actor.last_choice, outcome,
+                                    LEARNING_RATE * heed * SOCIAL_LEARNING))  # learnt with the rest, at the end
             observer.reward += SOCIAL_MOOD * heed * outcome
             if outcome > 0:
                 observer.seen_success = 1.0
             else:
                 observer.seen_failure = 1.0
+
+    def _learn_witnessed(self) -> None:
+        """Herd-mates learn from what they saw this turn, each brain in the order it saw it."""
+        for observer, senses, choice, outcome, rate in self._witnessed:
+            if observer.brain is not None:  # not since dead
+                observer.brain.learn(senses, choice, outcome, rate)
+        self._witnessed = []
+
+    @staticmethod
+    def _beside(agent: Bitzkey, other: Bitzkey) -> bool:
+        """Whether two Bitzkeys are on the same cell or side by side, as sensing finds a mate, prey or
+        a threat beside an animal."""
+        return abs(agent.x - other.x) + abs(agent.y - other.y) <= 1
 
     def _society(self, observer: Bitzkey, actor: Bitzkey) -> bool:
         """Whether an animal counts another, alive or not, as one of its herd (or pack): as for
