@@ -110,6 +110,8 @@ PREDATOR_SIGHT = 3  # predators see prey this many cells further than they other
 MAX_PREDATOR_SIGHT = 3
 HUNT_STEPS = 1      # and chase it this many more steps a turn
 PRIMAL_FEAR = 0.5
+PREDATOR_FEAR = 0.5  # a predator feels this share of its fear's effects: dread, panic, keeping close to its herd
+PREDATOR_LOOMS = 2   # sizing up a fight for primal fear, a predator counts as this many steps larger and stronger
 PRIMAL_FEAR_PREDATORS = 1 / 3
 PRIMAL_FREEZE = 0.5
 PANIC = (0.3, 1.0)     # chance a fully fearful animal breaks when struck, unhurt and near death;
@@ -502,6 +504,11 @@ class Bitzkey:
     def physique(self, trait: str) -> float:
         """A body trait as a share of its full range."""
         return share(int(self.body[trait]))
+
+    @property
+    def fearfulness(self) -> float:
+        """Its fear, as its effects feel it: a predator's PREDATOR_FEAR as much."""
+        return self.feeling("fear") * (PREDATOR_FEAR if self.species == "predator" else 1.0)
 
     @property
     def herd_instinct(self) -> float:
@@ -1255,7 +1262,7 @@ class Simulation:
         if defend_target and (agent.species != "grazer" or agent.body["strength"] > GRAZER_DEFENCE_STRENGTH):
             available.add("defend")  # a grazer only when strong enough
         if herd_middle is not None and (abs(herd_middle[0] - agent.x) + abs(herd_middle[1] - agent.y)
-                                        > HERD_SPREAD * (1 - agent.feeling("fear"))):
+                                        > HERD_SPREAD * (1 - agent.fearfulness)):
             # The more fearful it is, the closer it keeps to the herd's middle, but not where the
             # middle is further from its home temperature than here.
             if agent.climate_steps(self._climate[herd_middle[1]]) <= discomfort:
@@ -1337,14 +1344,14 @@ class Simulation:
         herd_near = min(3, situation.get("herd_near", 0)) / 3
         company_around = min(3.0, situation["kin"] + tolerance * situation["others"])
         company = COMPANY_JOY * agent.feeling("sociability") * company_around / 3
-        dread = (FEAR_DREAD * agent.feeling("fear") * (1 - 0.5 * tolerance) * min(2, situation["threats"]) / 2
+        dread = (FEAR_DREAD * agent.fearfulness * (1 - 0.5 * tolerance) * min(2, situation["threats"]) / 2
                  * (1 - HERD_SAFETY * instinct * herd_near))
         unease = UNEASE * (1 - tolerance) * min(3, situation["others"]) / 3
         crowded = RIVAL_UNEASE * (1 - 0.5 * tolerance) * situation.get("rivalry", 0.0)
         herding = HERD_JOY * instinct * herd_near
         if not situation.get("herd", True):
             herding -= HERD_LONELINESS * instinct
-        herding *= 0.5 + agent.feeling("fear")  # the fearful feel their herd, and its absence, most
+        herding *= 0.5 + agent.fearfulness  # the fearful feel their herd, and its absence, most
         exposed = CLIMATE_UNEASE * situation.get("exposure", 0.0)
         return company - dread - unease - crowded + herding - exposed
 
@@ -1686,7 +1693,7 @@ class Simulation:
         unhurt, dying = PANIC
         hurt = 1 - max(0.0, victim.health) / victim.max_health
         steadied = 1 - HERD_SAFETY * victim.herd_instinct * min(3, herd_near) / 3
-        if self.random.random() < victim.feeling("fear") * (unhurt + (dying - unhurt) * hurt) * steadied:
+        if self.random.random() < victim.fearfulness * (unhurt + (dying - unhurt) * hurt) * steadied:
             victim.panicked = True
             self._experience(victim, "panicked")
 
@@ -1710,9 +1717,32 @@ class Simulation:
     def disparity(cls, agent: Bitzkey, opponent: Bitzkey) -> float:
         """How much stronger an opponent is, 0 (no stronger) to 1 (overwhelmingly): weighing the share of
         each other's health one blow takes, with every trait that counts in a fight."""
-        mine = cls._damage(agent, opponent) / max(1.0, opponent.health)
-        theirs = cls._damage(opponent, agent) / max(1.0, agent.health)
+        mine = cls._looming_damage(agent, opponent) / max(1.0, cls._looming_health(opponent))
+        theirs = cls._looming_damage(opponent, agent) / max(1.0, cls._looming_health(agent))
         return 0.0 if theirs <= mine else 1 - mine / theirs
+
+    @staticmethod
+    def _looming(animal: Bitzkey) -> tuple[float, float]:
+        """Its size and strength, as shares of their full range, as they count in sizing up a fight: a
+        predator's PREDATOR_LOOMS steps more of each (past the full range, for the largest and strongest)."""
+        more = PREDATOR_LOOMS / TRAIT_MAX if animal.species == "predator" else 0.0
+        return animal.physique("size") + more, animal.physique("strength") + more
+
+    @classmethod
+    def _looming_damage(cls, attacker: Bitzkey, defender: Bitzkey) -> float:
+        """One blow, as _damage, with each side's size and strength as they count in sizing up a fight."""
+        size, strength = cls._looming(attacker)
+        defender_size, _ = cls._looming(defender)
+        might = (1 - SIZE_IN_MIGHT) * strength + SIZE_IN_MIGHT * size
+        toughness = (1 - SIZE_IN_MIGHT) * defender.physique("armour") + SIZE_IN_MIGHT * defender_size
+        return STRIKE_FORCE * (2 + 9 * might) * (1 + 0.75 * cls._armed(attacker)) * (1 - 0.6 * toughness)
+
+    @classmethod
+    def _looming_health(cls, animal: Bitzkey) -> float:
+        """Its health, as it counts in sizing up a fight: as large a share of the larger health a larger
+        body has."""
+        size, _ = cls._looming(animal)
+        return animal.health * (60.0 + 90 * size) / animal.max_health
 
     def _breed(self, first: Bitzkey, second: Bitzkey) -> None:
         """Fertile parents breed cheaply and often. The parent that chose to breed conceives a

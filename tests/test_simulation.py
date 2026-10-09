@@ -1348,6 +1348,22 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(len(lines), len(rows) + 1)
         self.assertNotIn("hunt", lines[0].split())  # a grazer never meets a chance to hunt
 
+    def test_predators_loom_larger_in_primal_fear_and_feel_half_their_fear(self):
+        traits = dict(size=3, strength=3, weapons=0, armour=0)
+        grazer = self.simulation._add_agent(encode_dna("grazer", **traits), 5, 5)
+        omnivore = self.simulation._add_agent(encode_dna("omnivore", **traits), 6, 5)
+        predator = self.simulation._add_agent(encode_dna("predator", **traits), 7, 5)
+        self.assertEqual(Simulation.disparity(grazer, omnivore), 0.0)  # an even match
+        self.assertGreater(Simulation.disparity(grazer, predator), 0.0)  # the same body, but a predator looms larger
+        self.assertEqual(Simulation.disparity(predator, omnivore), 0.0)  # and sizes itself up as larger too
+        bigger = self.simulation._add_agent(encode_dna("omnivore", size=5, strength=5, weapons=0, armour=0), 8, 5)
+        self.assertAlmostEqual(Simulation.disparity(bigger, predator), 0.0)  # two steps up: the predator's match
+        with patch.object(simulation_module, "PREDATOR_LOOMS", 0):
+            self.assertEqual(Simulation.disparity(grazer, predator), 0.0)
+        fearful = self.simulation._add_agent(encode_dna("predator", fear=7), 9, 9)
+        self.assertAlmostEqual(fearful.fearfulness, 0.5)
+        self.assertAlmostEqual(self.simulation._add_agent(encode_dna("grazer", fear=7), 9, 8).fearfulness, 1.0)
+
     def test_weak_grazers_cannot_strike_back(self):
         weak = self.simulation._add_agent(encode_dna("grazer", strength=5), 5, 5)
         strong = self.simulation._add_agent(encode_dna("grazer", strength=6), 9, 9)
