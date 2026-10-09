@@ -282,6 +282,8 @@ class ColourGraph:
         for name, width in self._bottom_buttons():
             buttons[name] = pg.Rect(right - UI(width), timeline.bottom + UI(6), UI(width), UI(28))
             right -= UI(width + 8)
+        # At the bottom right, on the line of help: the catalog, to look through.
+        buttons["open"] = pg.Rect(panel.right - UI(24) - UI(130), panel.bottom - UI(33), UI(130), UI(26))
         return {"panel": panel, "chart": chart, "timeline": timeline, **buttons}
 
     def _bottom_buttons(self) -> list[tuple[str, int]]:
@@ -329,7 +331,7 @@ class ColourGraph:
                 self.seek_turn = self.turn_at(event.pos[0])
                 return "seek"
         elif event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
-            for action in ("copy", "save", "map", "catalog", "renew"):
+            for action in ("copy", "save", "map", "catalog", "renew", "open"):
                 if action in layout and layout[action].collidepoint(event.pos):
                     return action
             if layout["sort"].collidepoint(event.pos):
@@ -431,7 +433,7 @@ class ColourGraph:
         self._text(screen, fit_text(self._describe(simulation, hovered), self.font, room),
                    (panel.left + UI(24), timeline.bottom + UI(10)), (220, 229, 211), self.font)
         for name, text in (("map", "RETURN TO MAP"), ("catalog", "ADD TO CATALOG"),
-                           ("renew", "START A NEW WORLD WITH THE SELECTED")):
+                           ("renew", "START A NEW WORLD WITH THE SELECTED"), ("open", "OPEN CATALOG")):
             if name in layout:
                 lit = name == "map"
                 pg.draw.rect(screen, (238, 183, 110) if lit else (44, 57, 52), layout[name], border_radius=UI(4))

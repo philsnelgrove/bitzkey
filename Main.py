@@ -17,6 +17,7 @@ from display.Look import (DOT_RADIUS_RANGE, EXPORTING, GRASS, GRID, RING_WIDTH, 
 from display.Setup import EXPORT_DIR, SetupScreen
 from display.Ui import UI
 from tools.Brain import ACTIONS
+from display.CatalogScreen import CatalogScreen
 from display.ColourGraph import ColourGraph
 from tools.Exchange import Imported, bitzkey_record, export_bitzkeys, format_records
 from tools.Genome import genome_record
@@ -150,6 +151,7 @@ class BitzkeyApp:
         self._menu_items: list[tuple[pg.Rect, int]] = []  # the open menu's choices, and which statistic each is
         self.renewal = ""  # the Bitzkeys to start a new world with, on leaving for one
         self._export_button = pg.Rect(0, 0, 0, 0)
+        self._open_button = pg.Rect(0, 0, 0, 0)  # the catalog, to look through
         self.message = ""
         self.message_until = 0
         self.playing = True
@@ -261,6 +263,8 @@ class BitzkeyApp:
                         self._close_graph()  # at the run's end, to look over the map before leaving
                     elif action == "catalog":
                         self._catalog_picked()
+                    elif action == "open":
+                        self._browse_catalog()
                     elif action == "renew":
                         if self._renew():
                             return "renew"
@@ -349,10 +353,20 @@ class BitzkeyApp:
             self._catalog_selected()
         elif self._export_button.collidepoint(position):
             self._open_export_dialog()
+        elif self._open_button.collidepoint(position):
+            self._browse_catalog()
         elif picked := [identifier for card, identifier in self._exemplar_cards if card.collidepoint(position)]:
             self._select(picked[0])
         elif self._map_view()[0].collidepoint(position):  # a click on the map, pressed and let go at once
             self._pick_on_map(position, position, bool(pg.key.get_mods() & pg.KMOD_CTRL))
+
+    def _browse_catalog(self) -> None:
+        """Look through the catalog, importing and exporting nothing; the world waits meanwhile. Closing
+        the window from there closes the program."""
+        outcome, _ = CatalogScreen(self.screen, browsing=True).run()
+        self.screen = pg.display.get_surface()
+        if outcome == "quit":
+            pg.event.post(pg.event.Event(pg.QUIT))
 
     # Dialogs
 
@@ -1101,8 +1115,13 @@ class BitzkeyApp:
         pg.draw.rect(self.screen, (238, 183, 110) if self.export_list else (44, 57, 52), self._export_button,
                      border_radius=UI(6))
         self.screen.blit(label, label.get_rect(center=self._export_button.center))
+        label = UI.font("segoeui", 13, bold=True).render("OPEN CATALOG", True, (220, 229, 211))
+        self._open_button = pg.Rect(0, 0, label.get_width() + UI(32), UI(34))
+        self._open_button.midright = (self._export_button.left - UI(10), height - UI(26))
+        pg.draw.rect(self.screen, (44, 57, 52), self._open_button, border_radius=UI(6))
+        self.screen.blit(label, label.get_rect(center=self._open_button.center))
         left = max(UI(185), UI(22) + self.small.size(history)[0] + UI(24))  # clear of the history, however long
-        room = self._export_button.left - left - UI(16)
+        room = self._open_button.left - left - UI(16)
         if pg.time.get_ticks() < self.message_until:
             self._text(self._fit(self.message, room), (left, height - UI(36)), (238, 183, 110), self.small)
             return

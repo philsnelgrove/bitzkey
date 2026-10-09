@@ -701,6 +701,12 @@ list, brains and all, REMOVE (`Delete`) takes them out of the catalog for good
 after asking, and CLOSE (`Esc`) returns. Each entry is written as an export record, so `catalog.json` can also be
 loaded like any export file.
 
+OPEN CATALOG, in the footer beside EXPORT ALL SELECTED and at the bottom right of
+the colour graph, opens the catalog from a running world just to look through it:
+the same screen without ADD TO IMPORT, so nothing is imported or exported (REMOVE
+still works). The world waits while it is open; CLOSE (`Esc`) returns to the map
+or the graph.
+
 ## Export Format
 
 A Bitzkey is written as its genome version and its two colour words in hex,

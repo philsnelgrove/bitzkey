@@ -1,6 +1,7 @@
 """The catalog of favourite Bitzkeys: each one listed, and the one picked shown large beside its
 inspector panel, as it was when catalogued, trained brain and all. Opened from the configuration
-panel; picking one adds it to the import list."""
+panel, picking one adds it to the import list; opened from a running world to browse, it only shows
+them (and can remove them)."""
 
 from __future__ import annotations
 
@@ -23,8 +24,9 @@ class CatalogScreen:
     are chosen as in Windows: a click chooses one, CTRL+click adds one or takes it out, SHIFT+click
     chooses all from the last one clicked to this one (CTRL+SHIFT adds them), and CTRL+A all."""
 
-    def __init__(self, screen: pg.Surface):
+    def __init__(self, screen: pg.Surface, browsing: bool = False):
         self.screen = screen
+        self.browsing = browsing  # only to look through: nothing is imported
         self.note = ""
         try:
             self.entries = Catalog.load()
@@ -73,7 +75,7 @@ class CatalogScreen:
                 elif event.type == pg.KEYDOWN:
                     if event.key == pg.K_ESCAPE:
                         return "close", None
-                    if event.key in (pg.K_RETURN, pg.K_KP_ENTER) and self.chosen:
+                    if event.key in (pg.K_RETURN, pg.K_KP_ENTER) and self.chosen and not self.browsing:
                         return "import", self._chosen_entries()
                     if event.key == pg.K_F11:
                         self.screen = Window.toggle_fullscreen()
@@ -175,7 +177,7 @@ class CatalogScreen:
         layout = self._layout()
         if layout["close"].collidepoint(position):
             return "close"
-        if layout["import"].collidepoint(position) and self.chosen:
+        if layout["import"].collidepoint(position) and self.chosen and not self.browsing:
             return "import"
         if layout["remove"].collidepoint(position) and self.chosen:
             self._ask_to_remove()
@@ -194,9 +196,10 @@ class CatalogScreen:
         pg.draw.rect(self.screen, (80, 99, 85), card, 1, border_radius=UI(8))
         title = self.bold.render("BITZKEY CATALOG", True, (229, 239, 220))
         self.screen.blit(title, (card.left + UI(24), card.top + UI(22)))
-        self._text("NEW WORLD  /  YOUR FAVOURITES", (card.left + UI(48) + title.get_width(), card.top + UI(31)),
-                   (144, 170, 151), self.small)
-        self._text("Each one kept as it was when catalogued, its trained brain and all. Choose those to import.",
+        self._text("YOUR FAVOURITES" if self.browsing else "NEW WORLD  /  YOUR FAVOURITES",
+                   (card.left + UI(48) + title.get_width(), card.top + UI(31)), (144, 170, 151), self.small)
+        self._text("Each one kept as it was when catalogued, its trained brain and all." if self.browsing else
+                   "Each one kept as it was when catalogued, its trained brain and all. Choose those to import.",
                    (card.left + UI(24), card.top + UI(60)), (157, 177, 159), self.font)
 
         pg.draw.rect(self.screen, (22, 30, 30), listing, border_radius=UI(6))
@@ -231,12 +234,15 @@ class CatalogScreen:
 
         adding = "ADD TO IMPORT" if len(self.chosen) <= 1 else f"ADD {len(self.chosen)} TO IMPORT"
         for name, label, lit in (("remove", "REMOVE", False), ("import", adding, True), ("close", "CLOSE", False)):
+            if name == "import" and self.browsing:
+                continue
             button = layout[name]
             active = lit and bool(self.chosen)
             pg.draw.rect(self.screen, (131, 205, 143) if active else (44, 57, 52), button, border_radius=UI(6))
             text = self.button_font.render(label, True, (19, 26, 27) if active else (220, 229, 211))
             self.screen.blit(text, text.get_rect(center=button.center))
-        hint = self.note or "CLICK, SHIFT or CTRL+CLICK  choose    ENTER  add to import    DELETE  remove    ESC  close"
+        hint = self.note or ("CLICK, SHIFT or CTRL+CLICK  choose    DELETE  remove    ESC  close" if self.browsing else
+                             "CLICK, SHIFT or CTRL+CLICK  choose    ENTER  add to import    DELETE  remove    ESC  close")
         self._text(hint, (layout["remove"].right + UI(16), layout["remove"].centery - UI(8)),
                    (238, 183, 110) if self.note else (116, 139, 124), self.small)
         if self.dialog:
