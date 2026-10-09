@@ -167,7 +167,10 @@ ready to copy, export or catalog; the selected one's card is outlined in amber.
 - `Left Arrow`: rewind one recorded turn
 - `Right Arrow`: advance one turn while paused, or replay a recorded turn
 - Mouse wheel over the map: zoom in and out around the pointer, without
-  pausing; drag with the right or middle button to pan; `Z`: the whole map again
+  pausing; drag with the right or middle button to pan; `Z`: the whole map again.
+  The Bitzkeys zoom with the map: the largest body's dot, ring and all, fills a
+  cell, and the smallest, always big enough for its icon, grows with it in
+  proportion
 - `R`: restart with the same launch settings
 - `I`: toggle the insights panel (scroll it with the wheel or its scroll bar)
 - `B`: save a brain report to `reports/`

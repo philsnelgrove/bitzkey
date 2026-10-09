@@ -12,7 +12,7 @@ from config.Globals import Config
 from display import Window
 from display.Dialog import Dialog
 from display.Inspector import draw_details
-from display.Look import (DOT_RADIUS_RANGE, EXPORTING, GRASS, GRID, RING_WIDTH, SELECTED, bitzkey_layer, dot_radius,
+from display.Look import (DOT_RADIUS_RANGE, EXPORTING, GRASS, GRID, RING_WIDTH, SELECTED, bitzkey_layer, dot_radius, map_dot_radii,
                           draw_bitzkey, zone_colour)
 from display.Setup import EXPORT_DIR, SetupScreen
 from display.Ui import UI
@@ -646,7 +646,7 @@ class BitzkeyApp:
             if not reach.collidepoint(point):
                 continue
             pg.draw.circle(self.screen, GRASS, point, max(1, round(min(cell_width, cell_height) * 0.18)))
-        largest = max(DOT_RADIUS_RANGE[1], round(min(cell_width, cell_height) * 0.45))
+        smallest, largest = map_dot_radii(min(cell_width, cell_height))  # zoomed with the map
         for agent in self.simulation.agents:  # the way each came this turn, faint, beneath them all
             layer = None
             for x, y in agent.trail:
@@ -654,7 +654,7 @@ class BitzkeyApp:
                 if (x, y) == (agent.x, agent.y) or not reach.collidepoint(point):
                     continue
                 if layer is None:
-                    layer = bitzkey_layer(agent.dna, self._dot_radius(agent, largest), alive=agent.alive)
+                    layer = bitzkey_layer(agent.dna, self._dot_radius(agent, largest, smallest), alive=agent.alive)
                     layer.set_alpha(round(255 * TRAIL_OPACITY))
                 half = layer.get_width() // 2
                 self.screen.blit(layer, (point[0] - half, point[1] - half))
@@ -663,7 +663,7 @@ class BitzkeyApp:
                      round(board.top + (agent.y + 0.5) * cell_height))
             if not reach.collidepoint(point):
                 continue
-            radius = self._dot_radius(agent, largest)
+            radius = self._dot_radius(agent, largest, smallest)
             self._draw_bitzkey(agent, point, radius, self._corpse_opacity(agent))
             if agent.identifier == self.selected_id or (agent.alive and agent.identifier in self.graph.selection):
                 pg.draw.circle(self.screen, SELECTED, point, radius + RING_WIDTH + UI(3), max(1, UI(1)))
@@ -795,8 +795,8 @@ class BitzkeyApp:
         self.screen.blit(label, label.get_rect(center=self._add_button.center))
 
     @staticmethod
-    def _dot_radius(agent: Bitzkey, largest: int = DOT_RADIUS_RANGE[1]) -> int:
-        return dot_radius(int(agent.body["size"]), largest)
+    def _dot_radius(agent: Bitzkey, largest: int = DOT_RADIUS_RANGE[1], smallest: int = DOT_RADIUS_RANGE[0]) -> int:
+        return dot_radius(int(agent.body["size"]), largest, smallest)
 
     def _draw_bitzkey(self, agent: Bitzkey, point: tuple[int, int], radius: int, opacity: float = 1.0) -> None:
         draw_bitzkey(self.screen, agent.dna, point, radius, alive=agent.alive, opacity=opacity)

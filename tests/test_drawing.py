@@ -14,6 +14,16 @@ def bitzkey(size: int) -> Bitzkey:
 
 
 class DotSizeTests(unittest.TestCase):
+    def test_map_dots_zoom_with_the_map_the_largest_filling_a_cell_the_smallest_showing_its_icon(self):
+        from display.Look import ICON_MIN_RADIUS, RING_WIDTH, dot_radius, map_dot_radii
+        self.assertEqual(map_dot_radii(6.7), (ICON_MIN_RADIUS, 5))  # the whole map: as before, every dot with its icon
+        for cell in (20, 40, 80):  # zoomed in: the largest, ring and all, as wide as a cell
+            smallest, largest = map_dot_radii(cell)
+            self.assertEqual(2 * (largest + RING_WIDTH), cell)
+            self.assertGreaterEqual(smallest, ICON_MIN_RADIUS)
+            self.assertAlmostEqual(smallest / largest, ICON_MIN_RADIUS / 5, delta=0.05)  # in proportion
+            self.assertEqual((dot_radius(0, largest, smallest), dot_radius(7, largest, smallest)), (smallest, largest))
+
     def test_dot_radius_spans_the_range_by_body_size(self):
         self.assertEqual(BitzkeyApp._dot_radius(bitzkey(0)), DOT_RADIUS_RANGE[0])
         self.assertEqual(BitzkeyApp._dot_radius(bitzkey(7)), DOT_RADIUS_RANGE[1])

@@ -36,11 +36,18 @@ def zone_colour(temperature: float) -> tuple[int, int, int]:
     return tuple(round(grey + (tint - grey) * ZONE_TINT) for grey, tint in zip(WORLD_GREY, tints))
 
 
-def dot_radius(size: int, largest: int = DOT_RADIUS_RANGE[1]) -> int:
-    """The dot's radius shows the body's size: from the smallest radius at size 0 up to
-    `largest` at the biggest size."""
-    smallest = DOT_RADIUS_RANGE[0]
+def dot_radius(size: int, largest: int = DOT_RADIUS_RANGE[1], smallest: int = DOT_RADIUS_RANGE[0]) -> int:
+    """The dot's radius shows the body's size: from `smallest` at size 0 up to `largest` at the
+    biggest size."""
     return round(smallest + (largest - smallest) * size / TRAIT_MAX)
+
+
+def map_dot_radii(cell: float) -> tuple[int, int]:
+    """The smallest and largest dots on the map, zoomed with it: the largest body's dot, ring and
+    all, fills a cell, and the smallest stays big enough for its icon, growing with the largest in
+    proportion."""
+    largest = max(DOT_RADIUS_RANGE[1], round(cell / 2) - RING_WIDTH)
+    return max(ICON_MIN_RADIUS, round(largest * ICON_MIN_RADIUS / DOT_RADIUS_RANGE[1])), largest
 
 
 def outline_offsets(width: int) -> list[tuple[int, int]]:
