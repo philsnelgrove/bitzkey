@@ -97,7 +97,7 @@ class AdvancedFormTests(unittest.TestCase):
         form = AdvancedForm({})
         focus(form, "GRASS_REGROWTH")
         form.adjust(1)
-        self.assertEqual(form.values["GRASS_REGROWTH"], 0.005)
+        self.assertEqual(form.values["GRASS_REGROWTH"], 0.009)
         form.adjust(-1000)
         self.assertEqual(form.values["GRASS_REGROWTH"], 0.0)
         self.assertEqual(form.changed(), {"GRASS_REGROWTH": 0.0})

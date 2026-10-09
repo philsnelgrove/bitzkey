@@ -27,7 +27,7 @@ from tools.Insights import Insights
 GRID_SIZE = 100
 INITIAL_POPULATION = 90
 GRASS_DENSITY = 50      # percent of cells that start with grass
-GRASS_REGROWTH = 0.004  # share of the starting grass that grows back each turn
+GRASS_REGROWTH = 0.008  # share of the starting grass that grows back each turn
 MAX_POPULATION = 20000  # the most Bitzkeys spawned at the start; a world's population cap is a setting
 CROWDING_RADIUS = 4    # animals within this many cells count as crowding a would-be parent
 CROWDING_LIMIT = 10    # litters shrink as crowding nears this; at it, an animal doesn't breed
@@ -83,7 +83,7 @@ WALK_REST = 0.5
 GO_EFFORT = 0.25
 FEAR_DREAD = 0.3
 UNEASE = 0.1           # how much an intolerant animal minds other species close by
-CLIMATE_UNEASE = 0.5   # discomfort two or more steps from home, half that one step; less for the hardy
+CLIMATE_UNEASE = 1.5   # discomfort two or more steps from home, half that one step; less for the hardy
 EMPATHY_PAIN = 0.15    # how much an empathetic animal feels another's wound; twice that for a death
 # Society: an animal sees what happens to its herd-mates (its pack, for a predator) within its sight. A
 # herd-mate's kill is a success, its death (but of old age) a failure; the witness learns from it as
@@ -103,6 +103,12 @@ REPLAY_PER_INTELLECT = 2
 # PRIMAL_FEAR times how lopsided the fight would be (predators PRIMAL_FEAR_PREDATORS as often). While a
 # hunter is in sight it then panics every turn, fleeing, or, with a chance of PRIMAL_FREEZE at the lowest
 # intellect and none at the highest, freezes and does nothing at all.
+# The instinct to hunt: whenever hunting or attacking is open to a predator, it values each this much more,
+# times its hunger as a share, whatever its brain has learnt; the brain's learning adds to it.
+HUNTING_INSTINCT = 1.0
+PREDATOR_SIGHT = 3  # predators see prey this many cells further than they otherwise see, up to MAX_PREDATOR_SIGHT
+MAX_PREDATOR_SIGHT = 3
+HUNT_STEPS = 1      # and chase it this many more steps a turn
 PRIMAL_FEAR = 0.5
 PRIMAL_FEAR_PREDATORS = 1 / 3
 PRIMAL_FREEZE = 0.5
@@ -249,7 +255,8 @@ HEADINGS = {"go_north": (0, -1, False, "went north"), "go_south": (0, 1, False, 
             "walk_east": (1, 0, True, "walked east"), "walk_west": (-1, 0, True, "walked west")}
 TRAVELLED = {went for *_, went in HEADINGS.values()}
 GRASS_SEEN = SENSES.index("grass_seen")
-MAX_SIGHT = 2 + TRAIT_MAX
+HUNT, ATTACK = ACTIONS.index("hunt"), ACTIONS.index("attack")
+MAX_SIGHT = 2 + TRAIT_MAX + MAX_PREDATOR_SIGHT  # the furthest anything is seen: a predator's sight for prey
 SIGHT_OFFSETS = sorted(
     ((dx, dy) for dx in range(-MAX_SIGHT, MAX_SIGHT + 1) for dy in range(-MAX_SIGHT, MAX_SIGHT + 1)
      if 0 < abs(dx) + abs(dy) <= MAX_SIGHT),
@@ -359,6 +366,14 @@ def birth_offsets(reach: int) -> tuple[tuple[int, int], ...]:
                      key=lambda offset: (max(abs(offset[0]), abs(offset[1])), offset[0] ** 2 + offset[1] ** 2,
                                          offset[1], offset[0]))
     return ((0, -1), (1, 0), (0, 1), (-1, 0), (1, -1), (1, 1), (-1, 1), (-1, -1), *further)
+
+
+def predator_dna(dna: int) -> int:
+    """The genome with its species trait made a predator's (3, or 7 where its top bit was set: the species is
+    the trait mod 4), the rest unchanged."""
+    shift = 32  # the species trait is the ring's first
+    trait = (dna >> shift) & 0x7
+    return (dna & ~(0x7 << shift)) | (((trait & 0x4) | 0x3) << shift)
 
 
 def gestation(size: int) -> int:
@@ -1126,6 +1141,9 @@ class Simulation:
                 situation["hunter"] = situation["assailant"]
                 situation["panic"] = True
                 options = [ACTIONS.index("flee")]
+            if agent.species == "predator":  # the instinct to hunt, on top of what its brain has learnt
+                urge = HUNTING_INSTINCT * min(1.0, agent.hunger / 100)
+                valued = [value + urge if action in (HUNT, ATTACK) else value for action, value in enumerate(valued)]
             odds = choice_odds(valued, options)
             roll = self.random.random()
             choice = options[-1]
@@ -1180,7 +1198,8 @@ class Simulation:
         grass = self._nearest_grass(agent, sight) if grazes else None
         carrion = self._nearest_carrion(agent, sight) if agent.species != "grazer" else None  # grazers don't scavenge
         kill = self._nearest_kill(agent, sight) if agent.species in ("omnivore", "predator") else None
-        quarry, hunter, suitor, flora = self._look_around(agent, sight)
+        prey_sight = sight + (PREDATOR_SIGHT if agent.species == "predator" else 0)
+        quarry, hunter, suitor, flora = self._look_around(agent, sight, prey_sight)
         assailant = next((other for other in neighbors if other.identifier == agent.assailant), None)
         herd_assailant = next((other for other in neighbors if other.identifier == agent.herd_assailant), None)
         defend_target = assailant or herd_assailant
@@ -1246,7 +1265,7 @@ class Simulation:
             ready_to_breed=float(agent.cooldown == 0),
             prey_near=min(4, len(prey)) / 4,
             prey_frailty=0.0 if target is None else min(1.0, self._damage(agent, target) / target.health),
-            prey_closeness=self._closeness(agent, quarry and (quarry.x, quarry.y), sight),
+            prey_closeness=self._closeness(agent, quarry and (quarry.x, quarry.y), prey_sight),
             threat_near=min(4, len(threats)) / 4,
             threat_danger=0.0 if threat is None else min(1.0, self._damage(threat, agent) / agent.health),
             threat_closeness=self._closeness(agent, hunter and (hunter.x, hunter.y), sight),
@@ -1420,7 +1439,8 @@ class Simulation:
             self._breed(agent, mate)
         elif action == "hunt":
             quarry = situation["quarry"]
-            self._move_toward(agent, quarry.x, quarry.y)
+            self._move_toward(agent, quarry.x, quarry.y,
+                              agent.steps + (HUNT_STEPS if agent.species == "predator" else 0))  # predators chase further
             agent.last_action = "hunted"
             if quarry.alive and abs(quarry.x - agent.x) + abs(quarry.y - agent.y) <= 1:
                 self._attack(agent, quarry)
@@ -1684,6 +1704,8 @@ class Simulation:
             # a mix of its parents', is as deep as its own inborn intellect makes it.
             mind = inherit_mind(first.mind, second.mind, self.random, self.mind_mutation)
             dna = cross(first.dna, second.dna, self.random, mind, body_chance=self.body_mutation)
+            if "predator" in (first.species, second.species):
+                dna = predator_dna(dna)  # a predator's young are predators, whatever crossing over or a mutation made
             brain = Brain.inherit(first.brain, second.brain, self.random, depth_for(decode_mind(dna)["intellect"]))
             first.womb.append((dna, mind, brain, given / litter, generation))
         first.due_turn = self.turn + gestation(int(first.body["size"]))
@@ -1792,25 +1814,29 @@ class Simulation:
                     return corpse
         return None
 
-    def _look_around(self, agent: Bitzkey,
-                     sight: int) -> tuple[Bitzkey | None, Bitzkey | None, Bitzkey | None, Bitzkey | None]:
+    def _look_around(self, agent: Bitzkey, sight: int,
+                     prey_sight: int | None = None) -> tuple[Bitzkey | None, Bitzkey | None, Bitzkey | None, Bitzkey | None]:
         """The nearest prey, hunter, willing mate and edible plant in sight, for the roles this
-        animal can have."""
+        animal can have; prey as far as `prey_sight`, when it sees prey further."""
+        prey_sight = sight if prey_sight is None else prey_sight
         quarry = hunter = suitor = flora = None
         hunts = agent.species in ("omnivore", "predator")
         hunted = agent.species != "plant"
         browses = agent.species in ("grazer", "omnivore")
         courts = agent.can_breed
         cells, x, y = self._cells, agent.x, agent.y
-        for dx, dy in SEEN_WITHIN[sight]:
-            if ((quarry or not hunts) and (hunter or not hunted)
-                    and (suitor or not courts) and (flora or not browses)):
+        for dx, dy in SEEN_WITHIN[max(sight, prey_sight)]:
+            far = abs(dx) + abs(dy) > sight  # beyond its sight but for prey
+            if ((quarry or not hunts) and (far or ((hunter or not hunted)
+                                                   and (suitor or not courts) and (flora or not browses)))):
                 break
             for other in cells.get((x + dx, y + dy), ()):
                 if other is agent or not other.alive:
                     continue
                 if quarry is None and self._is_prey(agent, other):
                     quarry = other
+                elif far:
+                    continue
                 elif hunter is None and self._is_prey(other, agent):
                     hunter = other
                 elif browses and flora is None and other.species == "plant" and not other.cooldown:
@@ -1846,8 +1872,8 @@ class Simulation:
         agent.x, agent.y = x, y
         self._cells.setdefault((x, y), []).append(agent)
 
-    def _move_toward(self, agent: Bitzkey, x: int, y: int) -> None:
-        for _ in range(agent.steps):
+    def _move_toward(self, agent: Bitzkey, x: int, y: int, steps: int | None = None) -> None:
+        for _ in range(agent.steps if steps is None else steps):
             if agent.x != x:
                 self._move(agent, agent.x + (1 if x > agent.x else -1), agent.y)
             elif agent.y != y:

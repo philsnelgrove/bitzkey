@@ -141,6 +141,8 @@ _TABLE: dict[str, list[tuple]] = {
         ("PANIC.0", "Panic, unhurt", "chance a fully fearful animal breaks when struck, unhurt", 0.0, 1.0, 0.05),
         ("PANIC.1", "Panic, near death", "chance a fully fearful animal breaks when struck, near death",
          0.0, 1.0, 0.05),
+        ("HUNTING_INSTINCT", "Hunting instinct", "how much more a predator values hunting and attacking, times its hunger",
+         0.0, 5.0, 0.05),
         ("PRIMAL_FEAR", "Primal fear", "chance a turn of being overcome by an overwhelmingly stronger hunter in sight",
          0.0, 1.0, 0.05),
         ("PRIMAL_FEAR_PREDATORS", "Primal fear, predators", "how susceptible predators are, as a share", 0.0, 1.0, 0.05),
@@ -149,6 +151,8 @@ _TABLE: dict[str, list[tuple]] = {
     ],
     "Fighting": [
         ("STRIKE_FORCE", "Strike force", "scales every blow", 0.0, 10.0, 0.1),
+        ("PREDATOR_SIGHT", "Predator sight", "cells further a predator sees prey", 0, 3, 1),
+        ("HUNT_STEPS", "Hunt steps", "steps further a predator chases prey a turn", 0, 5, 1),
         ("PREDATOR_WEAPONS", "Predator weapons", "a predator's natural weapons count this many times over", 0.0, 10.0, 0.1),
         ("GRAZER_DEFENCE_STRENGTH", "Grazer defence strength", "a grazer can strike back only with strength above this",
          0, 7, 1),

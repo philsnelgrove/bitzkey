@@ -6,7 +6,7 @@ import tools.Simulation as simulation_module
 
 from tools.Brain import ACTIONS, SENSES, Brain
 from tools.Exchange import Imported
-from tools.Genome import encode_dna
+from tools.Genome import decode_body, encode_dna
 from tools.Simulation import (AGENT_BYTES, ATTACK_JOY, FEAST_JOY, BIRTH_REACH, PLANT_GESTATION, Bitzkey, gestation, CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, PLANT_MEAL, PLANT_MEAL_FOR_SIZE, SEED_OFFSETS,
                               SIGHT_OFFSETS, SPAWN_SPREAD, UPROOT_BITE, UPROOT_MEALS, Simulation, litter_size,
                               nearby_offsets)
@@ -238,7 +238,7 @@ class SimulationTests(unittest.TestCase):
         self.assertIn(ACTIONS.index("hunt"), options)
         self.assertNotIn(ACTIONS.index("attack"), options)
         self.simulation._act(predator, "hunt", situation)
-        self.assertEqual((predator.x, predator.y), (2, 4))
+        self.assertEqual((predator.x, predator.y), (2, 5))  # its two steps, and one more for the chase
         self.assertNotIn(ACTIONS.index("hunt"), self.simulation._sense(grazer)[1])
 
     def test_hunter_that_reaches_its_prey_pounces(self):
@@ -1292,6 +1292,39 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(dull.last_action, "froze")
         self.assertEqual((dull.x, dull.y, dull.hunger), before)
         self.assertEqual(bright.last_action, "panicked")
+
+    def test_predators_see_prey_further_than_anything_else(self):
+        predator = self.simulation._add_agent(encode_dna("predator", sight=0), 1, 1)  # sees 2, prey 5
+        omnivore = self.simulation._add_agent(encode_dna("omnivore", sight=0), 1, 8)
+        grazer = self.simulation._add_agent(encode_dna("grazer"), 1, 5)
+        self.simulation._index_cells()
+        self.assertIs(self.simulation._sense(predator)[2]["quarry"], grazer)
+        self.assertIsNone(self.simulation._sense(omnivore)[2]["quarry"])  # three away: beyond an omnivore's two
+
+    def test_a_predators_young_are_predators(self):
+        from tools.Simulation import predator_dna
+        for species in ("plant", "grazer", "omnivore", "predator"):
+            dna = encode_dna(species, size=5)
+            made = predator_dna(dna)
+            self.assertEqual(decode_body(made)["species"], "predator")
+            self.assertEqual(decode_body(made)["size"], 5)
+        self.assertEqual(predator_dna(encode_dna("predator")), encode_dna("predator"))
+
+    def test_the_hunting_instinct_draws_a_hungry_predator_to_its_prey(self):
+        predator = self.simulation._add_agent(encode_dna("predator", sight=7), 2, 2)
+        self.simulation._add_agent(encode_dna("grazer", speed=0), 2, 6)
+        self.simulation._index_cells()
+        predator.brain = Brain.random(random.Random(1))
+        hunts = 0
+        predator.hunger = 95  # very hungry, but alive
+        for seed in range(40):
+            self.simulation.random.seed(seed)
+            predator.x, predator.y = 2, 2
+            self.simulation._index_cells()
+            with patch.object(simulation_module, "HUNTING_INSTINCT", 5.0):
+                self.simulation._think_all([predator])
+            hunts += predator.last_action in ("hunted", "pounced")
+        self.assertGreater(hunts, 30)  # an untrained brain, overwhelmingly drawn to the hunt
 
     def test_weak_grazers_cannot_strike_back(self):
         weak = self.simulation._add_agent(encode_dna("grazer", strength=5), 5, 5)
