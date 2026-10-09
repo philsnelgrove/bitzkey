@@ -779,7 +779,7 @@ class NewTraitTests(unittest.TestCase):
 
     def test_the_fearless_never_break_and_the_fearful_flee_their_assailant(self):
         brave = self.simulation._add_agent(encode_dna("grazer", fear=0), 5, 5)
-        timid = self.simulation._add_agent(encode_dna("grazer", fear=7, strength=7), 2, 2)  # strong enough to defend
+        timid = self.simulation._add_agent(encode_dna("grazer", fear=7, strength=7, intellect=7), 2, 2)  # strong enough to defend; too clever to freeze
         brute = self.simulation._add_agent(encode_dna("predator", weapons=0), 5, 6)
         bully = self.simulation._add_agent(encode_dna("predator", weapons=0), 2, 3)
         self.simulation._index_cells()
@@ -1263,6 +1263,35 @@ class NewTraitTests(unittest.TestCase):
         simulation._add_agent(encode_dna("grazer"), 16, 16)  # two in six: common enough
         simulation._index_cells()
         self.assertIn(attack, simulation._sense(omnivore)[1])
+
+    def test_primal_fear_grows_with_the_disparity_and_spares_predators(self):
+        grazer = self.simulation._add_agent(encode_dna("grazer", size=0), 5, 5)
+        brute = self.simulation._add_agent(encode_dna("predator", size=7, strength=7, weapons=7), 5, 8)
+        weakling = self.simulation._add_agent(encode_dna("predator", size=0), 9, 9)
+        self.assertGreater(Simulation.disparity(grazer, brute), 0.9)
+        self.assertEqual(Simulation.disparity(brute, grazer), 0.0)  # the stronger feels none
+        self.assertGreater(Simulation.disparity(grazer, brute), Simulation.disparity(grazer, weakling))
+        with patch.object(self.simulation.random, "random", return_value=0.3):  # under a half, over a sixth
+            self.assertTrue(self.simulation._primal_fear(grazer, brute))
+            small = self.simulation._add_agent(encode_dna("predator", size=0), 8, 1)
+            self.assertFalse(self.simulation._primal_fear(small, brute))  # a predator is a third as susceptible
+        self.assertTrue(self.simulation._primal_fear(grazer, brute))  # it lasts while a hunter is in sight
+        self.assertFalse(self.simulation._primal_fear(grazer, None))  # and passes when none is
+        self.assertFalse(grazer.primal_fear)
+
+    def test_in_primal_fear_the_simple_freeze_and_the_clever_flee(self):
+        dull = self.simulation._add_agent(encode_dna("grazer", size=0, intellect=0), 1, 1)
+        bright = self.simulation._add_agent(encode_dna("grazer", size=0, intellect=7), 8, 6)
+        self.simulation._add_agent(encode_dna("predator", size=7, strength=7, weapons=7), 1, 3)
+        self.simulation._add_agent(encode_dna("predator", size=7, strength=7, weapons=7), 8, 8)
+        self.simulation._index_cells()
+        dull.primal_fear = bright.primal_fear = True
+        before = (dull.x, dull.y, dull.hunger)
+        with patch.object(self.simulation.random, "random", return_value=0.2):  # under the dull's freeze chance
+            self.simulation._think_all([dull, bright])
+        self.assertEqual(dull.last_action, "froze")
+        self.assertEqual((dull.x, dull.y, dull.hunger), before)
+        self.assertEqual(bright.last_action, "panicked")
 
     def test_weak_grazers_cannot_strike_back(self):
         weak = self.simulation._add_agent(encode_dna("grazer", strength=5), 5, 5)

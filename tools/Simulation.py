@@ -99,6 +99,13 @@ LEARNING_RATE = 0.045  # at the highest intellect, before its boost
 # inborn intellect, so the least replay none.
 LEARNING_BOOST = 1.0
 REPLAY_PER_INTELLECT = 2
+# Primal fear: facing a hunter stronger than itself, an animal may be overcome, each turn, with a chance of
+# PRIMAL_FEAR times how lopsided the fight would be (predators PRIMAL_FEAR_PREDATORS as often). While a
+# hunter is in sight it then panics every turn, fleeing, or, with a chance of PRIMAL_FREEZE at the lowest
+# intellect and none at the highest, freezes and does nothing at all.
+PRIMAL_FEAR = 0.5
+PRIMAL_FEAR_PREDATORS = 1 / 3
+PRIMAL_FREEZE = 0.5
 PANIC = (0.3, 1.0)     # chance a fully fearful animal breaks when struck, unhurt and near death;
                        # its current fear scales it, so the fearless never break
 THORN_FORCE = 15       # a plant's counterblow at full weapons and size, before the defender's toughness
@@ -392,6 +399,7 @@ class Bitzkey:
     died_turn: int | None = None
     assailant: int | None = None  # the animal that struck it since it last acted, which it may defend against
     panicked: bool = False  # failed a morale check when struck, so it will flee its assailant
+    primal_fear: bool = False  # overcome by a stronger hunter: it panics, or freezes, while one is in sight
     rivalry: float = 0.0    # hunters: how overcrowded its territory was with rivals when it last looked
     hunts_grazers: bool = True    # hunters: whether grazers were common enough to hunt when it last looked
     hunts_omnivores: bool = True  # predators: the same for omnivores
@@ -1105,7 +1113,15 @@ class Simulation:
                             replay=True)
         actions = []
         for (agent, senses, options, situation), valued, comfort in zip(plans, values, comforts):
-            if agent.panicked and situation["assailant"]:
+            if self._primal_fear(agent, situation["hunter"]):
+                # Overcome: it panics, fleeing the hunter, or freezes where it stands, whatever its brain wants.
+                if self.random.random() < PRIMAL_FREEZE * (1 - agent.feeling("intellect")):
+                    situation["frozen"] = True
+                    options = [ACTIONS.index("rest")]
+                else:
+                    situation["panic"] = True
+                    options = [ACTIONS.index("flee")]
+            elif agent.panicked and situation["assailant"]:
                 # Fight or flight, decided by fear: it breaks off and flees its assailant.
                 situation["hunter"] = situation["assailant"]
                 situation["panic"] = True
@@ -1119,7 +1135,7 @@ class Simulation:
                     choice = option
                     break
             action = ACTIONS[choice]
-            if not situation.get("panic"):  # a panicked flight was no choice
+            if not situation.get("panic") and not situation.get("frozen"):  # a panicked flight, or freezing, was no choice
                 self.insights.record(agent.species, agent.profile, (ACTIONS[option] for option in options), action)
             agent.odds = {ACTIONS[option]: chance for option, chance in odds.items()}
             agent.last_senses = senses
@@ -1385,6 +1401,8 @@ class Simulation:
             self._feast(agent, situation["kill"])
         elif action == "scavenge":
             self._scavenge(agent, situation["carrion"])
+        elif action == "rest" and situation.get("frozen"):
+            agent.last_action = "froze"  # paralysed by fear: nothing done, nothing gained
         elif action == "rest":
             agent.hunger = max(0, agent.hunger - agent.burn / 2)
             agent.heal(0.015)
@@ -1617,6 +1635,30 @@ class Simulation:
         if self.random.random() < victim.feeling("fear") * (unhurt + (dying - unhurt) * hurt) * steadied:
             victim.panicked = True
             self._experience(victim, "panicked")
+
+    def _primal_fear(self, agent: Bitzkey, hunter: Bitzkey | None) -> bool:
+        """Whether an animal is in primal fear this turn. With no hunter in sight it is calm again. Facing
+        one stronger than itself, it may be overcome, more likely the more lopsided the fight; a predator a
+        third as often. Once overcome, it stays so while a hunter is in sight."""
+        if hunter is None or agent.species == "plant":
+            agent.primal_fear = False
+            return False
+        if not agent.primal_fear:
+            disparity = self.disparity(agent, hunter)
+            if disparity > 0:
+                chance = PRIMAL_FEAR * disparity * (PRIMAL_FEAR_PREDATORS if agent.species == "predator" else 1.0)
+                if self.random.random() < chance:
+                    agent.primal_fear = True
+                    self._experience(agent, "panicked")
+        return agent.primal_fear
+
+    @classmethod
+    def disparity(cls, agent: Bitzkey, opponent: Bitzkey) -> float:
+        """How much stronger an opponent is, 0 (no stronger) to 1 (overwhelmingly): weighing the share of
+        each other's health one blow takes, with every trait that counts in a fight."""
+        mine = cls._damage(agent, opponent) / max(1.0, opponent.health)
+        theirs = cls._damage(opponent, agent) / max(1.0, agent.health)
+        return 0.0 if theirs <= mine else 1 - mine / theirs
 
     def _breed(self, first: Bitzkey, second: Bitzkey) -> None:
         """Fertile parents breed cheaply and often. The parent that chose to breed conceives a

@@ -141,6 +141,11 @@ _TABLE: dict[str, list[tuple]] = {
         ("PANIC.0", "Panic, unhurt", "chance a fully fearful animal breaks when struck, unhurt", 0.0, 1.0, 0.05),
         ("PANIC.1", "Panic, near death", "chance a fully fearful animal breaks when struck, near death",
          0.0, 1.0, 0.05),
+        ("PRIMAL_FEAR", "Primal fear", "chance a turn of being overcome by an overwhelmingly stronger hunter in sight",
+         0.0, 1.0, 0.05),
+        ("PRIMAL_FEAR_PREDATORS", "Primal fear, predators", "how susceptible predators are, as a share", 0.0, 1.0, 0.05),
+        ("PRIMAL_FREEZE", "Primal freeze", "chance an overcome animal freezes rather than flees, at the lowest intellect",
+         0.0, 1.0, 0.05),
     ],
     "Fighting": [
         ("STRIKE_FORCE", "Strike force", "scales every blow", 0.0, 10.0, 0.1),
