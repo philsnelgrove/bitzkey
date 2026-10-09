@@ -245,6 +245,11 @@ _TABLE: dict[str, list[tuple]] = {
 
 # Rules whose top value means "all": history turns there keep every turn, so far as the memory allows.
 ALL_AT_TOP = {"HISTORY_TURNS"}
+# Rules that can't be changed here, and why: the Python version has no GPU to think on.
+LOCKED: dict[str, str] = {
+    "USE_GPU": "The Python version always thinks on the CPU; the C++ version thinks on a GPU where there is one.",
+}
+
 # Warnings shown with a rule, in full when it is chosen: costs it runs up beyond the simulation itself.
 WARNINGS: dict[str, str] = {
     "HISTORY_TURNS": "MEMORY: each turn kept holds the whole world, about 200 KB a brain (some 20 MB a turn with 100 animals), up to the history memory limit",

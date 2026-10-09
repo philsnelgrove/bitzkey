@@ -47,6 +47,8 @@ class AdvancedForm:
         self.select(self.focus + offset)
 
     def adjust(self, steps: int) -> None:
+        if self.focused.key in Rules.LOCKED:  # not to be changed here
+            return
         self._settle()
         rule = self.focused
         self.values[rule.key] = rule.clamp(round(self.values[rule.key] + steps * rule.step, 9))
@@ -55,6 +57,8 @@ class AdvancedForm:
         """Digits, a decimal point for fractional rules, and a leading minus where values may be
         negative."""
         rule = self.focused
+        if rule.key in Rules.LOCKED:
+            return
         typed = self.typed or ""
         for character in text:
             if (character.isdigit() or (character == "." and not rule.integer and "." not in typed)
@@ -63,6 +67,8 @@ class AdvancedForm:
         self.typed = typed[:MAX_CHARACTERS] if typed else self.typed
 
     def backspace(self) -> None:
+        if self.focused.key in Rules.LOCKED:
+            return
         self.typed = (self.text(self.focused))[:-1]
 
     def reset(self) -> None:
@@ -320,13 +326,16 @@ class AdvancedScreen:
         if focused:
             pg.draw.rect(self.screen, (131, 205, 143), row, 1, border_radius=UI(5))
         minus, box, plus = self._buttons(row)
-        self._text(rule.label.upper(), (row.left + UI(14), row.top + UI(3)), (232, 236, 219), self.font)
-        warned = rule.key in Rules.WARNINGS  # a cost to heed: its hint in amber, the warning in full when chosen
-        self._text(self._fit(("WARNING  " if warned else "") + rule.hint, minus.left - row.left - UI(28)),
-                   (row.left + UI(14), row.top + UI(21)), (238, 183, 110) if warned else (130, 152, 136), self.small)
+        self._text(rule.label.upper(), (row.left + UI(14), row.top + UI(3)),
+                   (120, 134, 124) if rule.key in Rules.LOCKED else (232, 236, 219), self.font)
+        lock = Rules.LOCKED.get(rule.key)  # not to be changed here: greyed, saying why
+        warned = not lock and rule.key in Rules.WARNINGS  # a cost to heed: its hint in amber, the warning in full when chosen
+        self._text(self._fit(lock or ("WARNING  " if warned else "") + rule.hint, minus.left - row.left - UI(28)),
+                   (row.left + UI(14), row.top + UI(21)),
+                   (96, 110, 100) if lock else (238, 183, 110) if warned else (130, 152, 136), self.small)
         for button, sign in ((minus, "-"), (plus, "+")):
-            pg.draw.rect(self.screen, (44, 57, 52), button, border_radius=UI(4))
-            label = self.bold.render(sign, True, (220, 229, 211))
+            pg.draw.rect(self.screen, (34, 44, 42) if lock else (44, 57, 52), button, border_radius=UI(4))
+            label = self.bold.render(sign, True, (96, 110, 100) if lock else (220, 229, 211))
             self.screen.blit(label, label.get_rect(center=button.center))
         pg.draw.rect(self.screen, (19, 26, 27), box, border_radius=UI(4))
         pg.draw.rect(self.screen, (131, 205, 143) if focused else (54, 68, 62), box, 1, border_radius=UI(4))
@@ -334,7 +343,8 @@ class AdvancedScreen:
         changed = self.form.values[rule.key] != Rules.DEFAULTS[rule.key]
         if focused and self.form.typed is not None and pg.time.get_ticks() // 500 % 2:
             shown += "_"
-        label = self.mono.render(shown, True, (238, 183, 110) if changed else (238, 238, 220))
+        label = self.mono.render(shown, True, (96, 110, 100) if rule.key in Rules.LOCKED
+                                 else (238, 183, 110) if changed else (238, 238, 220))
         self.screen.blit(label, label.get_rect(midright=(box.right - UI(10), box.centery)))
 
     def _draw_scroll_bar(self, view: pg.Rect) -> None:

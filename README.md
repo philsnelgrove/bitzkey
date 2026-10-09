@@ -89,7 +89,7 @@ out, in groups (World, Bodies, Breeding, Feelings, Mind, Fighting, Territory,
 Herding, Food, Plants, Climate, Society and Experiences). Among them are lifespans, metabolism, litter
 sizes, food-aware breeding, the rewards and pains a brain learns from, blows and
 thorns, territory and herd instincts, meals, fresh kills, plant seeding, the climate
-zones, and how each experience reshapes temperament. Each rule has a short note, limits and a step. Think on the GPU is the C++ version's alone: there, it moves every brain onto the GPUs; the Python version always thinks on the CPU. Choose and adjust
+zones, and how each experience reshapes temperament. Each rule has a short note, limits and a step. Think on the GPU is the C++ version's alone: there, it moves every brain onto the GPUs, and is on by default wherever a GPU is found. The Python version always thinks on the CPU, so here it is greyed out. Choose and adjust
 them as in the configuration panel; PgUp/PgDn jump ten rules, and the wheel scrolls.
 Fractional rules take a typed decimal point, and the experience shifts take a minus
 sign. Changed values show in amber. RESET puts the focused rule back to its default

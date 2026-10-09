@@ -16,6 +16,15 @@ class RulesTests(unittest.TestCase):
     def tearDown(self):
         Rules.apply({})
 
+    def test_think_on_the_gpu_is_greyed_out_in_the_python_version_which_has_no_gpu(self):
+        self.assertIn("USE_GPU", Rules.LOCKED)
+        form = AdvancedForm(DEFAULTS)
+        form.select([rule.key for rule in RULES].index("USE_GPU"))
+        form.adjust(1)
+        form.type_text("1")
+        form.finish()
+        self.assertEqual(form.values["USE_GPU"], 0)  # it stays as it is
+
     def test_the_rewind_history_is_set_in_the_world_rules_with_a_warning_about_memory(self):
         from tools import Simulation as world
         for key in ("HISTORY_TURNS", "HISTORY_MEMORY"):
