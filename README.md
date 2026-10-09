@@ -262,7 +262,7 @@ their young.
 | size | health pool (60 to 150), dot radius (1px to 5px), half its striking force and half its toughness, metabolism, stomach, lifespan, and the meat its corpse leaves |
 | strength | the other half of its striking force |
 | armour | the other half of its toughness, which reduces damage taken by up to 60% |
-| weapons | sharpen blows by up to 75%, and spines hurt anyone who attacks |
+| weapons | sharpen blows by up to 75%, and spines hurt anyone who attacks; a predator's count three times over, sharpening its blows by up to 225% |
 | speed | cells moved per step of foraging, fleeing or going off in a direction (1 to 4; grazers move half as far again, rounded up: 2, 3, 5 or 6) |
 | sight | how far it sees (2 to 9 cells) |
 | fertility | high: cheap, frequent breeding and weak, hungry young; low: costly, rare breeding and well-fed young |
@@ -280,7 +280,7 @@ times. Strength, speed, weapons and armour all add to the burn.
 
 Two animals can mate only if they are the same species and each is willing to
 breed with the other. An animal shuns a partner whose ring colour differs from
-its own by more than 5%, or whose dot colour differs by more than 20% (the mean
+its own by more than 5% (25% for a predator), or whose dot colour differs by more than 20% (the mean
 difference of the four CMYK bytes). Tolerance widens both: at the greatest
 tolerance it accepts any ring and any dot of its species. A child's ring is a
 single-point crossover of its parents' rings. A child's dot comes from its
@@ -490,11 +490,13 @@ nearest carrion in sight and, once alongside, eats up to 25 meat; the carrion
 trait decides how much of that feeds it. Feasting walks to the nearest fresh
 kill in sight and, once alongside, eats it whole. Courting walks toward the nearest
 willing mate in sight, but breeding is still a separate choice once they are
-side by side. Hunting chases the nearest prey in sight. Omnivores prey on grazers; predators prey on grazers, omnivores and other predators. Predators whose ring colours differ by more than 5% (the mean difference of the ring's four CMYK bytes) are different kinds, and hunt one another freely. Hunting their own kind is cannibalism: a predator only sees its own kind as prey once its hunger, as a share, exceeds its reluctance, the average of its current empathy, tolerance and patience. The ruthless will eat kin at any hunger; the gentlest never will. Killing its own kind pains an empathetic predator as much as its own species' pain, rather than the reduced pain it feels for others. Predators and omnivores are territorial. An animal's territory is the cells within six steps of it. A predator counts other predators and omnivores in its territory as rivals for the feeding ground, and how many it will share it with depends on its current empathy: one for the least empathetic, rising to five for the most. Each predator beyond that raises its rivalry by a third, up to full rivalry three past its limit. A predator senses its rivalry, finds an overcrowded territory uncomfortable (less so if tolerant), and feels relief, as well as any joy in fighting, at killing a rival there. Crowding by other predators, though not by omnivores, also wears down its reluctance to turn on its own kind: in a territory fully overcrowded with predators, even the gentlest will fight kin for the feeding ground. Omnivores are territorial at half the strength. They count other omnivores as rivals, and predators too, each counting less the more empathetic the omnivore is, and not at all at the greatest empathy. They tolerate two rivals for the least empathetic, rising to ten for the most, and their rivalry tops out at a half. An omnivore only turns on another omnivore when its territory is overcrowded with omnivores, and then only once its hunger exceeds its reluctance as rivalry wears it down, never by more than half. A hunter that reaches
+side by side. Hunting chases the nearest prey in sight. Omnivores prey on grazers and predators; predators prey on grazers, omnivores and other predators. Predators whose ring colours differ by no more than 25% (the mean difference of the ring's four CMYK bytes) are one kind: they form packs together, and breed together as readily as other animals do within 5%. Hunting another predator, of any kind, is cannibalism: a predator only sees another predator as prey once its hunger, as a share, exceeds its reluctance, the average of its current empathy, tolerance and patience. The ruthless will eat other predators at any hunger; the gentlest never will. Killing its own kind pains an empathetic predator as much as its own species' pain, rather than the reduced pain it feels for others. Predators and omnivores are territorial. An animal's territory is the cells within six steps of it. Rivalry is only within a species: a predator counts other predators in its territory as rivals for the feeding ground (omnivores are prey, not rivals), and how many it will share it with depends on its current empathy: one for the least empathetic, rising to five for the most. Each predator beyond that raises its rivalry by a third, up to full rivalry three past its limit. A predator senses its rivalry, finds an overcrowded territory uncomfortable (less so if tolerant), and feels relief, as well as any joy in fighting, at killing a rival there. Crowding by other predators also wears down its reluctance to turn on other predators: in a territory fully overcrowded with predators, even the gentlest will fight them for the feeding ground. Omnivores are territorial at half the strength. They count only other omnivores as rivals; predators are prey to them. They tolerate two rivals for the least empathetic, rising to ten for the most, and their rivalry tops out at a half. An omnivore only turns on another omnivore when its territory is overcrowded with omnivores, and then only once its hunger exceeds its reluctance as rivalry wears it down, never by more than half. A hunter that reaches
 its prey pounces, striking in the same turn, and attacking strikes prey
 alongside. A kill feeds the hunter 25, plus up to 45 more for the largest prey; a blow
-that doesn't kill feeds it 5. Striking is hard work: each blow burns 0.2 food per point of damage it deals, so a heavy hitter pays more for each blow. Hunger figures for meals are for a middle-sized
-stomach: a small animal gains twice as much, a large one half. Defending is open only to an animal struck since its last turn whose assailant is still beside it: it strikes back with the usual force of its size, strength and weapons against the assailant's size and armour. It costs effort like any blow and feeds the defender nothing, but it can kill. Fight or flight: whenever an animal is struck, by an attack or a counterblow, it checks its morale against its current fear. A fully fearful animal breaks 30% of the time when barely hurt, rising to certainty near death; the fearless never break. One that breaks loses its chance to defend: on its next turn it flees its assailant, whatever its brain would have chosen, and grows a little more fearful. Plants can't flee, so their only answer is to fight: a plant with any weapons strikes back at each animal that browses it. Its thorns come mostly from its weapons (80%) and a little from its size (20%), never its strength: at most 15 damage, less against a large or armoured browser. Fleeing runs from the nearest hunter in sight, and speed decides who wins a
+that doesn't kill feeds it 5. Blows are strong enough that the best-armed, mightiest predator kills the
+largest, best-armoured grazer in three. A predator enjoys every blow it lives through a little, and
+feasting on a fresh kill more than the kill itself. Striking is hard work: each blow burns 0.2 food per point of damage it deals, so a heavy hitter pays more for each blow. Hunger figures for meals are for a middle-sized
+stomach: a small animal gains twice as much, a large one half. Defending is open only to an animal struck since its last turn whose assailant is still beside it, and to a grazer only with strength above 5: it strikes back with the usual force of its size, strength and weapons against the assailant's size and armour. It costs effort like any blow and feeds the defender nothing, but it can kill. Fight or flight: whenever an animal is struck, by an attack or a counterblow, it checks its morale against its current fear. A fully fearful animal breaks 30% of the time when barely hurt, rising to certainty near death; the fearless never break. One that breaks loses its chance to defend: on its next turn it flees its assailant, whatever its brain would have chosen, and grows a little more fearful. Plants can't flee, so their only answer is to fight: a plant with any weapons strikes back at each animal that browses it. Its thorns come mostly from its weapons (80%) and a little from its size (20%), never its strength: at most 15 damage, less against a large or armoured browser. Fleeing runs from the nearest hunter in sight, and speed decides who wins a
 chase. It is only worthwhile when the hunter is within three steps (or a
 herd-mate was just struck close by): a hunter further off is watched, as a
 sense, but not fled. Among herd-mates the range shrinks, as the herd keeps watch
@@ -560,10 +562,10 @@ kind, and another species eating some of the same food is half a mouth (an
 omnivore to a grazer, or a predator to an omnivore). Below three meals a mouth it
 doesn't breed; between three and six, its litter shrinks in proportion. Other
 kinds of predator may still be hunted, but they are rivals for prey, not a food
-supply to breed on. Hunters also switch prey: a hunter only goes after a kind of prey while it
-makes up at least a quarter of the food it weighs within six cells (grazers
+supply to breed on. Hunters also switch prey: a hunter only goes after grazers while they
+make up at least a quarter of the food it weighs within six cells (grazers
 against plants, for an omnivore; grazers against omnivores, for a predator), or
-while none of that food is near. A prey that has become scarce is left alone,
+while none of that food is near. Predators always hunt omnivores. A prey that has become scarce is left alone,
 and doesn't flee a hunter that isn't interested in it, so it can recover.
 Territorial fights, between omnivores or between predators, go on regardless. Reaching 100% hunger or zero health is fatal, and so, in
 time, is age. Plants and animals alike live about a year at the smallest body
@@ -598,7 +600,7 @@ lower of its current empathy and patience, so only animals high in both herd
 strongly, and every herd effect scales smoothly with it. Its herd-mates are
 animals of its own species that it would accept as mates, so tolerant animals
 herd with other kinds of their species. Predators only form packs with their
-own kind. Herd-mates are sought within four cells.
+own kind, those within 25% in ring colour. Herd-mates are sought within four cells.
 
 - Herding: the herd action moves an animal toward the middle of its herd-mates
   in range. The brain learns when to use it. Fear sets how close it keeps: a
@@ -618,7 +620,7 @@ own kind. Herd-mates are sought within four cells.
 Herding never overrides territory. Pack-mates still count as rivals, so a pack
 bigger than a predator will tolerate still crowds it, and still wears down its
 reluctance to turn on its own kind. Herding never spares prey either: a predator
-still hunts other predator kinds and omnivores as before.
+still hunts omnivores, and other predators when hungry, as before.
 
 ## Colour Graph
 

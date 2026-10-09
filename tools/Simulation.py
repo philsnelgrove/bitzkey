@@ -124,7 +124,9 @@ HERD_LONELINESS = 0.1  # unease at having no herd-mate in range
 HERD_SAFETY = 0.6      # how much three herd-mates close by calm fear and steady morale
 HERD_DEFEND_JOY = 0.5  # pleasure of striking back at whatever struck a herd-mate alongside
 PACK_BONUS = 0.5       # extra force of a blow at prey that a herd-mate is also alongside
-KIND_DIFFERENCE = 0.05  # predators whose ring colours differ by more than this are different kinds, and prey
+# Predators whose ring colours differ by no more than this are one kind: they hunt together, and breed
+# together as readily as other animals do with this much less difference.
+KIND_DIFFERENCE = 0.25
 # Breeding responsibly: before breeding, an animal weighs the food it eats within FORAGE_RADIUS
 # against the mouths that share it, itself included. Below FOOD_NEEDED meals a mouth it doesn't
 # breed; between that and twice that, its litter shrinks in proportion.
@@ -139,7 +141,11 @@ SHARED_DIET = 0.5      # how much an animal of another species eating some of th
 SWITCH_SHARE = 0.25
 STRIKE_EFFORT = 0.2    # food burned for each point of damage a blow deals
 PREDATOR_LITTERS = 0.5  # predators' litters are this share of the usual size, rounded up
-STRIKE_FORCE = 1.5     # scales every blow
+STRIKE_FORCE = 3.5     # scales every blow: the best-armed, mightiest predator kills the largest, best-armoured grazer in three
+PREDATOR_WEAPONS = 3.0  # a predator's natural weapons count this many times over, striking and stinging
+GRAZER_DEFENCE_STRENGTH = 5  # a grazer can strike back only with strength above this
+FEAST_JOY = 1.5        # a predator's pleasure in feasting on a fresh kill
+ATTACK_JOY = 0.1       # a predator's pleasure in a blow it lives through
 KILL_MEAL = 25         # hunger a kill sates, plus up to KILL_MEAL_FOR_SIZE for the largest prey
 KILL_MEAL_FOR_SIZE = 45
 CARRION_MEAT = 30      # meat a well-fed corpse leaves, plus up to CARRION_MEAT_FOR_SIZE for the largest;
@@ -1195,8 +1201,8 @@ class Simulation:
         if hunter and (alarm_source is not None or abs(hunter.x - agent.x) + abs(hunter.y - agent.y)
                        <= self._flee_range(agent, herd_near)):
             available.add("flee")  # only from a hunter close by, unless the herd raised the alarm
-        if defend_target:
-            available.add("defend")
+        if defend_target and (agent.species != "grazer" or agent.body["strength"] > GRAZER_DEFENCE_STRENGTH):
+            available.add("defend")  # a grazer only when strong enough
         if herd_middle is not None and (abs(herd_middle[0] - agent.x) + abs(herd_middle[1] - agent.y)
                                         > HERD_SPREAD * (1 - agent.feeling("fear"))):
             # The more fearful it is, the closer it keeps to the herd's middle, but not where the
@@ -1487,6 +1493,8 @@ class Simulation:
             agent.last_action = "sought a kill"  # out of reach, or already eaten
             return
         agent.nourish(FRESH_KILL_MEALS * (KILL_MEAL + KILL_MEAL_FOR_SIZE * corpse.physique("size")))
+        if agent.species == "predator":
+            agent.reward += FEAST_JOY
         corpse.meat = 0.0
         corpse.died_turn = self.turn - CORPSE_TURNS
         self._kills[(corpse.x, corpse.y)].remove(corpse)
@@ -1505,7 +1513,12 @@ class Simulation:
             thorns = THORN_SIZE_SHARE * attacker.physique("size") + (1 - THORN_SIZE_SHARE) * attacker.physique("weapons")
             return THORN_FORCE * thorns * (1 - 0.6 * defender.toughness)
         force = STRIKE_FORCE * (2 + 9 * attacker.might)
-        return force * (1 + 0.75 * attacker.physique("weapons")) * (1 - 0.6 * defender.toughness)
+        return force * (1 + 0.75 * Simulation._armed(attacker)) * (1 - 0.6 * defender.toughness)
+
+    @staticmethod
+    def _armed(animal: Bitzkey) -> float:
+        """Its natural weapons as a share of their full range: a predator's count PREDATOR_WEAPONS times over."""
+        return animal.physique("weapons") * (PREDATOR_WEAPONS if animal.species == "predator" else 1.0)
 
     def _attack(self, agent: Bitzkey, victim: Bitzkey) -> None:
         """A blow. The intolerant enjoy fighting other species most; the empathetic feel their
@@ -1545,13 +1558,15 @@ class Simulation:
         if killed:
             self._die(victim, "killed")
 
-        sting = 4.5 * victim.physique("weapons") * (1 - 0.6 * agent.toughness)
+        sting = 4.5 * self._armed(victim) * (1 - 0.6 * agent.toughness)
         if sting > 0:
             agent.health -= sting
             self._experience(agent, "stung")
             if not agent.alive:
                 self._die(agent, "killed")
         self._exhausted(agent)
+        if agent.species == "predator" and agent.alive:  # a blow it lived through
+            agent.reward += ATTACK_JOY
 
     def _exhausted(self, agent: Bitzkey) -> None:
         """A blow's effort, or a long way gone, can leave an animal starved: it dies there, rather than
@@ -1814,7 +1829,8 @@ class Simulation:
         colour differs from its own by more than it accepts, which its tolerance widens."""
         tolerance = agent.feeling("tolerance")
         ring, dot = agent.looks_apart(other)
-        return (ring <= MATE_RING_DIFFERENCE + (1 - MATE_RING_DIFFERENCE) * tolerance
+        accepted = KIND_DIFFERENCE if agent.species == "predator" else MATE_RING_DIFFERENCE  # a predator its kind
+        return (ring <= accepted + (1 - accepted) * tolerance
                 and dot <= MATE_DOT_DIFFERENCE + (1 - MATE_DOT_DIFFERENCE) * tolerance)
 
     @staticmethod
@@ -1831,16 +1847,9 @@ class Simulation:
 
     @staticmethod
     def _rival_weight(hunter: Bitzkey, other: Bitzkey) -> float:
-        """How much another animal counts as a rival for a hunter's feeding ground. Predators
-        count other predators and omnivores; omnivores count other omnivores, and predators
-        too unless they have the greatest empathy."""
-        if hunter.species == "predator":
-            return 1.0 if other.species in ("predator", "omnivore") else 0.0
-        if hunter.species == "omnivore":
-            if other.species == "omnivore":
-                return 1.0
-            return 1 - hunter.feeling("empathy") if other.species == "predator" else 0.0
-        return 0.0
+        """How much another animal counts as a rival for a hunter's feeding ground: only its own
+        species, predators for a predator and omnivores for an omnivore. Other species are prey."""
+        return 1.0 if hunter.species in ("predator", "omnivore") and other.species == hunter.species else 0.0
 
     @staticmethod
     def _feeds_on(eater: Bitzkey, other: Bitzkey) -> bool:
@@ -1992,15 +2001,14 @@ class Simulation:
             total = grazers + plants
             return (total == 0 or grazers / total >= SWITCH_SHARE), False
         total = grazers + omnivores
-        return ((total == 0 or grazers / total >= SWITCH_SHARE),
-                (total == 0 or omnivores / total >= SWITCH_SHARE))
+        return (total == 0 or grazers / total >= SWITCH_SHARE), True  # omnivores are always prey
 
     @classmethod
     def _is_prey(cls, hunter: Bitzkey, other: Bitzkey) -> bool:
         if hunter.species == "omnivore":
             # Grazers while they are common enough to switch to, and other omnivores only in an
             # overcrowded territory, once hungry past its reluctance as that rivalry wears it down.
-            return (other.species == "grazer" and hunter.hunts_grazers) or (
+            return (other.species == "grazer" and hunter.hunts_grazers) or other.species == "predator" or (
                 other.species == "omnivore" and hunter.own_rivalry > 0
                 and hunter.hunger / 100 > cls.cannibal_reluctance(hunter) * (1 - hunter.own_rivalry))
         if hunter.species != "predator":
@@ -2011,7 +2019,6 @@ class Simulation:
             return hunter.hunts_omnivores
         if other.species != "predator":
             return False
-        # Its own kind only when hungry past its reluctance, which a territory overcrowded with
-        # predators wears away.
-        return (not cls._same_kind(hunter, other)
-                or hunter.hunger / 100 > cls.cannibal_reluctance(hunter) * (1 - hunter.own_rivalry))
+        # Other predators, of whatever kind, only when hungry past its reluctance, which a territory
+        # overcrowded with predators wears away.
+        return hunter.hunger / 100 > cls.cannibal_reluctance(hunter) * (1 - hunter.own_rivalry)
