@@ -235,7 +235,7 @@ gene values and are then reshaped by experience:
 | fear | dread when hunters are adjacent | wounds, stings and ambushes raise it; kills lower it |
 | appetite | how much hunger hurts | near-starvation raises it |
 | patience | how much it values the future (its learning discount) | meals earned by foraging raise it; starving lowers it |
-| intellect | how deep its brain is (twice its intellect in hidden layers, at least two), how fast it learns, and how much experience can reshape the mind | fixed |
+| intellect | how deep its brain is (twice its intellect in hidden layers, at least two), how fast it learns (its learning rate, boosted for the bright, how many recent experiences it replays each turn, and how far back it traces an outcome), and how much experience can reshape the mind | fixed |
 | empathy | pain at seeing an animal wounded or killed nearby; more for its own kind, double for a death. An empathetic hunter feels some of its victim's pain and enjoys fighting less. | fixed |
 | tolerance | ease among other species: they count as company, hunters are less frightening, and attacking gives less pleasure. The intolerant are uneasy whenever other species are near. The tolerant also accept mates that look less like themselves. | fixed |
 
@@ -424,6 +424,16 @@ That is 69 senses in all. Its brain has hidden layers of 34 neurons, twice as
 many layers as its
 inborn intellect, and never fewer than two: from two layers for the dullest to
 fourteen for the brightest. Plants have no brain.
+
+The cleverer an animal, the faster it learns, three ways, while the least
+intelligent learn just as they always have. Its learning rate rises with its
+intellect, and then by up to as much again for the brightest (the Learning boost
+rule). Each turn it re-learns from its most recent experiences, two for each point
+of inborn intellect, so the brightest go over their last fourteen while the
+dullest replay none (Replays per intellect). And it traces an outcome further back
+through the choices that led to it: its trace decay runs from 0.9 for the dullest
+to 0.97 for the brightest (Trace decay, smartest). Replaying costs time: in a busy
+world it can double the time each turn spends learning.
 
 It then picks one of the actions open to it: eat, forage, browse, uproot,
 scavenge, feast, rest, court, breed, hunt, attack, defend, flee, herd, go north,

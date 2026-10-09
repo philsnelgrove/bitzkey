@@ -64,6 +64,7 @@ MIN_DEPTH = 2     # hidden layers: twice the inborn intellect, and never fewer t
 TEMPERATURE = 0.2
 MUTATION = 0.05
 TRACE_DECAY = 0.9  # lambda: how much of each earlier choice's credit carries on to the next, beside the discount
+SMART_TRACE_DECAY = 0.97  # lambda at the highest intellect: the clever trace credit further back; the least, TRACE_DECAY
 # A new brain values setting off in a direction this much below its other actions, so an untaught
 # brain doesn't march straight away from its range, its herd and its food before it has learned where to go.
 HEADING_RELUCTANCE = 0.5
@@ -228,13 +229,14 @@ class Brain:
         self.output_biases[action] -= learning_rate * error
 
     def learn_traced(self, inputs: Sequence[float], action: int, target: float, learning_rate: float,
-                     discount: float) -> None:
+                     discount: float, sharpness: float = 0.0) -> None:
         """Learn from its own choice by TD(lambda): every weight's eligibility fades by the discount
-        times TRACE_DECAY and gains how this action's value moves with it; then every weight moves
-        by the clipped error times its eligibility, so the choices before this one share in it."""
+        times lambda and gains how this action's value moves with it; then every weight moves by the
+        clipped error times its eligibility, so the choices before this one share in it. Lambda runs
+        from TRACE_DECAY up to SMART_TRACE_DECAY with `sharpness`, its owner's intellect, 0 to 1."""
         if learning_rate <= 0:
             return
-        decay = discount * TRACE_DECAY
+        decay = discount * (TRACE_DECAY + (SMART_TRACE_DECAY - TRACE_DECAY) * sharpness)
         if self.traces is None:
             self.traces = [(np.zeros_like(weights), np.zeros_like(biases)) for weights, biases in self.layers]
             self.traces.append((np.zeros_like(self.output_weights), np.zeros_like(self.output_biases)))

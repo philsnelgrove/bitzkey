@@ -11,6 +11,37 @@ from tools.Genome import BODY_TRAITS, MIND_TRAITS, encode_dna
 
 
 class BrainTests(unittest.TestCase):
+    def test_the_clever_learn_faster_while_the_least_intelligent_learn_as_ever(self):
+        from tools.Brain import SMART_TRACE_DECAY, TRACE_DECAY
+        from tools.Genome import encode_dna
+        from tools.Simulation import LEARNING_BOOST, LEARNING_RATE, REPLAY_PER_INTELLECT, Simulation
+        simulation = Simulation(width=20, height=20, population=0, seed=1)
+        dull = simulation._add_agent(encode_dna("grazer", intellect=0), 5, 5)
+        sharp = simulation._add_agent(encode_dna("grazer", intellect=7), 9, 9)
+        self.assertEqual(simulation._learning_rate(dull), 0.0)  # as ever
+        self.assertAlmostEqual(simulation._learning_rate(sharp), LEARNING_RATE * (1 + LEARNING_BOOST))
+        simulation._index_cells()
+        for _ in range(20):  # each decides, learns from the last decision, and remembers it
+            previous = (sharp.last_senses, sharp.last_choice)
+            for agent in (dull, sharp):
+                simulation._think(agent)
+        self.assertEqual(dull.memories, [])  # replays nothing
+        self.assertEqual(len(sharp.memories), REPLAY_PER_INTELLECT * 7)  # its latest experiences, to replay
+        self.assertEqual(sharp.memories[-1][:2], previous)  # the newest: the decision it just learnt from
+        # lambda runs from TRACE_DECAY for the least to SMART_TRACE_DECAY for the most intelligent
+        brain = Brain.random(random.Random(2))
+        senses = [0.3] * len(SENSES)
+        decays = []
+        for sharpness in (0.0, 1.0):
+            traced = brain.copy()
+            traced.learn_traced(senses, 0, 1.0, 0.0001, 1.0, sharpness)
+            traced.learn_traced(senses, 0, 1.0, 0.0001, 1.0, sharpness)
+            fresh = brain.copy()
+            fresh.learn_traced(senses, 0, 1.0, 0.0001, 1.0, sharpness)
+            decays.append(traced.traces[-1][1][0] - fresh.traces[-1][1][0])  # the bias trace: decay + 1, less 1
+        self.assertAlmostEqual(decays[0], TRACE_DECAY)
+        self.assertAlmostEqual(decays[1], SMART_TRACE_DECAY)
+
     def test_seeded_brains_value_every_action_identically(self):
         senses = [0.5] * INPUT_SIZE
         first = Brain.random(random.Random(7))

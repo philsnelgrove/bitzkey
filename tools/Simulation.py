@@ -90,7 +90,13 @@ SOCIAL_LEARNING = 1.0  # how fast it learns from what it sees, beside learning f
 SOCIAL_MOOD = 0.3      # how much what it sees moves its mood
 SOCIAL_MEMORY = 0.8    # the share of a seen success or failure it still senses a turn later
 OTHER_KIND = 0.4       # how much of that pain reaches it when the victim is of another species
-LEARNING_RATE = 0.045  # at the highest intellect
+LEARNING_RATE = 0.045  # at the highest intellect, before its boost
+# The clever learn faster. The learning rate rises with intellect, and on top of that by up to
+# LEARNING_BOOST times again at the highest; the least intelligent get no boost. And each turn an
+# animal re-learns from REPLAY_PER_INTELLECT of its most recent experiences for each point of its
+# inborn intellect, so the least replay none.
+LEARNING_BOOST = 1.0
+REPLAY_PER_INTELLECT = 2
 PANIC = (0.3, 1.0)     # chance a fully fearful animal breaks when struck, unhurt and near death;
                        # its current fear scales it, so the fearless never break
 THORN_FORCE = 15       # a plant's counterblow at full weapons and size, before the defender's toughness
@@ -389,6 +395,8 @@ class Bitzkey:
     meat: float = 0.0  # a corpse's meat left for scavengers
     rot: float = 0.0   # meat lost to rot each turn
     trail: list[tuple[int, int]] = field(default_factory=list)  # the cells it passed through this turn, for the map
+    # Its most recent experiences, each (senses, choice, target), newest last, to re-learn from.
+    memories: list[tuple] = field(default_factory=list)
     # The young it carries, conceived at mating, each (dna, mind, brain, energy, generation), and the
     # turn they are born.
     womb: list[tuple] = field(default_factory=list)
@@ -573,7 +581,7 @@ class Bitzkey:
 
     def copy(self) -> Bitzkey:
         return replace(self, brain=self.brain.copy() if self.brain else None, mind=self.mind.copy(),
-                       trail=list(self.trail),
+                       trail=list(self.trail), memories=list(self.memories),
                        womb=[(dna, dict(mind), brain.copy() if brain else None, energy, generation)
                              for dna, mind, brain, energy, generation in self.womb])
 
@@ -1063,7 +1071,7 @@ class Simulation:
             # its mood was a success, whatever lowered them a failure, by how much; both may happen.
             reward = (agent.reward + self._wellbeing(agent) - agent.last_wellbeing
                       + comfort - agent.last_comfort)
-            self._learn(agent, reward + self._discount(agent) * max(values[option] for option in options))
+            self._learn(agent, reward + self._discount(agent) * max(values[option] for option in options), replay=True)
 
         if agent.panicked and situation["assailant"]:
             # Fight or flight, decided by fear: it breaks off and flees its assailant.
@@ -1251,10 +1259,27 @@ class Simulation:
         """How much the future counts against the present: more for the patient."""
         return 0.7 + 0.27 * agent.feeling("patience")
 
-    def _learn(self, agent: Bitzkey, target: float) -> None:
-        """Learn from its own last choice, by TD(lambda), so the choices before it share in what came of it."""
-        agent.brain.learn_traced(agent.last_senses, agent.last_choice, target, LEARNING_RATE * agent.feeling("intellect"),
-                                 self._discount(agent))
+    @staticmethod
+    def _learning_rate(agent: Bitzkey) -> float:
+        """How fast its brain learns: with its intellect, boosted further the cleverer it is."""
+        sharpness = agent.feeling("intellect")
+        return LEARNING_RATE * sharpness * (1 + LEARNING_BOOST * sharpness)
+
+    def _learn(self, agent: Bitzkey, target: float, replay: bool = False) -> None:
+        """Learn from its own last choice, by TD(lambda), so the choices before it share in what came of it.
+        With `replay`, it then re-learns from its most recent experiences, as many as its intellect
+        allows, and remembers this one."""
+        rate = self._learning_rate(agent)
+        agent.brain.learn_traced(agent.last_senses, agent.last_choice, target, rate, self._discount(agent),
+                                 agent.feeling("intellect"))
+        if not replay:
+            return
+        count = REPLAY_PER_INTELLECT * agent.inborn["intellect"]
+        for senses, choice, remembered in agent.memories[-count:] if count else ():  # the latest, up to count
+            agent.brain.learn(senses, choice, remembered, rate)
+        if count:
+            agent.memories.append((agent.last_senses, agent.last_choice, target))
+            del agent.memories[:-count]
 
     def _dies_of_age(self, agent: Bitzkey) -> bool:
         """Past AGEING of its lifespan, the chance of dying each turn grows with age, so that about

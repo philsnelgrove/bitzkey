@@ -40,7 +40,8 @@ class Rule:
         return int(round(value)) if self.integer else float(value)
 
 
-_MODULES = {"TEMPERATURE": brain, "MUTATION": brain, "TRACE_DECAY": brain, "HEADING_RELUCTANCE": brain}
+_MODULES = {"TEMPERATURE": brain, "MUTATION": brain, "TRACE_DECAY": brain, "SMART_TRACE_DECAY": brain,
+            "HEADING_RELUCTANCE": brain}
 
 # (key, label, hint, minimum, maximum, step) by group. A step that is an int makes a whole-number rule.
 _TABLE: dict[str, list[tuple]] = {
@@ -122,6 +123,12 @@ _TABLE: dict[str, list[tuple]] = {
         ("LEARNING_RATE", "Learning rate", "how fast a brain learns, at the highest intellect", 0.0, 0.5, 0.005),
         ("TRACE_DECAY", "Trace decay", "how far back a choice's outcome reaches earlier choices (lambda)",
          0.0, 1.0, 0.05),
+        ("SMART_TRACE_DECAY", "Trace decay, smartest", "trace decay at the highest intellect; the lowest keeps the one above",
+         0.0, 1.0, 0.01),
+        ("LEARNING_BOOST", "Learning boost", "the highest intellect learns this much faster again; the lowest, no faster",
+         0.0, 5.0, 0.1),
+        ("REPLAY_PER_INTELLECT", "Replays per intellect", "recent experiences re-learnt each turn per point of intellect",
+         0, 4, 1),
         ("TEMPERATURE", "Choice temperature", "how loosely a brain picks among its options", 0.01, 5.0, 0.05),
         ("MUTATION", "Brain mutation", "how much a newborn's brain varies from its parents'", 0.0, 1.0, 0.01),
         ("HEADING_RELUCTANCE", "Heading reluctance", "how much less a new brain values setting off in a direction",
