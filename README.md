@@ -732,3 +732,11 @@ beside it or a wounded animal beside a hunter, each with its own current
 temperament. It averages the chance of each action by species and trait group
 and ranks who is least and most keen. It also shows how far experience has
 moved each species' temperament from its genes.
+
+Eight of the situations probe the climate senses: too cold with warmer to the
+south, and to the north; too hot with cooler to the north, and to the south; far
+too cold; at home with cold coming from the north, and from the south; and at home
+with the same all around. Each offers the moves north, south, east and west and
+rest. Mirrored pairs tell a brain that follows the warmth senses from one that
+has only a habit of heading one way: a brain that reads the weather picks
+differently in each, while one that doesn't gives them all the same odds.

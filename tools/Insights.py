@@ -17,6 +17,7 @@ GRAZERS = ("grazer", "omnivore")  # the animals that eat grass
 TRAITS = MIND_TRAITS + BODY_TRAITS[1:]
 DECAY = 0.99
 MIN_SAMPLE = 5.0
+COLUMN = 11  # characters to an action's column in the report: room for the longest name
 
 # Situations used to probe brains: (title, situation senses, actions possible, species it can
 # arise for). Each animal is probed with its own current temperament added to the situation.
@@ -72,14 +73,37 @@ SCENARIOS = (
     ("Peckish, frail prey beside them",
      {"hunger": 0.5, "health": 1, "prey_near": 0.25, "prey_frailty": 0.5, "prey_closeness": 1, "age": 0.2},
      ("attack", "hunt", "rest", "go_east", "go_west"), ("omnivore", "predator")),
+    # The climate: off home each way, far off, and at home with the weather turning toward it or not,
+    # so the report shows whether brains follow the warmth senses or only a habit of one direction.
     ("Too cold, warmer to the south",
-     {"hunger": 0.3, "health": 1, "climate_discomfort": 0.5, "warmth": -0.5, "warmth_north": -1, "latitude": -0.3,
-      "age": 0.2},
-     ("go_north", "go_south", "walk_north", "walk_south", "rest"), ANIMALS),
+     {"hunger": 0.3, "health": 1, "climate_discomfort": 0.5, "comfort_closeness": 0.6,
+      "warmth": -0.5, "warmth_north": -1, "latitude": -0.3, "age": 0.2},
+     ("go_north", "go_south", "walk_north", "walk_south", "go_east", "go_west", "rest"), ANIMALS),
+    ("Too cold, warmer to the north",
+     {"hunger": 0.3, "health": 1, "climate_discomfort": 0.5, "comfort_closeness": 0.6,
+      "warmth": -0.5, "warmth_south": -1, "latitude": 0.3, "age": 0.2},
+     ("go_north", "go_south", "walk_north", "walk_south", "go_east", "go_west", "rest"), ANIMALS),
     ("Too hot, cooler to the north",
-     {"hunger": 0.3, "health": 1, "climate_discomfort": 0.5, "warmth": 0.5, "warmth_south": 0.5, "latitude": 0.1,
-      "age": 0.2},
-     ("go_north", "go_south", "walk_north", "walk_south", "rest"), ANIMALS),
+     {"hunger": 0.3, "health": 1, "climate_discomfort": 0.5, "comfort_closeness": 0.6,
+      "warmth": 0.5, "warmth_south": 0.5, "latitude": 0.1, "age": 0.2},
+     ("go_north", "go_south", "walk_north", "walk_south", "go_east", "go_west", "rest"), ANIMALS),
+    ("Too hot, cooler to the south",
+     {"hunger": 0.3, "health": 1, "climate_discomfort": 0.5, "comfort_closeness": 0.6,
+      "warmth": 0.5, "warmth_north": 0.5, "latitude": -0.1, "age": 0.2},
+     ("go_north", "go_south", "walk_north", "walk_south", "go_east", "go_west", "rest"), ANIMALS),
+    ("Far too cold, warmer to the south",
+     {"hunger": 0.3, "health": 1, "climate_discomfort": 1, "comfort_closeness": 0.3,
+      "warmth": -1, "warmth_north": -1, "warmth_south": -0.5, "latitude": -0.5, "age": 0.2},
+     ("go_north", "go_south", "walk_north", "walk_south", "go_east", "go_west", "rest"), ANIMALS),
+    ("At home, cold coming from the north",
+     {"hunger": 0.3, "health": 1, "comfort_closeness": 1, "warmth_north": -0.5, "latitude": -0.3, "age": 0.2},
+     ("go_north", "go_south", "walk_north", "walk_south", "go_east", "go_west", "rest"), ANIMALS),
+    ("At home, cold coming from the south",
+     {"hunger": 0.3, "health": 1, "comfort_closeness": 1, "warmth_south": -0.5, "latitude": 0.3, "age": 0.2},
+     ("go_north", "go_south", "walk_north", "walk_south", "go_east", "go_west", "rest"), ANIMALS),
+    ("At home, the same all around",
+     {"hunger": 0.3, "health": 1, "comfort_closeness": 1, "latitude": -0.3, "age": 0.2},
+     ("go_north", "go_south", "walk_north", "walk_south", "go_east", "go_west", "rest"), ANIMALS),
     ("Starving, food scarce, a plant beside them",
      {"hunger": 0.85, "health": 1, "plant_closeness": 1, "age": 0.2},
      ("uproot", "browse", "rest", "go_east", "go_west"), ("grazer",)),
@@ -179,13 +203,13 @@ def brain_report(turn: int, animals: Iterable[Bitzkey], insights: Insights) -> s
             for group in _groups(animal.species, animal.profile):
                 per_group.setdefault(group, []).append(named)
 
-        lines += ["", title, "  " + " " * 18 + "".join(f"{action:>9}" for action in actions)]
+        lines += ["", title, "  " + " " * 18 + "".join(f"{action:>{COLUMN}}" for action in actions)]
         for species in species_list:
             samples = per_group.get((species, None, None), [])
             if not samples:
                 lines.append(f"  {species:<10} (none)")
                 continue
-            averages = "".join(f"{_mean(samples, action):>8.0%} " for action in actions)
+            averages = "".join(f"{_mean(samples, action):>{COLUMN - 1}.0%} " for action in actions)
             lines.append(f"  {species:<10}{f'(n={len(samples)})':>8}{averages}")
 
         ranked = sorted(
@@ -209,12 +233,12 @@ def brain_report(turn: int, animals: Iterable[Bitzkey], insights: Insights) -> s
         lines.append(f"  {species:<10}{shifts}")
 
     lines += ["", "Observed behaviour, recent turns (share of chances taken)",
-              "  " + " " * 10 + "".join(f"{action:>9}" for action in ACTIONS)]
+              "  " + " " * 10 + "".join(f"{action:>{COLUMN}}" for action in ACTIONS)]
     for species in ANIMALS:
         cells = []
         for action in ACTIONS:
             share, _ = insights.rate(action, species)
-            cells.append(f"{'-':>9}" if share is None else f"{share:>8.0%} ")
+            cells.append(f"{'-':>{COLUMN}}" if share is None else f"{share:>{COLUMN - 1}.0%} ")
         lines.append(f"  {species:<10}" + "".join(cells))
     return "\n".join(lines) + "\n"
 
