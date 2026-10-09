@@ -211,7 +211,6 @@ _TABLE: dict[str, list[tuple]] = {
         ("UPROOT_BITE", "Uproot bite", "health a plant loses to being uprooted", 0, 200, 1),
         ("CARRION_MEAT", "Carrion meat", "meat a well-fed corpse leaves", 0, 200, 5),
         ("CARRION_MEAT_FOR_SIZE", "Carrion meat for size", "more meat, up to this for the largest", 0, 200, 5),
-        ("SCAVENGE_BITE", "Scavenge bite", "meat eaten in one go", 0, 200, 5),
         ("GRAZING.grazer", "Grazer on grass", "share of the food in grass a grazer gets", 0.0, 3.0, 0.05),
         ("GRAZING.omnivore", "Omnivore on grass", "share of the food in grass an omnivore gets", 0.0, 3.0, 0.05),
         ("BROWSING.grazer", "Grazer on plants", "share of the food in plants a grazer gets", 0.0, 3.0, 0.05),

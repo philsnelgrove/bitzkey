@@ -287,7 +287,12 @@ single-point crossover of its parents' rings; a predator's young are always pred
 starting mind (see above); its two tolerance flags come together from either
 parent. The home temperature travels with the ring. With the world's body
 mutation chance (50% by default), one bit of the ring flips, which may change
-the home temperature; the tolerance flags never mutate.
+the home temperature; the tolerance flags never mutate. A flip may change the species too, but only along
+the chain of evolution, grazer, omnivore, predator: one step either way, or any animal straight to
+predator. Any other change of species is undone, so plants always stay plants and animals never become
+plants. A predator born of other parents brings what they learnt of eating and uprooting to hunting
+and feasting: its brain starts out valuing hunting as its parents valued eating grass, and feasting as
+they valued uprooting.
 Minds blend, but experience and mind mutations keep them varied.
 
 This is genome version 2. Version 1 held eight four-bit traits (0 to 15) per
@@ -404,12 +409,14 @@ food in grass and three quarters of the food in plants, and live on meat.
 Omnivores and predators may eat carrion; grazers never do.
 
 A dead animal isn't carrion straight away. Through the turn it died and the
-next it is a fresh kill: it doesn't rot yet, and an omnivore or predator may eat
-it whole if it is something it lives on (grazers, for an omnivore; grazers and
-omnivores, for a predator). A fresh kill gives three times the meal of making
-the kill, doesn't count as scavenging, so the carrion trait plays no part, and
-leaves nothing: the body is gone at the end of the turn. After that it rots as
-carrion until it fades.
+three after it is a fresh kill: it doesn't rot yet, and an omnivore or predator may eat
+it if it is something it lives on (grazers, for an omnivore; grazers and
+omnivores, for a predator). A body is eaten in portions, one for each size class: from one for the
+smallest to eight for the largest. Each portion of a fresh kill is a whole feast, three times the meal
+of making the kill, so a large body feeds many, and feasting doesn't count as scavenging, so the carrion
+trait plays no part. After that it rots as carrion, its meat eaten a portion at a time, each its share of what is
+left. A body is gone once its last portion is eaten, whether feasting or scavenging, or once it has
+rotted away.
 
 Plants stay in place and photosynthesize. Every animal carries its own small
 neural network, and that brain chooses everything it does. Each turn it senses:
@@ -486,9 +493,9 @@ costs it 20 hunger. A seed doesn't take where more than three plants already
 grow within two cells. There is no limit on the number of plants, but they
 compete for light: each plant growing within three cells cuts a plant's chance
 of seeding by a third, and with three or more around it, it does not seed. Scavenging walks to the
-nearest carrion in sight and, once alongside, eats up to 25 meat; the carrion
+nearest carrion in sight and, once alongside, eats a portion of it; the carrion
 trait decides how much of that feeds it. Feasting walks to the nearest fresh
-kill in sight and, once alongside, eats it whole. Courting walks toward the nearest
+kill in sight and, once alongside, eats a portion of it. Courting walks toward the nearest
 willing mate in sight, but breeding is still a separate choice once they are
 side by side. Hunting chases the nearest prey in sight. Predators see prey three cells further than they see anything else, and chase it a step further each turn. They also have an instinct to hunt: whenever hunting or attacking is open to a predator, it values each more the hungrier it is, on top of whatever its brain has learnt, so even a newborn, or an animal whose genes have just made it a predator, goes after prey when hungry. Omnivores prey on grazers and predators; predators prey on grazers, omnivores and other predators. Predators whose ring colours differ by no more than 25% (the mean difference of the ring's four CMYK bytes) are one kind: they form packs together, and breed together as readily as other animals do within 5%. Hunting another predator, of any kind, is cannibalism: a predator only sees another predator as prey once its hunger, as a share, exceeds its reluctance, the average of its current empathy, tolerance and patience. The ruthless will eat other predators at any hunger; the gentlest never will. Killing its own kind pains an empathetic predator as much as its own species' pain, rather than the reduced pain it feels for others. Predators and omnivores are territorial. An animal's territory is the cells within six steps of it. Rivalry is only within a species: a predator counts other predators in its territory as rivals for the feeding ground (omnivores are prey, not rivals), and how many it will share it with depends on its current empathy: one for the least empathetic, rising to five for the most. Each predator beyond that raises its rivalry by a third, up to full rivalry three past its limit. A predator senses its rivalry, finds an overcrowded territory uncomfortable (less so if tolerant), and feels relief, as well as any joy in fighting, at killing a rival there. Crowding by other predators also wears down its reluctance to turn on other predators: in a territory fully overcrowded with predators, even the gentlest will fight them for the feeding ground. Omnivores are territorial at half the strength. They count only other omnivores as rivals; predators are prey to them. They tolerate two rivals for the least empathetic, rising to ten for the most, and their rivalry tops out at a half. An omnivore only turns on another omnivore when its territory is overcrowded with omnivores, and then only once its hunger exceeds its reluctance as rivalry wears it down, never by more than half. A hunter that reaches
 its prey pounces, striking in the same turn, and attacking strikes prey

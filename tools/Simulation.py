@@ -162,7 +162,6 @@ KILL_MEAL = 25         # hunger a kill sates, plus up to KILL_MEAL_FOR_SIZE for 
 KILL_MEAL_FOR_SIZE = 45
 CARRION_MEAT = 30      # meat a well-fed corpse leaves, plus up to CARRION_MEAT_FOR_SIZE for the largest;
 CARRION_MEAT_FOR_SIZE = 50  # a hungrier body leaves less, and a starved one nothing
-SCAVENGE_BITE = 25     # meat eaten in one go
 GRAZER_SPEED = 1.5     # grazers move this many times as far a step, rounded half up
 # Separate niches: grazers are the specialists, getting more from grass and plants than anyone;
 # omnivores live on meat, getting only three quarters of the food in plants and half of grass.
@@ -218,7 +217,7 @@ WAVE_FRONT = 4
 # A dead animal is a fresh kill, not yet carrion, through the turn it died and FRESH_KILL_TURNS more;
 # then it starts to rot. A predator or omnivore may eat a fresh kill of what it lives on whole,
 # FRESH_KILL_MEALS times the meal of making the kill, and nothing is left.
-FRESH_KILL_TURNS = 1
+FRESH_KILL_TURNS = 3
 FRESH_KILL_MEALS = 3.0
 SEED_VIABILITY = 0.75  # years a seed that falls where it can't grow stays able to germinate
 PLANT_GESTATION = 10  # turns a seed lies in the ground before it can sprout
@@ -255,6 +254,7 @@ HEADINGS = {"go_north": (0, -1, False, "went north"), "go_south": (0, 1, False, 
 TRAVELLED = {went for *_, went in HEADINGS.values()}
 GRASS_SEEN = SENSES.index("grass_seen")
 HUNT, ATTACK = ACTIONS.index("hunt"), ACTIONS.index("attack")
+EAT, UPROOT, FEAST = ACTIONS.index("eat"), ACTIONS.index("uproot"), ACTIONS.index("feast")
 MAX_SIGHT = 2 + TRAIT_MAX + MAX_PREDATOR_SIGHT  # the furthest anything is seen: a predator's sight for prey
 SIGHT_OFFSETS = sorted(
     ((dx, dy) for dx in range(-MAX_SIGHT, MAX_SIGHT + 1) for dy in range(-MAX_SIGHT, MAX_SIGHT + 1)
@@ -367,6 +367,19 @@ def birth_offsets(reach: int) -> tuple[tuple[int, int], ...]:
     return ((0, -1), (1, 0), (0, 1), (-1, 0), (1, -1), (1, 1), (-1, 1), (-1, -1), *further)
 
 
+def evolved(parent: int, child: int) -> int:
+    """A child's genome with its species kept to the chain of evolution, grazer, omnivore, predator: a
+    mutation may move it one step either way along the chain, or make any animal a predator, but no
+    further, and never makes a plant an animal or an animal a plant. Any other change of species is
+    undone, the rest of the genome as it is."""
+    shift = 32  # the species trait is the ring's first; the species is it mod 4
+    before, after = (parent >> shift) & 0x3, (child >> shift) & 0x3
+    plant, predator = 0, 3
+    if after == before or (before != plant and after != plant and (after == predator or abs(after - before) == 1)):
+        return child
+    return (child & ~(0x3 << shift)) | (before << shift)
+
+
 def predator_dna(dna: int) -> int:
     """The genome with its species trait made a predator's (3, or 7 where its top bit was set: the species is
     the trait mod 4), the rest unchanged."""
@@ -424,6 +437,7 @@ class Bitzkey:
     herd_assailant: int | None = None  # what struck a herd-mate close by, from alongside it: it may defend against it
     meat: float = 0.0  # a corpse's meat left for scavengers
     rot: float = 0.0   # meat lost to rot each turn
+    portions: int = 0  # a body's portions left to eat, feasting or scavenging: one for each size class
     trail: list[tuple[int, int]] = field(default_factory=list)  # the cells it passed through this turn, for the map
     # Its most recent experiences, each (senses, choice, target), newest last, to re-learn from.
     memories: list[tuple] = field(default_factory=list)
@@ -1010,7 +1024,7 @@ class Simulation:
         cell = ((plant.x + dx) % self.width, plant.y + dy)
         if not self._room_for_seedling(cell):
             return
-        dna = cross(plant.dna, plant.dna, self.random, None, self.mind_mutation, self.body_mutation)
+        dna = evolved(plant.dna, cross(plant.dna, plant.dna, self.random, None, self.mind_mutation, self.body_mutation))
         plant.hunger += SEED_COST
         plant.children += 1
         plant.last_action = "seeded"
@@ -1385,6 +1399,7 @@ class Simulation:
         agent.meat = ((CARRION_MEAT + CARRION_MEAT_FOR_SIZE * agent.physique("size")) * nourished
                       * (0.5 if cause == "killed" else 1))
         agent.rot = agent.meat / max(1, CORPSE_TURNS - FRESH_KILL_TURNS)  # it rots once no longer fresh
+        agent.portions = 0 if agent.species == "plant" else 1 + int(agent.body["size"])
         if agent.species != "plant":
             self._kills.setdefault((agent.x, agent.y), []).append(agent)
         self.deaths += 1
@@ -1512,30 +1527,45 @@ class Simulation:
             self._defend(plant, agent)
 
     def _scavenge(self, agent: Bitzkey, corpse: Bitzkey) -> None:
-        """Go to the carrion and, once alongside, eat; a carrion-eater's gut gets the most from it."""
+        """Go to the carrion and, once alongside, eat a portion, its share of the meat left; a
+        carrion-eater's gut gets the most from it. The last portion eaten, the body is gone."""
         self._move_toward(agent, corpse.x, corpse.y)
-        if abs(corpse.x - agent.x) + abs(corpse.y - agent.y) > 1:
+        if abs(corpse.x - agent.x) + abs(corpse.y - agent.y) > 1 or corpse.portions <= 0:
             agent.last_action = "sought carrion"
             return
-        bite = min(corpse.meat, SCAVENGE_BITE)
+        bite = corpse.meat / corpse.portions
         corpse.meat -= bite
         agent.nourish(bite * agent.digestion)
         agent.last_action = "scavenged"
+        self._eat_portion(corpse)
 
     def _feast(self, agent: Bitzkey, corpse: Bitzkey) -> None:
-        """Go to the fresh kill and, once alongside, eat it whole: FRESH_KILL_MEALS times the meal of
-        making the kill. It isn't scavenging, and nothing is left: the body is gone at the turn's end."""
+        """Go to the fresh kill and, once alongside, eat a portion of it: a whole feast, FRESH_KILL_MEALS
+        times the meal of making the kill, so a large body is many feasts. It isn't scavenging; the carrion
+        left shrinks by the portion's share. The last portion eaten, the body is gone."""
         self._move_toward(agent, corpse.x, corpse.y)
-        if abs(corpse.x - agent.x) + abs(corpse.y - agent.y) > 1 or not self._fresh(corpse) or corpse.meat <= 0:
+        if (abs(corpse.x - agent.x) + abs(corpse.y - agent.y) > 1 or not self._fresh(corpse) or corpse.meat <= 0
+                or corpse.portions <= 0):
             agent.last_action = "sought a kill"  # out of reach, or already eaten
             return
         agent.nourish(FRESH_KILL_MEALS * (KILL_MEAL + KILL_MEAL_FOR_SIZE * corpse.physique("size")))
         if agent.species == "predator":
             agent.reward += FEAST_JOY
+        corpse.meat -= corpse.meat / corpse.portions
+        agent.last_action = "feasted"
+        self._eat_portion(corpse)
+
+    def _eat_portion(self, corpse: Bitzkey) -> None:
+        """A portion of a body eaten: once the last is, the body is gone at the turn's end."""
+        corpse.portions -= 1
+        if corpse.portions > 0:
+            return
         corpse.meat = 0.0
         corpse.died_turn = self.turn - CORPSE_TURNS
-        self._kills[(corpse.x, corpse.y)].remove(corpse)
-        agent.last_action = "feasted"
+        for found in (self._kills, self._carrion):
+            bodies = found.get((corpse.x, corpse.y))
+            if bodies and corpse in bodies:
+                bodies.remove(corpse)
 
     def _fresh(self, corpse: Bitzkey) -> bool:
         """Whether a body is still a fresh kill, not yet carrion."""
@@ -1701,10 +1731,16 @@ class Simulation:
             # its dot is written from that mind, so experience is inherited and shows. Its brain,
             # a mix of its parents', is as deep as its own inborn intellect makes it.
             mind = inherit_mind(first.mind, second.mind, self.random, self.mind_mutation)
-            dna = cross(first.dna, second.dna, self.random, mind, body_chance=self.body_mutation)
+            dna = evolved(first.dna, cross(first.dna, second.dna, self.random, mind, body_chance=self.body_mutation))
             if "predator" in (first.species, second.species):
                 dna = predator_dna(dna)  # a predator's young are predators, whatever crossing over or a mutation made
             brain = Brain.inherit(first.brain, second.brain, self.random, depth_for(decode_mind(dna)["intellect"]))
+            if decode_body(dna)["species"] == "predator" and first.species != "predator":
+                # Born a predator of other parents: what they learnt of eating and uprooting it brings to
+                # hunting and feasting.
+                for learnt, now in ((EAT, HUNT), (UPROOT, FEAST)):
+                    brain.output_weights[now] = brain.output_weights[learnt].copy()
+                    brain.output_biases[now] = brain.output_biases[learnt]
             first.womb.append((dna, mind, brain, given / litter, generation))
         first.due_turn = self.turn + gestation(int(first.body["size"]))
         for parent, cost in zip((first, second), costs, strict=True):
