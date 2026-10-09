@@ -1049,13 +1049,14 @@ class BitzkeyApp:
         pg.draw.rect(self.screen, (238, 183, 110) if self.export_list else (44, 57, 52), self._export_button,
                      border_radius=UI(6))
         self.screen.blit(label, label.get_rect(center=self._export_button.center))
-        room = self._export_button.left - UI(185) - UI(16)
+        left = max(UI(185), UI(22) + self.small.size(history)[0] + UI(24))  # clear of the history, however long
+        room = self._export_button.left - left - UI(16)
         if pg.time.get_ticks() < self.message_until:
-            self._text(self._fit(self.message, room), (UI(185), height - UI(36)), (238, 183, 110), self.small)
+            self._text(self._fit(self.message, room), (left, height - UI(36)), (238, 183, 110), self.small)
             return
         self._text(self._fit("SPACE  pause   LEFT / RIGHT  rewind / step   WHEEL / Z  zoom   I  insights   B  report   "
                              "G  graph   E  export   R  restart   F11  window   ESC  menu", room),
-                   (UI(185), height - UI(36)), (187, 199, 181), self.small)
+                   (left, height - UI(36)), (187, 199, 181), self.small)
 
     def _fit(self, text: str, width: int) -> str:
         """Shorten text in the small font, with an ellipsis, to fit the width: footer notes, and
