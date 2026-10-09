@@ -19,7 +19,9 @@ PREVIEW_ZOOM = 9      # the large picture is the in-world look, this many times 
 
 
 class CatalogScreen:
-    """Runs the catalog until a Bitzkey is picked for import, it is closed, or the window closes."""
+    """Runs the catalog until Bitzkeys are chosen for import, it is closed, or the window closes. They
+    are chosen as in Windows: a click chooses one, CTRL+click adds one or takes it out, SHIFT+click
+    chooses all from the last one clicked to this one (CTRL+SHIFT adds them), and CTRL+A all."""
 
     def __init__(self, screen: pg.Surface):
         self.screen = screen
@@ -28,7 +30,9 @@ class CatalogScreen:
             self.entries = Catalog.load()
         except ValueError as error:
             self.entries, self.note = [], str(error)
-        self.picked = 0       # the entry shown beside the list
+        self.picked = 0       # the entry shown beside the list, the last one clicked or moved to
+        self.anchor = 0       # where a SHIFT+click's run of entries starts
+        self.chosen: set[int] = {0} if self.entries else set()  # the entries to import or remove
         self.scroll = 0       # the first entry the list shows
         self.dialog: Dialog | None = None
         self._inspected: dict[int, Bitzkey] = {}
@@ -50,8 +54,9 @@ class CatalogScreen:
     def small(self) -> pg.font.Font:
         return UI.font("segoeui", 12)
 
-    def run(self) -> tuple[str, dict | None]:
-        """Return ("import", entry) for a Bitzkey picked to import, ("close", None) or ("quit", None)."""
+    def run(self) -> tuple[str, list[dict] | None]:
+        """Return ("import", entries) for the Bitzkeys chosen to import, in catalog order, ("close", None)
+        or ("quit", None)."""
         while True:
             self.clock.tick(30)
             for event in pg.event.get():
@@ -68,20 +73,23 @@ class CatalogScreen:
                 elif event.type == pg.KEYDOWN:
                     if event.key == pg.K_ESCAPE:
                         return "close", None
-                    if event.key in (pg.K_RETURN, pg.K_KP_ENTER) and self.entries:
-                        return "import", self.entries[self.picked]
+                    if event.key in (pg.K_RETURN, pg.K_KP_ENTER) and self.chosen:
+                        return "import", self._chosen_entries()
                     if event.key == pg.K_F11:
                         self.screen = Window.toggle_fullscreen()
-                    elif event.key in (pg.K_UP, pg.K_DOWN):
-                        self._pick(self.picked + (1 if event.key == pg.K_DOWN else -1))
-                    elif event.key == pg.K_DELETE and self.entries:
+                    elif event.key in (pg.K_UP, pg.K_DOWN) and self.entries:
+                        moved = max(0, min(len(self.entries) - 1, self.picked + (1 if event.key == pg.K_DOWN else -1)))
+                        self._choose(moved, event.mod & pg.KMOD_SHIFT and pg.KMOD_SHIFT)
+                    elif event.key == pg.K_a and event.mod & pg.KMOD_CTRL:
+                        self.chosen = set(range(len(self.entries)))
+                    elif event.key == pg.K_DELETE and self.chosen:
                         self._ask_to_remove()
                 elif event.type == pg.MOUSEWHEEL:
                     self._scroll_to(self.scroll - event.y)
                 elif event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
                     action = self._click(event.pos)
                     if action == "import":
-                        return "import", self.entries[self.picked]
+                        return "import", self._chosen_entries()
                     if action == "close":
                         return "close", None
             self._draw()
@@ -102,18 +110,41 @@ class CatalogScreen:
         elif self.picked >= self.scroll + self._rows_shown():
             self._scroll_to(self.picked - self._rows_shown() + 1)
 
+    def _choose(self, index: int, mods: int = 0) -> None:
+        """Choose an entry as in Windows: alone; with CTRL, added or taken out; with SHIFT, the run from
+        the last one clicked to it (added, with CTRL as well)."""
+        if mods & pg.KMOD_SHIFT:
+            run = set(range(min(self.anchor, index), max(self.anchor, index) + 1))
+            self.chosen = self.chosen | run if mods & pg.KMOD_CTRL else run
+        elif mods & pg.KMOD_CTRL:
+            self.chosen ^= {index}
+            self.anchor = index
+        else:
+            self.chosen = {index}
+            self.anchor = index
+        self._pick(index)
+
+    def _chosen_entries(self) -> list[dict]:
+        return [self.entries[index] for index in sorted(self.chosen)]
+
     def _ask_to_remove(self) -> None:
-        self.dialog = Dialog("Remove from the catalog?", [Catalog.describe(self.entries[self.picked]),
-                                                          "It will be gone from the catalog for good."],
+        count = len(self.chosen)
+        what = Catalog.describe(self.entries[min(self.chosen)]) if count == 1 else f"{count} Bitzkeys"
+        self.dialog = Dialog("Remove from the catalog?", [what, "They will be gone from the catalog for good." if count > 1
+                                                          else "It will be gone from the catalog for good."],
                              [("keep", "KEEP"), ("remove", "REMOVE")], cancel="keep")
 
     def _remove(self) -> None:
-        Catalog.remove(self.picked)
+        count = len(self.chosen)
+        for index in sorted(self.chosen, reverse=True):  # the last first, so the rest keep their places
+            Catalog.remove(index)
         self.entries = Catalog.load()
         self._inspected.clear()
         self._pick(min(self.picked, len(self.entries) - 1))
+        self.chosen = {self.picked} if self.entries else set()
+        self.anchor = self.picked
         self._scroll_to(self.scroll)
-        self.note = "Removed from the catalog."
+        self.note = f"Removed {count} from the catalog." if count > 1 else "Removed from the catalog."
 
     def _inspect(self, index: int) -> Bitzkey:
         if index not in self._inspected:
@@ -129,7 +160,7 @@ class CatalogScreen:
         listing = pg.Rect(card.left + UI(24), card.top + UI(96), details.left - card.left - UI(48), card.height - UI(170))
         close = pg.Rect(0, 0, UI(120), UI(36))
         close.bottomright = (card.right - UI(24), card.bottom - UI(18))
-        add = pg.Rect(0, 0, UI(160), UI(36))
+        add = pg.Rect(0, 0, UI(180), UI(36))
         add.bottomright = (close.left - UI(10), close.bottom)
         remove = pg.Rect(0, 0, UI(110), UI(36))
         remove.bottomleft = (card.left + UI(24), card.bottom - UI(18))
@@ -144,15 +175,15 @@ class CatalogScreen:
         layout = self._layout()
         if layout["close"].collidepoint(position):
             return "close"
-        if layout["import"].collidepoint(position) and self.entries:
+        if layout["import"].collidepoint(position) and self.chosen:
             return "import"
-        if layout["remove"].collidepoint(position) and self.entries:
+        if layout["remove"].collidepoint(position) and self.chosen:
             self._ask_to_remove()
             return None
         if layout["list"].collidepoint(position):
             for index in range(self.scroll, min(len(self.entries), self.scroll + self._rows_shown())):
                 if self._row(index).collidepoint(position):
-                    self.picked = index
+                    self._choose(index, pg.key.get_mods())
         return None
 
     def _draw(self) -> None:
@@ -165,7 +196,7 @@ class CatalogScreen:
         self.screen.blit(title, (card.left + UI(24), card.top + UI(22)))
         self._text("NEW WORLD  /  YOUR FAVOURITES", (card.left + UI(48) + title.get_width(), card.top + UI(31)),
                    (144, 170, 151), self.small)
-        self._text("Each one kept as it was when catalogued, its trained brain and all. Pick one to import.",
+        self._text("Each one kept as it was when catalogued, its trained brain and all. Choose those to import.",
                    (card.left + UI(24), card.top + UI(60)), (157, 177, 159), self.font)
 
         pg.draw.rect(self.screen, (22, 30, 30), listing, border_radius=UI(6))
@@ -177,8 +208,9 @@ class CatalogScreen:
                        (116, 139, 124), self.small)
         for index in range(self.scroll, min(len(self.entries), self.scroll + self._rows_shown())):
             row = self._row(index)
-            if index == self.picked:
+            if index in self.chosen:
                 pg.draw.rect(self.screen, (44, 57, 52), row, border_radius=UI(4))
+            if index == self.picked:  # the one shown beside the list
                 pg.draw.rect(self.screen, (131, 205, 143), row, 1, border_radius=UI(4))
             agent = self._inspect(index)
             draw_bitzkey(self.screen, agent.dna, (row.left + UI(20), row.centery), dot_radius(int(agent.body["size"])))
@@ -197,13 +229,14 @@ class CatalogScreen:
             inside = details.inflate(-UI(24), 0)
             draw_details(self.screen, agent, inside.left, lambda offset: details.top + UI(150 + offset), inside.width)
 
-        for name, label, lit in (("remove", "REMOVE", False), ("import", "ADD TO IMPORT", True), ("close", "CLOSE", False)):
+        adding = "ADD TO IMPORT" if len(self.chosen) <= 1 else f"ADD {len(self.chosen)} TO IMPORT"
+        for name, label, lit in (("remove", "REMOVE", False), ("import", adding, True), ("close", "CLOSE", False)):
             button = layout[name]
-            active = lit and bool(self.entries)
+            active = lit and bool(self.chosen)
             pg.draw.rect(self.screen, (131, 205, 143) if active else (44, 57, 52), button, border_radius=UI(6))
             text = self.button_font.render(label, True, (19, 26, 27) if active else (220, 229, 211))
             self.screen.blit(text, text.get_rect(center=button.center))
-        hint = self.note or "UP/DOWN  choose    ENTER  add to import    DELETE  remove    ESC  close"
+        hint = self.note or "CLICK, SHIFT or CTRL+CLICK  choose    ENTER  add to import    DELETE  remove    ESC  close"
         self._text(hint, (layout["remove"].right + UI(16), layout["remove"].centery - UI(8)),
                    (238, 183, 110) if self.note else (116, 139, 124), self.small)
         if self.dialog:

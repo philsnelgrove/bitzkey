@@ -71,16 +71,52 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(catalog.picked, 1)
         pg.event.post(pg.event.Event(pg.KEYDOWN, key=pg.K_DOWN, unicode="", mod=0))
         pg.event.post(pg.event.Event(pg.KEYDOWN, key=pg.K_RETURN, unicode="", mod=0))
-        outcome, entry = catalog.run()
+        outcome, entries = catalog.run()
         self.assertEqual(outcome, "import")
-        self.assertEqual(Catalog.inspected(entry).identifier, others[2].identifier)
-        catalog.picked = 0
+        self.assertEqual([Catalog.inspected(entry).identifier for entry in entries], [others[2].identifier])
+        catalog._choose(0)
         pg.event.post(pg.event.Event(pg.KEYDOWN, key=pg.K_DELETE, unicode="", mod=0))  # asks first
         pg.event.post(pg.event.Event(pg.KEYDOWN, key=pg.K_RETURN, unicode="", mod=0))  # REMOVE
         pg.event.post(pg.event.Event(pg.KEYDOWN, key=pg.K_ESCAPE, unicode="", mod=0))
         self.assertEqual(catalog.run(), ("close", None))
         self.assertEqual([Catalog.inspected(entry).identifier for entry in Catalog.load()],
                          [others[1].identifier, others[2].identifier])
+        pg.display.quit()
+
+    def test_several_are_chosen_as_in_windows_with_ctrl_and_shift(self):
+        from unittest.mock import patch
+        others = [agent for agent in self.simulation.living if agent.brain][:5]
+        Catalog.add([Catalog.entry_for(agent, self.simulation.turn) for agent in others])
+        pg.init()
+        screen = pg.display.set_mode((1200, 820))
+        catalog = CatalogScreen(screen)
+        catalog._draw()
+
+        def click(index, mods=0):
+            with patch("pygame.key.get_mods", return_value=mods):
+                catalog._click(catalog._row(index).center)
+
+        click(1)
+        self.assertEqual(catalog.chosen, {1})
+        click(3, pg.KMOD_CTRL)  # added
+        self.assertEqual(catalog.chosen, {1, 3})
+        click(1, pg.KMOD_CTRL)  # taken out
+        self.assertEqual(catalog.chosen, {3})
+        click(0, pg.KMOD_SHIFT)  # the run from the last one clicked, entry 1
+        self.assertEqual(catalog.chosen, {0, 1})
+        click(4, pg.KMOD_CTRL | pg.KMOD_SHIFT)  # the run from there to 4, added
+        self.assertEqual(catalog.chosen, {0, 1, 2, 3, 4})
+        pg.event.post(pg.event.Event(pg.KEYDOWN, key=pg.K_RETURN, unicode="", mod=0))
+        outcome, entries = catalog.run()
+        self.assertEqual([Catalog.inspected(entry).identifier for entry in entries], [agent.identifier for agent in others])
+        click(0)
+        pg.event.post(pg.event.Event(pg.KEYDOWN, key=pg.K_DOWN, unicode="", mod=pg.KMOD_SHIFT))  # SHIFT+DOWN extends
+        pg.event.post(pg.event.Event(pg.KEYDOWN, key=pg.K_DELETE, unicode="", mod=0))  # asks first
+        pg.event.post(pg.event.Event(pg.KEYDOWN, key=pg.K_RETURN, unicode="", mod=0))  # REMOVE both
+        pg.event.post(pg.event.Event(pg.KEYDOWN, key=pg.K_ESCAPE, unicode="", mod=0))
+        self.assertEqual(catalog.run(), ("close", None))
+        self.assertEqual([Catalog.inspected(entry).identifier for entry in Catalog.load()],
+                         [agent.identifier for agent in others[2:]])
         pg.display.quit()
 
 

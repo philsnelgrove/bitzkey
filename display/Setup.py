@@ -311,15 +311,16 @@ class SetupScreen:
         return None
 
     def _catalog(self) -> str | None:
-        """Open the catalog; a Bitzkey picked there joins the bottom of the import text, brain and
-        all. Returns "quit" if the window was closed meanwhile."""
-        outcome, entry = CatalogScreen(self.screen).run()
+        """Open the catalog; the Bitzkeys chosen there join the bottom of the import text, brains
+        and all. Returns "quit" if the window was closed meanwhile."""
+        outcome, entries = CatalogScreen(self.screen).run()
         self.screen = pg.display.get_surface()
         if outcome == "quit":
             return "quit"
-        if entry is not None:
-            self.form.paste(format_records([entry]))
-            self._tell("Added a Bitzkey from the catalog to the import list, with its trained brain.")
+        if entries:
+            self.form.paste(format_records(entries))
+            self._tell("Added a Bitzkey from the catalog to the import list, with its trained brain." if len(entries) == 1
+                       else f"Added {len(entries)} Bitzkeys from the catalog to the import list, with their trained brains.")
         return None
 
     def _advanced(self) -> str | None:

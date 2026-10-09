@@ -438,7 +438,7 @@ class CatalogFlowTests(unittest.TestCase):
         entry = Catalog.entry_for(self.animals[0], self.app.simulation.turn)
         setup = SetupScreen(Window.open_window(fullscreen=False),
                             {"width": 30, "height": 30, "population": 20, "grass_density": 5, "seed": 1})
-        with patch.object(CatalogScreen, "run", return_value=("import", entry)):
+        with patch.object(CatalogScreen, "run", return_value=("import", [entry])):
             setup._click(setup._layout()["catalog"].center)
         [imported] = setup.form.imports[0]
         self.assertEqual(imported.dna, self.animals[0].dna)

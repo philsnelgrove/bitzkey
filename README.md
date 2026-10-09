@@ -692,10 +692,13 @@ options). The dead can't be added from the graph, their brains being gone. The
 same Bitzkey added twice is kept once.
 
 FROM CATALOG on the configuration panel opens it: every Bitzkey catalogued, listed
-with when it was added, and the one picked shown large beside its inspector
-panel. ADD TO IMPORT (`Enter`) adds it to the import list, brain and all, REMOVE
-(`Delete`) takes it out of the catalog for good after asking, and CLOSE (`Esc`)
-returns. Each entry is written as an export record, so `catalog.json` can also be
+with when it was added, and the one last picked shown large beside its inspector
+panel. Choose several as in Windows: click one to choose it alone, `Ctrl`-click
+to add one or take it out, `Shift`-click to choose every one from the last one
+clicked (`Ctrl`+`Shift` to add them), `Shift`+`Up`/`Down` to extend the choice,
+and `Ctrl`+`A` for all. ADD TO IMPORT (`Enter`) adds every one chosen to the import
+list, brains and all, REMOVE (`Delete`) takes them out of the catalog for good
+after asking, and CLOSE (`Esc`) returns. Each entry is written as an export record, so `catalog.json` can also be
 loaded like any export file.
 
 ## Export Format
