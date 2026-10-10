@@ -378,16 +378,25 @@ def thinking_intellect(intellect: int, species: str) -> int:
 
 
 def evolved(parent: int, child: int) -> int:
-    """A child's genome with its species kept to the chain of evolution, grazer, omnivore, predator: a
-    mutation may move it one step either way along the chain, or make any animal a predator, but no
-    further, and never makes a plant an animal or an animal a plant. Any other change of species is
-    undone, the rest of the genome as it is."""
+    """A child's genome with its species moved along the chain of evolution, grazer, omnivore, predator,
+    by a mutation of the species: a flip landing on predator makes any animal a predator; otherwise a flip
+    of the species' lower bit moves it a step up the chain, and of its upper bit a step down. A step off
+    the chain is undone, a plant stays a plant and an animal never becomes one; the rest of the genome is
+    as it is."""
     shift = 32  # the species trait is the ring's first; the species is it mod 4
     before, after = (parent >> shift) & 0x3, (child >> shift) & 0x3
     plant, predator = 0, 3
-    if after == before or (before != plant and after != plant and (after == predator or abs(after - before) == 1)):
+    if after == before:
         return child
-    return (child & ~(0x3 << shift)) | (before << shift)
+    if before == plant:
+        species = plant
+    elif after == predator:
+        species = predator
+    else:
+        species = before + 1 if (before ^ after) & 0x1 else before - 1
+        if not plant < species <= predator:
+            species = before
+    return (child & ~(0x3 << shift)) | (species << shift)
 
 
 def predator_dna(dna: int) -> int:

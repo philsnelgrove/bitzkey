@@ -1851,17 +1851,18 @@ class NewTraitTests(unittest.TestCase):
 
     def test_species_evolve_along_the_chain_and_plants_stay_plants(self):
         from tools.Simulation import evolved
-        def species(dna):
-            return decode_body(dna)["species"]
-        names = ("plant", "grazer", "omnivore", "predator")
-        for before in names:
+        expected = {  # (before, the species bit flipped): after
+            ("plant", 0): "plant", ("plant", 1): "plant",
+            ("grazer", 0): "omnivore", ("grazer", 1): "predator",
+            ("omnivore", 0): "predator", ("omnivore", 1): "grazer",
+            ("predator", 0): "predator", ("predator", 1): "omnivore",
+        }
+        for (before, bit), after in expected.items():
             parent = encode_dna(before, size=3)
-            for after in names:
-                child = (parent & ~(0x7 << 32)) | (names.index(after) << 32)
-                allowed = after == before or (before != "plant" and after != "plant" and (
-                    after == "predator" or abs(names.index(after) - names.index(before)) == 1))
-                self.assertEqual(species(evolved(parent, child)), after if allowed else before, f"{before} to {after}")
-                self.assertEqual(decode_body(evolved(parent, child))["size"], 3)
+            child = evolved(parent, parent ^ (1 << (32 + bit)))
+            self.assertEqual(decode_body(child)["species"], after, f"{before}, bit {bit}")
+            self.assertEqual(decode_body(child)["size"], 3)
+        self.assertEqual(evolved(encode_dna("grazer"), encode_dna("grazer")), encode_dna("grazer"))
 
     def test_a_predator_born_of_grazers_brings_their_eating_to_hunting(self):
         dna = encode_dna("grazer", fertility=7)

@@ -289,9 +289,10 @@ starting mind (see above); its two tolerance flags come together from either
 parent. The home temperature travels with the ring. With the world's body
 mutation chance (50% by default), one bit of the ring flips, which may change
 the home temperature; the tolerance flags never mutate. A flip may change the species too, but only along
-the chain of evolution, grazer, omnivore, predator: one step either way, or any animal straight to
-predator. Any other change of species is undone, so plants always stay plants and animals never become
-plants. A predator born of other parents brings what they learnt of eating and uprooting to hunting
+the chain of evolution, grazer, omnivore, predator. A flip that lands on predator makes any animal a
+predator; otherwise a flip of the species' lower bit moves it a step up the chain (grazer to omnivore,
+omnivore to predator) and of its upper bit a step down (predator to omnivore, omnivore to grazer). A step
+off the chain is undone, so plants always stay plants and animals never become plants. A predator born of other parents brings what they learnt of eating and uprooting to hunting
 and feasting: its brain starts out valuing hunting as its parents valued eating grass, and feasting as
 they valued uprooting.
 Minds blend, but experience and mind mutations keep them varied.
