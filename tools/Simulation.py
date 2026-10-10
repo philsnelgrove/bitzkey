@@ -151,7 +151,8 @@ TERRITORY = {
 }
 TERRITORY_RAMP = 3     # each rival past that limit adds a third of the species' strength to rivalry
 RIVAL_UNEASE = 0.3     # discomfort of a fully overcrowded territory, less for the tolerant
-RIVAL_KILL_JOY = 1.0   # relief at killing a predator in an overcrowded territory
+RIVALRY_WEAR = 0.5     # how much an overcrowded territory wears down a hunter's reluctance to kill its own species
+RIVAL_KILL_JOY = 0.5   # relief at killing a predator in an overcrowded territory
 # Herding: an animal's herd instinct is the lower of its current empathy and patience, 0..1, and
 # scales every effect below. Its herd-mates are animals of its species, and for predators its kind,
 # that it would accept as mates (tolerance widens that).
@@ -180,7 +181,7 @@ SHARED_DIET = 0.5      # how much an animal of another species eating some of th
 # Prey switching: a hunter goes after a kind of prey only while it makes up at least SWITCH_SHARE
 # of the food it weighs within FORAGE_RADIUS (for omnivores, grazers against plants; for predators,
 # grazers against omnivores), so a scarce prey is left alone to recover.
-SWITCH_SHARE = 0.25
+SWITCH_SHARE = 0.5
 STRIKE_EFFORT = 0.2    # food burned for each point of damage a blow deals
 STRIKE_FORCE = 3.5     # scales every blow: the best-armed, mightiest predator kills the largest, best-armoured grazer in three
 PREDATOR_WEAPONS = 3.0  # a predator's natural weapons count this many times over, striking and stinging;
@@ -2279,17 +2280,19 @@ class Simulation:
         if hunter.species == "omnivore":
             # Grazers while they are common enough to switch to, and other omnivores only in an
             # overcrowded territory, once hungry past its reluctance as that rivalry wears it down.
-            return (other.species == "grazer" and hunter.hunts_grazers) or other.species == "predator" or (
+            # Predators only when it would win, blow for blow.
+            return ((other.species == "grazer" and hunter.hunts_grazers)
+                    or (other.species == "predator" and cls.would_win(hunter, other)) or (
                 other.species == "omnivore" and hunter.own_rivalry > 0
-                and hunter.hunger / 100 > cls.cannibal_reluctance(hunter) * (1 - hunter.own_rivalry))
+                and hunter.hunger / 100 > cls.cannibal_reluctance(hunter) * (1 - RIVALRY_WEAR * hunter.own_rivalry)))
         if hunter.species != "predator":
             return False
         if other.species == "grazer":
             return hunter.hunts_grazers
         if other.species == "omnivore":  # only one it would beat, blow for blow
             return hunter.hunts_omnivores and cls.would_win(hunter, other)
-        if other.species != "predator":
+        if other.species != "predator" or cls._same_kind(hunter, other):  # never its own kind
             return False
-        # Other predators, of whatever kind, only when hungry past its reluctance, which a territory
-        # overcrowded with predators wears away.
-        return hunter.hunger / 100 > cls.cannibal_reluctance(hunter) * (1 - hunter.own_rivalry)
+        # Other kinds of predator only when hungry past its reluctance, which a territory overcrowded
+        # with predators wears away.
+        return hunter.hunger / 100 > cls.cannibal_reluctance(hunter) * (1 - RIVALRY_WEAR * hunter.own_rivalry)

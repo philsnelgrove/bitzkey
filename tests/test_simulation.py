@@ -843,13 +843,13 @@ class NewTraitTests(unittest.TestCase):
         self.assertTrue(self.simulation._is_prey(hunter, far))
         self.assertTrue(self.simulation._is_prey(far, hunter))  # and so each hunts, and flees, the other
         self.simulation._index_cells()
-        self.assertIs(self.simulation._look_around(far, 5)[1], hunter)
+        self.assertIn(hunter, self.simulation._look_around(far, 5)[:2])  # as prey, and as a threat
 
     def test_cannibalism_waits_on_hunger_past_empathy_tolerance_and_patience(self):
         gentle = self.simulation._add_agent(encode_dna("predator", empathy=7, tolerance=7, patience=7), 1, 1)
         ruthless = self.simulation._add_agent(encode_dna("predator", empathy=0, tolerance=0, patience=0), 2, 2)
         middling = self.simulation._add_agent(encode_dna("predator", empathy=7, tolerance=0, patience=0), 3, 3)
-        kin = self.simulation._add_agent(gentle.dna, 4, 4)
+        kin = self.simulation._add_agent(gentle.dna ^ (0xFFFF << 48), 4, 4)  # another kind: its own is never prey
         for predator in (gentle, ruthless, middling):
             predator.hunger = 50
         self.assertFalse(self.simulation._is_prey(gentle, kin))
@@ -941,9 +941,9 @@ class NewTraitTests(unittest.TestCase):
         ruthless.own_rivalry = 0.5
         self.assertTrue(self.simulation._is_prey(ruthless, other))
         gentle = self.simulation._add_agent(encode_dna("omnivore", empathy=7, tolerance=7, patience=7), 3, 3)
-        gentle.hunger, gentle.own_rivalry = 60, 0.5  # reluctance only halved, to a half
+        gentle.hunger, gentle.own_rivalry = 80, 0.5  # reluctance worn down by a quarter, to three quarters
         self.assertTrue(self.simulation._is_prey(gentle, other))
-        gentle.hunger = 40
+        gentle.hunger = 70
         self.assertFalse(self.simulation._is_prey(gentle, other))
 
     def test_omnivores_around_a_predator_are_prey_not_rivals_and_dont_turn_it_on_its_kin(self):
@@ -972,13 +972,16 @@ class NewTraitTests(unittest.TestCase):
         self.assertAlmostEqual(rivals, 1 / 6)
         self.assertAlmostEqual(own, 1 / 6)
 
-    def test_an_overcrowded_territory_turns_even_gentle_predators_on_their_kin(self):
+    def test_an_overcrowded_territory_wears_down_reluctance_to_hunt_other_kinds_but_never_its_own(self):
         gentle = self.simulation._add_agent(encode_dna("predator", empathy=7, tolerance=7, patience=7), 1, 1)
         kin = self.simulation._add_agent(gentle.dna, 2, 1)
-        gentle.hunger = 30
-        self.assertFalse(self.simulation._is_prey(gentle, kin))
-        gentle.own_rivalry = 0.8  # reluctance worn down to a fifth
-        self.assertTrue(self.simulation._is_prey(gentle, kin))
+        stranger = self.simulation._add_agent(gentle.dna ^ (0xFFFF << 48), 3, 1)  # 50% apart: another kind
+        gentle.hunger, gentle.own_rivalry = 70, 0.8  # reluctance worn down by RIVALRY_WEAR of 0.8, to 0.6
+        self.assertTrue(self.simulation._is_prey(gentle, stranger))
+        gentle.hunger = 50
+        self.assertFalse(self.simulation._is_prey(gentle, stranger))
+        gentle.hunger = 99
+        self.assertFalse(self.simulation._is_prey(gentle, kin))  # never its own kind
 
     def test_crowded_territory_is_uncomfortable_and_killing_a_rival_a_relief(self):
         hunter = self.simulation._add_agent(encode_dna("predator", strength=7, size=7, aggression=0, empathy=0),
@@ -1256,6 +1259,7 @@ class NewTraitTests(unittest.TestCase):
         effort = 0.2 * Simulation._damage(omnivore, prey) / omnivore.stomach
         self.assertAlmostEqual(90 - omnivore.hunger + effort, (5 + 25) / 2)  # meat: in full
 
+    @patch("tools.Simulation.SWITCH_SHARE", 0.25)  # the switch measured at a quarter
     def test_hunters_switch_away_from_prey_that_is_scarce_nearby(self):
         simulation = Simulation(width=30, height=30, population=0, seed=3)
         simulation.grass.clear()

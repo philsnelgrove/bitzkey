@@ -205,6 +205,8 @@ _TABLE: dict[str, list[tuple]] = {
         ("TERRITORY_RADIUS", "Territory radius", "a hunter's territory: the cells within this many steps", 1, 12, 1),
         ("TERRITORY_RAMP", "Territory ramp", "rivals past the limit that bring rivalry to its full strength", 1, 20, 1),
         ("RIVAL_UNEASE", "Rival unease", "discomfort of a fully overcrowded territory", 0.0, 5.0, 0.05),
+        ("RIVALRY_WEAR", "Rivalry wear", "how much an overcrowded territory wears down reluctance to kill its own species",
+         0.0, 1.0, 0.05),
         ("RIVAL_KILL_JOY", "Rival kill joy", "relief at killing a rival in an overcrowded territory", 0.0, 5.0, 0.05),
         ("TERRITORY.predator.fewest", "Predator rivals, cruel", "rivals the least empathetic predator tolerates",
          0, 50, 1),
