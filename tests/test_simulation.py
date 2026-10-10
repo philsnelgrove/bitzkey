@@ -2094,16 +2094,16 @@ class NewTraitTests(unittest.TestCase):
         dna = encode_dna("grazer", fertility=7, litter=7)  # a litter of six where there is room
         first = simulation._add_agent(dna, 15, 15)
         second = simulation._add_agent(dna, 15, 16)
-        neighbours = [simulation._add_agent(encode_dna("predator"), 15 + dx, 12) for dx in (-2, -1, 0, 1, 2)]
+        neighbours = [simulation._add_agent(dna, 15 + dx, 12) for dx in (-2, -1, 0, 1, 2)]
         simulation._index_cells()
         simulation._population = len(simulation.agents)
 
         deliver(simulation, first, second, litter=None)
-        self.assertEqual(len(simulation.agents) - 7, 4)  # six young, cut by the three predators within four cells
+        self.assertEqual(len(simulation.agents) - 7, 4)  # six young, cut by the three of its kind within four cells
 
         first.cooldown = second.cooldown = 0
         first.hunger = second.hunger = 0
-        for dx in range(-3, 4):  # a crowd of another species shrinks litters but doesn't stop breeding
+        for dx in range(-3, 4):  # a crowd of another species neither shrinks litters nor stops breeding
             simulation._add_agent(encode_dna("predator"), 15 + dx, 13)
         simulation._index_cells()
         self.assertGreaterEqual(simulation._crowding(first, second), 10)

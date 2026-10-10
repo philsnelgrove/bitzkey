@@ -574,9 +574,9 @@ mating. At birth, each newborn needs a free cell within two cells of its mother,
 nearest first; those with no room are lost, and if a population cap is set, the world holds at most that
 many living animals (plants don't count toward it). Crowding also
 limits breeding: for each other animal within four cells of a would-be parent,
-besides its partner, its litter shrinks by a tenth, and with ten or more around,
-it does not breed; only animals of its own kind count toward that limit, so other species and
-other kinds of predator shrink a litter but never stop breeding (Crowding limit; 0 switches it off). Food can also limit breeding, though by
+besides its partner, of its own kind, its litter shrinks by a tenth, and with ten or more around,
+it does not breed; only animals of its own kind count, for the litter and the limit alike, so other species and
+other kinds of predator never touch breeding (Crowding limit; 0 switches it off). Food can also limit breeding, though by
 default it doesn't (Food needed: 0). When it is set, before breeding, an animal
 weighs the food it lives on within six cells against the mouths that share it,
 itself included. Grazers count grass and plants (two meals each), as well as

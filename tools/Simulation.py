@@ -1866,7 +1866,7 @@ class Simulation:
         temperaments, which its dot then shows."""
         litter = litter_size([(int(parent.body["litter"]), int(parent.body["size"])) for parent in (first, second)])
         if CROWDING_LIMIT:
-            litter = max(1, int(litter * (1 - self._crowding(first, second) / CROWDING_LIMIT) + 0.5))
+            litter = max(1, int(litter * (1 - self._crowding(first, second, own_kind=True) / CROWDING_LIMIT) + 0.5))  # its own kind
         needed = self._food_needed(first)
         if needed:  # litters follow food only while food limits breeding
             litter = max(1, int(litter * min(1.0, self._food_supply(first) / (2 * needed)) + 0.5))
