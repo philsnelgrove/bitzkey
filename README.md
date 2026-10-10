@@ -561,8 +561,9 @@ turn. How strongly this teaches, how much it moves the mood and how long it is
 remembered are advanced rules (the Society group).
 
 Each parent pays 10 to 25% of its stomach to breed, less the more fertile it is. Animals
-only breed, or court, when both partners can afford it and still have at least
-10 hunger to spare afterwards, so nothing breeds itself to death. The litter
+only breed, or court, when both partners can afford it (the Breeding reserve rule can make
+them keep hunger to spare as well; none by default). There is no rest between litters by default
+(the Breeding cooldown rule restores the old 5 to 20 turns, by fertility). The litter
 shares exactly the energy its parents gave, so a large parent gives more food
 than a small one, and the same food fills a small newborn more. Breeding starts a
 gestation: the parent that chose to breed conceives the litter at once, and
@@ -574,19 +575,24 @@ nearest first; those with no room are lost, and if a population cap is set, the 
 many living animals (plants don't count toward it). Crowding also
 limits breeding: for each other animal within four cells of a would-be parent,
 besides its partner, its litter shrinks by a tenth, and with ten or more around,
-it does not breed. Animals also breed responsibly: before breeding, an animal
+it does not breed; only animals of its own kind count toward that limit, so other species and
+other kinds of predator shrink a litter but never stop breeding (Crowding limit; 0 switches it off). Food can also limit breeding, though by
+default it doesn't (Food needed: 0). When it is set, before breeding, an animal
 weighs the food it lives on within six cells against the mouths that share it,
 itself included. Grazers count grass and plants (two meals each), as well as
 they digest them; omnivores count grass and plants as they digest them, and
 grazers as prey (ten meals each, as meat fills about ten times what grass does);
-predators count grazers and omnivores as prey (ten meals each). A hunter's pack-mates count as
+predators count grazers and omnivores as prey (ten meals each), though predators need no particular
+supply to breed (Food needed, predators: none by default). A hunter's pack-mates count as
 half a mouth each, as a pack shares its kills (Pack mouths). Grass is judged
 by what will grow back nearby over the next 150 turns, plus a quarter of what is
 standing now, so a crowd doesn't breed on a stock it is about to eat. Every
 animal of its own species is a mouth, every predator to a predator whatever its
 kind, and another species eating some of the same food is half a mouth (an
-omnivore to a grazer, or a predator to an omnivore). Below three meals a mouth it
-doesn't breed; between three and six, its litter shrinks in proportion. Other
+omnivore to a grazer, or a predator to an omnivore). Below the food needed a mouth it
+doesn't breed; between that and twice it, its litter shrinks in proportion. The same weighing
+decides when a starving grazer may uproot a plant: only with fewer than three meals a mouth about
+it (Uproot food). Other
 kinds of predator may still be hunted, but they are rivals for prey, not a food
 supply to breed on. Omnivores also switch prey: an omnivore only goes after grazers while they
 make up at least a quarter of the food it weighs within six cells (grazers

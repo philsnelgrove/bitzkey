@@ -30,7 +30,7 @@ GRASS_DENSITY = 50      # percent of cells that start with grass
 GRASS_REGROWTH = 0.016  # share of the starting grass that grows back each turn
 MAX_POPULATION = 20000  # the most Bitzkeys spawned at the start; a world's population cap is a setting
 CROWDING_RADIUS = 4    # animals within this many cells count as crowding a would-be parent
-CROWDING_LIMIT = 10    # litters shrink as crowding nears this; at it, an animal doesn't breed
+CROWDING_LIMIT = 10    # litters shrink as crowding nears this; at it, an animal doesn't breed; 0: no limit
 SPAWN_GROUP = (3, 5)  # Bitzkeys spawn in groups of this many sharing one genome
 MAX_IMPORTED = 120  # imported Bitzkeys, each spawning a group of its own
 MAX_GRID = 1000  # the widest and tallest a world can be, in cells
@@ -50,7 +50,7 @@ HISTORY_PREFIX = "bitzkey-history-"  # their names start so
 STALE_HISTORY_HOURS = 24  # one left this long by a run that never closed it is cleared away
 CORPSE_FERTILITY = 2   # grass grows this many times as fast on and around a corpse
 CORPSE_TURNS = 30
-BREED_RESERVE = 10  # hunger a parent must still have spare after paying to breed
+BREED_RESERVE = 0  # hunger a parent must still have spare after paying to breed
 # The most a partner's ring and dot colours may differ from an animal's own before it shuns
 # them, at no tolerance; full tolerance widens both to 1, accepting any partner of its species.
 MATE_RING_DIFFERENCE = 0.05
@@ -169,7 +169,10 @@ KIND_DIFFERENCE = 0.25
 # against the mouths that share it, itself included. Below FOOD_NEEDED meals a mouth it doesn't
 # breed; between that and twice that, its litter shrinks in proportion.
 FORAGE_RADIUS = 6
-FOOD_NEEDED = 3.0
+FOOD_NEEDED = 0.0  # 0: no limit, and litters don't follow food
+UPROOT_FOOD = 3.0  # a starving grazer uproots a plant only with fewer meals a mouth than this about it
+BREED_COOLDOWN = 0.0  # share of the usual rest after breeding, 20 turns for the least fertile to 5 for the most
+PREDATOR_FOOD_NEEDED = 0.0  # the same for predators: none, so the food about them never stops them breeding
 PLANT_MEALS = 2.0      # meals a plant is worth to a full-efficiency browser
 PREY_MEALS = 10.0      # meals a prey animal is worth: meat fills about ten times what grass does
 SHARED_DIET = 0.5      # how much an animal of another species eating some of the same food counts as a mouth
@@ -1326,7 +1329,8 @@ class Simulation:
         if suitor:
             available.add("court")
         if (mate and agent.can_breed and nurseries and self._room() > 0
-                and self._crowding(agent, mate) < CROWDING_LIMIT and self._food_supply(agent) >= FOOD_NEEDED):
+                and (not CROWDING_LIMIT or self._crowding(agent, mate, own_kind=True) < CROWDING_LIMIT)  # its own kind crowds it
+                and (not self._food_needed(agent) or self._food_supply(agent) >= self._food_needed(agent))):
             available.add("breed")
         if quarry:
             available.add("hunt")
@@ -1346,7 +1350,7 @@ class Simulation:
         uprootable = None
         if agent.species == "grazer" and agent.hunger >= UPROOT_HUNGER:
             uprootable = next((other for other in neighbors if other.species == "plant"), None)
-            if uprootable is not None and self._food_supply(agent) < FOOD_NEEDED:
+            if uprootable is not None and self._food_supply(agent) < UPROOT_FOOD:
                 available.add("uproot")  # starving, with food scarce: it may tear into a plant beside it
         alert_to = None
         if herd:  # with a herd to tell: a grazer of a hunter it sees, a hunter of a fresh kill it sees
@@ -1861,8 +1865,11 @@ class Simulation:
         parents' brains, and starts its temperament at the average of its parents' current
         temperaments, which its dot then shows."""
         litter = litter_size([(int(parent.body["litter"]), int(parent.body["size"])) for parent in (first, second)])
-        litter = max(1, int(litter * (1 - self._crowding(first, second) / CROWDING_LIMIT) + 0.5))
-        litter = max(1, int(litter * min(1.0, self._food_supply(first) / (2 * FOOD_NEEDED)) + 0.5))
+        if CROWDING_LIMIT:
+            litter = max(1, int(litter * (1 - self._crowding(first, second) / CROWDING_LIMIT) + 0.5))
+        needed = self._food_needed(first)
+        if needed:  # litters follow food only while food limits breeding
+            litter = max(1, int(litter * min(1.0, self._food_supply(first) / (2 * needed)) + 0.5))
         litter = max(1, min(litter, self._room()))
         costs = [parent.breeding_cost for parent in (first, second)]
         # Energy in absolute terms: a share of each parent's stomach, refilled in the young's.
@@ -1889,7 +1896,7 @@ class Simulation:
         first.due_turn = self.turn + gestation(int(first.body["size"]))
         for parent, cost in zip((first, second), costs, strict=True):
             parent.hunger += cost
-            parent.cooldown = round(20 - 15 * parent.physique("fertility"))
+            parent.cooldown = round((20 - 15 * parent.physique("fertility")) * BREED_COOLDOWN)
             parent.children += litter
             parent.reward += BREED_JOY * parent.feeling("libido")
             if not parent.alive:
@@ -1925,9 +1932,10 @@ class Simulation:
         """How many more animals the population cap allows; unlimited without a cap."""
         return float("inf") if self.population_cap is None else self.population_cap - self._population
 
-    def _crowding(self, agent: Bitzkey, partner: Bitzkey) -> int:
-        """How many other animals, besides its partner, live within CROWDING_RADIUS cells."""
-        return sum(other.species != "plant" and other is not partner
+    def _crowding(self, agent: Bitzkey, partner: Bitzkey, own_kind: bool = False) -> int:
+        """How many other animals, besides its partner, live within CROWDING_RADIUS cells; with `own_kind`,
+        only those of its own kind."""
+        return sum(other.species != "plant" and other is not partner and (not own_kind or self._same_kind(agent, other))
                    for other in self._nearby(agent, CROWDING_RADIUS))
 
     def _give_birth(self, mother: Bitzkey) -> None:
@@ -2133,6 +2141,11 @@ class Simulation:
                 if 0 <= y < self.height and agent.climate_steps(self._climate[y]) < 0.5:
                     return agent.x, y
         return None
+
+    @staticmethod
+    def _food_needed(agent: Bitzkey) -> float:
+        """The meals a mouth an animal needs about it to breed: 0, none."""
+        return PREDATOR_FOOD_NEEDED if agent.species == "predator" else FOOD_NEEDED
 
     def _food_supply(self, agent: Bitzkey) -> float:
         """The meals within FORAGE_RADIUS of an animal per mouth sharing them, itself included:

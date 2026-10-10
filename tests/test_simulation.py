@@ -263,6 +263,8 @@ class SimulationTests(unittest.TestCase):
         self.assertGreater(abs(grazer.y - predator.y), 4)
         self.assertNotIn(ACTIONS.index("flee"), self.simulation._sense(predator)[1])
 
+    @patch("tools.Simulation.BREED_RESERVE", 10)  # a reserve, as it may be set to
+    @patch("tools.Simulation.FOOD_NEEDED", 3.0)
     def test_only_animals_that_can_afford_it_breed(self):
         lay_plenty_of_grass(self.simulation)
         dna = encode_dna("grazer", fertility=7)  # breeding costs it 10 hunger
@@ -301,6 +303,7 @@ class SimulationTests(unittest.TestCase):
         self.simulation.population_cap = 2
         self.assertNotIn(ACTIONS.index("breed"), self.simulation._sense(agent)[1])
 
+    @patch("tools.Simulation.BREED_COOLDOWN", 1.0)  # the usual rest after breeding, as it may be set to
     def test_fertile_parents_breed_cheaply_and_their_child_gets_the_energy(self):
         dna = encode_dna("grazer", fertility=7, libido=7)
         first = self.simulation._add_agent(dna, 5, 5)
@@ -1182,6 +1185,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertLess(simulation._food_supply(corner), expected / 2)
 
     @patch("tools.Simulation.SMALL_LITTERS", 1.0)
+    @patch("tools.Simulation.FOOD_NEEDED", 3.0)  # food limiting breeding, as it may be set to
     def test_scarce_food_stops_breeding_and_plenty_allows_full_litters(self):
         dna = encode_dna("grazer", fertility=7, litter=7)
         first = self.simulation._add_agent(dna, 5, 5)
@@ -1196,6 +1200,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(len(self.simulation.agents), 2 + 6)
 
     @patch("tools.Simulation.SMALL_LITTERS", 1.0)
+    @patch("tools.Simulation.FOOD_NEEDED", 3.0)  # food limiting breeding, as it may be set to
     def test_a_litter_shrinks_as_food_runs_short(self):
         dna = encode_dna("grazer", fertility=7, litter=7)
         first = self.simulation._add_agent(dna, 5, 5)
@@ -1450,6 +1455,18 @@ class NewTraitTests(unittest.TestCase):
         self.assertIs(situation["kill"], kill)
         self.assertEqual(senses[SENSES.index("kill_alert")], 1.0)  # and it knows it was told
         self.assertEqual(self.simulation._sense(herd_mate)[0][SENSES.index("kill_alert")], 0.0)
+
+    @patch("tools.Simulation.FOOD_NEEDED", 3.0)  # food limiting breeding, as it may be set to
+    def test_predators_breed_whatever_the_food_about_them_but_grazers_need_it(self):
+        for species in ("predator", "grazer"):
+            simulation = Simulation(width=12, height=12, population=0, seed=3)
+            simulation.grass.clear()
+            simulation.grass_regrowth = 0  # no food of any kind about them
+            first = simulation._add_agent(encode_dna(species), 4, 4)
+            simulation._add_agent(first.dna, 4, 5)
+            simulation._index_cells()
+            offered = ACTIONS.index("breed") in simulation._sense(first)[1]
+            self.assertEqual(offered, species == "predator", species)
 
     def test_a_partner_two_cells_away_is_close_enough_to_breed_with(self):
         first = self.simulation._add_agent(encode_dna("predator"), 4, 4)
@@ -2071,6 +2088,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertIn(ACTIONS.index("breed"), self.simulation._sense(agent)[1])
 
     @patch("tools.Simulation.SMALL_LITTERS", 1.0)
+    @patch("tools.Simulation.FOOD_NEEDED", 3.0)  # food limiting breeding, as it may be set to
     def test_crowding_shrinks_litters_and_at_its_limit_stops_breeding(self):
         simulation = Simulation(width=30, height=30, population=0, seed=3)
         dna = encode_dna("grazer", fertility=7, litter=7)  # a litter of six where there is room
@@ -2083,11 +2101,18 @@ class NewTraitTests(unittest.TestCase):
         deliver(simulation, first, second, litter=None)
         self.assertEqual(len(simulation.agents) - 7, 4)  # six young, cut by the three predators within four cells
 
-        for dx in range(-4, 5):
-            simulation._add_agent(encode_dna("grazer"), 15 + dx, 17)
-        simulation._index_cells()
         first.cooldown = second.cooldown = 0
         first.hunger = second.hunger = 0
+        for dx in range(-3, 4):  # a crowd of another species shrinks litters but doesn't stop breeding
+            simulation._add_agent(encode_dna("predator"), 15 + dx, 13)
+        simulation._index_cells()
+        self.assertGreaterEqual(simulation._crowding(first, second), 10)
+        self.assertIn(ACTIONS.index("breed"), simulation._sense(first)[1])
+        for dx in range(-3, 4):  # its own kind does
+            for y in (17, 18):
+                simulation._add_agent(dna, 15 + dx, y)
+        simulation._index_cells()
+        self.assertGreaterEqual(simulation._crowding(first, second, own_kind=True), 10)
         self.assertNotIn(ACTIONS.index("breed"), simulation._sense(first)[1])
 
     def test_tolerant_animals_are_at_ease_among_other_species(self):
