@@ -311,7 +311,7 @@ class SenseTests(unittest.TestCase):
         simulation._act(grazer, "walk_north", situation)
         self.assertEqual((grazer.x, grazer.y, grazer.last_action), (50, 49, "walked north"))
         self.assertAlmostEqual(grazer.hunger, 50 - grazer.burn * WALK_REST)  # saves half the turn's burn, as resting does
-        self.assertAlmostEqual(grazer.reward, CURIOSITY_JOY)  # walking explores too
+        self.assertAlmostEqual(grazer.reward, CURIOSITY_JOY)  # walking explores too, but eases no hunger
         grazer.hunger = 50
         simulation._act(grazer, "go_south", situation)
         self.assertEqual(grazer.y, 55)

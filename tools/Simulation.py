@@ -102,7 +102,8 @@ REPLAY_PER_INTELLECT = 2
 PREDATOR_LEARNING = 2.0  # a predator's brain learns this many times as fast, from its own choices and replays;
 # an omnivore's gets half the bonus
 # Primal fear: facing a hunter stronger than itself, an animal may be overcome, each turn, with a chance of
-# PRIMAL_FEAR times how lopsided the fight would be (predators PRIMAL_FEAR_PREDATORS as often). While a
+# PRIMAL_FEAR times how lopsided the fight would be (predators PRIMAL_FEAR_PREDATORS as often, and less
+# the hungrier, none as they starve). While a
 # hunter is in sight it then panics every turn, fleeing, or, with a chance of PRIMAL_FREEZE at the lowest
 # intellect and none at the highest, freezes and does nothing at all.
 # The instinct to hunt: whenever hunting or attacking is open to a predator, it values each this much more,
@@ -159,9 +160,11 @@ SHARED_DIET = 0.5      # how much an animal of another species eating some of th
 SWITCH_SHARE = 0.25
 STRIKE_EFFORT = 0.2    # food burned for each point of damage a blow deals
 STRIKE_FORCE = 3.5     # scales every blow: the best-armed, mightiest predator kills the largest, best-armoured grazer in three
-PREDATOR_WEAPONS = 3.0  # a predator's natural weapons count this many times over, striking and stinging
+PREDATOR_WEAPONS = 3.0  # a predator's natural weapons count this many times over, striking and stinging;
+# an omnivore's three quarters of that and a grazer's half
 GRAZER_DEFENCE_STRENGTH = 5  # a grazer can strike back only with strength above this
 FEAST_JOY = 1.5        # a predator's pleasure in feasting on a fresh kill
+SATED_JOY = 1.0        # pleasure in hunger relieved by eating, hunting, feasting or scavenging, per its full range
 ATTACK_JOY = 0.1       # a predator's pleasure in a blow it lives through
 KILL_MEAL = 25         # hunger a kill sates, plus up to KILL_MEAL_FOR_SIZE for the largest prey
 KILL_MEAL_FOR_SIZE = 45
@@ -532,8 +535,14 @@ class Bitzkey:
 
     @property
     def fearfulness(self) -> float:
-        """Its fear, as its effects feel it: a predator's PREDATOR_FEAR as much."""
-        return self.feeling("fear") * (PREDATOR_FEAR if self.species == "predator" else 1.0)
+        """Its fear, as its effects feel it: a predator's PREDATOR_FEAR as much, and less the hungrier it is."""
+        return self.feeling("fear") * (PREDATOR_FEAR * self.unafraid if self.species == "predator" else 1.0)
+
+    @property
+    def unafraid(self) -> float:
+        """The share of its fear's effects hunger leaves a predator: all when fed, falling with its hunger
+        to none as it starves; any other animal feels them all."""
+        return max(0.0, 1 - self.hunger / 100) if self.species == "predator" else 1.0
 
     @property
     def herd_instinct(self) -> float:
@@ -579,7 +588,13 @@ class Bitzkey:
 
     def nourish(self, food: float) -> None:
         """Eat: the same food fills a small stomach more than a large one."""
-        self.hunger = max(0.0, self.hunger - food / self.stomach)
+        self.relieve(food / self.stomach)
+
+    def relieve(self, amount: float) -> None:
+        """Ease its hunger by an amount, eating, and take SATED_JOY's pleasure in what was eased."""
+        eased = min(self.hunger, amount)
+        self.hunger -= eased
+        self.reward += SATED_JOY * eased / 100
 
     def heal(self, share: float) -> None:
         """Heal a share of the health pool, faster with a faster metabolism."""
@@ -1478,7 +1493,7 @@ class Simulation:
         elif action == "rest" and situation.get("frozen"):
             agent.last_action = "froze"  # paralysed by fear: nothing done, nothing gained
         elif action == "rest":
-            agent.hunger = max(0, agent.hunger - agent.burn / 2)
+            agent.hunger = max(0, agent.hunger - agent.burn / 2)  # burns less, but eases no hunger
             agent.heal(0.015)
             agent.last_action = "rested"
         elif action == "court":
@@ -1523,7 +1538,7 @@ class Simulation:
             moved = abs(y - agent.y) if dy else cells  # north and south stop at the map's edge
             self._move(agent, (agent.x + dx * cells) % self.width, y)
             if walk:
-                agent.hunger = max(0, agent.hunger - agent.burn * WALK_REST)
+                agent.hunger = max(0, agent.hunger - agent.burn * WALK_REST)  # burns less, but eases no hunger
             else:
                 agent.hunger += agent.burn * GO_EFFORT * max(0, moved - 1)
                 self._exhausted(agent)
@@ -1625,8 +1640,10 @@ class Simulation:
 
     @staticmethod
     def _armed(animal: Bitzkey) -> float:
-        """Its natural weapons as a share of their full range: a predator's count PREDATOR_WEAPONS times over."""
-        return animal.physique("weapons") * (PREDATOR_WEAPONS if animal.species == "predator" else 1.0)
+        """Its natural weapons as a share of their full range: a predator's count PREDATOR_WEAPONS times over,
+        an omnivore's three quarters and a grazer's half as many times."""
+        share = {"predator": 1.0, "omnivore": 0.75, "grazer": 0.5}.get(animal.species)
+        return animal.physique("weapons") * (PREDATOR_WEAPONS * share if share else 1.0)
 
     def _attack(self, agent: Bitzkey, victim: Bitzkey) -> None:
         """A blow. The intolerant enjoy fighting other species most; the empathetic feel their
@@ -1736,7 +1753,8 @@ class Simulation:
         if not agent.primal_fear:
             disparity = self.disparity(agent, hunter)
             if disparity > 0:
-                chance = PRIMAL_FEAR * disparity * (PRIMAL_FEAR_PREDATORS if agent.species == "predator" else 1.0)
+                chance = (PRIMAL_FEAR * disparity * (PRIMAL_FEAR_PREDATORS if agent.species == "predator" else 1.0)
+                          * agent.unafraid)
                 if self.random.random() < chance:
                     agent.primal_fear = True
                     self._experience(agent, "panicked")

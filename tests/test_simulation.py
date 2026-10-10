@@ -1364,6 +1364,19 @@ class NewTraitTests(unittest.TestCase):
         self.assertAlmostEqual(fearful.fearfulness, 0.5)
         self.assertAlmostEqual(self.simulation._add_agent(encode_dna("grazer", fear=7), 9, 8).fearfulness, 1.0)
 
+    def test_hunger_lets_a_predator_ignore_its_fear_until_none_is_left_as_it_starves(self):
+        hunter = self.simulation._add_agent(encode_dna("predator", fear=7), 5, 5)
+        grazer = self.simulation._add_agent(encode_dna("grazer", fear=7), 6, 5)
+        for agent in (hunter, grazer):
+            agent.hunger = 0.0
+        self.assertAlmostEqual(hunter.fearfulness, 0.5)
+        hunter.hunger, grazer.hunger = 60.0, 60.0
+        self.assertAlmostEqual(hunter.fearfulness, 0.5 * 0.4)
+        self.assertAlmostEqual(grazer.fearfulness, 1.0)  # only predators
+        hunter.hunger = 100.0
+        self.assertEqual(hunter.fearfulness, 0.0)
+        self.assertEqual(hunter.unafraid, 0.0)  # nor will primal fear seize it
+
     def test_predators_think_twice_as_well_and_good_experiences_sharpen_everyone(self):
         from tools.Simulation import thinking_intellect
         predator = self.simulation._add_agent(encode_dna("predator", intellect=3), 5, 5)
@@ -1397,6 +1410,14 @@ class NewTraitTests(unittest.TestCase):
         self.assertGreaterEqual(3 * self.simulation._damage(hunter, grazer), grazer.max_health)
         self.assertLess(2 * self.simulation._damage(hunter, grazer), grazer.max_health)
 
+    def test_omnivore_weapons_count_three_quarters_and_grazer_weapons_half_a_predators(self):
+        from tools.Simulation import PREDATOR_WEAPONS
+        armed = {species: self.simulation._armed(self.simulation._add_agent(encode_dna(species, weapons=7), 5, 5 + i))
+                 for i, species in enumerate(("predator", "omnivore", "grazer"))}
+        self.assertAlmostEqual(armed["predator"], PREDATOR_WEAPONS)
+        self.assertAlmostEqual(armed["omnivore"], 0.75 * PREDATOR_WEAPONS)
+        self.assertAlmostEqual(armed["grazer"], 0.5 * PREDATOR_WEAPONS)
+
     def test_predators_enjoy_feasting_and_blows_they_survive(self):
         hunter = self.simulation._add_agent(encode_dna("predator", aggression=0, empathy=0), 5, 6)
         prey = self.simulation._add_agent(encode_dna("grazer", weapons=0, size=7, armour=7), 5, 5)
@@ -1410,7 +1431,18 @@ class NewTraitTests(unittest.TestCase):
         hunter.reward, hunter.hunger = 0, 50
         self.simulation._feast(hunter, prey)
         self.assertEqual(hunter.last_action, "feasted")
-        self.assertAlmostEqual(hunter.reward, FEAST_JOY)
+        from tools.Simulation import SATED_JOY
+        self.assertAlmostEqual(hunter.reward, FEAST_JOY + SATED_JOY * 50 / 100)  # and its hunger, all eased
+
+    def test_any_easing_of_hunger_pleases_by_how_much_is_eased(self):
+        from tools.Simulation import SATED_JOY
+        grazer = self.simulation._add_agent(encode_dna("grazer"), 5, 5)
+        grazer.reward, grazer.hunger = 0, 30
+        grazer.relieve(20)
+        self.assertAlmostEqual(grazer.reward, SATED_JOY * 0.2)
+        grazer.relieve(50)  # only the 10 left to ease
+        self.assertEqual(grazer.hunger, 0)
+        self.assertAlmostEqual(grazer.reward, SATED_JOY * 0.3)
 
     def test_predators_breed_with_their_kind(self):
         dna = encode_dna("predator", tolerance=0)
