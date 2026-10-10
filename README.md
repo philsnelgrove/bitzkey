@@ -654,14 +654,18 @@ where each year begins, with a line up through the chart. The graph covers the w
 alive at evenly spaced turns, spacing them further apart as the run grows.
 
 The graph is also a time scrubber. A playhead marks the present. Drag along the
-timeline beneath the bars, or right-click anywhere on the graph, to move the
+timeline beneath the bars, or right-click (without dragging) anywhere on the graph, to move the
 world to that turn; it pauses there, or at the earliest turn the history
 keeps (the latest 100), if that is later. Space plays on through the recorded future, which stays
 visible but faded. The mouse wheel zooms the time axis down to 10 turns,
 keeping the latest turn at the right while the view reaches it, so the living
 stay in view as the run goes on; once panned back into the past, it zooms around
-the cursor instead. `Shift`+wheel, or a sideways wheel, pans the
-zoomed view, and zooming all the way out shows the whole run again.
+the cursor instead. Over the bars, the wheel also zooms the height, as the map
+zooms, up to 32 times, the population under the pointer staying put, so single
+Bitzkeys in a crowded bar grow tall enough to pick. Drag with the right or
+middle button to pan, in time and in height, as on the map; `Shift`+wheel, or a
+sideways wheel, also pans in time. Zooming all the way out, or `Z`, shows the
+whole run at its whole height again.
 
 Pick Bitzkeys straight from the graph. Only the living can be picked, and one
 that dies drops out of the selection:

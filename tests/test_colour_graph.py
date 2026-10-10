@@ -149,8 +149,36 @@ class TimeTravelTests(unittest.TestCase):
         self.assertAlmostEqual(self.graph.seek_turn, 50, delta=1)
 
     def test_right_clicking_the_graph_seeks_that_turn(self):
-        self.assertEqual(self.click(pg.MOUSEBUTTONDOWN, self.chart.left + 1, self.chart.centery, button=3), "seek")
+        self.assertIsNone(self.click(pg.MOUSEBUTTONDOWN, self.chart.left + 1, self.chart.centery, button=3))
+        self.assertEqual(self.click(pg.MOUSEBUTTONUP, self.chart.left + 1, self.chart.centery, button=3), "seek")
         self.assertEqual(self.graph.seek_turn, 0)
+
+    def test_the_wheel_zooms_into_the_height_around_the_pointer_and_a_right_drag_pans(self):
+        y = self.chart.bottom - self.chart.height // 4
+        up = (self.chart.bottom - y) / self.chart.height
+        self.graph.zoom_height(3, y)
+        self.assertAlmostEqual(self.graph.height_zoom, 1.25 ** 3)
+        self.assertAlmostEqual(self.graph.floor + up / self.graph.height_zoom, up)  # what was under it stays put
+        floor = self.graph.floor
+        start = (self.chart.centerx, self.chart.centery)
+        self.click(pg.MOUSEBUTTONDOWN, *start, button=3)
+        self.graph.handle(pg.event.Event(pg.MOUSEMOTION, pos=(start[0], start[1] + 40), rel=(0, 40), buttons=(0, 0, 1)))
+        self.assertIsNone(self.click(pg.MOUSEBUTTONUP, start[0], start[1] + 40, button=3))  # a pan, not a seek
+        self.assertAlmostEqual(self.graph.floor, floor + 40 / self.chart.height / self.graph.height_zoom)
+        self.graph.zoom_height(-40, y)
+        self.assertEqual((self.graph.height_zoom, self.graph.floor), (1.0, 0.0))  # no further out than the whole
+        self.graph.zoom_height(3, y)
+        self.graph.unzoom()
+        self.assertEqual((self.graph.view, self.graph.height_zoom, self.graph.floor), (None, 1.0, 0.0))
+
+    def test_zoomed_into_the_height_the_bars_stand_taller_from_the_floor(self):
+        bars, peak = build_bars(self.simulation, "ring", CHART)
+        tall, same = build_bars(self.simulation, "ring", CHART, height_zoom=4.0, floor=0.25)
+        self.assertEqual(same, peak)
+        unit = CHART.height / peak
+        self.assertEqual(tall[-1].slices[0][0], bars[-1].slices[0][0])
+        self.assertAlmostEqual(tall[-1].slices[0][2], CHART.bottom + 0.25 * 4 * CHART.height)
+        self.assertAlmostEqual(tall[-1].slices[0][2] - tall[-1].slices[0][1], 4 * unit)
 
     def test_the_wheel_zooms_pinned_to_the_present_or_around_the_cursor_and_back_out_to_the_whole_run(self):
         x = self.graph.x_of(80)

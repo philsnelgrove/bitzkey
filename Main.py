@@ -255,7 +255,9 @@ class BitzkeyApp:
                         self._catalog_picked() if self.show_census else self._catalog_selected()
                     elif event.key == pg.K_e:
                         self._open_export_dialog()
-                    elif event.key == pg.K_z and not self.show_census:
+                    elif event.key == pg.K_z and self.show_census:
+                        self.graph.unzoom()  # the whole run, its whole height
+                    elif event.key == pg.K_z:
                         self.map_zoom, self.map_centre = 1.0, (self.width / 2, self.height / 2)
                 elif self.show_insights and not self.show_census and self._scroll_event(event):
                     pass

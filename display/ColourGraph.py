@@ -6,7 +6,8 @@ by a trait chosen from the SORT menu. Hovering over a slice shows that Bitzkey's
 Bitzkeys are picked by clicking their slice or dragging a box around slices, then copied or saved;
 the pick stays selected on the map when the graph closes. The graph also travels in time: drag
 the timeline beneath it, or right-click, to move the world to that turn. The mouse wheel zooms
-into a stretch of the run.
+into a stretch of the run and, as on the map, into the height around the pointer; dragging with
+the right or middle button pans, and Z shows it all again.
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ DIM = 0.75             # how far unselected Bitzkeys fade toward the background
 FUTURE_DIM = 0.55      # how far turns after the present fade, once the world has been rewound
 MIN_VIEW = 10          # the fewest turns the graph zooms in to
 ZOOM_STEP = 0.8        # each wheel notch shows this share of the turns before it
+HEIGHT_ZOOM_MAX = 32.0  # the closest the graph zooms into its height, times the whole
 BACKGROUND = (30, 40, 40)
 PARTS = ("ring", "dot")
 # What a species' Bitzkeys are sorted by: their colour, or an inborn trait or climate gene, lowest at
@@ -83,12 +85,15 @@ def trait_of(dna: int, trait: str) -> int:
 
 
 def build_bars(simulation: Simulation, part: str, chart: pg.Rect, first: int = 0,
-               last: int | None = None, sort: str = "colour") -> tuple[list[Bar], float]:
+               last: int | None = None, sort: str = "colour", height_zoom: float = 1.0,
+               floor: float = 0.0) -> tuple[list[Bar], float]:
     """Lay out one bar per stretch of turns from `first` to `last` (by default the whole run),
     each stacking the Bitzkeys alive at its end; the bar holding the present shows it exactly.
     Within a species they are sorted by colour, or by the trait `sort` names and then colour; a
     trait sorts only the living, the dead being remembered by their colour alone, beneath them.
-    Returns the bars and the population the chart tops at."""
+    Zoomed into the height, the chart shows `1 / height_zoom` of it, from `floor` (a share of the
+    top) up; slices beyond it lie outside the chart. Returns the bars and the population the
+    chart tops at, unzoomed."""
     last = simulation.frontier if last is None else last
     turns = last - first + 1
     count = max(1, min(chart.width // BAR_PIXELS, turns))
@@ -102,7 +107,8 @@ def build_bars(simulation: Simulation, part: str, chart: pg.Rect, first: int = 0
         members = present if start <= now <= end else simulation.census.at(end)
         moments.append((end, members, start > now))
     peak = nice_ceiling(max(len(members) for _, members, _ in moments))
-    unit = chart.height / peak
+    unit = chart.height * height_zoom / peak
+    base = chart.bottom + floor * height_zoom * chart.height  # where none would stand
 
     keys: dict[int, tuple] = {}
 
@@ -118,7 +124,7 @@ def build_bars(simulation: Simulation, part: str, chart: pg.Rect, first: int = 0
     for index, (end, members, future) in enumerate(moments):
         bar = Bar(end, chart.left + index * chart.width // count, chart.left + (index + 1) * chart.width // count,
                   future=future)
-        bottom = float(chart.bottom)
+        bottom = base
         for identifier in sorted(members, key=order):
             bar.slices.append((identifier, bottom - unit, bottom))
             bottom -= unit
@@ -173,6 +179,8 @@ class ColourGraph:
         self.selection: set[int] = set()
         self.view: tuple[int, int] | None = None  # the turns shown when zoomed in; None shows the run
         self.pinned = False  # the zoomed view reaches the latest turn, and keeps up with it as the run goes on
+        self.height_zoom = 1.0  # how far zoomed into the height
+        self.floor = 0.0  # the share of the chart's full height at its bottom, zoomed in
         self.ended = False                        # whether the run is over, when last drawn
         self.seek_turn = 0                        # where a "seek" asks the world to go
         self._selection_version = 0
@@ -182,6 +190,9 @@ class ColourGraph:
         self._frontier = 0
         self._press: tuple[tuple[int, int], int] | None = None  # where a press began, and its modifiers
         self._scrub: int | None = None  # the turn under the playhead while it is dragged
+        # A pan with the right or middle button: where it began, the button, the view and floor then, and
+        # whether it has moved far enough to be a pan rather than a right-click.
+        self._pan: tuple[tuple[int, int], int, tuple[int, int], float, bool] | None = None
         self._bars: list[Bar] = []
         self._places: dict[int, list[tuple[int, int, float, float]]] = {}  # where each Bitzkey is drawn
         self._peak = 1.0
@@ -211,7 +222,12 @@ class ColourGraph:
     def reset(self) -> None:
         """Forget the selection and zoom, for a new world."""
         self.select(set())
-        self.view = None
+        self.unzoom()
+
+    def unzoom(self) -> None:
+        """The whole run, its whole height."""
+        self.view, self.pinned = None, False
+        self.height_zoom, self.floor = 1.0, 0.0
 
     # Time
 
@@ -254,6 +270,31 @@ class ColourGraph:
         new_first = max(0, min(whole - new_span, new_first))
         self.view = (new_first, new_first + new_span - 1)
         self.pinned = self.view[1] >= self._frontier
+
+    def zoom_height(self, notches: int, y: int) -> None:
+        """Zoom into the height (positive notches) or out, as the map zooms, the population under `y`
+        staying put."""
+        chart = self.layout()["chart"]
+        up = (chart.bottom - y) / max(1, chart.height)  # the pointer's height in the chart, as a share
+        share = self.floor + up / self.height_zoom
+        self.height_zoom = max(1.0, min(HEIGHT_ZOOM_MAX, self.height_zoom * (1 / ZOOM_STEP) ** notches))
+        self._set_floor(share - up / self.height_zoom)
+
+    def _set_floor(self, floor: float) -> None:
+        self.floor = max(0.0, min(1 - 1 / self.height_zoom, floor))
+
+    def drag(self, start: tuple[int, int], view: tuple[int, int], floor: float, to: tuple[int, int]) -> None:
+        """Pan by dragging from `start` to `to`, the view then `view` and the floor `floor`: the graph
+        follows the pointer, in time while zoomed into it and in height while zoomed into that."""
+        chart = self.layout()["chart"]
+        if self.view is not None:
+            first, last = view
+            span = last - first + 1
+            shift = round((to[0] - start[0]) * span / max(1, chart.width))
+            new_first = max(0, min(self._frontier + 1 - span, first - shift))
+            self.view = (new_first, new_first + span - 1)
+            self.pinned = self.view[1] >= self._frontier
+        self._set_floor(floor + (to[1] - start[1]) / max(1, chart.height) / self.height_zoom)
 
     def pan(self, notches: int) -> None:
         """Slide the zoomed view a tenth of its width per notch, later for positive notches."""
@@ -318,6 +359,11 @@ class ColourGraph:
             self._mouse = event.pos
             if self._scrub is not None:
                 self._scrub = self.turn_at(event.pos[0])
+            if self._pan is not None:
+                start, button, view, floor, moved = self._pan
+                if moved or max(abs(event.pos[0] - start[0]), abs(event.pos[1] - start[1])) >= UI(DRAG_THRESHOLD):
+                    self._pan = (start, button, view, floor, True)
+                    self.drag(start, view, floor, event.pos)
         elif event.type == pg.MOUSEWHEEL:
             if (chart.collidepoint(self._mouse) or timeline.collidepoint(self._mouse)):
                 if event.x:
@@ -326,9 +372,15 @@ class ColourGraph:
                     self.pan(-event.y)
                 else:
                     self.zoom(event.y, self._mouse[0])
-        elif event.type == pg.MOUSEBUTTONDOWN and event.button == 3:
+                    if chart.collidepoint(self._mouse):
+                        self.zoom_height(event.y, self._mouse[1])
+        elif event.type == pg.MOUSEBUTTONDOWN and event.button in (2, 3):
             if chart.collidepoint(event.pos) or timeline.collidepoint(event.pos):
-                self.seek_turn = self.turn_at(event.pos[0])
+                self._pan = (event.pos, event.button, self.window(), self.floor, False)
+        elif event.type == pg.MOUSEBUTTONUP and event.button in (2, 3) and self._pan is not None:
+            (start, button, _, _, moved), self._pan = self._pan, None
+            if button == 3 and not moved:  # a right-click, not a pan
+                self.seek_turn = self.turn_at(start[0])
                 return "seek"
         elif event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
             for action in ("copy", "save", "map", "catalog", "renew", "open"):
@@ -399,10 +451,11 @@ class ColourGraph:
         first, last = self.window()
         key = (simulation.turn, simulation.frontier, len(simulation.census.snapshots), len(simulation.agents),
                simulation.deaths, self.part, chart.size, chart.topleft, self._selection_version, first, last,
-               id(simulation), self.sort)
+               id(simulation), self.sort, self.height_zoom, self.floor)
         if key != self._key:
             self._key = key
-            self._bars, self._peak = build_bars(simulation, self.part, chart, first, last, self.sort)
+            self._bars, self._peak = build_bars(simulation, self.part, chart, first, last, self.sort,
+                                                self.height_zoom, self.floor)
             self._places = {}
             for bar in self._bars:
                 for identifier, top, bottom in bar.slices:
@@ -413,15 +466,18 @@ class ColourGraph:
 
         for fraction in (0, 0.5, 1):
             y = round(chart.bottom - fraction * chart.height)
-            label = self.small.render(f"{self._peak * fraction:g}", True, (149, 170, 150))
+            value = self._peak * (self.floor + fraction / self.height_zoom)
+            label = self.small.render(f"{value:g}" if self.height_zoom == 1 else f"{value:.0f}", True, (149, 170, 150))
             screen.blit(label, (chart.left - label.get_width() - UI(8), y - label.get_height() // 2))
 
         self._draw_timeline(screen, chart, timeline, first, last)
 
         hovered = (bitzkey_at(self._bars, self._mouse)
                    if chart.collidepoint(self._mouse) and not self.menu_open else None)
+        screen.set_clip(chart.inflate(0, 2))  # zoomed into the height, slices may lie beyond the chart
         for left, right, top, bottom in self._places.get(hovered, ()):
             pg.draw.rect(screen, (245, 238, 206), (left, round(top) - 1, right - left, max(1, round(bottom - top)) + 2), 1)
+        screen.set_clip(None)
         if self._press:
             box = self._box(self._press[0], self._mouse).clip(chart)
             veil = pg.Surface(box.size, pg.SRCALPHA)
@@ -440,7 +496,7 @@ class ColourGraph:
                 label = self.font.render(text, True, (19, 26, 27) if lit else (220, 229, 211))
                 screen.blit(label, label.get_rect(center=layout[name].center))
         self._text(screen, "Select: click, or drag a box (SHIFT adds, CTRL removes)    Time: drag the timeline, "
-                   "or right-click    Zoom: wheel, SHIFT+wheel pans",
+                   "or right-click    Zoom: wheel    Pan: right-drag    Z: all",
                    (panel.left + UI(24), panel.bottom - UI(28)), (144, 170, 151), self.small)
         if self.menu_open:
             self._draw_menu(screen)
@@ -481,6 +537,7 @@ class ColourGraph:
             band[0], band[1] = min(band[0], top), max(band[1], bottom)
         font = self.small
         for species, (top, bottom) in bands.items():
+            top, bottom = max(top, chart.top), min(bottom, chart.bottom)  # the part in view
             if bottom - top < font.get_height():
                 continue
             label = font.render(f"{species.upper()}S", True, (238, 238, 220))
@@ -503,6 +560,8 @@ class ColourGraph:
             middle = f"TURN {(first + last) // 2}"
         else:
             middle = f"TURNS {first} - {last}  (ZOOM x{(self._frontier + 1) / (last - first + 1):.1f})"
+        if self.height_zoom > 1:
+            middle += f"  (HEIGHT x{self.height_zoom:.1f})"
         for text, x, align in ((f"TURN {first}", timeline.left + UI(8), 0), (middle, timeline.centerx, 0.5),
                                (f"TURN {last}", timeline.right - UI(8), 1)):
             label = self.small.render(text, True, (149, 170, 150))
