@@ -269,7 +269,7 @@ their young.
 | speed | cells moved per step of foraging, fleeing or going off in a direction (1 to 4; grazers move half as far again, rounded up: 2, 3, 5 or 6) |
 | sight | how far it sees (2 to 9 cells) |
 | fertility | high: cheap, frequent breeding and weak, hungry young; low: costly, rare breeding and well-fed young |
-| litter | young per birth: 1 to 6, before the small-body boost. A high litter trait and a small body both make litters bigger, half each, averaged over both parents, so small animals tend to have large litters and large animals small ones. On top of that, the smallest bodies have twice as many young, falling evenly to the usual number for the largest (up to 12 in all). Each young is born on a free cell up to two cells from its mother (the sides first, then the corners, then the ring beyond), and the litter shares the energy its parents give. |
+| litter | young per birth: 1 to 6, before the small-body boost. A high litter trait and a small body both make litters bigger, half each, averaged over both parents, so small animals tend to have large litters and large animals small ones. On top of that, the smallest bodies have twice as many young, falling evenly to the usual number for the largest (up to 12 in all). Each young is born on a free cell up to two cells from its mother (the sides first, then the corners, then the ring beyond), and the litter shares the energy its parents give. Parents conceive no more young than that energy can start on 15% of a stomach each (Newborn food), so a hungry pair has one or two well-fed young rather than a large litter born starving. |
 | carrion | how much of carrion's meat nourishes it: 20% at 0, all of it at 7 |
 
 There is no metabolism gene: size sets it. The smallest bodies run at 1.6 and

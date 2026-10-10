@@ -125,6 +125,7 @@ MATING_CALL = 0.5      # how much more a predator ready to breed values breeding
 MATING_CALL_RANGE = 6  # a predator ready to breed seeks a mate this far off, beyond its sight
 OMNIVORE_MATING_CALL = 0.25  # an omnivore's milder mating call
 HUNTER_BREEDING_COST = 0.5  # share of the usual breeding cost a predator or omnivore pays
+NEWBORN_FOOD = 15.0    # parents conceive only as many young as can each start with this much of a stomach of food; 0: no limit
 PACK_MOUTHS = 0.5      # a hunter's pack-mates count as this many mouths each on its food, sharing their kills
 BLOODLUST = 1.0        # how much more a predator values feasting whenever it sees a fresh kill, whatever its hunger
 CARRION_CRAVING = 1.0  # how much more an animal values scavenging carrion it sees, at the highest carrion trait;
@@ -1883,7 +1884,7 @@ class Simulation:
     def _breed(self, first: Bitzkey, second: Bitzkey) -> None:
         """Fertile parents breed cheaply and often. The parent that chose to breed conceives a
         litter, LITTER_RANGE young (bigger for a high litter trait and small bodies, smaller where
-        animals crowd around), and carries it for its gestation before giving birth. The young
+        animals crowd around, and no more than the energy they give can start on NEWBORN_FOOD each), and carries it for its gestation before giving birth. The young
         share the energy both parents give up now. Animals only choose to breed when both can
         afford it, but a parent can only give what it has left. Each child inherits a mix of its
         parents' brains, and starts its temperament at the average of its parents' current
@@ -1894,11 +1895,14 @@ class Simulation:
         needed = self._food_needed(first)
         if needed:  # litters follow food only while food limits breeding
             litter = max(1, int(litter * min(1.0, self._food_supply(first) / (2 * needed)) + 0.5))
-        litter = max(1, min(litter, self._room()))
         costs = [parent.breeding_cost for parent in (first, second)]
         # Energy in absolute terms: a share of each parent's stomach, refilled in the young's.
         given = sum(min(cost, max(0.0, 100 - parent.hunger)) * parent.stomach
                     for cost, parent in zip(costs, (first, second)))
+        if NEWBORN_FOOD:  # only as many young as the parents can feed, rather than many born starving
+            stomach = (first.stomach + second.stomach) / 2
+            litter = max(1, min(litter, int(given / (NEWBORN_FOOD * stomach))))
+        litter = max(1, min(litter, self._room()))
         generation = max(first.generation, second.generation) + 1
         for _ in range(litter):
             # The child's mind starts at the average of its parents' current minds, mutated, and

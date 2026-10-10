@@ -159,6 +159,8 @@ _TABLE: dict[str, list[tuple]] = {
         ("MATING_CALL_RANGE", "Mating call range", "steps a predator ready to breed seeks a mate, beyond its sight", 0, 20, 1),
         ("OMNIVORE_MATING_CALL", "Mating call, omnivores", "how much more an omnivore ready to breed values breeding, or else courting", 0.0, 5.0, 0.05),
         ("HUNTER_BREEDING_COST", "Breeding cost, hunters", "share of the usual breeding cost a predator or omnivore pays", 0.0, 1.0, 0.05),
+        ("NEWBORN_FOOD", "Newborn food", "food, as a share of a stomach, each young must start with: parents conceive no more young than they can give this; 0: no limit",
+         0.0, 100.0, 5.0),
         ("PACK_MOUTHS", "Pack mouths", "mouths each pack-mate counts as on a hunter's food, sharing its kills", 0.0, 1.0, 0.05),
         ("BLOODLUST", "Bloodlust", "how much more a predator values feasting whenever it sees a fresh kill", 0.0, 5.0, 0.05),
         ("CARRION_CRAVING", "Carrion craving", "how much more the highest carrion trait values scavenging carrion it sees; none up to the middle",

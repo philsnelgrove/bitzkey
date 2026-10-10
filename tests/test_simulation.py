@@ -697,6 +697,7 @@ class NewTraitTests(unittest.TestCase):
         self.simulation.grass.clear()
 
     @patch("tools.Simulation.SMALL_LITTERS", 1.0)
+    @patch("tools.Simulation.NEWBORN_FOOD", 0.0)  # no limit from the energy given
     def test_litter_size_sets_how_many_young_share_the_parents_energy(self):
         lay_plenty_of_grass(self.simulation)
         dna = encode_dna("grazer", fertility=7, litter=7)
@@ -712,6 +713,31 @@ class NewTraitTests(unittest.TestCase):
         for child in young:  # the parents give 10% of their small stomachs each, shared six ways
             self.assertAlmostEqual(child.hunger, 100 - 2 * 10 * 0.5 / 6 / child.stomach)
         self.assertEqual((first.children, second.children), (6, 6))
+
+    @patch("tools.Simulation.SMALL_LITTERS", 1.0)
+    @patch("tools.Simulation.NEWBORN_FOOD", 5.0)
+    def test_parents_conceive_only_as_many_young_as_they_can_feed(self):
+        dna = encode_dna("grazer", fertility=7, litter=7)
+        first = self.simulation._add_agent(dna, 5, 5)
+        second = self.simulation._add_agent(dna, 5, 6)
+        self.simulation._index_cells()
+        self.simulation._population = 2
+
+        deliver(self.simulation, first, second, litter=None)
+
+        # six young by their traits, but 10% of a stomach from each parent feeds only four at 5% each
+        self.assertEqual(len(self.simulation.agents), 2 + 4)
+
+    def test_a_pair_too_poor_to_feed_any_young_at_newborn_food_still_has_one(self):
+        dna = encode_dna("grazer", fertility=7, litter=7)
+        first = self.simulation._add_agent(dna, 5, 5)
+        second = self.simulation._add_agent(dna, 5, 6)
+        self.simulation._index_cells()
+        self.simulation._population = 2
+
+        deliver(self.simulation, first, second, litter=None)
+
+        self.assertEqual(len(self.simulation.agents), 2 + 1)  # 20% of a stomach between them: one young at 15%
 
     @patch("tools.Simulation.SMALL_LITTERS", 1.0)
     def test_large_bodies_with_a_low_litter_trait_have_single_young(self):
@@ -1196,6 +1222,7 @@ class NewTraitTests(unittest.TestCase):
 
     @patch("tools.Simulation.SMALL_LITTERS", 1.0)
     @patch("tools.Simulation.FOOD_NEEDED", 3.0)  # food limiting breeding, as it may be set to
+    @patch("tools.Simulation.NEWBORN_FOOD", 0.0)  # no limit from the energy given
     def test_scarce_food_stops_breeding_and_plenty_allows_full_litters(self):
         dna = encode_dna("grazer", fertility=7, litter=7)
         first = self.simulation._add_agent(dna, 5, 5)
@@ -1211,6 +1238,7 @@ class NewTraitTests(unittest.TestCase):
 
     @patch("tools.Simulation.SMALL_LITTERS", 1.0)
     @patch("tools.Simulation.FOOD_NEEDED", 3.0)  # food limiting breeding, as it may be set to
+    @patch("tools.Simulation.NEWBORN_FOOD", 0.0)  # no limit from the energy given
     def test_a_litter_shrinks_as_food_runs_short(self):
         dna = encode_dna("grazer", fertility=7, litter=7)
         first = self.simulation._add_agent(dna, 5, 5)
@@ -1677,6 +1705,7 @@ class NewTraitTests(unittest.TestCase):
             self.assertAlmostEqual(attacker.hunger, max(0, 50 - 5 / 0.5) + 0.2 * damage / 0.5)
         self.assertGreater(brute.hunger, weak.hunger)
 
+    @patch("tools.Simulation.NEWBORN_FOOD", 0.0)  # the full litter, whatever energy is given
     def test_the_mother_carries_her_young_for_a_gestation_set_by_her_size_then_gives_birth(self):
         self.assertEqual([gestation(size) for size in (0, 1, 4, 7)], [10, 16, 33, 50])
         with patch("tools.Simulation.CLIMATE_DAMAGE", 0):
@@ -2143,6 +2172,7 @@ class NewTraitTests(unittest.TestCase):
 
     @patch("tools.Simulation.SMALL_LITTERS", 1.0)
     @patch("tools.Simulation.FOOD_NEEDED", 3.0)  # food limiting breeding, as it may be set to
+    @patch("tools.Simulation.NEWBORN_FOOD", 0.0)  # no limit from the energy given
     def test_crowding_shrinks_litters_and_at_its_limit_stops_breeding(self):
         simulation = Simulation(width=30, height=30, population=0, seed=3)
         dna = encode_dna("grazer", fertility=7, litter=7)  # a litter of six where there is room
