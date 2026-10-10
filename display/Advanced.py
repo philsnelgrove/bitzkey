@@ -94,6 +94,9 @@ class AdvancedForm:
             self.typed = None
 
 
+NATURAL_LAW = ("These are the settings for what might be called 'natural law'.  They have been carefully balanced to produce a world with fair chances for all.  Messing with any of them can produce unpredictable results.  Have fun!")
+
+
 class AdvancedScreen:
     """Runs the advanced panel until it is applied, cancelled or the window closes."""
 
@@ -207,7 +210,8 @@ class AdvancedScreen:
         width, height = self.screen.get_size()
         card = pg.Rect(0, 0, UI(760), min(height - UI(24), UI(800)))
         card.center = (width // 2, height // 2)
-        view = pg.Rect(card.left + UI(20), card.top + UI(100), card.width - UI(40), card.height - UI(100 + 118))
+        top = UI(100) + len(self._law_lines(card.width - UI(56))) * UI(self.LAW_LINE)  # beneath the word on natural law
+        view = pg.Rect(card.left + UI(20), card.top + top, card.width - UI(40), card.height - top - UI(118))
         apply = pg.Rect(0, 0, UI(180), UI(44))
         apply.bottomleft = (card.centerx + UI(6), card.bottom - UI(42))
         cancel = pg.Rect(0, 0, UI(140), UI(44))
@@ -217,6 +221,20 @@ class AdvancedScreen:
         reset = pg.Rect(0, 0, UI(70), UI(28))
         reset.topright = (reset_all.left - UI(8), reset_all.top)
         return {"card": card, "view": view, "apply": apply, "cancel": cancel, "reset": reset, "reset_all": reset_all}
+
+    LAW_LINE = 20  # design pixels between the lines of the word on natural law
+
+    def _law_lines(self, width: int) -> list[str]:
+        """The word on natural law, wrapped to fit the width."""
+        lines, line = [], ""
+        for word in NATURAL_LAW.split(" "):
+            trial = f"{line} {word}" if line else word
+            if line and self.font.size(trial)[0] > width:
+                lines.append(line)
+                line = word
+            else:
+                line = trial
+        return lines + [line]
 
     def _max_scroll(self, view: pg.Rect) -> int:
         return max(0, UI(self.list_height) - view.height)
@@ -285,9 +303,13 @@ class AdvancedScreen:
         self.screen.blit(title, (card.left + UI(28), card.top + UI(24)))
         self._text("NEW WORLD  /  ADVANCED RULES", (card.left + UI(52) + title.get_width(), card.top + UI(33)),
                    (144, 170, 151), self.small)
+        lines = self._law_lines(card.width - UI(56))
+        for index, line in enumerate(lines):
+            self._text(line, (card.left + UI(28), card.top + UI(66) + index * UI(self.LAW_LINE)), (229, 239, 220), self.font)
         changed = len(self.form.changed())
         self._text(f"The rules the world plays by. {changed} changed from the defaults; changed values show in amber.",
-                   (card.left + UI(28), card.top + UI(66)), (157, 177, 159), self.font)
+                   (card.left + UI(28), card.top + UI(66) + len(lines) * UI(self.LAW_LINE) + UI(6)), (157, 177, 159),
+                   self.font)
         for name, label in (("reset", "RESET"), ("reset_all", "RESET ALL")):
             button = layout[name]
             pg.draw.rect(self.screen, (44, 57, 52), button, border_radius=UI(4))

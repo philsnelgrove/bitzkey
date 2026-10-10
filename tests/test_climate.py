@@ -82,6 +82,11 @@ class ZoneTests(unittest.TestCase):
 
 
 class FeelingTests(unittest.TestCase):
+    def setUp(self):  # exposure's harm measured at the harsher rate climate began with
+        harsh = patch("tools.Simulation.CLIMATE_DAMAGE", 0.1)
+        harsh.start()
+        self.addCleanup(harsh.stop)
+
     def test_hardiness_halves_an_animals_exposure_in_one_direction_and_plants_have_none(self):
         simulation = world()
         tender = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM), 1, 1)
@@ -110,6 +115,11 @@ class FeelingTests(unittest.TestCase):
 
 
 class EffectTests(unittest.TestCase):
+    def setUp(self):  # exposure's harm measured at the harsher rate climate began with
+        harsh = patch("tools.Simulation.CLIMATE_DAMAGE", 0.1)
+        harsh.start()
+        self.addCleanup(harsh.stop)
+
     def test_each_step_from_home_doubles_an_animals_food_and_hurts_a_tenth_more(self):
         simulation = world(turn=240)  # the second quarter: no winter
         at_home = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM), 10, 30)

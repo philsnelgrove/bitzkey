@@ -12,7 +12,7 @@ from tools.Genome import BODY_TRAITS, MIND_TRAITS, SPECIES, TEMPERATURES, decode
 
 ACTIONS = ("eat", "forage", "browse", "uproot", "scavenge", "feast", "rest", "court", "breed", "hunt", "attack", "defend",
            "flee", "herd", "go_north", "go_south", "go_east", "go_west", "walk_north", "walk_south", "walk_east",
-           "walk_west")
+           "walk_west", "alert")
 SENSES = (
     "hunger",          # 0..1
     "health",          # 0..1
@@ -25,6 +25,7 @@ SENSES = (
     "prey_near",       # adjacent prey, 0..4 scaled to 0..1
     "prey_frailty",    # share of the frailest adjacent prey's health one blow would take
     "prey_closeness",  # 1 when prey is adjacent, falling to 0 beyond sight; 0 when none is seen
+    "prey_pregnant",   # 1 when the nearest prey in sight carries young
     "threat_near",     # adjacent hunters, 0..4 scaled to 0..1
     "threat_danger",   # share of the animal's own health the worst adjacent hunter's blow would take
     "threat_closeness",  # 1 when a hunter is adjacent, falling to 0 beyond sight; 0 when none is seen
@@ -38,7 +39,8 @@ SENSES = (
     "rivalry",            # predators and omnivores: how overcrowded its territory is with rivals, 0..1
     "herd_near",          # herd-mates within two cells, 0..3 scaled to 0..1
     "herd_closeness",     # 1 at the middle of its herd in range, falling to 0 at the range's edge; 0 alone
-    "alarm",              # 1 when a herd-mate close by was struck since it last acted
+    "alarm",              # 1 when a herd-mate close by was struck, or alerted it to a hunter, since it last acted
+    "kill_alert",         # 1 when a pack-mate alerted it to a fresh kill, still there, since it last acted
     "herd_success",       # 1 when it has just seen a herd-mate succeed (a kill), fading turn by turn
     "herd_failure",       # 1 when it has just seen a herd-mate fail (die), fading turn by turn
     "climate_discomfort",  # how far the temperature here is from home, as it feels it: 0.5 a step, to 1 two or more

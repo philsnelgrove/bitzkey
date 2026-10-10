@@ -415,9 +415,9 @@ class SimulationTests(unittest.TestCase):
         options, situation = simulation._sense(grazer)[1:]
         self.assertIn(ACTIONS.index("uproot"), options)
         self.assertNotIn(ACTIONS.index("browse"), options)
-        meal = (PLANT_MEAL + PLANT_MEAL_FOR_SIZE * 0) * grazer.browsing * UPROOT_MEALS / grazer.stomach
+        meal = UPROOT_MEALS * FRESH_KILL_MEALS * KILL_MEAL / grazer.stomach  # half a feast on a body of its size
         simulation._act(grazer, "uproot", situation)
-        self.assertAlmostEqual(grazer.hunger, 85 - meal)
+        self.assertAlmostEqual(grazer.hunger, max(0.0, 85 - meal))  # it may fill it
         self.assertEqual((plant.health, grazer.last_action), (60 - UPROOT_BITE, "uprooted"))
         grazer.hunger = 85
         simulation._act(grazer, "uproot", simulation._sense(grazer)[2])
@@ -1222,6 +1222,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(self.simulation._flee_range(grazer, 3), 1.5)
         self.assertNotIn(flee, self.simulation._sense(grazer)[1])  # its herd watches with it
 
+    @patch("tools.Simulation.KILL_MEAL", 25)  # a meal small enough to measure, short of filling it
     def test_grazers_are_the_plant_and_grass_specialists_and_omnivores_live_on_meat(self):
         grazer = self.simulation._add_agent(encode_dna("grazer", size=7), 1, 1)
         omnivore = self.simulation._add_agent(encode_dna("omnivore", size=7), 3, 3)
@@ -1229,13 +1230,14 @@ class NewTraitTests(unittest.TestCase):
             self.simulation.grass[(animal.x, animal.y)] = 1
             animal.hunger = 90
             self.simulation._act(animal, "eat", {})
-        self.assertEqual((90 - grazer.hunger, 90 - omnivore.hunger), (1.25 * 35 / 2, 35 / 2 / 2))  # 1.25 and half
+        from tools.Simulation import GRASS_MEAL
+        self.assertEqual((90 - grazer.hunger, 90 - omnivore.hunger), (1.25 * GRASS_MEAL / 2, GRASS_MEAL / 2 / 2))  # 1.25 and half
 
         plant = self.simulation._add_agent(encode_dna("plant", size=7), 8, 8)
         omnivore.x, omnivore.y, omnivore.hunger = 8, 9, 90
         self.simulation._index_cells()
         self.simulation._browse(omnivore, plant)
-        self.assertEqual(omnivore.hunger, 90 - 0.75 * 70 / 2)  # plants: three quarters
+        self.assertEqual(omnivore.hunger, 90 - 0.75 * (PLANT_MEAL + PLANT_MEAL_FOR_SIZE) / 2)  # plants: three quarters
 
         prey = self.simulation._add_agent(encode_dna("grazer"), 9, 9)
         self.simulation._index_cells()
@@ -1418,6 +1420,51 @@ class NewTraitTests(unittest.TestCase):
         self.assertAlmostEqual(armed["omnivore"], 0.75 * PREDATOR_WEAPONS)
         self.assertAlmostEqual(armed["grazer"], 0.5 * PREDATOR_WEAPONS)
 
+    def test_a_grazer_alerts_its_herd_to_a_hunter_and_a_hunter_its_pack_to_a_kill(self):
+        lookout = self.simulation._add_agent(encode_dna("grazer", sight=7), 2, 2)
+        herd_mate = self.simulation._add_agent(lookout.dna, 4, 2)
+        hunter = self.simulation._add_agent(encode_dna("predator", sight=7), 2, 6)
+        pack_mate = self.simulation._add_agent(hunter.dna, 4, 6)
+        self.simulation._index_cells()
+        options, situation = self.simulation._sense(lookout)[1:]
+        self.assertIn(ACTIONS.index("alert"), options)
+        self.simulation._act(lookout, "alert", situation)
+        self.assertEqual((lookout.last_action, herd_mate.alarm), ("alerted", hunter.identifier))
+        self.assertIn(ACTIONS.index("flee"), self.simulation._sense(herd_mate)[1])  # alarmed, it may flee from afar
+
+        kill = self.simulation._add_agent(encode_dna("grazer"), 0, 9)
+        kill.health = 0
+        self.simulation._die(kill, "killed")
+        self.simulation._index_cells()
+        options, situation = self.simulation._sense(hunter)[1:]
+        self.assertIn(ACTIONS.index("alert"), options)
+        self.simulation._act(hunter, "alert", situation)
+        self.assertEqual(pack_mate.kill_alert, (0, 9))
+        senses, options, situation = self.simulation._sense(pack_mate)
+        self.assertIn(ACTIONS.index("feast"), options)
+        self.assertIs(situation["kill"], kill)
+        self.assertEqual(senses[SENSES.index("kill_alert")], 1.0)  # and it knows it was told
+        self.assertEqual(self.simulation._sense(herd_mate)[0][SENSES.index("kill_alert")], 0.0)
+
+    def test_a_hunter_senses_whether_its_prey_carries_young(self):
+        hunter = self.simulation._add_agent(encode_dna("predator", sight=7), 2, 2)
+        prey = self.simulation._add_agent(encode_dna("grazer"), 2, 5)
+        self.simulation._index_cells()
+        self.assertEqual(self.simulation._sense(hunter)[0][SENSES.index("prey_pregnant")], 0.0)
+        prey.womb = [(prey.dna, None, None, 0.0, 1)]  # carrying young
+        self.assertEqual(self.simulation._sense(hunter)[0][SENSES.index("prey_pregnant")], 1.0)
+
+    def test_a_predator_takes_an_omnivore_for_prey_only_if_it_would_win(self):
+        weak = self.simulation._add_agent(encode_dna("predator", size=0, strength=0, weapons=0, armour=0), 5, 5)
+        strong = self.simulation._add_agent(encode_dna("predator", size=7, strength=7, weapons=7, armour=7), 6, 5)
+        omnivore = self.simulation._add_agent(encode_dna("omnivore", size=5, strength=5, weapons=5, armour=5), 5, 6)
+        grazer = self.simulation._add_agent(encode_dna("grazer", size=7, strength=7, armour=7), 6, 6)
+        for hunter in (weak, strong):
+            hunter.hunts_grazers, hunter.hunts_omnivores = self.simulation._prey_switching(hunter)
+        self.assertFalse(Simulation._is_prey(weak, omnivore))  # it would lose
+        self.assertTrue(Simulation._is_prey(strong, omnivore))
+        self.assertTrue(Simulation._is_prey(weak, grazer))  # grazers are always prey
+
     def test_predators_enjoy_feasting_and_blows_they_survive(self):
         hunter = self.simulation._add_agent(encode_dna("predator", aggression=0, empathy=0), 5, 6)
         prey = self.simulation._add_agent(encode_dna("grazer", weapons=0, size=7, armour=7), 5, 5)
@@ -1516,6 +1563,8 @@ class NewTraitTests(unittest.TestCase):
         herd_mate = simulation._add_agent(grazer.dna, 11, 10)
         simulation._index_cells()
         simulation._think(grazer)  # a decision to learn from
+        herd_mate.x, herd_mate.y = grazer.x + 1, grazer.y  # still alongside, wherever that took it
+        simulation._index_cells()
         grazer.hunger = 100.5  # starved by something that recorded nothing
         before = grazer.brain.copy()
         deaths = simulation.deaths
@@ -1741,6 +1790,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual((self.simulation._nearest_kill(predator, 7), self.simulation._nearest_carrion(predator, 7)),
                          (None, corpse))
 
+    @patch("tools.Simulation.KILL_MEAL", 25)  # a meal small enough to measure, short of filling it
     def test_a_hunter_eats_a_fresh_kill_whole_for_three_times_the_kill_meal(self):
         corpse = self.simulation._add_agent(encode_dna("grazer", size=0), 5, 5)
         corpse.health = 0
@@ -1922,7 +1972,7 @@ class NewTraitTests(unittest.TestCase):
         while grazer.last_action != "browsed":
             self.simulation._act(grazer, "browse", situation)
 
-        self.assertEqual(grazer.hunger, 90 - 1.25 * 70 / 2)  # the largest plant gives 70, a quarter more
+        self.assertEqual(grazer.hunger, 90 - 1.25 * (PLANT_MEAL + PLANT_MEAL_FOR_SIZE) / 2)  # the largest plant, a quarter more
         # to a grazer, into a double stomach
         self.assertEqual(plant.health, plant.max_health - 15)
 

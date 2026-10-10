@@ -85,7 +85,8 @@ Each imported genome spawns as a group of 3 to
 120 genomes are used. Set
 "Bitzkeys" to 0 to start with only your imports.
 
-ADVANCED opens the advanced rules: 151 numbers that shape how the world plays
+ADVANCED opens the advanced rules, beneath a word of warning that they are the world's
+'natural law', carefully balanced, and that changing them can have unpredictable results: 151 numbers that shape how the world plays
 out, in groups (World, Bodies, Breeding, Feelings, Mind, Fighting, Territory,
 Herding, Food, Plants, Climate, Society and Experiences). Among them are lifespans, metabolism, litter
 sizes, food-aware breeding, the rewards and pains a brain learns from, blows and
@@ -348,12 +349,13 @@ extra food and loses half a step's health, and grass grows in a row, and dies
 back in it, by how medium the row is. The world's first season starts settled.
 
 Every Bitzkey has a home temperature. An animal a step or more from home needs
-twice the food, and loses 10% of its full health a turn for each step it is from home:
-10% one step away, 20% two and 30% three. It may freeze or overheat to death. An animal that starves while out of its
+twice the food, and loses 2% of its full health a turn for each step it is from home:
+2% one step away, 4% two and 6% three (the Climate damage rule; it was once 10% a step,
+which killed most animals a season's turn caught away from home before they could move). It may freeze or overheat to death. An animal that starves while out of its
 temperature has died of exposure too: it froze or overheated. Heat tolerance
 halves the penalties of heat, and cold tolerance those of cold: a cold-tolerant
 animal two steps too cold needs half again as much food rather than double, and
-loses 10% of its health a turn rather than 20%. Tolerance
+loses 2% of its health a turn rather than 4%. Tolerance
 is rare at the start: each random starting genome carries each flag only one
 time in ten, so hardiness has to spread by breeding. Plants ignore the tolerance
 flags. Nearer another temperature than its own, a plant neither regrows nor
@@ -429,11 +431,12 @@ neural network, and that brain chooses everything it does. Each turn it senses:
 - how close the nearest carrion in sight is (omnivores and predators), and the
   nearest fresh kill it would eat (likewise)
 - a willing mate beside it, and how close the nearest one in sight is
-- prey in sight, how close the nearest is, and how hard it could hit prey beside it
+- prey in sight, how close the nearest is, whether it carries young, and how hard it could hit prey beside it
 - hunters in sight, how close the nearest is, and how dangerous one beside it is
 - whether the animal that just struck it is still beside it, and how hard it could strike back
 - its herd: how many herd-mates are close by, how near it is to the herd's middle,
-  and whether a herd-mate close by has just been struck
+  whether a herd-mate close by has just been struck or alerted it to a hunter, and
+  whether a pack-mate has alerted it to a fresh kill
 - whether it has lately seen a herd-mate succeed or fail (see below), fading
   turn by turn
 - its own kind and other species close by, and its own age
@@ -447,7 +450,7 @@ neural network, and that brain chooses everything it does. Each turn it senses:
 - its own genome: each of its dot's traits as born, each of its ring's traits
   (species among them) and its climate genes
 
-That is 69 senses in all. Its brain has hidden layers of 34 neurons, twice as
+That is 71 senses in all. Its brain has hidden layers of 34 neurons, twice as
 many layers as its
 inborn intellect, and never fewer than two: from two layers for the dullest to
 fourteen for the brightest. Plants have no brain.
@@ -455,8 +458,8 @@ fourteen for the brightest. Plants have no brain.
 The cleverer an animal, the faster it learns, three ways, while the least
 intelligent learn just as they always have. Its learning rate rises with its
 intellect, and then by up to as much again for the brightest (the Learning boost
-rule); at the brightest it is 0.09 a choice before that boost, twice what it once
-was, and a predator learns twice as fast again (Predator learning), an omnivore
+rule); at the brightest it is 0.045 a choice before that boost (doubling it made
+brains unsteady rather than quicker), and a predator learns twice as fast again (Predator learning), an omnivore
 one and a half times. Food that takes a kill is harder to learn than grass: any
 animal learns five times as much from choosing to hunt, attack or feast (Kill
 food learning), and half as much from choosing to eat, forage, browse or uproot
@@ -469,7 +472,13 @@ world it can double the time each turn spends learning.
 
 It then picks one of the actions open to it: eat, forage, browse, uproot,
 scavenge, feast, rest, court, breed, hunt, attack, defend, flee, herd, go north,
-go south, go east, go west, walk north, walk south, walk east or walk west. It
+go south, go east, go west, walk north, walk south, walk east, walk west or alert.
+Alerting tells its herd within four cells: a grazer that sees a hunter raises the alarm, so its
+herd-mates may flee that hunter from up to six cells away; a predator or omnivore that sees a
+fresh kill points its pack to it, so they may come to feast though they don't see it themselves.
+Alerting pleases it a little (Alert joy). Two instincts sit on top of what a brain learns: a
+predator's bloodlust makes a fresh kill in sight hard to pass by (Bloodlust), and an animal with a
+carrion trait above the middle craves carrion it sees, the more the higher the trait (Carrion craving). It
 isn't told which actions are open; it picks among them by the values its brain
 gives every action. Each go heads straight that way as far as its speed allows,
 and each walk a single cell: north and south stop at the edge of the map, while
@@ -483,15 +492,15 @@ starts out valuing the eight headings a little below its other actions, so an
 untaught animal doesn't march away from its range, its herd and its food before
 it has learned where to go. What a walk saves and what going far costs are
 advanced rules (the Bodies group). Foraging walks toward the
-nearest grass in sight; a tuft sates 35 hunger. Grazers get 1.25 times the food in grass and plants; omnivores half of grass and three quarters of plants. Browsing walks to the nearest
-plant in sight and, once alongside, takes a bite: 45 hunger, up to 70 from the
-largest plants, far more than grass. Each bite costs the plant 15 health, and
+nearest grass in sight; a tuft sates 18 hunger, about a tenth of a kill. Grazers get 1.25 times the food in grass and plants; omnivores half of grass and three quarters of plants. Browsing walks to the nearest
+plant in sight and, once alongside, takes a bite: 37 hunger, up to 103 from the
+largest plants, a fifth of a kill of the same size and far more than grass. Each bite costs the plant 15 health, and
 plants regrow 2% of their health each turn. A bitten plant can't be bitten again
 for 8 turns, so browsers move on, but enough bites in time kill one, and a dead
 plant leaves no meat. A desperate grazer may uproot a plant beside it instead:
 only once it is starving (80 hunger or more) and food is scarce about it (less
 than the food it would need to breed), but whether the plant has recovered from
-its last bite or not. Uprooting feeds it twice a bite's meal and costs the plant
+its last bite or not. Uprooting feeds it half a feast on a body of the plant's size and costs the plant
 45 health, three bites at once, which often kills it; an armed plant still
 strikes back. The hunger, the meal and the damage are advanced rules (the Food
 group). Plants spread by seed: each turn a well-fed plant has a 3%
@@ -507,7 +516,7 @@ kill in sight and, once alongside, eats a portion of it. Courting walks toward t
 willing mate in sight, but breeding is still a separate choice once they are
 side by side. Hunting chases the nearest prey in sight. Predators see prey three cells further than they see anything else, and chase it a step further each turn. They also have an instinct to hunt: whenever hunting or attacking is open to a predator, it values each more the hungrier it is, on top of whatever its brain has learnt, so even a newborn, or an animal whose genes have just made it a predator, goes after prey when hungry. Omnivores prey on grazers and predators; predators prey on grazers, omnivores and other predators. Predators whose ring colours differ by no more than 25% (the mean difference of the ring's four CMYK bytes) are one kind: they form packs together, and breed together as readily as other animals do within 5%. Hunting another predator, of any kind, is cannibalism: a predator only sees another predator as prey once its hunger, as a share, exceeds its reluctance, the average of its current empathy, tolerance and patience. The ruthless will eat other predators at any hunger; the gentlest never will. Killing its own kind pains an empathetic predator as much as its own species' pain, rather than the reduced pain it feels for others. Predators and omnivores are territorial. An animal's territory is the cells within six steps of it. Rivalry is only within a species: a predator counts other predators in its territory as rivals for the feeding ground (omnivores are prey, not rivals), and how many it will share it with depends on its current empathy: one for the least empathetic, rising to five for the most. Each predator beyond that raises its rivalry by a third, up to full rivalry three past its limit. A predator senses its rivalry, finds an overcrowded territory uncomfortable (less so if tolerant), and feels relief, as well as any joy in fighting, at killing a rival there. Crowding by other predators also wears down its reluctance to turn on other predators: in a territory fully overcrowded with predators, even the gentlest will fight them for the feeding ground. Omnivores are territorial at half the strength. They count only other omnivores as rivals; predators are prey to them. They tolerate two rivals for the least empathetic, rising to ten for the most, and their rivalry tops out at a half. An omnivore only turns on another omnivore when its territory is overcrowded with omnivores, and then only once its hunger exceeds its reluctance as rivalry wears it down, never by more than half. A hunter that reaches
 its prey pounces, striking in the same turn, and attacking strikes prey
-alongside. A kill feeds the hunter 25, plus up to 45 more for the largest prey; a blow
+alongside. A kill feeds the hunter 185, plus up to 200 more for the largest prey, which fills most stomachs; a blow
 that doesn't kill feeds it 5. Blows are strong enough that the best-armed, mightiest predator kills the
 largest, best-armoured grazer in three. A predator enjoys every blow it lives through a little, and
 feasting on a fresh kill more than the kill itself. Whatever eases an animal's hunger, eating, hunting, feasting or scavenging, also pleases it by as much again as the hunger it eases, beside what being less hungry is worth (the Sated joy rule), so every meal teaches more; resting and walking only burn less, and ease no hunger. Striking is hard work: each blow burns 0.2 food per point of damage it deals, so a heavy hitter pays more for each blow. Hunger figures for meals are for a middle-sized
@@ -581,7 +590,8 @@ supply to breed on. Omnivores also switch prey: an omnivore only goes after graz
 make up at least a quarter of the food it weighs within six cells (grazers
 against plants), or while none of that food is near, so grazers that have become scarce
 are left alone by omnivores, and don't flee one that isn't interested in them, so they can recover.
-Predators don't switch: grazers and omnivores are always prey to them.
+Predators don't switch: grazers are always prey to them, and omnivores too, but only one a predator
+would beat, blow for blow, as each stands now; it leaves a stronger omnivore alone.
 Territorial fights, between omnivores or between predators, go on regardless. Reaching 100% hunger or zero health is fatal, and so, in
 time, is age. Plants and animals alike live about a year at the smallest body
 and fastest metabolism, five years at a middling one and ten at the largest and

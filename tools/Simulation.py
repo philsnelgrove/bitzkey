@@ -27,7 +27,7 @@ from tools.Insights import Insights
 GRID_SIZE = 100
 INITIAL_POPULATION = 90
 GRASS_DENSITY = 50      # percent of cells that start with grass
-GRASS_REGROWTH = 0.008  # share of the starting grass that grows back each turn
+GRASS_REGROWTH = 0.016  # share of the starting grass that grows back each turn
 MAX_POPULATION = 20000  # the most Bitzkeys spawned at the start; a world's population cap is a setting
 CROWDING_RADIUS = 4    # animals within this many cells count as crowding a would-be parent
 CROWDING_LIMIT = 10    # litters shrink as crowding nears this; at it, an animal doesn't breed
@@ -92,7 +92,7 @@ SOCIAL_LEARNING = 1.0  # how fast it learns from what it sees, beside learning f
 SOCIAL_MOOD = 0.3      # how much what it sees moves its mood
 SOCIAL_MEMORY = 0.8    # the share of a seen success or failure it still senses a turn later
 OTHER_KIND = 0.4       # how much of that pain reaches it when the victim is of another species
-LEARNING_RATE = 0.09  # at the highest intellect, before its boost
+LEARNING_RATE = 0.045  # at the highest intellect, before its boost
 # The clever learn faster. The learning rate rises with intellect, and on top of that by up to
 # LEARNING_BOOST times again at the highest; the least intelligent get no boost. And each turn an
 # animal re-learns from REPLAY_PER_INTELLECT of its most recent experiences for each point of its
@@ -120,6 +120,11 @@ def food_learning(choice: int) -> float:
 # The instinct to hunt: whenever hunting or attacking is open to a predator, it values each this much more,
 # times its hunger as a share, whatever its brain has learnt; the brain's learning adds to it.
 HUNTING_INSTINCT = 1.0
+BLOODLUST = 1.0        # how much more a predator values feasting whenever it sees a fresh kill, whatever its hunger
+CARRION_CRAVING = 1.0  # how much more an animal values scavenging carrion it sees, at the highest carrion trait;
+                       # nothing up to the middle of the trait's range
+ALERT_JOY = 0.1        # pleasure of alerting its herd: to a hunter, for a grazer; to a fresh kill, for a hunter
+ALARM_REACH = 6        # an alarmed animal knows where the hunter is within this many steps
 PREDATOR_SIGHT = 3  # predators see prey this many cells further than they otherwise see, up to MAX_PREDATOR_SIGHT
 MAX_PREDATOR_SIGHT = 3
 HUNT_STEPS = 1      # and chase it this many more steps a turn
@@ -177,8 +182,8 @@ GRAZER_DEFENCE_STRENGTH = 5  # a grazer can strike back only with strength above
 FEAST_JOY = 1.5        # a predator's pleasure in feasting on a fresh kill
 SATED_JOY = 1.0        # pleasure in hunger relieved by eating, hunting, feasting or scavenging, per its full range
 ATTACK_JOY = 0.1       # a predator's pleasure in a blow it lives through
-KILL_MEAL = 25         # hunger a kill sates, plus up to KILL_MEAL_FOR_SIZE for the largest prey
-KILL_MEAL_FOR_SIZE = 45
+KILL_MEAL = 185                # hunger a kill sates, plus up to KILL_MEAL_FOR_SIZE for the largest prey
+KILL_MEAL_FOR_SIZE = 200  # meat is about ten times as filling as grass, and five times plants
 CARRION_MEAT = 30      # meat a well-fed corpse leaves, plus up to CARRION_MEAT_FOR_SIZE for the largest;
 CARRION_MEAT_FOR_SIZE = 50  # a hungrier body leaves less, and a starved one nothing
 GRAZER_SPEED = 1.5     # grazers move this many times as far a step, rounded half up
@@ -190,16 +195,16 @@ FLEE_RANGE = 3         # a hunter is only worth fleeing within this many steps, 
 HERD_VIGILANCE = 0.5   # how far three herd-mates close by, at full herd instinct, shrink that range
 GRASS_OUTLOOK = 150    # judging grass before breeding, an animal counts what will regrow in this many turns
 STANDING_GRASS = 0.25  # and this share of the grass standing now
-GRASS_MEAL = 35        # hunger a tuft of grass sates
-PLANT_MEAL = 45        # hunger a bite of a plant sates, plus up to PLANT_MEAL_FOR_SIZE for the largest
-PLANT_MEAL_FOR_SIZE = 25
+GRASS_MEAL = 18        # hunger a tuft of grass sates: about a tenth of a middle-sized kill
+PLANT_MEAL = 37         # hunger a bite of a plant sates, plus up to PLANT_MEAL_FOR_SIZE for the largest:
+PLANT_MEAL_FOR_SIZE = 66  # a fifth of a kill of the same size
 PLANT_BITE = 15        # health a plant loses to each bite
 PLANT_REGROWTH = 0.02  # share of its health pool a plant regrows each turn
 PLANT_RECOVERY = 8     # turns after a bite before a plant can be bitten again
 # A desperate grazer, starving with food scarce about it, may uproot a plant beside it: it eats this
 # many times a bite's meal, and tears this much of the plant's health away, recovering or not.
 UPROOT_HUNGER = 80     # starving: hunger at least this
-UPROOT_MEALS = 2.0
+UPROOT_MEALS = 0.5     # share of a feast on a body of the plant's size an uprooting grazer eats
 UPROOT_BITE = 45
 SEED_CHANCE = (0.03, 0.10)  # a well-fed plant's chance each turn of seeding, from least to most fertile
 SEED_COST = 20         # hunger seeding costs a plant
@@ -222,7 +227,7 @@ YEAR_LENGTH = DEFAULT_YEAR_LENGTH  # each world sets it from its year length set
 ARCTIC_SHARE = 0.2
 EQUATOR_SHARE = 0.2
 CLIMATE_HUNGER = 2.0   # an animal a step or more from home, or a plant too hot, needs this many times the food
-CLIMATE_DAMAGE = 0.1   # for each step from home, a Bitzkey loses this share of its full health a turn; plants from two
+CLIMATE_DAMAGE = 0.02  # for each step from home, a Bitzkey loses this share of its full health a turn; plants from two
 PLANT_CLIMATE_YIELD = 0.0  # a plant out of its temperature gives this share of its food
 GRASS_DIEBACK = 20     # where it isn't medium, a cell's grass loses a tuft every this many turns
 # The weather turns in waves, one in each climate zone, all setting off together as the season turns,
@@ -274,6 +279,7 @@ HEADINGS = {"go_north": (0, -1, False, "went north"), "go_south": (0, 1, False, 
 TRAVELLED = {went for *_, went in HEADINGS.values()}
 GRASS_SEEN = SENSES.index("grass_seen")
 HUNT, ATTACK = ACTIONS.index("hunt"), ACTIONS.index("attack")
+FEAST, SCAVENGE = ACTIONS.index("feast"), ACTIONS.index("scavenge")
 EAT, UPROOT, FEAST = ACTIONS.index("eat"), ACTIONS.index("uproot"), ACTIONS.index("feast")
 MAX_SIGHT = 2 + TRAIT_MAX + MAX_PREDATOR_SIGHT  # the furthest anything is seen: a predator's sight for prey
 SIGHT_OFFSETS = sorted(
@@ -466,7 +472,8 @@ class Bitzkey:
     hunts_grazers: bool = True    # hunters: whether grazers were common enough to hunt when it last looked
     hunts_omnivores: bool = True  # predators: the same for omnivores
     own_rivalry: float = 0.0  # the same, counting only its own species: what wears down its reluctance
-    alarm: int | None = None  # what struck a herd-mate close by since it last acted
+    alarm: int | None = None  # what struck a herd-mate close by since it last acted, or a herd-mate alerted it to
+    kill_alert: tuple[int, int] | None = None  # where a pack-mate alerted it to a fresh kill since it last acted
     seen_success: float = 0.0  # a herd-mate's success it saw, fading turn by turn
     seen_failure: float = 0.0  # a herd-mate's failure it saw, the same
     herd_assailant: int | None = None  # what struck a herd-mate close by, from alongside it: it may defend against it
@@ -1220,6 +1227,8 @@ class Simulation:
             if agent.species == "predator":  # the instinct to hunt, on top of what its brain has learnt
                 urge = HUNTING_INSTINCT * min(1.0, agent.hunger / 100)
                 valued = [value + urge if action in (HUNT, ATTACK) else value for action, value in enumerate(valued)]
+                valued[FEAST] += BLOODLUST  # bloodlust: a fresh kill in sight is hard to pass by
+            valued[SCAVENGE] += CARRION_CRAVING * max(0.0, 2 * agent.physique("carrion") - 1)  # a carrion-eater's craving
             odds = choice_odds(valued, options)
             roll = self.random.random()
             choice = options[-1]
@@ -1239,7 +1248,7 @@ class Simulation:
             agent.reward = 0.0
             agent.assailant = None  # the chance to strike back, or need to flee, passes with this turn's choice
             agent.panicked = False
-            agent.alarm = agent.herd_assailant = None
+            agent.alarm = agent.herd_assailant = agent.kill_alert = None
             actions.append((agent, action, situation))
         for agent, action, situation in actions:  # each in turn, in the world as those before it left it
             if agent.alive:
@@ -1283,11 +1292,19 @@ class Simulation:
         here = self._climate[agent.y]
         discomfort = agent.climate_steps(here)
         comfort = self._comfort_row(agent, sight) if discomfort else None
+        seen_hunter = hunter  # what it sees itself, to alert its herd to
         alarm_source = None
         if agent.alarm is not None:
-            alarm_source = next((other for other in self._nearby(agent, 3) if other.identifier == agent.alarm), None)
+            alarm_source = next((other for other in self._nearby(agent, ALARM_REACH) if other.identifier == agent.alarm), None)
             if hunter is None and alarm_source is not None:
-                hunter = alarm_source  # the herd's alarm: flight from whatever struck a herd-mate
+                hunter = alarm_source  # the herd's alarm: flight from whatever struck a herd-mate, or it was alerted to
+        seen_kill = kill
+        alerted_kill = None
+        if agent.kill_alert is not None:  # a pack-mate's alert: a fresh kill it may not see itself
+            alerted_kill = next((corpse for corpse in self._kills.get(agent.kill_alert, ()) if self._feeds_on(agent, corpse)),
+                                None)
+            if kill is None:
+                kill = alerted_kill
 
         available = {"rest", "go_east", "go_west", "walk_east", "walk_west"}
         if grass_here:
@@ -1325,6 +1342,14 @@ class Simulation:
             uprootable = next((other for other in neighbors if other.species == "plant"), None)
             if uprootable is not None and self._food_supply(agent) < FOOD_NEEDED:
                 available.add("uproot")  # starving, with food scarce: it may tear into a plant beside it
+        alert_to = None
+        if herd:  # with a herd to tell: a grazer of a hunter it sees, a hunter of a fresh kill it sees
+            if agent.species == "grazer" and seen_hunter is not None:
+                alert_to = seen_hunter
+            elif agent.species in ("omnivore", "predator") and seen_kill is not None:
+                alert_to = seen_kill
+        if alert_to is not None:
+            available.add("alert")
         if agent.y > 0:
             available.update(("go_north", "walk_north"))
         if agent.y < self.height - 1:
@@ -1342,6 +1367,7 @@ class Simulation:
             prey_near=min(4, len(prey)) / 4,
             prey_frailty=0.0 if target is None else min(1.0, self._damage(agent, target) / target.health),
             prey_closeness=self._closeness(agent, quarry and (quarry.x, quarry.y), prey_sight),
+            prey_pregnant=float(quarry is not None and bool(quarry.womb)),
             threat_near=min(4, len(threats)) / 4,
             threat_danger=0.0 if threat is None else min(1.0, self._damage(threat, agent) / agent.health),
             threat_closeness=self._closeness(agent, hunter and (hunter.x, hunter.y), sight),
@@ -1358,6 +1384,7 @@ class Simulation:
             herd_closeness=(0.0 if herd_middle is None else
                             max(0.0, 1 - (abs(herd_middle[0] - agent.x) + abs(herd_middle[1] - agent.y)) / HERD_RADIUS)),
             alarm=float(agent.alarm is not None),
+            kill_alert=float(alerted_kill is not None),
             herd_success=agent.seen_success,
             herd_failure=agent.seen_failure,
             climate_discomfort=min(2, discomfort) / 2,
@@ -1376,7 +1403,8 @@ class Simulation:
                      "grass": grass, "grass_here": grass_here, "carrion": carrion, "kill": kill, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
                      "others": others, "defend_target": defend_target, "for_herd": assailant is None,
                      "herd": herd, "herd_near": herd_near, "herd_middle": herd_middle,
-                     "exposure": min(2, discomfort) / 2 * agent.exposure_share(here), "uprootable": uprootable}
+                     "exposure": min(2, discomfort) / 2 * agent.exposure_share(here), "uprootable": uprootable,
+                     "alert_to": alert_to}
         return senses, [ACTIONS.index(action) for action in ACTIONS if action in available], situation
 
     def _wellbeing(self, agent: Bitzkey) -> float:
@@ -1542,6 +1570,8 @@ class Simulation:
         elif action == "herd":
             self._move_toward(agent, *situation["herd_middle"])
             agent.last_action = "herded"
+        elif action == "alert":
+            self._alert(agent, situation["alert_to"])
         elif action in HEADINGS:
             dx, dy, walk, went = HEADINGS[action]
             cells = 1 if walk else agent.steps
@@ -1578,13 +1608,13 @@ class Simulation:
 
     def _uproot(self, agent: Bitzkey, plant: Bitzkey) -> None:
         """A starving grazer, with food scarce about it, tears into a plant beside it, recovering from
-        a bite or not: it eats UPROOT_MEALS times a bite's meal, and the plant loses UPROOT_BITE
-        health, often all it has. An armed plant still strikes back."""
+        a bite or not: it eats UPROOT_MEALS of a feast on a body of the plant's size, and the plant
+        loses UPROOT_BITE health, often all it has. An armed plant still strikes back."""
         if not plant.alive:  # another got to it first
             agent.last_action = "sought plants"
             return
-        meal = (PLANT_MEAL + PLANT_MEAL_FOR_SIZE * plant.physique("size")) * agent.browsing * self._plant_yield(plant)
-        agent.nourish(meal * UPROOT_MEALS)
+        feast = FRESH_KILL_MEALS * (KILL_MEAL + KILL_MEAL_FOR_SIZE * plant.physique("size"))
+        agent.nourish(UPROOT_MEALS * feast * self._plant_yield(plant))
         plant.health -= UPROOT_BITE
         plant.cooldown = PLANT_RECOVERY
         agent.last_action = "uprooted"
@@ -1592,6 +1622,19 @@ class Simulation:
             self._die(plant, "uprooted")
         elif plant.physique("weapons") > 0:
             self._defend(plant, agent)
+
+    def _alert(self, agent: Bitzkey, about: Bitzkey) -> None:
+        """Alert its herd within HERD_RADIUS: a grazer to the hunter it sees, so they may flee it from
+        further than they would; a hunter to the fresh kill it sees, so they may come to feast on it."""
+        for other in self._nearby(agent, HERD_RADIUS):
+            if self._herd_mate(agent, other):
+                if agent.species == "grazer":
+                    if other.alarm is None:
+                        other.alarm = about.identifier
+                else:
+                    other.kill_alert = (about.x, about.y)
+        agent.reward += ALERT_JOY
+        agent.last_action = "alerted"
 
     def _scavenge(self, agent: Bitzkey, corpse: Bitzkey) -> None:
         """Go to the carrion and, once alongside, eat a portion, its share of the meat left; a
@@ -2189,7 +2232,7 @@ class Simulation:
         hunts grazers only while they make up at least SWITCH_SHARE of the food weighed within
         FORAGE_RADIUS, against plants, or while none of that food is near at all."""
         if hunter.species == "predator":
-            return True, True  # grazers and omnivores are always prey to a predator
+            return True, True  # grazers are always prey to a predator, and omnivores it would beat
         grazers = omnivores = plants = 0
         for other in self._nearby(hunter, FORAGE_RADIUS):
             grazers += other.species == "grazer"
@@ -2197,6 +2240,13 @@ class Simulation:
             plants += other.species == "plant"
         total = grazers + plants
         return (total == 0 or grazers / total >= SWITCH_SHARE), False
+
+    @classmethod
+    def would_win(cls, agent: Bitzkey, opponent: Bitzkey) -> bool:
+        """Whether an animal's blows would bring the opponent down as fast as the opponent's would bring
+        it down, each as it stands now."""
+        return (cls._damage(agent, opponent) / max(1.0, opponent.health)
+                >= cls._damage(opponent, agent) / max(1.0, agent.health))
 
     @classmethod
     def _is_prey(cls, hunter: Bitzkey, other: Bitzkey) -> bool:
@@ -2210,8 +2260,8 @@ class Simulation:
             return False
         if other.species == "grazer":
             return hunter.hunts_grazers
-        if other.species == "omnivore":
-            return hunter.hunts_omnivores
+        if other.species == "omnivore":  # only one it would beat, blow for blow
+            return hunter.hunts_omnivores and cls.would_win(hunter, other)
         if other.species != "predator":
             return False
         # Other predators, of whatever kind, only when hungry past its reluctance, which a territory
