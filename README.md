@@ -36,13 +36,14 @@ A configuration panel opens first. Set:
   for a new one.
 - an optional population cap: the most animals alive at once. Leave it blank,
   the default, for no limit, and crowding alone decides.
-- the mind mutation chance (0 to 100, default 50). A birth has three chances,
+- the mind mutation chance (0 to 100, default 25). A birth has three chances,
   each this percent, to change one of the child's mind traits by one step: about
   1.5 mind mutations a birth at 50, and three at 100. At 0 minds are
   genetically stable.
-- the body mutation chance (0 to 100, default 50): the percent chance that a
+- the body mutation chance (0 to 100, default 25): the percent chance that a
   birth flips one bit of the child's ring. At 100 every child carries one body
-  mutation.
+  mutation. A flip that lands on the species is moved, half the time, to another bit rolled afresh,
+  so the species changes half as often as the rest.
 - the year length (20 to 3,600 turns, default 360): a year has four seasons
   (see Seasons and Climate), and lifespans are counted in years.
 
@@ -249,7 +250,7 @@ A learned shift fades slowly back toward the inborn value. Children inherit
 learned temperament as well as genes and brains: each child's traits start at
 the average of its parents' current traits, as experience has left them, not
 their inborn ones. Then three times, each with the world's mind mutation
-chance (50% by default), a random trait mutates a step up or down, within 0
+chance (25% by default), a random trait mutates a step up or down, within 0
 to 7. The child's dot is written from that starting mind, each
 fraction rounding up with a chance equal to it, so its colour shows the
 temperament it was born with, and what its parents lived through shows in
@@ -287,7 +288,7 @@ tolerance it accepts any ring and any dot of its species. A child's ring is a
 single-point crossover of its parents' rings; a predator's young are always predators, whatever the crossover or a mutation would make them. A child's dot comes from its
 starting mind (see above); its two tolerance flags come together from either
 parent. The home temperature travels with the ring. With the world's body
-mutation chance (50% by default), one bit of the ring flips, which may change
+mutation chance (25% by default), one bit of the ring flips, which may change
 the home temperature; the tolerance flags never mutate. A flip may change the species too, but only along
 the chain of evolution, grazer, omnivore, predator. A flip that lands on predator makes any animal a
 predator; otherwise a flip of the species' lower bit moves it a step up the chain (grazer to omnivore,

@@ -30,9 +30,10 @@ BODY_TRAITS = ("species", "size", "strength", "armour", "weapons", "speed", "sig
 WORD = 0xFFFFFFFF
 GENOME = (1 << 64) - 1
 # Default chances, per birth, of a mutation; a world can set its own.
-MIND_MUTATION_CHANCE = 0.5  # for each of MIND_MUTATION_ROLLS: one mind trait steps one up or down
+MIND_MUTATION_CHANCE = 0.25  # for each of MIND_MUTATION_ROLLS: one mind trait steps one up or down
 MIND_MUTATION_ROLLS = 3     # mind mutations a birth may carry, each with the mind mutation chance
-BODY_MUTATION_CHANCE = 0.5  # one bit of the ring flips
+BODY_MUTATION_CHANCE = 0.25  # one bit of the ring flips
+SPECIES_REROLL = 0.5  # a body mutation landing on the species is moved to another bit, rolled afresh, this often
 SPARE_BITS = 0xC0000000  # the dot's two bits that hold no mind trait: the tolerance flags
 TEMPERATURES = ("hot", "medium", "cold", "very cold")  # home temperatures, from hottest to coldest
 TEMPERATURE_SHIFT = 62  # the home temperature: the ring's top two bits
@@ -190,7 +191,10 @@ def cross(first: int, second: int, rng: random.Random, mind: Mapping[str, float]
     mask = (1 << rng.randrange(1, 32)) - 1
     body = (body_word(first) & mask) | (body_word(second) & ~mask & WORD)
     if rng.random() < body_chance:
-        body ^= 1 << rng.randrange(32)
+        bit = rng.randrange(32)
+        if bit < 2 and rng.random() < SPECIES_REROLL:  # the bits that set the species: often rolled afresh
+            bit = rng.randrange(32)
+        body ^= 1 << bit
     if mind is None:
         mind = inherit_mind(decode_mind(first), decode_mind(second), rng, mind_chance)
     spare = mind_word(rng.choice((first, second)))

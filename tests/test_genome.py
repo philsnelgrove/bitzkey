@@ -72,8 +72,17 @@ class GenomeTests(unittest.TestCase):
             child = cross(parent, parent, rng)
             self.assertLessEqual((body_word(child) ^ body_word(parent)).bit_count(), 1)
             self.assertLessEqual(((mind_word(child) ^ mind_word(parent)) & SPARE_BITS).bit_count(), 1)
-            for trait, value in decode_mind(child).items():
-                self.assertLessEqual(abs(value - decode_mind(parent)[trait]), 1)
+            steps = sum(abs(value - decode_mind(parent)[trait]) for trait, value in decode_mind(child).items())
+            self.assertLessEqual(steps, MIND_MUTATION_ROLLS)  # a step a roll, at most, which may fall on one trait
+
+    def test_a_mutation_landing_on_the_species_is_rolled_afresh_half_the_time(self):
+        rng = random.Random(9)
+        parent = encode_dna("grazer")
+        trials = 40000
+        changed = sum((body_word(cross(parent, parent, rng, body_chance=1.0)) ^ body_word(parent)) & 0x3 != 0
+                      for _ in range(trials))
+        expected = 2 / 32 * 0.5 + 2 / 32 * 0.5 * 2 / 32  # kept, or rolled afresh onto the species again
+        self.assertAlmostEqual(changed / trials, expected, delta=0.005)
 
     def test_child_dot_holds_the_average_of_its_parents_traits(self):
         rng = random.Random(2)
@@ -111,7 +120,7 @@ class GenomeTests(unittest.TestCase):
         # three rolls: about 1.5 mutations a birth at 50, three at 100 (less a few that cancel out)
         self.assertAlmostEqual(mutations[1], 1.5 * 0.9, delta=0.15)
         self.assertAlmostEqual(mutations[2], 3 * 0.9, delta=0.2)
-        self.assertEqual((MIND_MUTATION_CHANCE, MIND_MUTATION_ROLLS), (0.5, 3))
+        self.assertEqual((MIND_MUTATION_CHANCE, MIND_MUTATION_ROLLS), (0.25, 3))
 
     def test_a_certain_mutation_steps_away_from_the_limits(self):
         rng = random.Random(4)

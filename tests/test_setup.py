@@ -13,7 +13,7 @@ def exported(*dnas: int) -> str:
 
 
 DEFAULTS = {"width": 100, "height": 100, "population": 90, "grass_density": 5, "seed": None,
-            "population_cap": None, "mind_mutation": 50, "body_mutation": 50, "year_length": 360}
+            "population_cap": None, "mind_mutation": 25, "body_mutation": 25, "year_length": 360}
 SEED = [setting.key for setting in SETTINGS].index("seed")
 
 
