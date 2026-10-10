@@ -457,7 +457,10 @@ intelligent learn just as they always have. Its learning rate rises with its
 intellect, and then by up to as much again for the brightest (the Learning boost
 rule); at the brightest it is 0.09 a choice before that boost, twice what it once
 was, and a predator learns twice as fast again (Predator learning), an omnivore
-one and a half times. Each turn it re-learns from its most recent experiences, two for each point
+one and a half times. Food that takes a kill is harder to learn than grass: any
+animal learns five times as much from choosing to hunt, attack or feast (Kill
+food learning), and half as much from choosing to eat, forage, browse or uproot
+(Plant food learning), whether its own choice, one it replays or one it sees. Each turn it re-learns from its most recent experiences, two for each point
 of inborn intellect, so the brightest go over their last fourteen while the
 dullest replay none (Replays per intellect). And it traces an outcome further back
 through the choices that led to it: its trace decay runs from 0.9 for the dullest
