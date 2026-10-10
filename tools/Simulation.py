@@ -120,6 +120,9 @@ def food_learning(choice: int) -> float:
 # The instinct to hunt: whenever hunting or attacking is open to a predator, it values each this much more,
 # times its hunger as a share, whatever its brain has learnt; the brain's learning adds to it.
 HUNTING_INSTINCT = 1.0
+MATE_REACH = 2         # a partner within this many steps is close enough to breed with
+MATING_CALL = 1.0      # how much more a predator or omnivore ready to breed values courting a mate it sees
+PACK_MOUTHS = 0.5      # a hunter's pack-mates count as this many mouths each on its food, sharing their kills
 BLOODLUST = 1.0        # how much more a predator values feasting whenever it sees a fresh kill, whatever its hunger
 CARRION_CRAVING = 1.0  # how much more an animal values scavenging carrion it sees, at the highest carrion trait;
                        # nothing up to the middle of the trait's range
@@ -168,7 +171,7 @@ KIND_DIFFERENCE = 0.25
 FORAGE_RADIUS = 6
 FOOD_NEEDED = 3.0
 PLANT_MEALS = 2.0      # meals a plant is worth to a full-efficiency browser
-PREY_MEALS = 2.0       # meals a prey animal is worth
+PREY_MEALS = 10.0      # meals a prey animal is worth: meat fills about ten times what grass does
 SHARED_DIET = 0.5      # how much an animal of another species eating some of the same food counts as a mouth
 # Prey switching: a hunter goes after a kind of prey only while it makes up at least SWITCH_SHARE
 # of the food it weighs within FORAGE_RADIUS (for omnivores, grazers against plants; for predators,
@@ -279,7 +282,7 @@ HEADINGS = {"go_north": (0, -1, False, "went north"), "go_south": (0, 1, False, 
 TRAVELLED = {went for *_, went in HEADINGS.values()}
 GRASS_SEEN = SENSES.index("grass_seen")
 HUNT, ATTACK = ACTIONS.index("hunt"), ACTIONS.index("attack")
-FEAST, SCAVENGE = ACTIONS.index("feast"), ACTIONS.index("scavenge")
+FEAST, SCAVENGE, COURT = ACTIONS.index("feast"), ACTIONS.index("scavenge"), ACTIONS.index("court")
 EAT, UPROOT, FEAST = ACTIONS.index("eat"), ACTIONS.index("uproot"), ACTIONS.index("feast")
 MAX_SIGHT = 2 + TRAIT_MAX + MAX_PREDATOR_SIGHT  # the furthest anything is seen: a predator's sight for prey
 SIGHT_OFFSETS = sorted(
@@ -1228,6 +1231,8 @@ class Simulation:
                 urge = HUNTING_INSTINCT * min(1.0, agent.hunger / 100)
                 valued = [value + urge if action in (HUNT, ATTACK) else value for action, value in enumerate(valued)]
                 valued[FEAST] += BLOODLUST  # bloodlust: a fresh kill in sight is hard to pass by
+            if agent.species in ("omnivore", "predator") and agent.can_breed:  # the mating call
+                valued[COURT] += MATING_CALL
             valued[SCAVENGE] += CARRION_CRAVING * max(0.0, 2 * agent.physique("carrion") - 1)  # a carrion-eater's craving
             odds = choice_odds(valued, options)
             roll = self.random.random()
@@ -1268,7 +1273,8 @@ class Simulation:
         if not surveyed:
             self._survey(agent)
         neighbors = self._nearby(agent, 1)
-        mate = next((other for other in neighbors if self._compatible(agent, other) and other.can_breed), None)
+        mate = next((other for other in self._nearby(agent, MATE_REACH) if self._compatible(agent, other) and other.can_breed),
+                    None)  # close enough to breed with
         nurseries = self._free_cells_near(agent)
         prey = [other for other in neighbors if self._is_prey(agent, other)]
         threats = [other for other in neighbors if self._is_prey(other, agent)]
@@ -1541,7 +1547,8 @@ class Simulation:
             agent.last_action = "courted"
         elif action == "breed":
             mate = situation["mate"]
-            if not (mate.alive and mate.can_breed and agent.can_breed and self._beside(agent, mate)):
+            if not (mate.alive and mate.can_breed and agent.can_breed
+                    and abs(mate.x - agent.x) + abs(mate.y - agent.y) <= MATE_REACH):
                 agent.last_action = "was spurned"  # its mate died, moved off or bred with another first
                 return
             agent.last_action = "mated"  # before breeding, so a parent that dies of it says so
@@ -2152,7 +2159,10 @@ class Simulation:
             elif self._feeds_on(agent, other):
                 food += PREY_MEALS
             else:
-                mouths += self._diet_share(agent, other)
+                share = self._diet_share(agent, other)
+                if agent.species in ("omnivore", "predator") and self._herd_mate(agent, other):
+                    share *= PACK_MOUTHS  # a pack shares its kills
+                mouths += share
         return food / mouths
 
     @staticmethod

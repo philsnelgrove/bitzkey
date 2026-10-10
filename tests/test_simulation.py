@@ -1140,6 +1140,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertGreater(simulation._territory(hunter)[1], 0)  # an overgrown pack still crowds it
 
     def test_each_species_weighs_the_food_it_eats_against_the_mouths_sharing_it(self):
+        from tools.Simulation import PACK_MOUTHS, PREY_MEALS
         simulation = Simulation(width=30, height=30, population=0, seed=3)
         simulation.grass.clear()
         simulation.grass.update({(15, 13): 4, (16, 15): 2})
@@ -1155,13 +1156,17 @@ class NewTraitTests(unittest.TestCase):
         self.assertAlmostEqual(simulation._food_supply(grazer), 1.25 * (0.25 * 6 + 2) / (1 + 1 + 0.5))
         # omnivore: grass at half value, the plant at three quarters, two grazers as prey in full;
         # only the predator's half a mouth
-        self.assertAlmostEqual(simulation._food_supply(omnivore), (0.5 * 0.25 * 6 + 0.75 * 2 + 2 * 2) / (1 + 0.5))
+        self.assertAlmostEqual(simulation._food_supply(omnivore), (0.5 * 0.25 * 6 + 0.75 * 2 + 2 * PREY_MEALS) / (1 + 0.5))
         # predator: no grass for it; two grazers and an omnivore as prey, and no rivals
-        self.assertAlmostEqual(simulation._food_supply(predator), 3 * 2)
+        self.assertAlmostEqual(simulation._food_supply(predator), 3 * PREY_MEALS)
         # another kind of predator, though it may be hunted, is a rival for the prey, not food
-        simulation._add_agent(encode_dna("predator") ^ (0xFF << 56), 18, 16)
+        simulation._add_agent(encode_dna("predator") ^ (0xFFFF << 48), 18, 16)
         simulation._index_cells()
-        self.assertAlmostEqual(simulation._food_supply(predator), 3 * 2 / 2)
+        self.assertAlmostEqual(simulation._food_supply(predator), 3 * PREY_MEALS / 2)
+        # a pack-mate shares its kills, so counts as only part of a mouth
+        simulation._add_agent(predator.dna, 18, 14)
+        simulation._index_cells()
+        self.assertAlmostEqual(simulation._food_supply(predator), 3 * PREY_MEALS / (2 + PACK_MOUTHS))
 
     def test_grass_is_judged_by_what_will_regrow_as_well_as_what_stands(self):
         simulation = Simulation(width=30, height=30, population=0, seed=3)
@@ -1445,6 +1450,14 @@ class NewTraitTests(unittest.TestCase):
         self.assertIs(situation["kill"], kill)
         self.assertEqual(senses[SENSES.index("kill_alert")], 1.0)  # and it knows it was told
         self.assertEqual(self.simulation._sense(herd_mate)[0][SENSES.index("kill_alert")], 0.0)
+
+    def test_a_partner_two_cells_away_is_close_enough_to_breed_with(self):
+        first = self.simulation._add_agent(encode_dna("predator"), 4, 4)
+        second = self.simulation._add_agent(first.dna, 4, 6)
+        far = self.simulation._add_agent(first.dna, 8, 8)
+        self.simulation._index_cells()
+        self.assertIs(self.simulation._sense(first)[2]["mate"], second)
+        self.assertIsNone(self.simulation._sense(far)[2]["mate"])
 
     def test_a_hunter_senses_whether_its_prey_carries_young(self):
         hunter = self.simulation._add_agent(encode_dna("predator", sight=7), 2, 2)
