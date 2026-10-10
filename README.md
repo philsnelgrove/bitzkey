@@ -242,7 +242,7 @@ gap a turn):
 | fear | dread when hunters are adjacent | wounds, stings and ambushes raise it; kills lower it |
 | appetite | how much hunger hurts | near-starvation raises it |
 | patience | how much it values the future (its learning discount) | meals earned by foraging raise it; starving lowers it |
-| intellect | how deep its brain is (twice its intellect in hidden layers, at least two), how fast it learns (its learning rate, boosted for the bright, how many recent experiences it replays each turn, and how far back it traces an outcome), how much experience can reshape the mind, how much it learns from what it sees, and how rarely primal fear freezes it. A predator's intellect counts twice over in all of these, up to the full range. | kills, breeding, discoveries, successful defences and, a little, good meals raise it; so does, very slightly, every lesson learnt from a choice that turned out well |
+| intellect | how deep its brain is (twice its intellect in hidden layers, at least two), how fast it learns (its learning rate, boosted for the bright, how many recent experiences it replays each turn, and how far back it traces an outcome), how much experience can reshape the mind, how much it learns from what it sees, and how rarely primal fear freezes it. A predator's intellect counts twice over in all of these, up to the full range, and its brain learns twice as fast again (an omnivore's half as much faster again). | kills, breeding, discoveries, successful defences and, a little, good meals raise it; so does, very slightly, every lesson learnt from a choice that turned out well |
 | empathy | pain at seeing an animal wounded or killed nearby; more for its own kind, double for a death. An empathetic hunter feels some of its victim's pain and enjoys fighting less. | fixed |
 | tolerance | ease among other species: they count as company, hunters are less frightening, and attacking gives less pleasure. The intolerant are uneasy whenever other species are near. The tolerant also accept mates that look less like themselves. | fixed |
 
@@ -455,7 +455,9 @@ fourteen for the brightest. Plants have no brain.
 The cleverer an animal, the faster it learns, three ways, while the least
 intelligent learn just as they always have. Its learning rate rises with its
 intellect, and then by up to as much again for the brightest (the Learning boost
-rule). Each turn it re-learns from its most recent experiences, two for each point
+rule); at the brightest it is 0.09 a choice before that boost, twice what it once
+was, and a predator learns twice as fast again (Predator learning), an omnivore
+one and a half times. Each turn it re-learns from its most recent experiences, two for each point
 of inborn intellect, so the brightest go over their last fourteen while the
 dullest replay none (Replays per intellect). And it traces an outcome further back
 through the choices that led to it: its trace decay runs from 0.9 for the dullest

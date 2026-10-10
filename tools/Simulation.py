@@ -92,13 +92,15 @@ SOCIAL_LEARNING = 1.0  # how fast it learns from what it sees, beside learning f
 SOCIAL_MOOD = 0.3      # how much what it sees moves its mood
 SOCIAL_MEMORY = 0.8    # the share of a seen success or failure it still senses a turn later
 OTHER_KIND = 0.4       # how much of that pain reaches it when the victim is of another species
-LEARNING_RATE = 0.045  # at the highest intellect, before its boost
+LEARNING_RATE = 0.09  # at the highest intellect, before its boost
 # The clever learn faster. The learning rate rises with intellect, and on top of that by up to
 # LEARNING_BOOST times again at the highest; the least intelligent get no boost. And each turn an
 # animal re-learns from REPLAY_PER_INTELLECT of its most recent experiences for each point of its
 # inborn intellect, so the least replay none.
 LEARNING_BOOST = 1.0
 REPLAY_PER_INTELLECT = 2
+PREDATOR_LEARNING = 2.0  # a predator's brain learns this many times as fast, from its own choices and replays;
+# an omnivore's gets half the bonus
 # Primal fear: facing a hunter stronger than itself, an animal may be overcome, each turn, with a chance of
 # PRIMAL_FEAR times how lopsided the fight would be (predators PRIMAL_FEAR_PREDATORS as often). While a
 # hunter is in sight it then panics every turn, fleeing, or, with a chance of PRIMAL_FREEZE at the lowest
@@ -1387,9 +1389,11 @@ class Simulation:
 
     @staticmethod
     def _learning_rate(agent: Bitzkey) -> float:
-        """How fast its brain learns: with its intellect, boosted further the cleverer it is."""
+        """How fast its brain learns: with its intellect, boosted further the cleverer it is, and a
+        predator's PREDATOR_LEARNING times as fast, an omnivore's with half that bonus."""
         sharpness = agent.intelligence
-        return LEARNING_RATE * sharpness * (1 + LEARNING_BOOST * sharpness)
+        hunter = {"predator": PREDATOR_LEARNING, "omnivore": 1 + (PREDATOR_LEARNING - 1) / 2}.get(agent.species, 1.0)
+        return LEARNING_RATE * sharpness * (1 + LEARNING_BOOST * sharpness) * hunter
 
     def _learn(self, agent: Bitzkey, target: float, replay: bool = False) -> None:
         """Learn from its own last choice, by TD(lambda), so the choices before it share in what came of it.

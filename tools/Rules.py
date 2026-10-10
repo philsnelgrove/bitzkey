@@ -130,6 +130,8 @@ _TABLE: dict[str, list[tuple]] = {
          0.0, 5.0, 0.1),
         ("REPLAY_PER_INTELLECT", "Replays per intellect", "recent experiences re-learnt each turn per point of intellect",
          0, 4, 1),
+        ("PREDATOR_LEARNING", "Predator learning", "times as fast a predator's brain learns from its own choices; an omnivore gets half the bonus",
+         1.0, 5.0, 0.1),
         ("TEMPERATURE", "Choice temperature", "how loosely a brain picks among its options", 0.01, 5.0, 0.05),
         ("MUTATION", "Brain mutation", "how much a newborn's brain varies from its parents'", 0.0, 1.0, 0.01),
         ("HEADING_RELUCTANCE", "Heading reluctance", "how much less a new brain values setting off in a direction",

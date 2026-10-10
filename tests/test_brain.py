@@ -20,6 +20,12 @@ class BrainTests(unittest.TestCase):
         sharp = simulation._add_agent(encode_dna("grazer", intellect=7), 9, 9)
         self.assertEqual(simulation._learning_rate(dull), 0.0)  # as ever
         self.assertAlmostEqual(simulation._learning_rate(sharp), LEARNING_RATE * (1 + LEARNING_BOOST))
+        from tools.Simulation import PREDATOR_LEARNING
+        hunter = simulation._add_agent(encode_dna("predator", intellect=7), 13, 13)
+        self.assertAlmostEqual(simulation._learning_rate(hunter), LEARNING_RATE * (1 + LEARNING_BOOST) * PREDATOR_LEARNING)
+        eater = simulation._add_agent(encode_dna("omnivore", intellect=7), 15, 15)
+        self.assertAlmostEqual(simulation._learning_rate(eater),
+                               LEARNING_RATE * (1 + LEARNING_BOOST) * (1 + (PREDATOR_LEARNING - 1) / 2))
         simulation._index_cells()
         for _ in range(20):  # each decides, learns from the last decision, and remembers it
             previous = (sharp.last_senses, sharp.last_choice)
