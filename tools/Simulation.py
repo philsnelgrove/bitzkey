@@ -121,7 +121,7 @@ def food_learning(choice: int) -> float:
 # times its hunger as a share, whatever its brain has learnt; the brain's learning adds to it.
 HUNTING_INSTINCT = 1.0
 MATE_REACH = 2         # a partner within this many steps is close enough to breed with
-MATING_CALL = 1.0      # how much more a predator or omnivore ready to breed values courting a mate it sees
+MATING_CALL = 0.5      # how much more a predator ready to breed values breeding, or else courting a mate it sees
 PACK_MOUTHS = 0.5      # a hunter's pack-mates count as this many mouths each on its food, sharing their kills
 BLOODLUST = 1.0        # how much more a predator values feasting whenever it sees a fresh kill, whatever its hunger
 CARRION_CRAVING = 1.0  # how much more an animal values scavenging carrion it sees, at the highest carrion trait;
@@ -172,6 +172,7 @@ FORAGE_RADIUS = 6
 FOOD_NEEDED = 0.0  # 0: no limit, and litters don't follow food
 UPROOT_FOOD = 3.0  # a starving grazer uproots a plant only with fewer meals a mouth than this about it
 BREED_COOLDOWN = 0.0  # share of the usual rest after breeding, 20 turns for the least fertile to 5 for the most
+PREDATOR_BREED_COOLDOWN = 0.5  # the same for predators: a short rest
 PREDATOR_FOOD_NEEDED = 0.0  # the same for predators: none, so the food about them never stops them breeding
 PLANT_MEALS = 2.0      # meals a plant is worth to a full-efficiency browser
 PREY_MEALS = 10.0      # meals a prey animal is worth: meat fills about ten times what grass does
@@ -285,7 +286,8 @@ HEADINGS = {"go_north": (0, -1, False, "went north"), "go_south": (0, 1, False, 
 TRAVELLED = {went for *_, went in HEADINGS.values()}
 GRASS_SEEN = SENSES.index("grass_seen")
 HUNT, ATTACK = ACTIONS.index("hunt"), ACTIONS.index("attack")
-FEAST, SCAVENGE, COURT = ACTIONS.index("feast"), ACTIONS.index("scavenge"), ACTIONS.index("court")
+FEAST, SCAVENGE, COURT, BREED = (ACTIONS.index("feast"), ACTIONS.index("scavenge"), ACTIONS.index("court"),
+                                 ACTIONS.index("breed"))
 EAT, UPROOT, FEAST = ACTIONS.index("eat"), ACTIONS.index("uproot"), ACTIONS.index("feast")
 MAX_SIGHT = 2 + TRAIT_MAX + MAX_PREDATOR_SIGHT  # the furthest anything is seen: a predator's sight for prey
 SIGHT_OFFSETS = sorted(
@@ -1234,8 +1236,8 @@ class Simulation:
                 urge = HUNTING_INSTINCT * min(1.0, agent.hunger / 100)
                 valued = [value + urge if action in (HUNT, ATTACK) else value for action, value in enumerate(valued)]
                 valued[FEAST] += BLOODLUST  # bloodlust: a fresh kill in sight is hard to pass by
-            if agent.species in ("omnivore", "predator") and agent.can_breed:  # the mating call
-                valued[COURT] += MATING_CALL
+            if agent.species == "predator" and agent.can_breed:  # the mating call: to breed if it
+                valued[BREED if BREED in options else COURT] += MATING_CALL   # can, else to court a mate it sees
             valued[SCAVENGE] += CARRION_CRAVING * max(0.0, 2 * agent.physique("carrion") - 1)  # a carrion-eater's craving
             odds = choice_odds(valued, options)
             roll = self.random.random()
@@ -1896,7 +1898,8 @@ class Simulation:
         first.due_turn = self.turn + gestation(int(first.body["size"]))
         for parent, cost in zip((first, second), costs, strict=True):
             parent.hunger += cost
-            parent.cooldown = round((20 - 15 * parent.physique("fertility")) * BREED_COOLDOWN)
+            rest = PREDATOR_BREED_COOLDOWN if parent.species == "predator" else BREED_COOLDOWN
+            parent.cooldown = round((20 - 15 * parent.physique("fertility")) * rest)
             parent.children += litter
             parent.reward += BREED_JOY * parent.feeling("libido")
             if not parent.alive:
