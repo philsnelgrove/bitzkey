@@ -122,6 +122,9 @@ def food_learning(choice: int) -> float:
 HUNTING_INSTINCT = 1.0
 MATE_REACH = 2         # a partner within this many steps is close enough to breed with
 MATING_CALL = 0.5      # how much more a predator ready to breed values breeding, or else courting a mate it sees
+MATING_CALL_RANGE = 6  # a predator ready to breed seeks a mate this far off, beyond its sight
+OMNIVORE_MATING_CALL = 0.25  # an omnivore's milder mating call
+HUNTER_BREEDING_COST = 0.5  # share of the usual breeding cost a predator or omnivore pays
 PACK_MOUTHS = 0.5      # a hunter's pack-mates count as this many mouths each on its food, sharing their kills
 BLOODLUST = 1.0        # how much more a predator values feasting whenever it sees a fresh kill, whatever its hunger
 CARRION_CRAVING = 1.0  # how much more an animal values scavenging carrion it sees, at the highest carrion trait;
@@ -149,6 +152,7 @@ TERRITORY = {
     "predator": ((1, 5), 1.0),
     "omnivore": ((2, 10), 0.5),
 }
+PACK_RIVALRY = 0.0     # how much a predator's pack-mates count as rivals crowding its territory: its pack is no rival
 TERRITORY_RAMP = 3     # each rival past that limit adds a third of the species' strength to rivalry
 RIVAL_UNEASE = 0.3     # discomfort of a fully overcrowded territory, less for the tolerant
 RIVALRY_WEAR = 0.5     # how much an overcrowded territory wears down a hunter's reluctance to kill its own species
@@ -184,6 +188,8 @@ SHARED_DIET = 0.5      # how much an animal of another species eating some of th
 SWITCH_SHARE = 0.5
 STRIKE_EFFORT = 0.2    # food burned for each point of damage a blow deals
 STRIKE_FORCE = 3.5     # scales every blow: the best-armed, mightiest predator kills the largest, best-armoured grazer in three
+GRAZER_DEFENCE_WEAPONS = 0.5    # share of its weapons a grazer brings to defence: striking back, and its spines
+OMNIVORE_DEFENCE_WEAPONS = 0.75  # the same for an omnivore; a predator defends with all of its weapons
 PREDATOR_WEAPONS = 3.0  # a predator's natural weapons count this many times over, striking and stinging;
 # an omnivore's three quarters of that and a grazer's half
 GRAZER_DEFENCE_STRENGTH = 5  # a grazer can strike back only with strength above this
@@ -667,8 +673,9 @@ class Bitzkey:
 
     @property
     def breeding_cost(self) -> float:
-        """Hunger it pays to breed: less the more fertile it is."""
-        return 25 - 15 * self.physique("fertility")
+        """Hunger it pays to breed: less the more fertile it is, and HUNTER_BREEDING_COST of that for a hunter."""
+        hunter = HUNTER_BREEDING_COST if self.species in ("omnivore", "predator") else 1.0
+        return (25 - 15 * self.physique("fertility")) * hunter
 
     @property
     def can_breed(self) -> bool:
@@ -765,6 +772,8 @@ class Simulation:
         # export Bitzkeys long gone. A branch taken after rewinding reuses identifiers and
         # overwrites them.
         self.lineage: dict[int, int] = {}
+        # Each death: its cause, and the identifier and species of what killed it, when something did.
+        self.death_records: dict[int, tuple[str, int | None, str | None]] = {}
         self.turn = 0
         self.deaths = 0
         self.death_causes: dict[str, dict[str, int]] = {}  # every death so far, by species and then cause
@@ -1237,8 +1246,9 @@ class Simulation:
                 urge = HUNTING_INSTINCT * min(1.0, agent.hunger / 100)
                 valued = [value + urge if action in (HUNT, ATTACK) else value for action, value in enumerate(valued)]
                 valued[FEAST] += BLOODLUST  # bloodlust: a fresh kill in sight is hard to pass by
-            if agent.species == "predator" and agent.can_breed:  # the mating call: to breed if it
-                valued[BREED if BREED in options else COURT] += MATING_CALL   # can, else to court a mate it sees
+            call = MATING_CALL if agent.species == "predator" else OMNIVORE_MATING_CALL if agent.species == "omnivore" else 0.0
+            if call and agent.can_breed:  # the mating call: to breed if it can, else to court a mate it seeks
+                valued[BREED if BREED in options else COURT] += call
             valued[SCAVENGE] += CARRION_CRAVING * max(0.0, 2 * agent.physique("carrion") - 1)  # a carrion-eater's craving
             odds = choice_odds(valued, options)
             roll = self.random.random()
@@ -1297,6 +1307,9 @@ class Simulation:
         kill = self._nearest_kill(agent, sight) if agent.species in ("omnivore", "predator") else None
         prey_sight = sight + (PREDATOR_SIGHT if agent.species == "predator" else 0)
         quarry, hunter, suitor, flora = self._look_around(agent, sight, prey_sight)
+        if suitor is None and agent.species == "predator" and agent.can_breed:  # the mating call reaches further
+            suitor = next((other for other in self._nearby(agent, MATING_CALL_RANGE)
+                           if self._compatible(agent, other) and other.can_breed), None)
         assailant = next((other for other in neighbors if other.identifier == agent.assailant), None)
         herd_assailant = next((other for other in neighbors if other.identifier == agent.herd_assailant), None)
         defend_target = assailant or herd_assailant
@@ -1487,10 +1500,12 @@ class Simulation:
         steepness = 2 * math.log(2) / (agent.lifespan - onset) ** 2
         return self.random.random() < steepness * (agent.age - onset)
 
-    def _die(self, agent: Bitzkey, cause: str) -> None:
+    def _die(self, agent: Bitzkey, cause: str, killer: Bitzkey | None = None) -> None:
         """Record a death. The body becomes carrion holding the energy it had left: a starved body
         leaves nothing, and a killed one half, as the killer has already eaten. Dying of old age
         is not held against the brain's last choice."""
+        self.death_records[agent.identifier] = (cause, None if killer is None else killer.identifier,
+                                                None if killer is None else killer.species)
         if agent.brain is not None and agent.last_senses is not None:
             penalty = 0.0 if cause == "old age" else DEATH_PENALTY
             self._learn(agent, agent.reward + self._wellbeing(agent) - agent.last_wellbeing - penalty)
@@ -1616,7 +1631,7 @@ class Simulation:
         plant.cooldown = PLANT_RECOVERY
         agent.last_action = "browsed"
         if not plant.alive:
-            self._die(plant, "eaten")
+            self._die(plant, "eaten", agent)
         elif plant.physique("weapons") > 0:
             self._defend(plant, agent)  # a plant can't flee, but an armed one strikes back
 
@@ -1633,7 +1648,7 @@ class Simulation:
         plant.cooldown = PLANT_RECOVERY
         agent.last_action = "uprooted"
         if not plant.alive:
-            self._die(plant, "uprooted")
+            self._die(plant, "uprooted", agent)
         elif plant.physique("weapons") > 0:
             self._defend(plant, agent)
 
@@ -1696,15 +1711,21 @@ class Simulation:
         return corpse.died_turn is not None and self.turn - corpse.died_turn <= FRESH_KILL_TURNS
 
     @staticmethod
-    def _damage(attacker: Bitzkey, defender: Bitzkey) -> float:
+    def _damage(attacker: Bitzkey, defender: Bitzkey, defending: bool = False) -> float:
         """One blow: the attacker's might, sharpened by weapons, blunted by the defender's toughness;
         size counts strongly in both. A plant's thorns are mostly its weapons, a little its size,
-        and owe nothing to strength."""
+        and owe nothing to strength. Struck in defence, a grazer's or omnivore's weapons count for less."""
         if attacker.species == "plant":
             thorns = THORN_SIZE_SHARE * attacker.physique("size") + (1 - THORN_SIZE_SHARE) * attacker.physique("weapons")
             return THORN_FORCE * thorns * (1 - 0.6 * defender.toughness)
         force = STRIKE_FORCE * (2 + 9 * attacker.might)
-        return force * (1 + 0.75 * Simulation._armed(attacker)) * (1 - 0.6 * defender.toughness)
+        armed = Simulation._armed(attacker) * (Simulation._defence_share(attacker) if defending else 1.0)
+        return force * (1 + 0.75 * armed) * (1 - 0.6 * defender.toughness)
+
+    @staticmethod
+    def _defence_share(animal: Bitzkey) -> float:
+        """The share of its weapons an animal brings to defence."""
+        return {"grazer": GRAZER_DEFENCE_WEAPONS, "omnivore": OMNIVORE_DEFENCE_WEAPONS}.get(animal.species, 1.0)
 
     @staticmethod
     def _armed(animal: Bitzkey) -> float:
@@ -1749,14 +1770,14 @@ class Simulation:
                 kinship = 1.0 if witness.species == victim.species else OTHER_KIND
                 witness.reward -= pain * witness.feeling("empathy") * kinship
         if killed:
-            self._die(victim, "killed")
+            self._die(victim, "killed", agent)
 
-        sting = 4.5 * self._armed(victim) * (1 - 0.6 * agent.toughness)
+        sting = 4.5 * self._armed(victim) * self._defence_share(victim) * (1 - 0.6 * agent.toughness)
         if sting > 0:
             agent.health -= sting
             self._experience(agent, "stung")
             if not agent.alive:
-                self._die(agent, "killed")
+                self._die(agent, "killed", victim)  # its victim's spines
         self._exhausted(agent)
         if agent.species == "predator" and agent.alive:  # a blow it lived through
             agent.reward += ATTACK_JOY
@@ -1773,7 +1794,7 @@ class Simulation:
         toughness. The blow costs effort like any other, and feeds the defender nothing, but it
         can kill, and a struck assailant must check its own morale. Defending its herd pleases a
         herd animal."""
-        damage = self._damage(agent, assailant)
+        damage = self._damage(agent, assailant, defending=True)
         assailant.health -= damage
         agent.hunger += STRIKE_EFFORT * damage / agent.stomach
         self._experience(assailant, "stung")
@@ -1784,7 +1805,7 @@ class Simulation:
             agent.last_action = "defended"
             self._experience(agent, "defended")
         if not assailant.alive:
-            self._die(assailant, "killed")
+            self._die(assailant, "killed", agent)
         elif assailant.species != "plant":
             self._struck(assailant, agent)
         self._exhausted(agent)
@@ -2245,13 +2266,15 @@ class Simulation:
     def _territory(self, hunter: Bitzkey) -> tuple[float, float]:
         """How overcrowded a hunter's territory is, with all its rivals and with its own species
         alone: nothing up to the rivals it will tolerate, fewer the less empathetic it is, then
-        rising over TERRITORY_RAMP more to its species' strength of territorial feeling."""
+        rising over TERRITORY_RAMP more to its species' strength of territorial feeling. A predator's pack-mates
+        count only PACK_RIVALRY each: its pack mentality overcomes rivalry."""
         (fewest, most), strength = TERRITORY[hunter.species]
         tolerated = fewest + (most - fewest) * hunter.feeling("empathy")
         rivals = own = 0.0
         for other in self._nearby(hunter, TERRITORY_RADIUS):
-            rivals += self._rival_weight(hunter, other)
-            own += other.species == hunter.species
+            pack = PACK_RIVALRY if hunter.species == "predator" and self._herd_mate(hunter, other) else 1.0
+            rivals += self._rival_weight(hunter, other) * pack
+            own += (other.species == hunter.species) * pack
         return tuple(strength * min(1.0, max(0.0, count - tolerated) / TERRITORY_RAMP) for count in (rivals, own))
 
     def _prey_switching(self, hunter: Bitzkey) -> tuple[bool, bool]:

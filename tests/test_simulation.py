@@ -887,6 +887,7 @@ class NewTraitTests(unittest.TestCase):
         elsewhere = (sum(self.simulation.grass.values()) - fertile * len(around)) / (12 * len(rows) - len(around))
         self.assertAlmostEqual(fertile / elsewhere, 2, delta=0.35)
 
+    @patch("tools.Simulation.PACK_RIVALRY", 1.0)  # rivalry measured among predators counting fully
     def test_a_predators_territory_grows_rivalrous_past_a_few_other_predators(self):
         simulation = Simulation(width=30, height=30, population=0, seed=3)
         predator = simulation._add_agent(encode_dna("predator", empathy=0), 15, 15)  # tolerates just one other
@@ -900,6 +901,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(simulation._territory(predator)[0], 1)
         self.assertEqual(simulation._sense(predator)[0][SENSES.index("rivalry")], 1)
 
+    @patch("tools.Simulation.PACK_RIVALRY", 1.0)  # rivalry measured among predators counting fully
     def test_the_more_empathetic_a_predator_the_more_rivals_it_tolerates(self):
         simulation = Simulation(width=30, height=30, population=0, seed=3)
         callous = simulation._add_agent(encode_dna("predator", empathy=0), 15, 15)
@@ -913,6 +915,7 @@ class NewTraitTests(unittest.TestCase):
         caring.mind["empathy"] = 3.5                         # learned callousness: tolerates three
         self.assertAlmostEqual(simulation._territory(caring)[0], 2 / 3)
 
+    @patch("tools.Simulation.PACK_RIVALRY", 1.0)  # rivalry measured among predators counting fully
     def test_predators_count_only_predators_as_rivals_for_their_territory(self):
         simulation = Simulation(width=30, height=30, population=0, seed=3)
         predator = simulation._add_agent(encode_dna("predator", empathy=0), 15, 15)  # tolerates one rival
@@ -1125,7 +1128,7 @@ class NewTraitTests(unittest.TestCase):
         self.simulation._think(near)
         self.assertIsNone(near.alarm)
 
-    def test_a_pack_strikes_harder_but_still_counts_as_rivals(self):
+    def test_a_pack_strikes_harder_and_is_no_rival_to_its_own(self):
         simulation = Simulation(width=30, height=30, population=0, seed=3)
         dna = encode_dna("predator", empathy=7, patience=7)
         hunter = simulation._add_agent(dna, 10, 10)
@@ -1143,7 +1146,11 @@ class NewTraitTests(unittest.TestCase):
         for x in range(4, 9):
             simulation._add_agent(dna, x, 10)
         simulation._index_cells()
-        self.assertGreater(simulation._territory(hunter)[1], 0)  # an overgrown pack still crowds it
+        self.assertEqual(simulation._territory(hunter), (0.0, 0.0))  # however large, its pack is no rival
+        for x, y in [(x, 10) for x in range(11, 17)] + [(x, 9) for x in range(12, 15)]:  # but another kind is
+            simulation._add_agent(dna ^ (0xFFFF << 48), x, y)
+        simulation._index_cells()
+        self.assertGreater(simulation._territory(hunter)[0], 0)
 
     def test_each_species_weighs_the_food_it_eats_against_the_mouths_sharing_it(self):
         from tools.Simulation import PACK_MOUTHS, PREY_MEALS
@@ -1426,6 +1433,16 @@ class NewTraitTests(unittest.TestCase):
         self.assertGreaterEqual(3 * self.simulation._damage(hunter, grazer), grazer.max_health)
         self.assertLess(2 * self.simulation._damage(hunter, grazer), grazer.max_health)
 
+    def test_in_defence_grazers_bring_half_their_weapons_omnivores_three_quarters_and_predators_all(self):
+        from tools.Simulation import STRIKE_FORCE
+        target = self.simulation._add_agent(encode_dna("grazer"), 1, 1)
+        for i, (species, share) in enumerate((("grazer", 0.5), ("omnivore", 0.75), ("predator", 1.0))):
+            animal = self.simulation._add_agent(encode_dna(species, weapons=7), 3 + i, 3)
+            force = STRIKE_FORCE * (2 + 9 * animal.might) * (1 - 0.6 * target.toughness)
+            armed = self.simulation._armed(animal)
+            self.assertAlmostEqual(self.simulation._damage(animal, target), force * (1 + 0.75 * armed))
+            self.assertAlmostEqual(self.simulation._damage(animal, target, defending=True), force * (1 + 0.75 * armed * share))
+
     def test_omnivore_weapons_count_three_quarters_and_grazer_weapons_half_a_predators(self):
         from tools.Simulation import PREDATOR_WEAPONS
         armed = {species: self.simulation._armed(self.simulation._add_agent(encode_dna(species, weapons=7), 5, 5 + i))
@@ -1471,6 +1488,39 @@ class NewTraitTests(unittest.TestCase):
             simulation._index_cells()
             offered = ACTIONS.index("breed") in simulation._sense(first)[1]
             self.assertEqual(offered, species == "predator", species)
+
+    def test_a_ready_predator_seeks_a_mate_beyond_its_sight_and_hunters_breed_cheaply(self):
+        seeker = self.simulation._add_agent(encode_dna("predator", sight=0), 2, 2)  # sees two cells
+        mate = self.simulation._add_agent(seeker.dna, 2, 7)  # five away
+        grazer = self.simulation._add_agent(encode_dna("grazer", sight=0), 9, 2)
+        self.simulation._add_agent(grazer.dna, 9, 7)
+        self.simulation._index_cells()
+        self.assertIs(self.simulation._sense(seeker)[2]["suitor"], mate)
+        self.assertIsNone(self.simulation._sense(grazer)[2]["suitor"])  # only predators
+        self.assertAlmostEqual(seeker.breeding_cost, 0.5 * (25 - 15 * seeker.physique("fertility")))
+        self.assertAlmostEqual(grazer.breeding_cost, 25 - 15 * grazer.physique("fertility"))
+
+    def test_each_death_records_its_cause_and_any_killer(self):
+        from display.ColourGraph import death_text
+        hunter = self.simulation._add_agent(encode_dna("predator", size=7, strength=7), 4, 4)
+        prey = self.simulation._add_agent(encode_dna("grazer", weapons=0), 4, 5)
+        starved = self.simulation._add_agent(encode_dna("grazer"), 9, 9)
+        self.simulation._index_cells()
+        prey.health = 0.1
+        self.simulation._attack(hunter, prey)
+        self.assertEqual(self.simulation.death_records[prey.identifier], ("killed", hunter.identifier, "predator"))
+        starved.hunger = 100.5
+        self.simulation._die(starved, "starved")
+        self.assertEqual(self.simulation.death_records[starved.identifier], ("starved", None, None))
+        self.assertEqual(death_text(self.simulation, prey.identifier), f"died: killed by #{hunter.identifier:03d} predator")
+        self.assertEqual(death_text(self.simulation, starved.identifier), "died: starved")
+
+        spiny = self.simulation._add_agent(encode_dna("grazer", weapons=7, size=7), 7, 2)
+        reckless = self.simulation._add_agent(encode_dna("predator"), 7, 3)
+        self.simulation._index_cells()
+        reckless.health = 0.1
+        self.simulation._attack(reckless, spiny)
+        self.assertEqual(self.simulation.death_records[reckless.identifier], ("killed", spiny.identifier, "grazer"))
 
     def test_a_partner_two_cells_away_is_close_enough_to_breed_with(self):
         first = self.simulation._add_agent(encode_dna("predator"), 4, 4)

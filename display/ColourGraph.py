@@ -132,6 +132,15 @@ def build_bars(simulation: Simulation, part: str, chart: pg.Rect, first: int = 0
     return bars, peak
 
 
+def death_text(simulation: Simulation, identifier: int) -> str:
+    """How a Bitzkey died: its cause, and what killed it, when something did."""
+    record = simulation.death_records.get(identifier)
+    if record is None:
+        return "dead"
+    cause, killer, species = record
+    return f"died: {cause}" + ("" if killer is None else f" by #{killer:03d} {species}")
+
+
 def fit_text(text: str, font: pg.font.Font, width: int) -> str:
     """The text, cut short with an ellipsis if it is wider than `width`."""
     if font.size(text)[0] <= width:
@@ -616,8 +625,9 @@ class ColourGraph:
         if hovered is None:
             return chosen
         dna = simulation.lineage[hovered]
-        if hovered not in living:  # remembered by its colour alone
-            return f"{chosen}     |     dead   ring {body_word(dna):08X}   dot {mind_word(dna):08X}"
+        if hovered not in living:  # remembered by its colour, and how it died
+            return (f"{chosen}     |     #{hovered:03d}  {decode_body(dna)['species']}  {death_text(simulation, hovered)}   "
+                    f"ring {body_word(dna):08X}   dot {mind_word(dna):08X}")
         return (f"{chosen}     |     #{hovered:03d}  {decode_body(dna)['species']}  alive   "
                 f"ring {body_word(dna):08X}   dot {mind_word(dna):08X}")
 
