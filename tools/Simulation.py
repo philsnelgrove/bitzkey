@@ -29,7 +29,6 @@ INITIAL_POPULATION = 90
 GRASS_DENSITY = 50      # percent of cells that start with grass
 GRASS_REGROWTH = 0.016  # share of the starting grass that grows back each turn
 MAX_POPULATION = 20000  # the most Bitzkeys spawned at the start; a world's population cap is a setting
-CROWDING_RADIUS = 4    # animals within this many cells count as crowding a would-be parent
 CROWDING_LIMIT = 10    # litters shrink as crowding nears this; at it, an animal doesn't breed; 0: no limit
 SPAWN_GROUP = (3, 5)  # Bitzkeys spawn in groups of this many sharing one genome
 MAX_IMPORTED = 120  # imported Bitzkeys, each spawning a group of its own
@@ -122,7 +121,7 @@ def food_learning(choice: int) -> float:
 HUNTING_INSTINCT = 1.0
 MATE_REACH = 2         # a partner within this many steps is close enough to breed with
 MATING_CALL = 0.5      # how much more a predator ready to breed values breeding, or else courting a mate it sees
-MATING_CALL_RANGE = 6  # a predator ready to breed seeks a mate this far off, beyond its sight
+MATING_CALL_RANGE = 2.0  # a predator ready to breed that sees no mate seeks one this many times its sight off
 OMNIVORE_MATING_CALL = 0.25  # an omnivore's milder mating call
 HUNTER_BREEDING_COST = 0.5  # share of the usual breeding cost a predator or omnivore pays
 NEWBORN_FOOD = 15.0    # parents conceive only as many young as can each start with this much of a stomach of food; 0: no limit
@@ -132,6 +131,7 @@ CARRION_CRAVING = 1.0  # how much more an animal values scavenging carrion it se
                        # nothing up to the middle of the trait's range
 ALERT_JOY = 0.1        # pleasure of alerting its herd: to a hunter, for a grazer; to a fresh kill, for a hunter
 ALARM_REACH = 6        # an alarmed animal knows where the hunter is within this many steps
+SIGHT_PER_TRAIT = 3  # each step of the sight trait lets an animal see this many cells further
 PREDATOR_SIGHT = 3  # predators see prey this many cells further than they otherwise see, up to MAX_PREDATOR_SIGHT
 MAX_PREDATOR_SIGHT = 3
 HUNT_STEPS = 1      # and chase it this many more steps a turn
@@ -145,7 +145,6 @@ PANIC = (0.3, 1.0)     # chance a fully fearful animal breaks when struck, unhur
                        # its current fear scales it, so the fearless never break
 THORN_FORCE = 15       # a plant's counterblow at full weapons and size, before the defender's toughness
 THORN_SIZE_SHARE = 0.2  # share of that from the plant's size; the rest is its weapons, and strength counts for nothing
-TERRITORY_RADIUS = 6   # a hunter's territory: the cells within this many steps
 # For each territorial species: how many rivals it tolerates from the least to the most
 # empathetic, and how strongly overcrowding moves it (its rivalry at most). Omnivores are less
 # territorial, and their empathy counts for more. Who counts as a rival is _rival_weight's to say.
@@ -161,7 +160,6 @@ RIVAL_KILL_JOY = 0.5   # relief at killing a predator in an overcrowded territor
 # Herding: an animal's herd instinct is the lower of its current empathy and patience, 0..1, and
 # scales every effect below. Its herd-mates are animals of its species, and for predators its kind,
 # that it would accept as mates (tolerance widens that).
-HERD_RADIUS = 4        # herd-mates are sought within this many steps
 HERD_SPREAD = 3        # how far from its herd's middle a fearless animal is content; the fearful want the middle
 HERD_JOY = 0.15        # pleasure of being among three or more herd-mates
 HERD_LONELINESS = 0.1  # unease at having no herd-mate in range
@@ -297,7 +295,7 @@ HUNT, ATTACK = ACTIONS.index("hunt"), ACTIONS.index("attack")
 FEAST, SCAVENGE, COURT, BREED = (ACTIONS.index("feast"), ACTIONS.index("scavenge"), ACTIONS.index("court"),
                                  ACTIONS.index("breed"))
 EAT, UPROOT, FEAST = ACTIONS.index("eat"), ACTIONS.index("uproot"), ACTIONS.index("feast")
-MAX_SIGHT = 2 + TRAIT_MAX + MAX_PREDATOR_SIGHT  # the furthest anything is seen: a predator's sight for prey
+MAX_SIGHT = 2 + SIGHT_PER_TRAIT * TRAIT_MAX + MAX_PREDATOR_SIGHT  # the furthest anything is seen: a predator's sight for prey
 SIGHT_OFFSETS = sorted(
     ((dx, dy) for dx in range(-MAX_SIGHT, MAX_SIGHT + 1) for dy in range(-MAX_SIGHT, MAX_SIGHT + 1)
      if 0 < abs(dx) + abs(dy) <= MAX_SIGHT),
@@ -652,7 +650,7 @@ class Bitzkey:
 
     @property
     def sight(self) -> int:
-        return 2 + int(self.body["sight"])
+        return 2 + SIGHT_PER_TRAIT * int(self.body["sight"])
 
     @cached_property
     def genes(self) -> dict[str, float]:
@@ -1309,7 +1307,7 @@ class Simulation:
         prey_sight = sight + (PREDATOR_SIGHT if agent.species == "predator" else 0)
         quarry, hunter, suitor, flora = self._look_around(agent, sight, prey_sight)
         if suitor is None and agent.species == "predator" and agent.can_breed:  # the mating call reaches further
-            suitor = next((other for other in self._nearby(agent, MATING_CALL_RANGE)
+            suitor = next((other for other in self._nearby(agent, int(MATING_CALL_RANGE * sight))
                            if self._compatible(agent, other) and other.can_breed), None)
         assailant = next((other for other in neighbors if other.identifier == agent.assailant), None)
         herd_assailant = next((other for other in neighbors if other.identifier == agent.herd_assailant), None)
@@ -1409,7 +1407,7 @@ class Simulation:
                              else min(1.0, self._damage(agent, defend_target) / defend_target.health)),
             herd_near=min(3, herd_near) / 3,
             herd_closeness=(0.0 if herd_middle is None else
-                            max(0.0, 1 - (abs(herd_middle[0] - agent.x) + abs(herd_middle[1] - agent.y)) / HERD_RADIUS)),
+                            max(0.0, 1 - (abs(herd_middle[0] - agent.x) + abs(herd_middle[1] - agent.y)) / agent.sight)),
             alarm=float(agent.alarm is not None),
             kill_alert=float(alerted_kill is not None),
             herd_success=agent.seen_success,
@@ -1654,9 +1652,9 @@ class Simulation:
             self._defend(plant, agent)
 
     def _alert(self, agent: Bitzkey, about: Bitzkey) -> None:
-        """Alert its herd within HERD_RADIUS: a grazer to the hunter it sees, so they may flee it from
+        """Alert its herd within its sight: a grazer to the hunter it sees, so they may flee it from
         further than they would; a hunter to the fresh kill it sees, so they may come to feast on it."""
-        for other in self._nearby(agent, HERD_RADIUS):
+        for other in self._nearby(agent, agent.sight):
             if self._herd_mate(agent, other):
                 if agent.species == "grazer":
                     if other.alarm is None:
@@ -1962,10 +1960,10 @@ class Simulation:
         return float("inf") if self.population_cap is None else self.population_cap - self._population
 
     def _crowding(self, agent: Bitzkey, partner: Bitzkey, own_kind: bool = False) -> int:
-        """How many other animals, besides its partner, live within CROWDING_RADIUS cells; with `own_kind`,
+        """How many other animals, besides its partner, live within its sight; with `own_kind`,
         only those of its own kind."""
         return sum(other.species != "plant" and other is not partner and (not own_kind or self._same_kind(agent, other))
-                   for other in self._nearby(agent, CROWDING_RADIUS))
+                   for other in self._nearby(agent, agent.sight))
 
     def _give_birth(self, mother: Bitzkey) -> None:
         """The young it carries are born on the free cells nearest it, as many as there are cells
@@ -2258,9 +2256,9 @@ class Simulation:
                 and (agent.species != "predator" or self._same_kind(agent, other)) and self._willing(agent, other))
 
     def _herd(self, agent: Bitzkey) -> tuple[bool, int, tuple[int, int] | None]:
-        """Its herd: whether any herd-mate is within HERD_RADIUS, how many are within two
+        """Its herd: whether any herd-mate is within its sight, how many are within two
         cells, and the cell at the middle of those in range."""
-        mates = [other for other in self._nearby(agent, HERD_RADIUS) if self._herd_mate(agent, other)]
+        mates = [other for other in self._nearby(agent, agent.sight) if self._herd_mate(agent, other)]
         if not mates:
             return False, 0, None
         close = sum(abs(other.x - agent.x) + abs(other.y - agent.y) <= 2 for other in mates)
@@ -2268,14 +2266,14 @@ class Simulation:
         return True, close, middle
 
     def _territory(self, hunter: Bitzkey) -> tuple[float, float]:
-        """How overcrowded a hunter's territory is, with all its rivals and with its own species
+        """How overcrowded a hunter's territory, the cells within its sight, is, with all its rivals and with its own species
         alone: nothing up to the rivals it will tolerate, fewer the less empathetic it is, then
         rising over TERRITORY_RAMP more to its species' strength of territorial feeling. A predator's pack-mates
         count only PACK_RIVALRY each: its pack mentality overcomes rivalry."""
         (fewest, most), strength = TERRITORY[hunter.species]
         tolerated = fewest + (most - fewest) * hunter.feeling("empathy")
         rivals = own = 0.0
-        for other in self._nearby(hunter, TERRITORY_RADIUS):
+        for other in self._nearby(hunter, hunter.sight):
             pack = PACK_RIVALRY if hunter.species == "predator" and self._herd_mate(hunter, other) else 1.0
             rivals += self._rival_weight(hunter, other) * pack
             own += (other.species == hunter.species) * pack

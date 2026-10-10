@@ -87,7 +87,6 @@ _TABLE: dict[str, list[tuple]] = {
         ("GESTATION.1", "Longest gestation", "turns the largest animals carry their young", 1, 500, 1),
         ("BIRTH_REACH", "Birth reach", "young are born on free cells up to this many cells from their mother", 1, 5, 1),
         ("PLANT_GESTATION", "Plant gestation", "turns a seed lies in the ground before it can sprout", 0, 500, 1),
-        ("CROWDING_RADIUS", "Crowding radius", "animals within this many cells crowd a would-be parent", 1, 12, 1),
         ("CROWDING_LIMIT", "Crowding limit", "litters shrink as crowding nears this; at it, no breeding; 0: no limit", 0, 100, 1),
         ("FORAGE_RADIUS", "Forage radius", "food and mouths are weighed within this many cells", 1, 12, 1),
         ("FOOD_NEEDED", "Food needed", "meals each mouth needs nearby to breed; twice this for a full litter; 0: no limit",
@@ -156,7 +155,7 @@ _TABLE: dict[str, list[tuple]] = {
          0.0, 1.0, 0.05),
         ("MATE_REACH", "Mate reach", "steps within which a partner is close enough to breed with", 1, 5, 1),
         ("MATING_CALL", "Mating call", "how much more a predator ready to breed values breeding, or else courting a mate it sees", 0.0, 5.0, 0.05),
-        ("MATING_CALL_RANGE", "Mating call range", "steps a predator ready to breed seeks a mate, beyond its sight", 0, 20, 1),
+        ("MATING_CALL_RANGE", "Mating call range", "times its sight a predator ready to breed seeks a mate, when it sees none", 0.0, 3.0, 0.25),
         ("OMNIVORE_MATING_CALL", "Mating call, omnivores", "how much more an omnivore ready to breed values breeding, or else courting", 0.0, 5.0, 0.05),
         ("HUNTER_BREEDING_COST", "Breeding cost, hunters", "share of the usual breeding cost a predator or omnivore pays", 0.0, 1.0, 0.05),
         ("NEWBORN_FOOD", "Newborn food", "food, as a share of a stomach, each young must start with: parents conceive no more young than they can give this; 0: no limit",
@@ -209,7 +208,6 @@ _TABLE: dict[str, list[tuple]] = {
          0.0, 1.0, 0.05),
     ],
     "Territory": [
-        ("TERRITORY_RADIUS", "Territory radius", "a hunter's territory: the cells within this many steps", 1, 12, 1),
         ("TERRITORY_RAMP", "Territory ramp", "rivals past the limit that bring rivalry to its full strength", 1, 20, 1),
         ("RIVAL_UNEASE", "Rival unease", "discomfort of a fully overcrowded territory", 0.0, 5.0, 0.05),
         ("PACK_RIVALRY", "Pack rivalry", "how much a predator's pack-mates count as rivals crowding its territory", 0.0, 1.0, 0.05),
@@ -230,7 +228,6 @@ _TABLE: dict[str, list[tuple]] = {
          0.0, 2.0, 0.05),
     ],
     "Herding": [
-        ("HERD_RADIUS", "Herd radius", "herd-mates are sought within this many steps", 1, 12, 1),
         ("HERD_SPREAD", "Herd spread", "how far from the herd's middle a fearless animal is content", 0, 12, 1),
         ("HERD_JOY", "Herd joy", "pleasure of being among three or more herd-mates", 0.0, 5.0, 0.05),
         ("HERD_LONELINESS", "Herd loneliness", "unease at having no herd-mate in range", 0.0, 5.0, 0.05),

@@ -916,7 +916,7 @@ class NewTraitTests(unittest.TestCase):
     @patch("tools.Simulation.PACK_RIVALRY", 1.0)  # rivalry measured among predators counting fully
     def test_a_predators_territory_grows_rivalrous_past_a_few_other_predators(self):
         simulation = Simulation(width=30, height=30, population=0, seed=3)
-        predator = simulation._add_agent(encode_dna("predator", empathy=0), 15, 15)  # tolerates just one other
+        predator = simulation._add_agent(encode_dna("predator", empathy=0, sight=1), 15, 15)  # tolerates just one other, within five cells
         for count, x in enumerate((10, 11, 12, 18), start=1):
             simulation._add_agent(encode_dna("predator"), x, 15)
             simulation._add_agent(encode_dna("grazer"), x, 16)  # other animals don't count
@@ -930,8 +930,8 @@ class NewTraitTests(unittest.TestCase):
     @patch("tools.Simulation.PACK_RIVALRY", 1.0)  # rivalry measured among predators counting fully
     def test_the_more_empathetic_a_predator_the_more_rivals_it_tolerates(self):
         simulation = Simulation(width=30, height=30, population=0, seed=3)
-        callous = simulation._add_agent(encode_dna("predator", empathy=0), 15, 15)
-        caring = simulation._add_agent(encode_dna("predator", empathy=7), 15, 16)
+        callous = simulation._add_agent(encode_dna("predator", empathy=0, sight=1), 15, 15)  # territories of five cells
+        caring = simulation._add_agent(encode_dna("predator", empathy=7, sight=1), 15, 16)
         for x in (12, 13, 17, 18):
             simulation._add_agent(encode_dna("predator"), x, 15)
         simulation._index_cells()
@@ -944,7 +944,7 @@ class NewTraitTests(unittest.TestCase):
     @patch("tools.Simulation.PACK_RIVALRY", 1.0)  # rivalry measured among predators counting fully
     def test_predators_count_only_predators_as_rivals_for_their_territory(self):
         simulation = Simulation(width=30, height=30, population=0, seed=3)
-        predator = simulation._add_agent(encode_dna("predator", empathy=0), 15, 15)  # tolerates one rival
+        predator = simulation._add_agent(encode_dna("predator", empathy=0, sight=1), 15, 15)  # tolerates one rival, within five cells
         for x in (12, 13, 17):
             simulation._add_agent(encode_dna("predator"), x, 15)
         simulation._add_agent(encode_dna("omnivore"), 16, 15)  # omnivores and grazers are prey, not rivals
@@ -954,8 +954,8 @@ class NewTraitTests(unittest.TestCase):
 
     def test_omnivores_are_territorial_at_half_strength_and_more_by_empathy(self):
         simulation = Simulation(width=30, height=30, population=0, seed=3)
-        callous = simulation._add_agent(encode_dna("omnivore", empathy=0), 15, 15)   # tolerates two
-        caring = simulation._add_agent(encode_dna("omnivore", empathy=7), 15, 16)    # tolerates ten
+        callous = simulation._add_agent(encode_dna("omnivore", empathy=0, sight=1), 15, 15)   # tolerates two, within five cells
+        caring = simulation._add_agent(encode_dna("omnivore", empathy=7, sight=1), 15, 16)    # tolerates ten
         for x in (10, 11, 12, 18, 19, 20):
             simulation._add_agent(encode_dna("omnivore"), x, 15)
         simulation._index_cells()
@@ -1065,7 +1065,7 @@ class NewTraitTests(unittest.TestCase):
 
     def test_the_herd_action_moves_toward_the_middle_of_the_herd(self):
         dna = encode_dna("grazer", empathy=7, patience=7)
-        animal = self.simulation._add_agent(encode_dna("grazer", empathy=7, patience=7, fear=7), 2, 5)
+        animal = self.simulation._add_agent(encode_dna("grazer", empathy=7, patience=7, fear=7, sight=1), 2, 5)  # sees its herd four off
         for x, y in ((5, 4), (5, 6), (6, 5)):
             self.simulation._add_agent(dna, x, y)
         self.simulation._index_cells()
@@ -1079,8 +1079,8 @@ class NewTraitTests(unittest.TestCase):
         dna = encode_dna("grazer", empathy=7, patience=7)
         for x, y in ((6, 4), (6, 6), (7, 5)):
             self.simulation._add_agent(dna, x, y)
-        fearful = self.simulation._add_agent(encode_dna("grazer", empathy=7, patience=7, fear=7), 5, 5)
-        fearless = self.simulation._add_agent(encode_dna("grazer", empathy=7, patience=7, fear=0), 4, 5)
+        fearful = self.simulation._add_agent(encode_dna("grazer", empathy=7, patience=7, fear=7, sight=1), 5, 5)
+        fearless = self.simulation._add_agent(encode_dna("grazer", empathy=7, patience=7, fear=0, sight=1), 4, 5)
         self.simulation._index_cells()
         herd = ACTIONS.index("herd")
         self.assertIn(herd, self.simulation._sense(fearful)[1])       # one step from the middle is too far
@@ -1156,7 +1156,7 @@ class NewTraitTests(unittest.TestCase):
 
     def test_a_pack_strikes_harder_and_is_no_rival_to_its_own(self):
         simulation = Simulation(width=30, height=30, population=0, seed=3)
-        dna = encode_dna("predator", empathy=7, patience=7)
+        dna = encode_dna("predator", empathy=7, patience=7, sight=1)  # its territory: five cells
         hunter = simulation._add_agent(dna, 10, 10)
         prey = simulation._add_agent(encode_dna("grazer", size=7), 10, 11)
         simulation._index_cells()
@@ -1519,9 +1519,9 @@ class NewTraitTests(unittest.TestCase):
 
     def test_a_ready_predator_seeks_a_mate_beyond_its_sight_and_hunters_breed_cheaply(self):
         seeker = self.simulation._add_agent(encode_dna("predator", sight=0), 2, 2)  # sees two cells
-        mate = self.simulation._add_agent(seeker.dna, 2, 7)  # five away
+        mate = self.simulation._add_agent(seeker.dna, 2, 6)  # four away: twice its sight
         grazer = self.simulation._add_agent(encode_dna("grazer", sight=0), 9, 2)
-        self.simulation._add_agent(grazer.dna, 9, 7)
+        self.simulation._add_agent(grazer.dna, 9, 6)
         self.simulation._index_cells()
         self.assertIs(self.simulation._sense(seeker)[2]["suitor"], mate)
         self.assertIsNone(self.simulation._sense(grazer)[2]["suitor"])  # only predators
@@ -2175,7 +2175,7 @@ class NewTraitTests(unittest.TestCase):
     @patch("tools.Simulation.NEWBORN_FOOD", 0.0)  # no limit from the energy given
     def test_crowding_shrinks_litters_and_at_its_limit_stops_breeding(self):
         simulation = Simulation(width=30, height=30, population=0, seed=3)
-        dna = encode_dna("grazer", fertility=7, litter=7)  # a litter of six where there is room
+        dna = encode_dna("grazer", fertility=7, litter=7, sight=1)  # a litter of six where there is room; sees five cells
         first = simulation._add_agent(dna, 15, 15)
         second = simulation._add_agent(dna, 15, 16)
         neighbours = [simulation._add_agent(dna, 15 + dx, 12) for dx in (-2, -1, 0, 1, 2)]
@@ -2183,7 +2183,7 @@ class NewTraitTests(unittest.TestCase):
         simulation._population = len(simulation.agents)
 
         deliver(simulation, first, second, litter=None)
-        self.assertEqual(len(simulation.agents) - 7, 4)  # six young, cut by the three of its kind within four cells
+        self.assertEqual(len(simulation.agents) - 7, 3)  # six young, cut by the five of its kind within its sight
 
         first.cooldown = second.cooldown = 0
         first.hunger = second.hunger = 0

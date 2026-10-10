@@ -255,11 +255,11 @@ class EffectTests(unittest.TestCase):
 class SenseTests(unittest.TestCase):
     def test_an_animal_senses_how_far_it_is_from_home_and_how_close_home_weather_is(self):
         simulation = world(turn=240)
-        grazer = simulation._add_agent(encode_dna("grazer", temperature=COLD, sight=7), 50, 23)
+        grazer = simulation._add_agent(encode_dna("grazer", temperature=COLD, sight=2), 50, 23)  # sees 8 rows
         self.assertEqual(simulation._comfort_row(grazer, grazer.sight), (50, 19))  # the arctic, four rows north
         senses = simulation._sense(grazer)[0]
         self.assertEqual(senses[SENSES.index("climate_discomfort")], 0.5)  # temperate: a step too warm
-        self.assertAlmostEqual(senses[SENSES.index("comfort_closeness")], 1 - 3 / 9)
+        self.assertAlmostEqual(senses[SENSES.index("comfort_closeness")], 1 - 3 / 8)
 
         at_home = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM), 50, 30)
         senses = simulation._sense(at_home)[0]
@@ -274,7 +274,7 @@ class SenseTests(unittest.TestCase):
 
     def test_an_animal_sees_the_wave_coming_as_a_staircase_of_warmth(self):
         simulation = world(turn=117)  # the temperate zone's winter front at rows 30 to 37
-        grazer = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM, sight=7), 50, 32)  # sees 9 rows
+        grazer = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM, sight=2), 50, 32)  # sees 8 rows
         senses = simulation._sense(grazer)[0]
         warmth = [senses[SENSES.index(name)] for name in ("warmth_north", "warmth", "warmth_south")]
         for sensed, expected in zip(warmth, (-0.5, -0.3, 0.0)):  # cold behind it, part way here, the equator's turned mild
@@ -283,12 +283,12 @@ class SenseTests(unittest.TestCase):
 
     def test_an_animal_senses_where_it_is_and_how_warm_it_is_here_north_and_south(self):
         simulation = world(turn=0)  # mild: arctic rows 0-19, temperate 20-39, equator 40-59
-        grazer = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM, sight=7), 50, 35)  # sees 9 rows
+        grazer = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM, sight=2), 50, 35)  # sees 8 rows
         senses = simulation._sense(grazer)[0]
         sensed = {name: senses[SENSES.index(name)] for name in ("latitude", "warmth", "warmth_north", "warmth_south")}
         self.assertEqual(sensed, {"latitude": 2 * 35.5 / 100 - 1, "warmth": 0.0, "warmth_north": 0.0,
-                                  "warmth_south": 0.5})  # row 26 temperate, row 44 the equator
-        cold = simulation._add_agent(encode_dna("grazer", temperature=HOT, sight=7), 50, 3)
+                                  "warmth_south": 0.5})  # row 27 temperate, row 43 the equator
+        cold = simulation._add_agent(encode_dna("grazer", temperature=HOT, sight=2), 50, 3)
         senses = simulation._sense(cold)[0]
         self.assertEqual([senses[SENSES.index(name)] for name in ("warmth", "warmth_north", "warmth_south")],
                          [-1.0, -1.0, -1.0])  # two steps too cold, north to the map's edge too
@@ -362,13 +362,13 @@ class SenseTests(unittest.TestCase):
 
     def test_foraging_and_herding_never_lead_further_from_home(self):
         simulation = world(turn=0)  # row 40 is the hot equator, rows 20-39 temperate
-        grazer = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM, sight=7), 50, 38)
+        grazer = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM, sight=2), 50, 38)
         simulation.grass.update({(50, 41): 1, (50, 33): 1})
         self.assertEqual(simulation._nearest_grass(grazer, grazer.sight), (50, 33))  # past the nearer, hot one
-        hot = simulation._add_agent(encode_dna("grazer", temperature=HOT, sight=7), 50, 42)
+        hot = simulation._add_agent(encode_dna("grazer", temperature=HOT, sight=2), 50, 42)
         self.assertEqual(simulation._nearest_grass(hot, hot.sight), (50, 41))  # it is at home there
 
-        herder = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM, empathy=7, patience=7), 70, 36)
+        herder = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM, empathy=7, patience=7, sight=1), 70, 36)  # sees 5 cells
         mates = [simulation._add_agent(herder.dna, 70 + dx, 40) for dx in (-1, 0, 1)]  # on the equator
         simulation._index_cells()
         options, situation = simulation._sense(herder)[1:]
@@ -410,12 +410,12 @@ class SocietyTests(unittest.TestCase):
         return animal
 
     def test_herd_mates_in_sight_learn_from_a_death_and_feel_it_by_empathy_and_intellect(self):
-        bright = encode_dna("grazer", empathy=7, intellect=7, sight=3)
+        bright = encode_dna("grazer", empathy=7, intellect=7, sight=1)  # sees 5 cells
         dying = self.decided(self.simulation._add_agent(bright, 50, 50))
         witness = self.simulation._add_agent(bright, 50, 53)  # three cells off: in sight
-        dull = self.simulation._add_agent(encode_dna("grazer", empathy=7, intellect=0, sight=3), 51, 50)
+        dull = self.simulation._add_agent(encode_dna("grazer", empathy=7, intellect=0, sight=1), 51, 50)
         far = self.simulation._add_agent(bright, 50, 59)  # out of sight
-        stranger = self.simulation._add_agent(encode_dna("omnivore", empathy=7, intellect=7, sight=3), 49, 50)
+        stranger = self.simulation._add_agent(encode_dna("omnivore", empathy=7, intellect=7, sight=1), 49, 50)
         self.simulation._index_cells()
         with patch.object(witness.brain, "learn") as learns:
             dying.health = 0
