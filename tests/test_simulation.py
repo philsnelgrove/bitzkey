@@ -1424,10 +1424,10 @@ class NewTraitTests(unittest.TestCase):
         self.assertGreater(Simulation.disparity(grazer, brute), 0.9)
         self.assertEqual(Simulation.disparity(brute, grazer), 0.0)  # the stronger feels none
         self.assertGreater(Simulation.disparity(grazer, brute), Simulation.disparity(grazer, weakling))
-        with patch.object(self.simulation.random, "random", return_value=0.3):  # under a half, over a sixth
+        with patch.object(self.simulation.random, "random", return_value=0.8):  # under the grazer's chance, over two thirds
             self.assertTrue(self.simulation._primal_fear(grazer, brute))
             small = self.simulation._add_agent(encode_dna("predator", size=0), 8, 1)
-            self.assertFalse(self.simulation._primal_fear(small, brute))  # a predator is a third as susceptible
+            self.assertFalse(self.simulation._primal_fear(small, brute))  # a predator is two thirds as susceptible
         self.assertTrue(self.simulation._primal_fear(grazer, brute))  # it lasts while a hunter is in sight
         self.assertFalse(self.simulation._primal_fear(grazer, None))  # and passes when none is
         self.assertFalse(grazer.primal_fear)

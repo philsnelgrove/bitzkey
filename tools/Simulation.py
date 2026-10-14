@@ -193,12 +193,12 @@ SIGHT_PER_TRAIT = 3  # each step of the sight trait lets an animal see this many
 PREDATOR_SIGHT = 3  # predators see prey this many cells further than they otherwise see, up to MAX_PREDATOR_SIGHT
 MAX_PREDATOR_SIGHT = 3
 HUNT_STEPS = 1      # and chase it this many more steps a turn
-PRIMAL_FEAR = 0.5
+PRIMAL_FEAR = 1.0
 PREDATOR_INTELLIGENCE = 2.0  # a predator's intellect counts this many times over in all it does, up to the full range
 PREDATOR_FEAR = 0.5  # a predator feels this share of its fear's effects: dread, panic, keeping close to its herd
 PREDATOR_LOOMS = 2   # sizing up a fight for primal fear, a predator counts as this many steps larger and stronger
-PRIMAL_FEAR_PREDATORS = 1 / 3
-PRIMAL_FREEZE = 0.5
+PRIMAL_FEAR_PREDATORS = 2 / 3
+PRIMAL_FREEZE = 1.0
 PANIC = (0.3, 1.0)     # chance a fully fearful animal breaks when struck, unhurt and near death;
                        # its current fear scales it, so the fearless never break
 THORN_FORCE = 15       # a plant's counterblow at full weapons and size, before the defender's toughness
