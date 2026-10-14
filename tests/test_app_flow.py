@@ -45,6 +45,25 @@ class SimulationFlowTests(unittest.TestCase):
         pg.event.clear()
         pg.display.quit()  # leave no window behind for other tests
 
+    def test_the_advanced_button_pauses_and_sets_the_rules_this_world_plays_by(self):
+        from unittest.mock import patch
+        from tools import Rules
+        from tools import Simulation as world
+        self.app.playing = True
+        self.app._draw()  # lays out the footer's buttons
+        try:
+            with patch("Main.AdvancedScreen") as panel:
+                panel.return_value.run.return_value = ("apply", {"CORPSE_TURNS": 7, "GRASS_REGROWTH": 0.05})
+                self.app._click(self.app._advanced_button.center)
+            self.assertTrue(panel.call_args.kwargs["running"])  # this world's rules, as they stand
+            self.assertEqual(panel.call_args.args[1], Rules.DEFAULTS)  # opened on the rules the world had
+            self.assertFalse(self.app.playing)
+            self.assertEqual(world.CORPSE_TURNS, 7)
+            self.assertAlmostEqual(self.app.simulation.grass_regrowth, self.app.simulation._initial_grass * 0.05)
+            self.assertIn("2 rules changed", self.app.message)
+        finally:
+            Rules.apply({})
+
     def test_selecting_a_bitzkey_closes_the_insights_panel(self):
         self.app.show_insights = True
         board, cell_width, cell_height = self.app._board_geometry()

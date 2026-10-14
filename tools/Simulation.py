@@ -831,6 +831,7 @@ class Simulation:
         self._update_climate()
         self.grass: dict[tuple[int, int], int] = {}
         initial_grass = round(width * height * grass_density / 100)
+        self._initial_grass = initial_grass  # what grows back each turn is a share of it
         self.grass_regrowth = initial_grass * GRASS_REGROWTH
         self._sow(initial_grass)
         sizes = self._group_sizes(population)
@@ -848,6 +849,14 @@ class Simulation:
         self._witnessed: list[tuple] = []
         self._take_census()
         self._record()
+
+    def rules_changed(self) -> None:
+        """The advanced rules were changed while the world runs: work out afresh what the world
+        settled from them as it began, the grass that grows back each turn and its climate bands.
+        Everything else reads the rules as it goes."""
+        self.grass_regrowth = self._initial_grass * GRASS_REGROWTH
+        self._band_of_row = []  # the bands are worked out again as the cells are next indexed
+        self._update_climate()
 
     @property
     def living(self) -> list[Bitzkey]:

@@ -1,5 +1,6 @@
 """The advanced panel: every tunable rule of the simulation, by group, opened from the
-configuration panel. Applying it sets the rules the next world plays by."""
+configuration panel, where applying it sets the rules the next world plays by, or from the map,
+where it sets the rules of the world running there."""
 
 from __future__ import annotations
 
@@ -18,8 +19,9 @@ MAX_CHARACTERS = 12
 class AdvancedForm:
     """Every rule's value, the focused rule, and any number being typed into it."""
 
-    def __init__(self, values: Mapping[str, float]):
+    def __init__(self, values: Mapping[str, float], locked: Mapping[str, str] | None = None):
         self.values = {rule.key: values.get(rule.key, Rules.DEFAULTS[rule.key]) for rule in RULES}
+        self.locked = Rules.LOCKED if locked is None else locked  # rules not to be changed here, and why
         self.focus = 0
         self.typed: str | None = None  # partial input for the focused rule; None shows its value
 
@@ -47,7 +49,7 @@ class AdvancedForm:
         self.select(self.focus + offset)
 
     def adjust(self, steps: int) -> None:
-        if self.focused.key in Rules.LOCKED:  # not to be changed here
+        if self.focused.key in self.locked:  # not to be changed here
             return
         self._settle()
         rule = self.focused
@@ -57,7 +59,7 @@ class AdvancedForm:
         """Digits, a decimal point for fractional rules, and a leading minus where values may be
         negative."""
         rule = self.focused
-        if rule.key in Rules.LOCKED:
+        if rule.key in self.locked:
             return
         typed = self.typed or ""
         for character in text:
@@ -67,7 +69,7 @@ class AdvancedForm:
         self.typed = typed[:MAX_CHARACTERS] if typed else self.typed
 
     def backspace(self) -> None:
-        if self.focused.key in Rules.LOCKED:
+        if self.focused.key in self.locked:
             return
         self.typed = (self.text(self.focused))[:-1]
 
@@ -103,9 +105,11 @@ class AdvancedScreen:
     ROW_HEIGHT = 44
     HEADING_HEIGHT = 34
 
-    def __init__(self, screen: pg.Surface, values: Mapping[str, float]):
+    def __init__(self, screen: pg.Surface, values: Mapping[str, float], running: bool = False):
+        """`running`: the rules of the world running on the map, rather than of the next new world."""
         self.screen = screen
-        self.form = AdvancedForm(values)
+        self.running = running
+        self.form = AdvancedForm(values, {**Rules.WORLD_LOCKED, **Rules.LOCKED} if running else None)
         self.scroll = 0
         self.clock = pg.time.Clock()
         self.note = ""
@@ -301,13 +305,15 @@ class AdvancedScreen:
         pg.draw.rect(self.screen, (80, 99, 85), card, 1, border_radius=UI(8))
         title = self.bold.render("BITZKEY", True, (229, 239, 220))
         self.screen.blit(title, (card.left + UI(28), card.top + UI(24)))
-        self._text("NEW WORLD  /  ADVANCED RULES", (card.left + UI(52) + title.get_width(), card.top + UI(33)),
+        self._text("THIS WORLD  /  ADVANCED RULES" if self.running else "NEW WORLD  /  ADVANCED RULES",
+                   (card.left + UI(52) + title.get_width(), card.top + UI(33)),
                    (144, 170, 151), self.small)
         lines = self._law_lines(card.width - UI(56))
         for index, line in enumerate(lines):
             self._text(line, (card.left + UI(28), card.top + UI(66) + index * UI(self.LAW_LINE)), (229, 239, 220), self.font)
         changed = len(self.form.changed())
-        self._text(f"The rules the world plays by. {changed} changed from the defaults; changed values show in amber.",
+        whose = "This world plays by these from its next turn." if self.running else "The rules the world plays by."
+        self._text(f"{whose} {changed} changed from the defaults; changed values show in amber.",
                    (card.left + UI(28), card.top + UI(66) + len(lines) * UI(self.LAW_LINE) + UI(6)), (157, 177, 159),
                    self.font)
         for name, label in (("reset", "RESET"), ("reset_all", "RESET ALL")):
@@ -349,8 +355,8 @@ class AdvancedScreen:
             pg.draw.rect(self.screen, (131, 205, 143), row, 1, border_radius=UI(5))
         minus, box, plus = self._buttons(row)
         self._text(rule.label.upper(), (row.left + UI(14), row.top + UI(3)),
-                   (120, 134, 124) if rule.key in Rules.LOCKED else (232, 236, 219), self.font)
-        lock = Rules.LOCKED.get(rule.key)  # not to be changed here: greyed, saying why
+                   (120, 134, 124) if rule.key in self.form.locked else (232, 236, 219), self.font)
+        lock = self.form.locked.get(rule.key)  # not to be changed here: greyed, saying why
         warned = not lock and rule.key in Rules.WARNINGS  # a cost to heed: its hint in amber, the warning in full when chosen
         self._text(self._fit(lock or ("WARNING  " if warned else "") + rule.hint, minus.left - row.left - UI(28)),
                    (row.left + UI(14), row.top + UI(21)),
@@ -365,7 +371,7 @@ class AdvancedScreen:
         changed = self.form.values[rule.key] != Rules.DEFAULTS[rule.key]
         if focused and self.form.typed is not None and pg.time.get_ticks() // 500 % 2:
             shown += "_"
-        label = self.mono.render(shown, True, (96, 110, 100) if rule.key in Rules.LOCKED
+        label = self.mono.render(shown, True, (96, 110, 100) if rule.key in self.form.locked
                                  else (238, 183, 110) if changed else (238, 238, 220))
         self.screen.blit(label, label.get_rect(midright=(box.right - UI(10), box.centery)))
 

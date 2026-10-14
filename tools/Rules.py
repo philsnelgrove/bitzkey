@@ -311,6 +311,12 @@ LOCKED: dict[str, str] = {
     "USE_GPU": "The Python version always thinks on the CPU; the C++ version thinks on a GPU where there is one.",
 }
 
+# Rules a world can't change once it is running, and why: changed on the map, they would wait for the next
+# new world, so they are greyed out there.
+WORLD_LOCKED: dict[str, str] = {
+    "USE_GPU": "A running world keeps thinking where it started; this takes effect in a new world.",
+}
+
 # Warnings shown with a rule, in full when it is chosen: costs it runs up beyond the simulation itself.
 WARNINGS: dict[str, str] = {
     "HISTORY_TURNS": "MEMORY: each turn kept holds the whole world, about 200 KB a brain (some 20 MB a turn with 100 animals), up to the history memory limit",

@@ -104,6 +104,16 @@ zones and an equator too wide to fit the map together); CANCEL
 They hold for every world started from the panel, `R` restarts included, until
 changed again. A seed replays the same world only under the same rules.
 
+ADVANCED in the map's footer, beside OPEN CATALOG, pauses the world and opens the same rules
+as THIS WORLD / ADVANCED RULES, as the world is playing by them. Applied, they hold from its
+next turn, and for its restarts; `SPACE` plays on. Everything the world settled from the rules
+as it began is worked out afresh (the grass that grows back each turn, the climate bands), and
+every rule is read as the world goes, so the change takes hold at once. Think on the GPU is
+greyed out there: a running world thinks where it started. Turns already played are kept as
+they were, so rewinding replays them, though a turn played again after a rewind plays by the
+rules as they now stand. The button turns amber while the world plays by changed rules. A new
+world from the configuration panel plays by the panel's rules again.
+
 To add a setting, add a `Setting` to `SETTINGS` in `display/Setup.py` and a
 parameter with the same name to `BitzkeyApp`. To make another constant in
 `tools/Simulation.py` or `tools/Brain.py` tunable, add a row for it to `_TABLE` in

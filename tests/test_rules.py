@@ -91,6 +91,17 @@ class RulesTests(unittest.TestCase):
         Rules.apply({"CORPSE_TURNS": 1})
         self.assertLess(corpses_kept(40), usual)
 
+    def test_a_running_world_works_out_afresh_what_it_settled_from_the_rules_as_it_began(self):
+        simulation = Simulation(30, 30, 20, seed=3, grass_density=10)  # 90 tufts to start with
+        simulation.advance()
+        bands = len(set(simulation._band_of_row))
+        Rules.apply({"GRASS_REGROWTH": 0.05, "ARCTIC_SHARE": 0.0})  # no arctic: two fewer climate bands
+        simulation.rules_changed()
+        self.assertAlmostEqual(simulation.grass_regrowth, 90 * 0.05)
+        simulation.advance()
+        self.assertEqual(len(set(simulation._band_of_row)), bands - 2)
+        self.assertEqual(Rules.WORLD_LOCKED.keys(), {"USE_GPU"})  # where a world thinks is set as it starts
+
 
 class AdvancedFormTests(unittest.TestCase):
     def test_adjusting_steps_by_the_rule_and_stays_in_range(self):
