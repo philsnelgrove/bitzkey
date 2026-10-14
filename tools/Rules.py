@@ -182,6 +182,8 @@ _TABLE: dict[str, list[tuple]] = {
         ("PANIC.0", "Panic, unhurt", "chance a fully fearful animal breaks when struck, unhurt", 0.0, 1.0, 0.05),
         ("PANIC.1", "Panic, near death", "chance a fully fearful animal breaks when struck, near death",
          0.0, 1.0, 0.05),
+        ("COWARDLY_OMNIVORES", "Cowardly omnivores", "1: an omnivore struck always breaks and flees, whatever its fear; 0: it checks its morale",
+         0, 1, 1),
         ("MATE_REACH", "Mate reach", "steps within which a partner is close enough to breed with", 1, 5, 1),
         ("MATING_CALL", "Mating call", "how much more a predator ready to breed values breeding, or else courting a mate it sees", 0.0, 5.0, 0.05),
         ("MATING_CALL_RANGE", "Mating call range", "times its sight a predator ready to breed seeks a mate, when it sees none", 0.0, 3.0, 0.25),

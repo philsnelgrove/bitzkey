@@ -182,7 +182,8 @@ MATING_CALL = 0.5      # how much more a predator ready to breed values breeding
 MATING_CALL_RANGE = 2.0  # a predator ready to breed that sees no mate seeks one this many times its sight off
 OMNIVORE_MATING_CALL = 0.25  # an omnivore's milder mating call
 HUNTER_BREEDING_COST = 0.5  # share of the usual breeding cost a predator or omnivore pays
-NEWBORN_FOOD = 15.0    # parents conceive only as many young as can each start with this much of a stomach of food; 0: no limit
+NEWBORN_FOOD = 5.0     # parents conceive only as many young as can each start with this much of a stomach of food; 0: no limit
+BREEDING_COST_MOST = 25.0  # the hunger the least fertile pay to breed: the most a parent could give its young
 PACK_MOUTHS = 0.5      # a hunter's pack-mates count as this many mouths each on its food, sharing their kills
 BLOODLUST = 1.0        # how much more a predator values feasting whenever it sees a fresh kill, whatever its hunger
 CARRION_CRAVING = 1.0  # how much more an animal values scavenging carrion it sees, at the highest carrion trait;
@@ -197,10 +198,11 @@ PRIMAL_FEAR = 1.0
 PREDATOR_INTELLIGENCE = 2.0  # a predator's intellect counts this many times over in all it does, up to the full range
 PREDATOR_FEAR = 0.5  # a predator feels this share of its fear's effects: dread, panic, keeping close to its herd
 PREDATOR_LOOMS = 2   # sizing up a fight for primal fear, a predator counts as this many steps larger and stronger
-PRIMAL_FEAR_PREDATORS = 2 / 3
+PRIMAL_FEAR_PREDATORS = 0.0  # predators are never overcome
 PRIMAL_FREEZE = 1.0
 PANIC = (0.3, 1.0)     # chance a fully fearful animal breaks when struck, unhurt and near death;
                        # its current fear scales it, so the fearless never break
+COWARDLY_OMNIVORES = 1  # 1: an omnivore struck always breaks and flees, whatever its fear; 0: it checks its morale
 THORN_FORCE = 15       # a plant's counterblow at full weapons and size, before the defender's toughness
 THORN_SIZE_SHARE = 0.2  # share of that from the plant's size; the rest is its weapons, and strength counts for nothing
 # For each territorial species: how many rivals it tolerates from the least to the most
@@ -788,7 +790,7 @@ class Bitzkey:
     def breeding_cost(self) -> float:
         """Hunger it pays to breed: less the more fertile it is, and HUNTER_BREEDING_COST of that for a hunter."""
         hunter = HUNTER_BREEDING_COST if self.species in ("omnivore", "predator") else 1.0
-        return (25 - 15 * self.physique("fertility")) * hunter
+        return (BREEDING_COST_MOST - 15 * self.physique("fertility")) * hunter
 
     @property
     def can_breed(self) -> bool:
@@ -832,8 +834,7 @@ class Bitzkey:
 def litter_size(parents: Sequence[tuple[int, int]]) -> int:
     """Young per birth, before space limits it, from each parent's (litter trait, size): a high
     litter trait and a small body both make for bigger litters, and the smallest bodies have
-    SMALL_LITTERS times as many, falling evenly to the usual for the largest. Predators have half
-    as many, rounded up."""
+    SMALL_LITTERS times as many, falling evenly to the usual for the largest."""
     smallest, largest = LITTER_RANGE
     tendency = sum((1 - LITTER_SIZE_WEIGHT) * share(litter) + LITTER_SIZE_WEIGHT * (1 - share(size))
                    for litter, size in parents) / len(parents)
@@ -2052,7 +2053,8 @@ class Simulation:
         unhurt, dying = PANIC
         hurt = 1 - max(0.0, victim.health) / victim.max_health
         steadied = 1 - HERD_SAFETY * victim.herd_instinct * min(3, herd_near) / 3
-        if self.random.random() < victim.fearfulness * (unhurt + (dying - unhurt) * hurt) * steadied:
+        coward = victim.species == "omnivore" and COWARDLY_OMNIVORES  # an omnivore struck always breaks
+        if coward or self.random.random() < victim.fearfulness * (unhurt + (dying - unhurt) * hurt) * steadied:
             victim.panicked = True
             self._experience(victim, "panicked")
 
@@ -2124,9 +2126,12 @@ class Simulation:
         # Energy in absolute terms: a share of each parent's stomach, refilled in the young's.
         given = sum(min(cost, max(0.0, 100 - parent.hunger)) * parent.stomach
                     for cost, parent in zip(costs, (first, second)))
-        if NEWBORN_FOOD:  # only as many young as the parents can feed, rather than many born starving
+        if NEWBORN_FOOD:  # only as many young as the parents could feed, rather than many born starving
+            # What the parents could give, BREEDING_COST_MOST of each stomach (or what each has left), whatever they
+            # pay: neither a fertile parent's cheap breeding nor a hunter's halved cost shrinks its litters.
+            could_give = sum(min(BREEDING_COST_MOST, max(0.0, 100 - parent.hunger)) * parent.stomach for parent in (first, second))
             stomach = (first.stomach + second.stomach) / 2
-            litter = max(1, min(litter, int(given / (NEWBORN_FOOD * stomach))))
+            litter = max(1, min(litter, int(could_give / (NEWBORN_FOOD * stomach))))
         litter = max(1, min(litter, self._room()))
         generation = max(first.generation, second.generation) + 1
         for _ in range(litter):

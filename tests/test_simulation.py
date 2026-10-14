@@ -774,10 +774,26 @@ class NewTraitTests(unittest.TestCase):
         self.simulation._index_cells()
         self.simulation._population = 2
 
+        first.hunger = second.hunger = 90  # each with 10% of a stomach left to give
+
         deliver(self.simulation, first, second, litter=None)
 
         # six young by their traits, but 10% of a stomach from each parent feeds only four at 5% each
         self.assertEqual(len(self.simulation.agents), 2 + 4)
+
+    @patch("tools.Simulation.SMALL_LITTERS", 1.0)
+    @patch("tools.Simulation.PLANTS_PER_GRAZER", 0.0)
+    def test_what_parents_could_give_sets_the_litter_not_their_cheap_breeding(self):
+        for species in ("grazer", "predator"):  # the fertile pay little, and a predator half that: no smaller litters
+            simulation = Simulation(width=12, height=12, population=0, seed=3)
+            dna = encode_dna(species, fertility=7, litter=7)
+            first = simulation._add_agent(dna, 5, 5)
+            second = simulation._add_agent(dna, 5, 6)
+            simulation._index_cells()
+            simulation._population = 2
+            with patch("tools.Simulation.PREY_PER_PREDATOR", 0.0):
+                deliver(simulation, first, second, litter=None)
+            self.assertEqual(len(simulation.agents), 2 + 6)  # all six of their traits: 25% each could feed ten at 5%
 
     def test_a_pair_too_poor_to_feed_any_young_at_newborn_food_still_has_one(self):
         dna = encode_dna("grazer", fertility=7, litter=7)
@@ -786,9 +802,11 @@ class NewTraitTests(unittest.TestCase):
         self.simulation._index_cells()
         self.simulation._population = 2
 
+        first.hunger = second.hunger = 98  # 2% of a stomach left each: not enough for one young at 5%
+
         deliver(self.simulation, first, second, litter=None)
 
-        self.assertEqual(len(self.simulation.agents), 2 + 1)  # 20% of a stomach between them: one young at 15%
+        self.assertEqual(len(self.simulation.agents), 2 + 1)  # but always at least one
 
     @patch("tools.Simulation.SMALL_LITTERS", 1.0)
     def test_large_bodies_with_a_low_litter_trait_have_single_young(self):
@@ -2767,3 +2785,25 @@ class PackClimateTests(unittest.TestCase):
         self.assertEqual((situation["quarry"], situation["suitor"]), (prey, partner))
         self.assertNotIn(hunt, options)
         self.assertNotIn(court, options)
+
+
+class CowardTests(unittest.TestCase):
+    def test_an_omnivore_struck_always_breaks_and_a_predator_is_never_overcome(self):
+        simulation = Simulation(width=12, height=12, population=0, seed=3)
+        bold = simulation._add_agent(encode_dna("omnivore", fear=0), 5, 5)  # fearless, and unhurt
+        striker = simulation._add_agent(encode_dna("predator"), 5, 6)
+        grazer = simulation._add_agent(encode_dna("grazer", fear=0), 8, 8)
+        simulation._index_cells()
+        simulation._struck(bold, striker)
+        simulation._struck(grazer, striker)
+        self.assertTrue(bold.panicked)  # a coward, whatever its fear
+        self.assertFalse(grazer.panicked)  # the fearless otherwise never break
+        with patch("tools.Simulation.COWARDLY_OMNIVORES", 0):
+            bold.panicked = False
+            simulation._struck(bold, striker)
+            self.assertFalse(bold.panicked)
+        small = simulation._add_agent(encode_dna("predator", size=0), 2, 2)
+        brute = simulation._add_agent(encode_dna("predator", size=7, strength=7, weapons=7), 2, 4)
+        self.assertGreater(Simulation.disparity(small, brute), 0.5)
+        with patch.object(simulation.random, "random", return_value=0.0):  # the surest roll
+            self.assertFalse(simulation._primal_fear(small, brute))  # a predator is never overcome
