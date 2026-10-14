@@ -1314,7 +1314,8 @@ class NewTraitTests(unittest.TestCase):
         senses, options, _ = simulation._sense(first)
         self.assertIn(breed, options)
         self.assertEqual(senses[home_food], 0.5)  # half of the twice it needs for a full litter
-        self.assertEqual(simulation._sense(simulation.agents[5])[0][home_food], 0.0)  # nothing for an omnivore
+        omnivore = simulation.agents[5]
+        self.assertEqual(simulation._sense(omnivore)[0][home_food], simulation._home_fed(omnivore))  # its own: both foods
 
         deliver(simulation, first, second, litter=None)
 
@@ -2807,3 +2808,32 @@ class CowardTests(unittest.TestCase):
         self.assertGreater(Simulation.disparity(small, brute), 0.5)
         with patch.object(simulation.random, "random", return_value=0.0):  # the surest roll
             self.assertFalse(simulation._primal_fear(small, brute))  # a predator is never overcome
+
+
+class OmnivoreFoodTests(unittest.TestCase):
+    @patch("tools.Simulation.SMALL_LITTERS", 1.0)
+    @patch("tools.Simulation.NEWBORN_FOOD", 0.0)
+    @patch("tools.Simulation.PLANTS_PER_GRAZER", 1.0)
+    @patch("tools.Simulation.PREY_PER_PREDATOR", 1.0)
+    def test_an_omnivores_litters_follow_plants_and_prey_at_home_half_each(self):
+        simulation = Simulation(width=30, height=30, population=0, seed=3)  # temperate bands: rows 6-11 and 18-23
+        dna = encode_dna("omnivore", fertility=7, litter=7)  # at home in the temperate bands
+        first = simulation._add_agent(dna, 15, 8)
+        second = simulation._add_agent(dna, 15, 9)
+        simulation._index_cells()
+        self.assertEqual(simulation._home_fed(first), 0.0)  # nothing to eat at home
+        for x in (2, 4, 6, 8):  # two plants each, twice what a grazer needs: half a full litter from plants alone
+            simulation._add_agent(encode_dna("plant"), x, 7)
+        simulation._index_cells()
+        self.assertEqual(simulation._home_fed(first), 0.5)
+        for x in (10, 12, 14, 16):  # and as much prey: grazers and a predator
+            simulation._add_agent(encode_dna("predator" if x == 16 else "grazer"), x, 11)
+        simulation._index_cells()
+        self.assertEqual(simulation._home_fed(first), 1.0)
+        for plant in [agent for agent in simulation.agents if agent.species == "plant"]:
+            plant.health = 0
+        simulation._index_cells()
+        simulation._population = 2
+        self.assertEqual(simulation._home_fed(first), 0.5)  # prey alone: half
+        deliver(simulation, first, second, litter=None)
+        self.assertEqual(sum(agent.generation == 1 for agent in simulation.agents), 3)  # six by their traits, halved

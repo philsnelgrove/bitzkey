@@ -492,7 +492,7 @@ neural network, and that brain chooses everything it does. Each turn it senses:
   here and at the edge of its sight to the north and to the south
 - how fresh its memory of where it last fed is, and how close it is to where it
   was last struck, while it remembers
-- how well fed its home band is: plants per grazer, or prey per predator (none for omnivores)
+- how well fed its home band is: plants per grazer, prey per predator, or both, half each, for an omnivore
 - its current temperament, mind and social traits
 - its own genome: each of its dot's and social background's traits as born, each
   of its ring's traits (species among them) and its climate genes
@@ -678,6 +678,10 @@ the predators at home there. Scarce prey never stops a predator breeding; below 
 shrinks in proportion, to a single young at the least (Prey per predator, half the prey for a full
 litter; 0 switches it off). Blocking breeding outright below 2 each left predators courting partners
 they could never breed with, turn after turn, for the courting joy, instead of hunting.
+Omnivores' litters follow both foods in their home band, half each: half the share of a full litter its
+plants would give a grazer, and half the share its prey (grazers and predators) would give a predator,
+each counted per omnivore at home there. Like a predator's, scarce food only shrinks an omnivore's
+litters, to a single young at the least; it never stops it breeding.
 Over 80 seeds, predators lasted in 26 worlds rather than 15, 117 of them rather than 47, with no
 fewer worlds keeping their animals. Grazers and predators also sense how well fed their home band
 is, 1 at twice what breeding needs (home food); an omnivore senses 0. Other
