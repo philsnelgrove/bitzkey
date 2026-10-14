@@ -253,6 +253,7 @@ class SimulationTests(unittest.TestCase):
         self.assertAlmostEqual(cold.reward, 3.0)
         self.assertAlmostEqual(mate.reward, 3.0)  # both parents
 
+    @patch("tools.Simulation.PLANTS_PER_GRAZER", 0)  # the plants at home aside
     def test_ready_animals_court_a_willing_mate_they_can_see(self):
         dna = encode_dna("grazer", sight=7)
         suitor = self.simulation._add_agent(dna, 2, 2)
@@ -322,6 +323,7 @@ class SimulationTests(unittest.TestCase):
         agent.hunger, mate.hunger = 0, 85
         self.assertNotIn(breed, self.simulation._sense(agent)[1])
 
+    @patch("tools.Simulation.PLANTS_PER_GRAZER", 0)  # the plants at home aside
     def test_nobody_courts_a_partner_who_cannot_afford_to_breed(self):
         dna = encode_dna("grazer", sight=7, fertility=7)
         suitor = self.simulation._add_agent(dna, 2, 2)
@@ -1285,7 +1287,7 @@ class NewTraitTests(unittest.TestCase):
         breed, home_food = ACTIONS.index("breed"), SENSES.index("home_food")
         self.assertEqual(simulation._home_prey(first), 0.0)
         senses, options, _ = simulation._sense(first)
-        self.assertNotIn(breed, options)
+        self.assertIn(breed, options)  # no prey at home shrinks its litters, but doesn't stop it breeding
         self.assertEqual(senses[home_food], 0.0)
         for x in (2, 4, 6):  # three prey at home: a grazer and two omnivores, shared by two predators
             simulation._add_agent(encode_dna("grazer" if x == 2 else "omnivore"), x, 10)
@@ -1463,7 +1465,7 @@ class NewTraitTests(unittest.TestCase):
 
     def test_the_hunting_instinct_draws_a_hungry_predator_to_its_prey(self):
         predator = self.simulation._add_agent(encode_dna("predator", sight=7), 2, 2)
-        self.simulation._add_agent(encode_dna("grazer", speed=0), 2, 6)
+        self.simulation._add_agent(encode_dna("grazer", speed=0), 6, 2)  # along its own row: no further from home
         self.simulation._index_cells()
         predator.brain = Brain.random(random.Random(1))
         hunts = 0
@@ -2716,3 +2718,52 @@ class SolitaryOmnivoreTests(unittest.TestCase):
             with patch("tools.Simulation.SOLITARY_OMNIVORES", 0):
                 self.assertTrue(simulation._herd_mate(first, second))  # the rule off: they herd again
                 self.assertLess(simulation._comfort(first, lonely), alone)  # and miss their herd
+
+
+class CourtingTests(unittest.TestCase):
+    def test_courting_is_open_and_pays_only_when_breeding_could_follow(self):
+        from tools.Simulation import COURT_JOY
+        simulation = Simulation(width=12, height=12, population=0, seed=3)
+        dna = encode_dna("grazer", fertility=7, sight=2)
+        agent = simulation._add_agent(dna, 2, 5)
+        partner = simulation._add_agent(dna, 6, 5)
+        simulation._index_cells()
+        simulation._population = 2
+        court = ACTIONS.index("court")
+        with patch("tools.Simulation.PLANTS_PER_GRAZER", 1.0):  # no plants at home: breeding couldn't follow
+            self.assertNotIn(court, simulation._sense(agent)[1])
+        with patch("tools.Simulation.PLANTS_PER_GRAZER", 0):
+            _, options, situation = simulation._sense(agent)
+            self.assertIn(court, options)
+            simulation._act(agent, "court", situation)
+            self.assertGreater(agent.reward, 0.5 * COURT_JOY)  # courted into reach, to breed
+            agent.reward = 0.0
+            agent.x = 2
+            simulation._index_cells()
+            _, _, situation = simulation._sense(agent)
+            with patch("tools.Simulation.CROWDING_LIMIT", 1), patch.object(Simulation, "_crowding", return_value=1):
+                simulation._act(agent, "court", situation)  # into reach, but too crowded to breed there
+            self.assertEqual(agent.reward, 0.0)
+
+
+class PackClimateTests(unittest.TestCase):
+    def test_a_pack_courts_and_hunts_only_toward_its_home_temperature_as_a_herd_herds(self):
+        from tools.Simulation import HOT
+        simulation = Simulation(width=100, height=100, population=0, seed=3)  # cold rows 0-19, medium 20-39, hot 40-59
+        dna = encode_dna("predator", temperature=HOT, sight=7, fertility=7)
+        predator = simulation._add_agent(dna, 50, 30)  # a step from home
+        prey = simulation._add_agent(encode_dna("grazer"), 50, 42)
+        partner = simulation._add_agent(dna, 52, 42)
+        simulation._index_cells()
+        simulation._population = 3
+        hunt, court = ACTIONS.index("hunt"), ACTIONS.index("court")
+        _, options, situation = simulation._sense(predator)
+        self.assertEqual((situation["quarry"], situation["suitor"]), (prey, partner))
+        self.assertIn(hunt, options)  # toward home: open
+        self.assertIn(court, options)
+        prey.y = partner.y = 18  # off toward the cold: closed
+        simulation._index_cells()
+        _, options, situation = simulation._sense(predator)
+        self.assertEqual((situation["quarry"], situation["suitor"]), (prey, partner))
+        self.assertNotIn(hunt, options)
+        self.assertNotIn(court, options)

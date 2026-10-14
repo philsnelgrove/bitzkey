@@ -1523,14 +1523,14 @@ class Simulation:
             available.add("scavenge")
         if kill:
             available.add("feast")
-        if suitor:
-            available.add("court")
-        if (mate and agent.can_breed and nurseries and self._room() > 0
-                and (not CROWDING_LIMIT or self._crowding(agent, mate, own_kind=True) < CROWDING_LIMIT)  # its own kind crowds it
-                and (not self._food_needed(agent) or self._food_supply(agent) >= self._food_needed(agent))
-                and self._home_food(agent) >= self._home_food_needed(agent)):  # the food at home: plants, or prey
+        # A pack keeps to its temperature as a herd does: a predator courts and hunts only toward a row no further
+        # from its home temperature than where it stands.
+        pack = agent.species == "predator"
+        if suitor and self._may_breed(agent, suitor) and (not pack or self._homeward(agent, suitor.y, discomfort)):
+            available.add("court")  # courting only a partner it could then breed with
+        if mate and nurseries and self._may_breed(agent, mate):
             available.add("breed")
-        if quarry:
+        if quarry and (not pack or self._homeward(agent, quarry.y, discomfort)):
             available.add("hunt")
         if target:
             available.add("attack")
@@ -1543,7 +1543,7 @@ class Simulation:
                                         > HERD_SPREAD * (1 - agent.fearfulness)):
             # The more fearful it is, the closer it keeps to the herd's middle, but not where the
             # middle is further from its home temperature than here.
-            if agent.climate_steps(self._climate[herd_middle[1]]) <= discomfort:
+            if self._homeward(agent, herd_middle[1], discomfort):
                 available.add("herd")
         uprootable = None
         if agent.species == "grazer" and agent.hunger >= UPROOT_HUNGER:
@@ -1771,9 +1771,9 @@ class Simulation:
             suitor = situation["suitor"]
             self._move_toward(agent, suitor.x, suitor.y)
             agent.last_action = "courted"
-            if (suitor.alive and suitor.can_breed and agent.can_breed
-                    and abs(suitor.x - agent.x) + abs(suitor.y - agent.y) <= MATE_REACH):
-                agent.reward += mating_joy(agent, COURT_JOY)  # courted into reach
+            if (suitor.alive and abs(suitor.x - agent.x) + abs(suitor.y - agent.y) <= MATE_REACH
+                    and self._may_breed(agent, suitor)):
+                agent.reward += mating_joy(agent, COURT_JOY)  # courted into reach, to breed
         elif action == "breed":
             mate = situation["mate"]
             if not (mate.alive and mate.can_breed and agent.can_breed
@@ -2217,6 +2217,20 @@ class Simulation:
             return 0.0
         band = self._home_band[predator.climate[0]][predator.y]
         return self._band_prey[band] / max(1, self._band_predators[band])
+
+    def _homeward(self, agent: Bitzkey, y: int, discomfort: float) -> bool:
+        """Whether heading for row `y` leads no further from the animal's home temperature than where it stands
+        (`discomfort` steps from it)."""
+        return agent.climate_steps(self._climate[y]) <= discomfort
+
+    def _may_breed(self, agent: Bitzkey, partner: Bitzkey) -> bool:
+        """Whether an animal may breed with a partner, all but being close enough and finding a nursery: both
+        ready, room in the world, not crowded by its own kind, food enough about it where that limits breeding,
+        and, for a grazer, plants enough in its home band. A predator's prey at home shrinks its litters instead."""
+        return (agent.can_breed and partner.can_breed and self._room() > 0
+                and (not CROWDING_LIMIT or self._crowding(agent, partner, own_kind=True) < CROWDING_LIMIT)  # its own kind
+                and (not self._food_needed(agent) or self._food_supply(agent) >= self._food_needed(agent))
+                and (agent.species == "predator" or self._home_food(agent) >= self._home_food_needed(agent)))
 
     def _home_food(self, agent: Bitzkey) -> float:
         """The food in its home band per mouth at home there: plants for a grazer, prey for a predator; 0 for

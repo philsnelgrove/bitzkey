@@ -425,7 +425,9 @@ They can head north or south, but there is no action that seeks home out for
 them; any migration emerges from what their brains learn to do with those senses
 and the time of year. Foraging never leads further from home: an animal ignores
 grass in rows whose temperature is further from home than where it stands, and
-doesn't herd toward a herd whose middle is.
+doesn't herd toward a herd whose middle is. A predator's pack keeps to its temperature the same
+way: it doesn't court a partner, or hunt prey, in a row whose temperature is further from its home
+than where it stands, so chasing and courting no longer lead it off to freeze or overheat.
 
 The zones' sizes, how much of each season a wave takes to pass and how wide its bands and front are, the food and health penalties, how much food a plant gives out
 of its temperature, how fast grass dies back, how long seeds wait, how common
@@ -622,7 +624,10 @@ remembered are advanced rules (the Society group).
 Breeding is the greatest pleasure there is, so every species learns to seek it: 4 for each parent
 (Breeding joy), three quarters of it whatever its libido. Courting is the next: 2.5 for a courting
 move that brings a ready, willing partner within reach to breed (Courting joy), so it is learnt
-for what it leads to and can't be farmed by chasing a mate it never reaches. The strongest pleasure
+for what it leads to and can't be farmed by chasing a mate it never reaches. Courting is open, and
+pays, only toward a partner it could then breed with: both ready, room in the world, not too crowded
+by its own kind, food enough about it where that limits breeding, and, for a grazer, plants enough in
+its home band; only being close enough is left for the courting to bring about. The strongest pleasure
 besides is a predator's feasting, at 1.5. Neither costs anything when it fails: a partner that has
 gone, or bred with another first, leaves no penalty. Breeding and courting can also be learnt
 from more strongly than other choices (Breeding learning, Courting learning), but not by default:
@@ -668,9 +673,11 @@ it (Uproot food). Grazers' breeding also follows the plants in their home band: 
 their home temperature nearest them (the nearest arctic band for a very cold home). Its plants are
 shared among the grazers at home there, and with fewer than a tenth of a plant each, a grazer doesn't
 breed; between that and twice it, its litter shrinks in proportion (Plants per grazer; 0 switches it off).
-Predators' breeding follows the prey in their home band in the same way: the grazers and omnivores
-there, shared among the predators at home there. With fewer than 2 each, a predator doesn't breed;
-between that and 4 each, its litter shrinks in proportion (Prey per predator; 0 switches it off).
+Predators' litters follow the prey in their home band: the grazers and omnivores there, shared among
+the predators at home there. Scarce prey never stops a predator breeding; below 4 each, its litter
+shrinks in proportion, to a single young at the least (Prey per predator, half the prey for a full
+litter; 0 switches it off). Blocking breeding outright below 2 each left predators courting partners
+they could never breed with, turn after turn, for the courting joy, instead of hunting.
 Over 80 seeds, predators lasted in 26 worlds rather than 15, 117 of them rather than 47, with no
 fewer worlds keeping their animals. Grazers and predators also sense how well fed their home band
 is, 1 at twice what breeding needs (home food); an omnivore senses 0. Other
