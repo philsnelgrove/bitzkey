@@ -789,7 +789,8 @@ whole run at its whole height again.
 
 Hovering over a dead Bitzkey's slice shows how it died: the cause, and, when something killed it
 (a hunter, a defender, a victim's spines, or a grazer eating or uprooting a plant), that killer's
-number and species.
+number and species and what it was doing: hunting, attacking, defending, browsing, uprooting, or spines
+(struck, its spines killed its attacker), as in "died: killed by #012 predator, hunting".
 
 Pick Bitzkeys straight from the graph. Only the living can be picked, and one
 that dies drops out of the selection:
@@ -905,9 +906,16 @@ sidebar, or drag the scroll bar on its right edge. It shows, by species:
   raised it above the inborn average and amber where it has lowered it.
 - Keenest by action: for every action, the trait group most likely to take it.
 
-DEATH REPORT, at the top of the insights panel, opens a table of every death in the world so far: a row
-for each cause, the most common first, a column for each species, and the totals. It keeps to the turn
-shown, so rewinding takes back the deaths after it.
+DEATH REPORT, at the top of the insights panel, opens a report of every death in the world so far,
+gathered from the record of each death the graph keeps, back to the world's start:
+- the causes: a row for each cause, the most common first, a column for each species of the dead, and the totals;
+- who killed whom: a row for each species of the dead, a column for each species of their killers;
+- what the killers were doing: a row for each activity (hunting, attacking, defending, browsing, uprooting,
+  spines), the most common first, a column for each species of the killers;
+- the deadliest killers: the ten Bitzkeys with the most kills, each with its kills by what it was doing.
+
+It keeps to the turn shown, so rewinding takes back the deaths after it, and a rewound world changed (by
+a deploy) lets the deaths of the future it had go.
 
 INSPECT BRAINS, beside the selected Bitzkey's heading, pauses the world and opens a matrix of the
 standard situations its species can meet (the same as the brain report's): in each, its chance of

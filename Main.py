@@ -824,7 +824,8 @@ class BitzkeyApp:
         """Every death so far, by cause and species."""
         total = self.simulation.deaths
         self.report = Report("Death report", f"Every death in this world up to turn {self.simulation.turn}: {total} in all, "
-                             "by cause and species.", death_report_lines(self.simulation.death_causes))
+                             "by cause and species, who killed whom and what the killers were doing, and the deadliest "
+                             "killers.", death_report_lines(self.simulation.deaths_so_far()))
 
     def _inspect_brains(self) -> None:
         """Pause, and show the selected Bitzkey's chance of choosing each action in each standard situation."""

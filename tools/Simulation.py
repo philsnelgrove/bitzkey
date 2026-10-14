@@ -10,6 +10,7 @@ import tempfile
 import time
 from collections import deque
 from collections.abc import Mapping, Sequence
+from typing import NamedTuple
 from dataclasses import dataclass, field, replace
 from functools import cache, cached_property, lru_cache
 from itertools import accumulate
@@ -841,6 +842,18 @@ def remove_stale_histories() -> None:
             pass
 
 
+class Death(NamedTuple):
+    """A death: its cause, the dead Bitzkey's species and the turn, and, when something killed it, the killer's
+    identifier and species and what the killer was doing (hunting, attacking, defending, browsing, uprooting, or
+    spines: struck, its spines killed its attacker)."""
+    cause: str
+    species: str
+    turn: int
+    killer: int | None = None
+    killer_species: str | None = None
+    activity: str | None = None
+
+
 class Simulation:
     def __init__(self, width: int = GRID_SIZE, height: int = GRID_SIZE,
                  population: int = INITIAL_POPULATION, seed: int | None = None,
@@ -876,8 +889,8 @@ class Simulation:
         # export Bitzkeys long gone. A branch taken after rewinding reuses identifiers and
         # overwrites them.
         self.lineage: dict[int, int] = {}
-        # Each death: its cause, and the identifier and species of what killed it, when something did.
-        self.death_records: dict[int, tuple[str, int | None, str | None]] = {}
+        # Each death, by the dead Bitzkey's identifier: back to the world's start, for the graph and the death report.
+        self.death_records: dict[int, Death] = {}
         self.turn = 0
         self.deaths = 0
         self.death_causes: dict[str, dict[str, int]] = {}  # every death so far, by species and then cause
@@ -933,6 +946,8 @@ class Simulation:
         if self.turn < self.frontier:
             while self.history and self.history[-1]["turn"] > self.turn:
                 self._history_bytes -= self.history.pop()["bytes"]
+            self.death_records = {identifier: death for identifier, death in self.death_records.items()
+                                  if death.turn <= self.turn}  # deaths in the future let go
         deployed = []
         for bitzkey in bitzkeys:
             space = 1 + int(decode_body(bitzkey.dna)["size"])
@@ -1658,12 +1673,17 @@ class Simulation:
         steepness = 2 * math.log(2) / (agent.lifespan - onset) ** 2
         return self.random.random() < steepness * (agent.age - onset)
 
-    def _die(self, agent: Bitzkey, cause: str, killer: Bitzkey | None = None) -> None:
-        """Record a death. The body becomes carrion holding the energy it had left: a starved body
-        leaves nothing, and a killed one half, as the killer has already eaten. Dying of old age
-        is not held against the brain's last choice."""
-        self.death_records[agent.identifier] = (cause, None if killer is None else killer.identifier,
-                                                None if killer is None else killer.species)
+    def deaths_so_far(self) -> list[Death]:
+        """Every death from the world's start to the turn it is at, rewound or not."""
+        return [death for death in self.death_records.values() if death.turn <= self.turn]
+
+    def _die(self, agent: Bitzkey, cause: str, killer: Bitzkey | None = None, activity: str | None = None) -> None:
+        """Record a death, with what killed it and what the killer was doing. The body becomes carrion holding
+        the energy it had left: a starved body leaves nothing, and a killed one half, as the killer has already
+        eaten. Dying of old age is not held against the brain's last choice."""
+        self.death_records[agent.identifier] = Death(cause, agent.species, self.turn,
+                                                     None if killer is None else killer.identifier,
+                                                     None if killer is None else killer.species, activity)
         if agent.brain is not None and agent.last_senses is not None:
             penalty = 0.0 if cause == "old age" else DEATH_PENALTY
             self._learn(agent, agent.reward + self._wellbeing(agent) - agent.last_wellbeing - penalty)
@@ -1747,7 +1767,7 @@ class Simulation:
                               agent.steps + (HUNT_STEPS if agent.species == "predator" else 0))  # predators chase further
             agent.last_action = "hunted"
             if quarry.alive and abs(quarry.x - agent.x) + abs(quarry.y - agent.y) <= 1:
-                self._attack(agent, quarry)
+                self._attack(agent, quarry, "hunting")
                 if agent.alive:
                     agent.last_action = "pounced"
         elif action == "attack":
@@ -1805,7 +1825,7 @@ class Simulation:
         plant.cooldown = PLANT_RECOVERY
         agent.last_action = "browsed"
         if not plant.alive:
-            self._die(plant, "eaten", agent)
+            self._die(plant, "eaten", agent, "browsing")
         elif plant.physique("weapons") > 0:
             self._defend(plant, agent)  # a plant can't flee, but an armed one strikes back
 
@@ -1822,7 +1842,7 @@ class Simulation:
         plant.cooldown = PLANT_RECOVERY
         agent.last_action = "uprooted"
         if not plant.alive:
-            self._die(plant, "uprooted", agent)
+            self._die(plant, "uprooted", agent, "uprooting")
         elif plant.physique("weapons") > 0:
             self._defend(plant, agent)
 
@@ -1910,8 +1930,8 @@ class Simulation:
         share = {"predator": 1.0, "omnivore": 0.75, "grazer": 0.5}.get(animal.species)
         return animal.physique("weapons") * (PREDATOR_WEAPONS * share if share else 1.0)
 
-    def _attack(self, agent: Bitzkey, victim: Bitzkey) -> None:
-        """A blow. The intolerant enjoy fighting other species most; the empathetic feel their
+    def _attack(self, agent: Bitzkey, victim: Bitzkey, activity: str = "attacking") -> None:
+        """A blow, struck hunting or attacking (`activity`). The intolerant enjoy fighting other species most; the empathetic feel their
         victim's pain, and so does any empathetic animal watching, most for its own kind."""
         empathy = agent.feeling("empathy")
         joy = FIGHT_JOY * agent.feeling("aggression") * (1 - 0.6 * empathy) * (1 - 0.75 * agent.feeling("tolerance"))
@@ -1946,14 +1966,14 @@ class Simulation:
                 kinship = 1.0 if witness.species == victim.species else OTHER_KIND
                 witness.reward -= pain * witness.feeling("empathy") * kinship
         if killed:
-            self._die(victim, "killed", agent)
+            self._die(victim, "killed", agent, activity)
 
         sting = 4.5 * self._armed(victim) * self._defence_share(victim) * (1 - 0.6 * agent.toughness)
         if sting > 0:
             agent.health -= sting
             self._experience(agent, "stung")
             if not agent.alive:
-                self._die(agent, "killed", victim)  # its victim's spines
+                self._die(agent, "killed", victim, "spines")  # its victim's spines
         self._exhausted(agent)
         if agent.species == "predator" and agent.alive:  # a blow it lived through
             agent.reward += ATTACK_JOY
@@ -1981,7 +2001,7 @@ class Simulation:
             agent.last_action = "defended"
             self._experience(agent, "defended")
         if not assailant.alive:
-            self._die(assailant, "killed", agent)
+            self._die(assailant, "killed", agent, "defending")
         elif assailant.species != "plant":
             self._struck(assailant, agent)
         self._exhausted(agent)

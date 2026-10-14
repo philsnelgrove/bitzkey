@@ -9,7 +9,7 @@ from tools.Brain import ACTIONS, choice_odds, make_senses
 from tools.Genome import BODY_TRAITS, TEMPERAMENT
 
 if TYPE_CHECKING:
-    from tools.Simulation import Bitzkey
+    from tools.Simulation import Bitzkey, Death
 
 
 ANIMALS = ("grazer", "omnivore", "predator")
@@ -264,18 +264,59 @@ CELL = 7  # characters to a column of figures
 SITUATION = 42  # characters to the situations' column
 
 
-def death_report_lines(death_causes: Mapping[str, Mapping[str, int]]) -> list[str]:
-    """Every death so far: a row for each cause, the most common first, a column for each species, and the totals."""
-    causes: dict[str, int] = {}
-    for counts in death_causes.values():
-        for cause, count in counts.items():
-            causes[cause] = causes.get(cause, 0) + count
-    lines = [f"{'CAUSE':<18}" + "".join(f"{species.upper():>10}" for species in SPECIES_ORDER) + f"{'ALL':>10}"]
-    for cause, total in sorted(causes.items(), key=lambda item: (-item[1], item[0])):
-        lines.append(f"{cause:<18}" + "".join(f"{death_causes.get(species, {}).get(cause, 0):>10}" for species in SPECIES_ORDER)
-                     + f"{total:>10}")
-    totals = [sum(death_causes.get(species, {}).values()) for species in SPECIES_ORDER]
-    lines.append(f"{'ALL':<18}" + "".join(f"{total:>10}" for total in totals) + f"{sum(totals):>10}")
+DEADLIEST = 10  # the killers the death report names
+
+
+def death_report_lines(deaths: Iterable[Death]) -> list[str]:
+    """Every death so far, back to the world's start: a table of causes by the species of the dead, the most
+    common first; who killed whom, by the species of the dead and of their killers; what the killers were doing,
+    by the killers' species; and the deadliest killers, each with its kills by what it was doing."""
+    deaths = list(deaths)
+
+    def table(title: str, rows: list[tuple[str, dict[str, int]]]) -> list[str]:
+        lines = [f"{title:<18}" + "".join(f"{species.upper():>10}" for species in SPECIES_ORDER) + f"{'ALL':>10}"]
+        for label, counts in rows:
+            lines.append(f"{label:<18}" + "".join(f"{counts.get(species, 0):>10}" for species in SPECIES_ORDER)
+                         + f"{sum(counts.values()):>10}")
+        return lines
+
+    def tally(key, column) -> list[tuple[str, dict[str, int]]]:
+        """Rows by `key`, the most common first, each counting its deaths by `column`'s species."""
+        rows: dict[str, dict[str, int]] = {}
+        for death in deaths:
+            label = key(death)
+            if label is not None:
+                counts = rows.setdefault(label, {})
+                counts[column(death)] = counts.get(column(death), 0) + 1
+        return sorted(rows.items(), key=lambda item: (-sum(item[1].values()), item[0]))
+
+    by_species: dict[str, int] = {}
+    for death in deaths:
+        by_species[death.species] = by_species.get(death.species, 0) + 1
+    lines = table("CAUSE", tally(lambda death: death.cause, lambda death: death.species)) + [
+        f"{'ALL':<18}" + "".join(f"{by_species.get(species, 0):>10}" for species in SPECIES_ORDER) + f"{len(deaths):>10}"]
+    kills = [death for death in deaths if death.killer is not None]
+    if not kills:
+        return lines + ["", "Nothing has killed anything yet."]
+    lines += ["", f"WHO KILLED WHOM: {len(kills)} killed, by the species of the dead (rows) and of their killers (columns)"]
+    rows: dict[str, dict[str, int]] = {species: {} for species in SPECIES_ORDER}
+    for death in kills:
+        rows[death.species][death.killer_species] = rows[death.species].get(death.killer_species, 0) + 1
+    lines += table("THE DEAD", [(species, counts) for species, counts in rows.items() if counts])
+    lines += ["", "WHAT THE KILLERS WERE DOING, by the killers' species"]
+    lines += table("ACTIVITY", tally(lambda death: death.activity if death.killer is not None else None,
+                                     lambda death: death.killer_species))
+    killers: dict[int, list[Death]] = {}
+    for death in kills:
+        killers.setdefault(death.killer, []).append(death)
+    deadliest = sorted(killers.items(), key=lambda item: (-len(item[1]), item[0]))[:DEADLIEST]
+    lines += ["", f"THE DEADLIEST KILLERS, {len(deadliest)} of {len(killers)}"]
+    for killer, theirs in deadliest:
+        doing: dict[str, int] = {}
+        for death in theirs:
+            doing[death.activity] = doing.get(death.activity, 0) + 1
+        what = ", ".join(f"{activity} {count}" for activity, count in sorted(doing.items(), key=lambda item: (-item[1], item[0])))
+        lines.append(f"#{killer:03d} {theirs[0].killer_species:<10}{len(theirs):>4} killed   {what}")
     return lines
 
 

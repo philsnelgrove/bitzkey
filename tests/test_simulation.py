@@ -7,7 +7,7 @@ import tools.Simulation as simulation_module
 from tools.Brain import ACTIONS, SENSES, Brain
 from tools.Exchange import Imported
 from tools.Genome import decode_body, encode_dna
-from tools.Simulation import (AGENT_BYTES, ATTACK_JOY, FEAST_JOY, FRESH_KILL_MEALS, KILL_MEAL, KILL_MEAL_FOR_SIZE, BIRTH_REACH, PLANT_GESTATION, Bitzkey, gestation, CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, PLANT_MEAL, PLANT_MEAL_FOR_SIZE, SEED_OFFSETS,
+from tools.Simulation import (Death, AGENT_BYTES, ATTACK_JOY, FEAST_JOY, FRESH_KILL_MEALS, KILL_MEAL, KILL_MEAL_FOR_SIZE, BIRTH_REACH, PLANT_GESTATION, Bitzkey, gestation, CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, PLANT_MEAL, PLANT_MEAL_FOR_SIZE, SEED_OFFSETS,
                               SIGHT_OFFSETS, SPAWN_SPREAD, UPROOT_BITE, UPROOT_MEALS, Simulation, litter_size,
                               nearby_offsets)
 
@@ -1484,14 +1484,27 @@ class NewTraitTests(unittest.TestCase):
             world.advance()
         counted = sum(sum(causes.values()) for causes in world.death_causes.values())
         self.assertEqual(counted, world.deaths)
-        lines = death_report_lines(world.death_causes)
-        self.assertTrue(lines[-1].endswith(f"{world.deaths:>10}"))  # the total of totals
+        deaths = world.deaths_so_far()
+        self.assertEqual(len(deaths), world.deaths)  # every death back to the start
+        lines = death_report_lines(deaths)
+        total = next(line for line in lines if line.startswith("ALL "))
+        self.assertTrue(total.endswith(f"{world.deaths:>10}"))  # the total of totals
+        for section in ("WHO KILLED WHOM", "WHAT THE KILLERS WERE DOING", "THE DEADLIEST KILLERS"):
+            self.assertTrue(any(line.startswith(section) for line in lines))
+        killings = sum(death.killer is not None for death in deaths)
+        doing = lines[next(i for i, line in enumerate(lines) if line.startswith("WHAT THE KILLERS")) + 1:]
+        self.assertEqual(sum(int(line.split()[-1]) for line in doing[1:doing.index("")]), killings)
         later = {species: dict(causes) for species, causes in world.death_causes.items()}
         world.seek(world.turn - 20)
         self.assertEqual(sum(sum(causes.values()) for causes in world.death_causes.values()), world.deaths)
         while world.turn < world.frontier:
             world.advance()
         self.assertEqual(world.death_causes, later)  # replayed, not counted twice
+        self.assertEqual(len(world.deaths_so_far()), world.deaths)
+        world.seek(world.turn - 20)
+        self.assertEqual(len(world.deaths_so_far()), world.deaths)  # the report as it was then
+        world.deploy([], 5, 5)  # a rewound world changed lets its future go, and the deaths in it
+        self.assertTrue(all(death.turn <= world.turn for death in world.death_records.values()))
 
     def test_a_brain_matrix_shows_each_situation_its_species_meets(self):
         from tools.Insights import SCENARIOS, brain_matrix, brain_matrix_lines
@@ -1641,12 +1654,14 @@ class NewTraitTests(unittest.TestCase):
         starved = self.simulation._add_agent(encode_dna("grazer"), 9, 9)
         self.simulation._index_cells()
         prey.health = 0.1
-        self.simulation._attack(hunter, prey)
-        self.assertEqual(self.simulation.death_records[prey.identifier], ("killed", hunter.identifier, "predator"))
+        self.simulation._attack(hunter, prey, "hunting")
+        self.assertEqual(self.simulation.death_records[prey.identifier],
+                         Death("killed", "grazer", self.simulation.turn, hunter.identifier, "predator", "hunting"))
         starved.hunger = 100.5
         self.simulation._die(starved, "starved")
-        self.assertEqual(self.simulation.death_records[starved.identifier], ("starved", None, None))
-        self.assertEqual(death_text(self.simulation, prey.identifier), f"died: killed by #{hunter.identifier:03d} predator")
+        self.assertEqual(self.simulation.death_records[starved.identifier], Death("starved", "grazer", self.simulation.turn))
+        self.assertEqual(death_text(self.simulation, prey.identifier),
+                         f"died: killed by #{hunter.identifier:03d} predator, hunting")
         self.assertEqual(death_text(self.simulation, starved.identifier), "died: starved")
 
         spiny = self.simulation._add_agent(encode_dna("grazer", weapons=7, size=7), 7, 2)
@@ -1654,7 +1669,19 @@ class NewTraitTests(unittest.TestCase):
         self.simulation._index_cells()
         reckless.health = 0.1
         self.simulation._attack(reckless, spiny)
-        self.assertEqual(self.simulation.death_records[reckless.identifier], ("killed", spiny.identifier, "grazer"))
+        self.assertEqual(self.simulation.death_records[reckless.identifier][3:], (spiny.identifier, "grazer", "spines"))
+
+        defender = self.simulation._add_agent(encode_dna("grazer", weapons=7, size=7, strength=7), 2, 8)
+        assailant = self.simulation._add_agent(encode_dna("omnivore"), 2, 9)
+        plant = self.simulation._add_agent(encode_dna("plant", size=0), 9, 2)
+        browser = self.simulation._add_agent(encode_dna("grazer"), 9, 3)
+        self.simulation._index_cells()
+        assailant.health = 0.1
+        self.simulation._defend(defender, assailant)
+        self.assertEqual(self.simulation.death_records[assailant.identifier].activity, "defending")
+        plant.health = 0.1
+        self.simulation._browse(browser, plant)
+        self.assertEqual(self.simulation.death_records[plant.identifier][3:], (browser.identifier, "grazer", "browsing"))
 
     def test_a_partner_two_cells_away_is_close_enough_to_breed_with(self):
         first = self.simulation._add_agent(encode_dna("predator"), 4, 4)

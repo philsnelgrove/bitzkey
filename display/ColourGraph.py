@@ -139,12 +139,12 @@ def build_bars(simulation: Simulation, part: str, chart: pg.Rect, first: int = 0
 
 
 def death_text(simulation: Simulation, identifier: int) -> str:
-    """How a Bitzkey died: its cause, and what killed it, when something did."""
-    record = simulation.death_records.get(identifier)
-    if record is None:
+    """How a Bitzkey died: its cause, and what killed it and what that was doing, when something did."""
+    death = simulation.death_records.get(identifier)
+    if death is None:
         return "dead"
-    cause, killer, species = record
-    return f"died: {cause}" + ("" if killer is None else f" by #{killer:03d} {species}")
+    return f"died: {death.cause}" + ("" if death.killer is None else
+                                     f" by #{death.killer:03d} {death.killer_species}, {death.activity}")
 
 
 def fit_text(text: str, font: pg.font.Font, width: int) -> str:
