@@ -12,6 +12,16 @@ from tools.Simulation import (AGENT_BYTES, ATTACK_JOY, FEAST_JOY, FRESH_KILL_MEA
                               nearby_offsets)
 
 
+def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, unless a test says so
+    global _grown
+    _grown = patch("tools.Simulation.FEEBLE_YOUTH", 0.0)
+    _grown.start()
+
+
+def tearDownModule():
+    _grown.stop()
+
+
 def deliver(simulation: Simulation, first: Bitzkey, second: Bitzkey, litter: int | None = 1) -> None:
     """Mate two animals and, rather than wait out the gestation, give birth at once: to a litter of
     `litter` young, or of the size breeding sets with None."""
@@ -2519,3 +2529,46 @@ class SquareTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@patch("tools.Simulation.FEEBLE_YOUTH", 0.1)
+class FeebleTests(unittest.TestCase):
+    """An animal is feeble in its infancy, the first 10% of its lifespan, and its old age, past AGEING of it:
+    every body trait, and its health, at half its own."""
+
+    def setUp(self):
+        self.simulation = Simulation(width=12, height=12, population=0, seed=3)
+        self.simulation.grass.clear()
+
+    def test_an_infant_has_half_its_body_and_health_and_grows_out_of_it(self):
+        from tools.Genome import share
+        infant = self.simulation._add_agent(encode_dna("predator", size=7, strength=7, speed=6, sight=5), 5, 5)
+        lifespan = infant.lifespan
+        self.assertTrue(infant.feeble)
+        self.assertEqual([infant.trait(name) for name in ("size", "strength", "speed", "sight")], [3, 3, 3, 2])
+        self.assertEqual((infant.space, infant.body["size"]), (4, 7))  # its genes are as they were
+        self.assertAlmostEqual(infant.max_health, (60 + 90 * share(3)) * 0.5)
+        self.assertEqual(infant.health, infant.max_health)  # born with the health of an infant
+        infant.age = round(0.1 * lifespan)
+        self.assertFalse(infant.feeble)
+        self.assertEqual((infant.trait("size"), infant.space, infant.lifespan), (7, 8, lifespan))  # lifespan by its genes
+        self.assertAlmostEqual(infant.max_health, 150.0)
+
+    def test_old_age_brings_feebleness_and_its_health_shrinks_to_match(self):
+        from tools.Simulation import AGEING
+        old = self.simulation._add_agent(encode_dna("grazer", size=7, armour=5), 5, 5)
+        old.age = int(AGEING * old.lifespan) - 1
+        old.health = old.max_health
+        self.assertFalse(old.feeble)
+        with patch.object(Simulation, "_think_all"), patch.object(Simulation, "_dies_of_age", return_value=False):
+            self.simulation._take_turn()
+            self.simulation._take_turn()
+        self.assertTrue(old.feeble)
+        self.assertEqual(old.trait("armour"), 2)
+        self.assertLessEqual(old.health, old.max_health)
+        self.assertAlmostEqual(old.max_health, (60 + 90 * 3 / 7) * 0.5)
+
+    def test_plants_are_never_feeble(self):
+        seedling = self.simulation._add_agent(encode_dna("plant", size=6, weapons=6), 5, 5)
+        self.assertFalse(seedling.feeble)
+        self.assertEqual(seedling.trait("weapons"), 6)

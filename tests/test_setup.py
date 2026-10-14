@@ -6,6 +6,17 @@ from Main import BitzkeyApp
 from tools.Exchange import Imported, export_bitzkeys
 from tools.Genome import encode_dna
 from tools.Simulation import MAX_GRID, MAX_IMPORTED, MAX_POPULATION, Bitzkey
+from unittest.mock import patch
+
+
+def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, unless a test says so
+    global _grown
+    _grown = patch("tools.Simulation.FEEBLE_YOUTH", 0.0)
+    _grown.start()
+
+
+def tearDownModule():
+    _grown.stop()
 
 
 def exported(*dnas: int) -> str:

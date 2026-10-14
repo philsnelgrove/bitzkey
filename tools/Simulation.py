@@ -42,6 +42,10 @@ CELL_SPACE = 10
 STARVING_DAMAGE = 0.1
 # Meat lasts: the share of its fullness that is meat empties at this share of the usual rate.
 MEAT_DIGESTION = 0.5
+# Feeble: an animal in its infancy (the first FEEBLE_YOUTH of its lifespan) or its old age (past AGEING of it)
+# has every body trait, and its health, at FEEBLE_SHARE of its own.
+FEEBLE_YOUTH = 0.1
+FEEBLE_SHARE = 0.5
 DEPLOY_GROUP = 5      # Bitzkeys deployed from the catalog onto a running world, of each chosen, a click
 USE_GPU = 0  # the C++ version's: 1 thinks on the GPUs; the Python version always thinks on the CPU
 SPAWN_AT_HOME = 1     # 1: a group appears in rows whose usual temperature is its home (the nearest, if none); 0: anywhere
@@ -518,6 +522,12 @@ def looks_apart(first: int, second: int) -> tuple[float, float, float]:
 SEED_OFFSETS = sum(abs(dx) + abs(dy) <= SEED_REACH for dx, dy in SIGHT_OFFSETS)  # the first offsets: those a seed reaches
 
 
+def _metabolism(size: float) -> float:
+    """Metabolic rate for a size, as a share of its range: fast in small bodies, slow in large ones."""
+    fastest, slowest = METABOLISM
+    return fastest + (slowest - fastest) * size
+
+
 @dataclass
 class Bitzkey:
     identifier: int
@@ -612,9 +622,23 @@ class Bitzkey:
         return {**self.mind, **{trait: float(value) for trait, value in self.body.items()
                                 if trait != "species"}}
 
+    @property
+    def feeble(self) -> bool:
+        """In its infancy, the first FEEBLE_YOUTH of its lifespan, or its old age, past AGEING of it, an animal
+        is feeble: its body traits and health are at FEEBLE_SHARE. Plants never are."""
+        if self.species == "plant":
+            return False
+        lifespan = self.lifespan
+        return self.age < FEEBLE_YOUTH * lifespan or self.age > AGEING * lifespan
+
+    def trait(self, name: str) -> int:
+        """A body trait as it is now: its genes' value, or FEEBLE_SHARE of it while feeble."""
+        value = int(self.body[name])
+        return int(value * FEEBLE_SHARE) if name != "species" and self.feeble else value
+
     def physique(self, trait: str) -> float:
-        """A body trait as a share of its full range."""
-        return share(int(self.body[trait]))
+        """A body trait, as it is now, as a share of its full range."""
+        return share(self.trait(trait))
 
     @property
     def intelligence(self) -> float:
@@ -644,13 +668,13 @@ class Bitzkey:
 
     @property
     def max_health(self) -> float:
-        return 60.0 + 90 * self.physique("size")
+        """Its full health: by its size, and FEEBLE_SHARE of that while feeble."""
+        return (60.0 + 90 * self.physique("size")) * (FEEBLE_SHARE if self.feeble else 1.0)
 
     @property
     def metabolism(self) -> float:
         """Metabolic rate: fast in small bodies, slow in large ones."""
-        fastest, slowest = METABOLISM
-        return fastest + (slowest - fastest) * self.physique("size")
+        return _metabolism(self.physique("size"))
 
     @property
     def stomach(self) -> float:
@@ -702,7 +726,7 @@ class Bitzkey:
     @property
     def space(self) -> int:
         """The spaces of a square it takes: 1 + its size."""
-        return 1 + int(self.body["size"])
+        return 1 + self.trait("size")
 
     def heal(self, share: float) -> None:
         """Heal a share of the health pool, faster with a faster metabolism."""
@@ -711,7 +735,7 @@ class Bitzkey:
     @property
     def steps(self) -> int:
         """Cells moved a step: 1 to 4 by speed, and half as many again for grazers."""
-        steps = 1 + int(self.body["speed"]) * 3 // TRAIT_MAX
+        steps = 1 + self.trait("speed") * 3 // TRAIT_MAX
         return int(steps * GRAZER_SPEED + 0.5) if self.species == "grazer" else steps
 
     @property
@@ -726,7 +750,7 @@ class Bitzkey:
 
     @property
     def sight(self) -> int:
-        return 2 + SIGHT_PER_TRAIT * int(self.body["sight"])
+        return 2 + SIGHT_PER_TRAIT * self.trait("sight")
 
     @cached_property
     def genes(self) -> dict[str, float]:
@@ -736,10 +760,10 @@ class Bitzkey:
     @property
     def lifespan(self) -> float:
         """Expected turns of life, plant or animal: a slower metabolism, that is a larger body,
-        lives longer."""
+        lives longer. It is its genes' body that counts, feeble or not."""
         shortest, middle, longest = LIFESPAN_YEARS
         fastest, slowest = METABOLISM
-        slowing = (fastest - self.metabolism) / (fastest - slowest)  # 0 at the fastest metabolism, 1 the slowest
+        slowing = (fastest - _metabolism(share(int(self.body["size"])))) / (fastest - slowest)  # 0 at the fastest metabolism, 1 the slowest
         if slowing <= 0.5:
             years = shortest + (middle - shortest) * (2 * slowing)
         else:
@@ -1152,6 +1176,7 @@ class Simulation:
             if not agent.alive:
                 continue
             agent.age += 1
+            agent.health = min(agent.health, agent.max_health)  # growing old, it grows feeble
             plant = agent.species == "plant"
             here = self._climate[agent.y]
             steps = agent.climate_steps(here)
@@ -1480,7 +1505,7 @@ class Simulation:
         if hunter and (alarm_source is not None or abs(hunter.x - agent.x) + abs(hunter.y - agent.y)
                        <= self._flee_range(agent, herd_near)):
             available.add("flee")  # only from a hunter close by, unless the herd raised the alarm
-        if defend_target and (agent.species != "grazer" or agent.body["strength"] > GRAZER_DEFENCE_STRENGTH):
+        if defend_target and (agent.species != "grazer" or agent.trait("strength") > GRAZER_DEFENCE_STRENGTH):
             available.add("defend")  # a grazer only when strong enough
         if herd_middle is not None and (abs(herd_middle[0] - agent.x) + abs(herd_middle[1] - agent.y)
                                         > HERD_SPREAD * (1 - agent.fearfulness)):
@@ -1653,7 +1678,7 @@ class Simulation:
         agent.meat = ((CARRION_MEAT + CARRION_MEAT_FOR_SIZE * agent.physique("size")) * nourished
                       * (0.5 if cause == "killed" else 1))
         agent.rot = agent.meat / max(1, CORPSE_TURNS - FRESH_KILL_TURNS)  # it rots once no longer fresh
-        agent.portions = 0 if agent.species == "plant" else 1 + int(agent.body["size"])
+        agent.portions = 0 if agent.species == "plant" else 1 + agent.trait("size")
         if agent.species != "plant":
             self._kills.setdefault((agent.x, agent.y), []).append(agent)
         self.deaths += 1
@@ -2040,7 +2065,7 @@ class Simulation:
         afford it, but a parent can only give what it has left. Each child inherits a mix of its
         parents' brains, and starts its temperament at the average of its parents' current
         temperaments, which its dot then shows."""
-        litter = litter_size([(int(parent.body["litter"]), int(parent.body["size"])) for parent in (first, second)])
+        litter = litter_size([(parent.trait("litter"), parent.trait("size")) for parent in (first, second)])
         if CROWDING_LIMIT:
             litter = max(1, int(litter * (1 - self._crowding(first, second, own_kind=True) / CROWDING_LIMIT) + 0.5))  # its own kind
         needed = self._food_needed(first)
@@ -2074,7 +2099,7 @@ class Simulation:
                     brain.output_weights[now] = brain.output_weights[learnt].copy()
                     brain.output_biases[now] = brain.output_biases[learnt]
             first.womb.append((dna, mind, brain, given / litter, generation))
-        first.due_turn = self.turn + gestation(int(first.body["size"]))
+        first.due_turn = self.turn + gestation(first.trait("size"))
         for parent, cost in zip((first, second), costs, strict=True):
             parent.hunger += cost
             rest = PREDATOR_BREED_COOLDOWN if parent.species == "predator" else BREED_COOLDOWN

@@ -2,6 +2,17 @@ import unittest
 
 from tools.Insights import SCENARIOS, TRAITS, Insights, brain_report
 from tools.Simulation import Simulation
+from unittest.mock import patch
+
+
+def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, unless a test says so
+    global _grown
+    _grown = patch("tools.Simulation.FEEBLE_YOUTH", 0.0)
+    _grown.start()
+
+
+def tearDownModule():
+    _grown.stop()
 
 
 def profile(**values: float) -> dict[str, float]:

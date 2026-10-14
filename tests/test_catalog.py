@@ -14,6 +14,16 @@ from tools.Exchange import import_bitzkeys
 from tools.Simulation import Simulation
 
 
+def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, unless a test says so
+    global _grown
+    _grown = patch("tools.Simulation.FEEBLE_YOUTH", 0.0)
+    _grown.start()
+
+
+def tearDownModule():
+    _grown.stop()
+
+
 class CatalogTests(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()

@@ -6,6 +6,17 @@ from tools.Brain import Brain
 from tools.Exchange import Imported, export_bitzkeys, import_bitzkeys
 from tools.Genome import TEMPERAMENT, convert_v1, convert_v2, encode_dna, make_dna
 from tools.Simulation import Bitzkey
+from unittest.mock import patch
+
+
+def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, unless a test says so
+    global _grown
+    _grown = patch("tools.Simulation.FEEBLE_YOUTH", 0.0)
+    _grown.start()
+
+
+def tearDownModule():
+    _grown.stop()
 
 
 def bitzkey(dna: int, brain: Brain | None = None) -> Bitzkey:

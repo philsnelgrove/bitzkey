@@ -286,6 +286,7 @@ class Designer:
         species = SPECIES[form.value(("body", "species")) % len(SPECIES)]
         body = decode_body(form.dna)
         sample = Bitzkey(0, form.dna, 0, 0)
+        sample.age = round(sample.lifespan / 2)  # grown, not feeble
         if species == "plant":
             facts = ["A plant: it photosynthesises and never moves,", "thinks, breeds or eats.",
                      f"Lives about {sample.lifespan:.0f} turns."]

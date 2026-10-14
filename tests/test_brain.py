@@ -10,6 +10,16 @@ from tools.Brain import (ACTIONS, HIDDEN_SIZE, INPUT_SIZE, MIN_DEPTH, SENSES, Br
 from tools.Genome import BODY_TRAITS, TEMPERAMENT, encode_dna
 
 
+def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, unless a test says so
+    global _grown
+    _grown = patch("tools.Simulation.FEEBLE_YOUTH", 0.0)
+    _grown.start()
+
+
+def tearDownModule():
+    _grown.stop()
+
+
 class BrainTests(unittest.TestCase):
     def test_food_that_takes_a_kill_teaches_more_than_grass_and_mating_as_its_rules_say(self):
         from tools.Brain import ACTIONS

@@ -88,7 +88,7 @@ Each imported genome spawns as a group of 3 to
 "Bitzkeys" to 0 to start with only your imports.
 
 ADVANCED opens the advanced rules, beneath a word of warning that they are the world's
-'natural law', carefully balanced, and that changing them can have unpredictable results: 202 numbers that shape how the world plays
+'natural law', carefully balanced, and that changing them can have unpredictable results: 207 numbers that shape how the world plays
 out, in groups (World, Bodies, Breeding, Feelings, Mind, Fighting, Territory,
 Herding, Food, Plants, Climate, Society and Experiences). Among them are lifespans, metabolism, litter
 sizes, food-aware breeding, the rewards and pains a brain learns from, blows and
@@ -679,6 +679,15 @@ gather and herd together without unease.
 Territorial fights, between omnivores or between predators, go on regardless. Zero health is fatal, and so, in
 time, is age. Hunger stops at 100%: an animal (or plant) that full hunger reaches is starving, and loses 10% of its
 full health each turn until it eats or dies of it (Starving damage, in the Bodies group).
+
+An animal is feeble in its infancy, the first 10% of its lifespan, and in its old age, from 70% of it,
+when it may begin to die of age (Feeble youth and Ageing, in the Bodies group). While feeble, every body
+trait (size, strength, armour, weapons, speed, sight, fertility, litter and carrion) and its full health
+are at half its own (Feeble share), rounding down, with all that follows from them: a feeble animal is
+smaller, so it takes less space, eats less and burns faster, and it is weaker, slower and shorter-sighted.
+Its lifespan stays set by its genes. Each newborn starts with an infant's health; growing old, an animal's
+health shrinks to its feeble full health. Plants are never feeble. The inspector marks a feeble Bitzkey
+FEEBLE beside its age, and the designer shows a grown one.
 
 Meat lasts twice as long as plant food. Each Bitzkey keeps track of how much of its fullness is meat, from
 hunting, attacking, feasting and scavenging, and that share is digested at half the speed of the rest

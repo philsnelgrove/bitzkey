@@ -7,6 +7,17 @@ from display.Look import CROSS, ICON_MIN_RADIUS, OUTLINE, draw_bitzkey, outline_
 from Main import DOT_RADIUS_RANGE, BitzkeyApp
 from tools.Genome import color_from_word, encode_dna, mind_word, social_word
 from tools.Simulation import CORPSE_TURNS, Bitzkey
+from unittest.mock import patch
+
+
+def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, unless a test says so
+    global _grown
+    _grown = patch("tools.Simulation.FEEBLE_YOUTH", 0.0)
+    _grown.start()
+
+
+def tearDownModule():
+    _grown.stop()
 
 
 def bitzkey(size: int) -> Bitzkey:

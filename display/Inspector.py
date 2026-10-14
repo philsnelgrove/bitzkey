@@ -108,7 +108,7 @@ def draw_details(screen: pg.Surface, agent: Bitzkey, x: int, at: Callable[[float
     _text(screen, f"HEALTH {max(0.0, agent.health):5.1f}/{agent.max_health:.0f}", (health, at(302)), (161, 207, 162),
           mono_small)
     _bar(screen, health, at(320), half, agent.health / agent.max_health, (124, 190, 131))
-    _text(screen, f"AGE {agent.age} / ~{agent.lifespan:.0f}    GENERATION {agent.generation}    "
+    _text(screen, f"AGE {agent.age} / ~{agent.lifespan:.0f}{' FEEBLE' if agent.feeble else ''}    GENERATION {agent.generation}    "
           f"CHILDREN {agent.children}", (x, at(334)), (145, 164, 146), small)
     state = f"LAST ACTION: {agent.last_action.upper()}"
     if not agent.alive:

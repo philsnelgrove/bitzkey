@@ -9,6 +9,17 @@ from display.Inspector import draw_tooltip
 from display.Ui import UI
 from tools.Genome import decode_body
 from tools.Simulation import Simulation
+from unittest.mock import patch
+
+
+def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, unless a test says so
+    global _grown
+    _grown = patch("tools.Simulation.FEEBLE_YOUTH", 0.0)
+    _grown.start()
+
+
+def tearDownModule():
+    _grown.stop()
 
 
 CHART = pg.Rect(100, 50, 400, 200)

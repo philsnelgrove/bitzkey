@@ -5,6 +5,16 @@ from tools.Census import Census, colour_order
 from tools.Simulation import Simulation
 
 
+def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, unless a test says so
+    global _grown
+    _grown = patch("tools.Simulation.FEEBLE_YOUTH", 0.0)
+    _grown.start()
+
+
+def tearDownModule():
+    _grown.stop()
+
+
 class CensusTests(unittest.TestCase):
     def test_similar_colours_sort_together(self):
         reds = [colour_order((250, 10, 10)), colour_order((200, 30, 20))]

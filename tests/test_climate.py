@@ -8,6 +8,16 @@ from tools.Simulation import (COLD, CURIOSITY_JOY, DEATH_PENALTY, GO_EFFORT, WAL
                               zone_temperature)
 
 
+def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, unless a test says so
+    global _grown
+    _grown = patch("tools.Simulation.FEEBLE_YOUTH", 0.0)
+    _grown.start()
+
+
+def tearDownModule():
+    _grown.stop()
+
+
 def world(turn: int = 240, size: int = 100) -> Simulation:
     """An empty world at a turn, its grass cleared: by default mid-year, mild, the weather settled."""
     simulation = Simulation(width=size, height=size, population=0, seed=3)
