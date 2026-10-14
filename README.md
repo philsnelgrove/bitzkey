@@ -88,7 +88,7 @@ Each imported genome spawns as a group of 3 to
 "Bitzkeys" to 0 to start with only your imports.
 
 ADVANCED opens the advanced rules, beneath a word of warning that they are the world's
-'natural law', carefully balanced, and that changing them can have unpredictable results: 207 numbers that shape how the world plays
+'natural law', carefully balanced, and that changing them can have unpredictable results: 208 numbers that shape how the world plays
 out, in groups (World, Bodies, Breeding, Feelings, Mind, Fighting, Territory,
 Herding, Food, Plants, Climate, Society and Experiences). Among them are lifespans, metabolism, litter
 sizes, food-aware breeding, the rewards and pains a brain learns from, blows and
@@ -506,9 +506,12 @@ intellect, and then by up to as much again for the brightest (the Learning boost
 rule); at the brightest it is 0.045 a choice before that boost (doubling it made
 brains unsteady rather than quicker), and a predator learns twice as fast again (Predator learning), an omnivore
 one and a half times. Food that takes a kill is harder to learn than grass: any
-animal learns five times as much from choosing to hunt, attack or feast (Kill
-food learning), and half as much from choosing to eat, forage, browse or uproot
-(Plant food learning), whether its own choice, one it replays or one it sees. Each turn it re-learns from its most recent experiences, two for each point
+animal learns five times as much from a success choosing to hunt, attack or feast (Kill
+food learning), and half as much from a success choosing to eat, forage, browse or uproot
+(Plant food learning), whether its own choice, one it replays or one it sees. These weights,
+and those for breeding and courting, make a success more, or less, memorable: a choice that
+turned out badly is learnt from as any other, so a fruitless chase doesn't teach a hunter
+five times over to give up hunting. Each turn it re-learns from its most recent experiences, two for each point
 of inborn intellect, so the brightest go over their last fourteen while the
 dullest replay none (Replays per intellect). And it traces an outcome further back
 through the choices that led to it: its trace decay runs from 0.9 for the dullest
@@ -520,19 +523,21 @@ scavenge, feast, rest, court, breed, hunt, attack, defend, flee, herd, go north,
 go south, go east, go west, walk north, walk south, walk east, walk west, alert or
 revisit. Revisiting heads back toward where it last fed, while it remembers where
 that was (see memory, under Genome). Alerting tells its herd within its sight: a grazer that sees a hunter raises the alarm, so its
-herd-mates may flee that hunter from up to six cells away; a predator or omnivore that sees a
+herd-mates may flee that hunter from up to six cells away; a predator that sees a
 fresh kill points its pack to it, so they may come to feast though they don't see it themselves.
-Alerting pleases it a little (Alert joy). Two instincts sit on top of what a brain learns: a
+Alerting pleases it a little (Alert joy), but only when a herd-mate was near enough to take it in. Two instincts sit on top of what a brain learns: a
 predator's bloodlust makes a fresh kill in sight hard to pass by (Bloodlust), and an animal with a
 carrion trait above the middle craves carrion it sees, the more the higher the trait (Carrion craving). It
 isn't told which actions are open; it picks among them by the values its brain
 gives every action. Each go heads straight that way as far as its speed allows,
 and each walk a single cell: north and south stop at the edge of the map, while
 east and west wrap round it, so they are always open. Moving costs food: a walk
-saves half the turn's burn, as resting does, while a go costs a quarter of a
-turn's burn more for each cell beyond the first, so a fast grazer going six cells
-pays two and a quarter turns' burn. Setting off in a direction, going or
-walking, is how an animal explores: it pleases the curious, and finding grass
+saves half the turn's burn, as resting does, while any move further than a cell, a go,
+a chase, a flight, or a way to food, a mate, its herd or where it last fed, costs a quarter
+of a turn's burn more for each cell beyond the first (Go effort), so a fast grazer going six
+cells pays two and a quarter turns' burn. Setting off in a direction, going or
+walking, is how an animal explores: it pleases the curious, though only if it got
+somewhere (not into the map's edge or a full square), and finding grass
 where none was seen, or walking into a hunter, shapes its curiosity. A new brain
 starts out valuing the eight headings a little below its other actions, so an
 untaught animal doesn't march away from its range, its herd and its food before
@@ -568,9 +573,11 @@ and omnivores pay half the usual breeding cost (Breeding cost, hunters). Hunting
 its prey pounces, striking in the same turn, and attacking strikes prey
 alongside. A kill feeds the hunter 185, plus up to 200 more for the largest prey, which fills most stomachs; a blow
 that doesn't kill feeds it 5. Blows are strong enough that the best-armed, mightiest predator kills the
-largest, best-armoured grazer in three. A predator enjoys every blow it lives through a little, and
+largest, best-armoured grazer in three. A predator enjoys a little every blow that goes its way, dealing more than its victim's spines
+deal back (Attack joy), and
 feasting on a fresh kill more than the kill itself. Whatever eases an animal's hunger, eating, hunting, feasting or scavenging, also pleases it by as much again as the hunger it eases, beside what being less hungry is worth (the Sated joy rule), so every meal teaches more; resting and walking only burn less, and ease no hunger. Striking is hard work: each blow burns 0.2 food per point of damage it deals, so a heavy hitter pays more for each blow. Hunger figures for meals are for a middle-sized
-stomach: a small animal gains twice as much, a large one half. Defending is open only to an animal struck since its last turn whose assailant is still beside it, and to a grazer only with strength above 5: it strikes back with the usual force of its size, strength and weapons against the assailant's size and armour. It costs effort like any blow and feeds the defender nothing, but it can kill. Fight or flight: whenever an animal is struck, by an attack or a counterblow, it checks its morale against its current fear. A fully fearful animal breaks 30% of the time when barely hurt, rising to certainty near death; the fearless never break. One that breaks loses its chance to defend: on its next turn it flees its assailant, whatever its brain would have chosen, and grows a little more fearful. A predator feels only half of its fear's effects: half the dread of hunters, half the chance of breaking, and half the pull to keep close to its herd. Primal fear: an animal that sees a hunter stronger than itself (weighing the share of each other's health one blow would take, with size, strength, weapons and armour all counting) may be overcome. Each turn the chance is half how lopsided the fight would be, so an overwhelmingly stronger hunter overcomes it half the time; predators are a third as susceptible. Sizing up the fight, a predator counts as two steps larger and two steps stronger than it is, whether it is the hunter feared or the animal judging, and its health as the larger health that larger body would have. Once overcome, it stays so while any hunter is in sight, growing a little more fearful: each turn it panics, fleeing the hunter whatever its brain wants, or freezes and does nothing at all (no rest, no healing), with a chance of a half at the lowest intellect falling to none at the highest. With no hunter in sight it is calm again. Plants can't flee, so their only answer is to fight: a plant with any weapons strikes back at each animal that browses it. Its thorns come mostly from its weapons (80%) and a little from its size (20%), never its strength: at most 15 damage, less against a large or armoured browser. Fleeing runs from the nearest hunter in sight, and speed decides who wins a
+stomach: a small animal gains twice as much, a large one half. Defending is open only to an animal struck since its last turn whose assailant is still beside it, and to a grazer only with strength above 5: it strikes back with the usual force of its size, strength and weapons against the assailant's size and armour. It costs effort like any blow and feeds the defender nothing, but it can kill. The aggressive
+enjoy it as they enjoy attacking, the empathetic and the tolerant less. Fight or flight: whenever an animal is struck, by an attack or a counterblow, it checks its morale against its current fear. A fully fearful animal breaks 30% of the time when barely hurt, rising to certainty near death; the fearless never break. One that breaks loses its chance to defend: on its next turn it flees its assailant, whatever its brain would have chosen, and grows a little more fearful. A predator feels only half of its fear's effects: half the dread of hunters, half the chance of breaking, and half the pull to keep close to its herd. Primal fear: an animal that sees a hunter stronger than itself (weighing the share of each other's health one blow would take, with size, strength, weapons and armour all counting) may be overcome. Each turn the chance is half how lopsided the fight would be, so an overwhelmingly stronger hunter overcomes it half the time; predators are a third as susceptible. Sizing up the fight, a predator counts as two steps larger and two steps stronger than it is, whether it is the hunter feared or the animal judging, and its health as the larger health that larger body would have. Once overcome, it stays so while any hunter is in sight, growing a little more fearful: each turn it panics, fleeing the hunter whatever its brain wants, or freezes and does nothing at all (no rest, no healing), with a chance of a half at the lowest intellect falling to none at the highest. With no hunter in sight it is calm again. Plants can't flee, so their only answer is to fight: a plant with any weapons strikes back at each animal that browses it. Its thorns come mostly from its weapons (80%) and a little from its size (20%), never its strength: at most 15 damage, less against a large or armoured browser. Fleeing runs from the nearest hunter in sight, and speed decides who wins a
 chase. It is only worthwhile when the hunter is within three steps (or a
 herd-mate was just struck close by): a hunter further off is watched, as a
 sense, but not fled. Among herd-mates the range shrinks, as the herd keeps watch
@@ -598,8 +605,11 @@ mutations. A child also inherits its parents' learned shifts in temperament, so
 learned habits and moods pass down the generations.
 
 Animals also learn from their herd, or pack. An animal sees what happens to its
-herd-mates within its sight: a herd-mate's kill is a success, and its death,
-from exposure, hunger, a blow or anything but old age, a failure. The witness
+herd-mates within its sight: a herd-mate's kill is a success, and a sudden death,
+from a blow or exhaustion, a failure. A slow death, of old age, starving, or freezing or
+overheating, is no one choice's doing: the dying animal's last choice isn't blamed with the
+death penalty, and its herd learns nothing from it, as the health it lost on the way has
+taught its lessons already. The witness
 learns from it as if it had made that herd-mate's last choice itself, in the
 same situation, toward the death penalty for a death or the fullness the killer
 gained for a kill. It feels it too: a kill lifts its mood and a death lowers it,
@@ -685,7 +695,8 @@ when it may begin to die of age (Feeble youth and Ageing, in the Bodies group). 
 trait (size, strength, armour, weapons, speed, sight, fertility, litter and carrion) and its full health
 are at half its own (Feeble share), rounding down, with all that follows from them: a feeble animal is
 smaller, so it takes less space, eats less and burns faster, and it is weaker, slower and shorter-sighted.
-Its lifespan stays set by its genes. Each newborn starts with an infant's health; growing old, an animal's
+Its lifespan stays set by its genes. Its health's share of its full health jumps as it grows out of
+infancy or into old age, but that is no lesson: the brain learns only from the turn's real gains and losses. Each newborn starts with an infant's health; growing old, an animal's
 health shrinks to its feeble full health. Plants are never feeble. The inspector marks a feeble Bitzkey
 FEEBLE beside its age, and the designer shows a grown one.
 
@@ -726,7 +737,11 @@ part of turn history, so rewind and replay are exact.
 
 ### Herds and Packs
 
-Grazers, omnivores and predators can all herd. An animal's herd instinct is the
+Grazers herd and predators run in packs; omnivores live alone, in neither herd nor pack (Solitary
+omnivores, in the Herding group; 0 lets them herd with their own kind again). A solitary omnivore has
+no herd-mates: it never herds, hunts as a pack, alerts others or heeds their alerts, learns from what
+it sees others do, or defends another, and it misses no herd, feeling no loneliness without one.
+An animal's herd instinct is the
 lower of its current empathy and patience, so only animals high in both herd
 strongly, and every herd effect scales smoothly with it. Its herd-mates are
 animals of its own species that it would accept as mates, so tolerant animals

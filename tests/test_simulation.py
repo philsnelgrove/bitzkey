@@ -7,7 +7,7 @@ import tools.Simulation as simulation_module
 from tools.Brain import ACTIONS, SENSES, Brain
 from tools.Exchange import Imported
 from tools.Genome import decode_body, encode_dna
-from tools.Simulation import (Death, AGENT_BYTES, ATTACK_JOY, FEAST_JOY, FRESH_KILL_MEALS, KILL_MEAL, KILL_MEAL_FOR_SIZE, BIRTH_REACH, PLANT_GESTATION, Bitzkey, gestation, CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, PLANT_MEAL, PLANT_MEAL_FOR_SIZE, SEED_OFFSETS,
+from tools.Simulation import (Death, DEATH_PENALTY, AGENT_BYTES, ATTACK_JOY, FEAST_JOY, FRESH_KILL_MEALS, KILL_MEAL, KILL_MEAL_FOR_SIZE, BIRTH_REACH, PLANT_GESTATION, Bitzkey, gestation, CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, PLANT_MEAL, PLANT_MEAL_FOR_SIZE, SEED_OFFSETS,
                               SIGHT_OFFSETS, SPAWN_SPREAD, UPROOT_BITE, UPROOT_MEALS, Simulation, litter_size,
                               nearby_offsets)
 
@@ -1823,8 +1823,8 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual((grazer.last_action, grazer.died_turn, simulation.deaths), ("starved", 1, deaths + 1))
         self.assertEqual(grazer.meat, 0)  # a starved body leaves nothing to eat
         self.assertIsNone(grazer.brain)
-        self.assertNotEqual(before, herd_mate.brain)  # its herd saw it fail
-        self.assertGreater(herd_mate.seen_failure, 0)
+        self.assertNotEqual(before, herd_mate.brain)
+        self.assertEqual(herd_mate.seen_failure, 0)  # a slow death: no choice of its own to see fail
 
         plant = simulation._add_agent(encode_dna("plant", fertility=7), 20, 20)
         plant.hunger = 30
@@ -2223,8 +2223,9 @@ class NewTraitTests(unittest.TestCase):
         self.assertNotIn(ACTIONS.index("browse"), self.simulation._sense(predator)[1])
         senses, options, situation = self.simulation._sense(grazer)
         self.assertIn(ACTIONS.index("browse"), options)
-        while grazer.last_action != "browsed":
-            self.simulation._act(grazer, "browse", situation)
+        with patch("tools.Simulation.GO_EFFORT", 0):  # the meal alone, not the walk to it
+            while grazer.last_action != "browsed":
+                self.simulation._act(grazer, "browse", situation)
 
         self.assertEqual(grazer.hunger, 90 - 1.25 * (PLANT_MEAL + PLANT_MEAL_FOR_SIZE) / 2)  # the largest plant, a quarter more
         # to a grazer, into a double stomach
@@ -2599,3 +2600,119 @@ class FeebleTests(unittest.TestCase):
         seedling = self.simulation._add_agent(encode_dna("plant", size=6, weapons=6), 5, 5)
         self.assertFalse(seedling.feeble)
         self.assertEqual(seedling.trait("weapons"), 6)
+
+
+class RewardAuditTests(unittest.TestCase):
+    """Every reward earned by what came of a choice, not by trying it."""
+
+    def setUp(self):
+        self.simulation = Simulation(width=12, height=12, population=0, seed=3)
+        self.simulation.grass.clear()
+
+    def test_a_heading_pleases_the_curious_only_if_it_moved(self):
+        from tools.Simulation import CURIOSITY_JOY
+        walker = self.simulation._add_agent(encode_dna("grazer", curiosity=7), 5, 0)
+        self.simulation._index_cells()
+        self.simulation._act(walker, "walk_north", {})  # the map's edge
+        self.assertEqual((walker.y, walker.reward), (0, 0.0))
+        self.simulation._act(walker, "walk_south", {})
+        self.assertEqual(walker.y, 1)
+        self.assertAlmostEqual(walker.reward, CURIOSITY_JOY)
+
+    def test_an_alert_pleases_only_when_a_herd_mate_takes_it_in(self):
+        from tools.Simulation import ALERT_JOY
+        dna = encode_dna("grazer", trust=7, empathy=7, patience=7, sight=3)
+        lookout = self.simulation._add_agent(dna, 5, 5)
+        hunter = self.simulation._add_agent(encode_dna("predator"), 9, 9)
+        self.simulation._index_cells()
+        self.simulation._alert(lookout, hunter)  # no one to tell
+        self.assertEqual(lookout.reward, 0.0)
+        mate = self.simulation._add_agent(dna, 5, 6)
+        self.simulation._index_cells()
+        self.simulation._alert(lookout, hunter)
+        self.assertEqual((lookout.reward, mate.alarm), (ALERT_JOY, hunter.identifier))
+
+    def test_learning_weights_make_success_memorable_not_failure(self):
+        from tools.Simulation import KILL_FOOD_LEARNING, PLANT_FOOD_LEARNING, lesson_weight
+        hunt, eat, rest = (ACTIONS.index(action) for action in ("hunt", "eat", "rest"))
+        self.assertEqual((lesson_weight(hunt, 0.3), lesson_weight(hunt, -0.3)), (KILL_FOOD_LEARNING, 1.0))
+        self.assertEqual((lesson_weight(eat, 0.3), lesson_weight(eat, -0.3)), (PLANT_FOOD_LEARNING, 1.0))
+        self.assertEqual(lesson_weight(rest, 0.3), 1.0)
+
+    def test_a_slow_death_is_not_blamed_on_the_last_choice(self):
+        dna = encode_dna("grazer", intellect=7, empathy=7)
+        for cause, blamed in (("starved", False), ("froze", False), ("old age", False), ("exhausted", True)):
+            dying = self.simulation._add_agent(dna, 5, 5)
+            self.simulation._index_cells()
+            self.simulation._think(dying)
+            dying.reward = 0.0
+            dying.last_wellbeing = self.simulation._wellbeing(dying)
+            with patch.object(Simulation, "_learn") as learns, patch.object(Simulation, "_witness") as witnessed:
+                self.simulation._die(dying, cause)
+            outcome = learns.call_args.args[1]
+            self.assertAlmostEqual(outcome, -DEATH_PENALTY if blamed else 0.0)
+            self.assertEqual(witnessed.called, blamed)
+
+    def test_growing_out_of_infancy_or_into_old_age_is_no_lesson(self):
+        from tools.Simulation import AGEING
+        with patch("tools.Simulation.FEEBLE_YOUTH", 0.1):
+            for start in ("infant", "grown"):
+                animal = self.simulation._add_agent(encode_dna("grazer", size=7), 5, 5)
+                self.simulation._index_cells()
+                animal.age = round(0.1 * animal.lifespan) - 1 if start == "infant" else int(AGEING * animal.lifespan)
+                animal.health = 0.8 * animal.max_health
+                animal.last_wellbeing = self.simulation._wellbeing(animal)
+                feeble = animal.feeble
+                with patch.object(Simulation, "_think_all"), patch.object(Simulation, "_dies_of_age", return_value=False):
+                    self.simulation._take_turn()
+                self.assertNotEqual(animal.feeble, feeble)
+                # Only the turn's own hunger and healing move its wellbeing; its health's share jumping with its full
+                # health does not.
+                self.assertLess(abs(self.simulation._wellbeing(animal) - animal.last_wellbeing), 0.05)
+                animal.health = 0  # out of the way of the next
+                self.simulation._die(animal, "old age")
+
+    def test_every_way_of_moving_pays_for_the_distance(self):
+        from tools.Simulation import GO_EFFORT
+        hunter = self.simulation._add_agent(encode_dna("predator", speed=7), 1, 5)
+        prey = self.simulation._add_agent(encode_dna("grazer"), 9, 5)
+        self.simulation._index_cells()
+        hunter.hunger = 10
+        self.simulation._act(hunter, "herd", {"herd_middle": (prey.x, prey.y)})  # four cells, at its speed
+        self.assertEqual(hunter.x, 5)
+        self.assertAlmostEqual(hunter.hunger, 10 + hunter.burn * GO_EFFORT * 3)  # every cell past the first
+        prey.hunger = 10
+        self.simulation._act(prey, "flee", {"hunter": hunter})
+        self.assertAlmostEqual(prey.hunger, 10 + prey.burn * GO_EFFORT * max(0, prey.steps - 1))
+
+    def test_defending_is_damped_by_tolerance_as_attacking_is(self):
+        joys = []
+        for tolerance in (0, 7):
+            defender = self.simulation._add_agent(encode_dna("omnivore", aggression=7, tolerance=tolerance, size=7), 2, 2 + 3 * tolerance // 7)
+            assailant = self.simulation._add_agent(encode_dna("grazer", size=7), 3, 2 + 3 * tolerance // 7)
+            self.simulation._index_cells()
+            self.simulation._defend(defender, assailant)
+            joys.append(defender.reward)
+        self.assertAlmostEqual(joys[1], joys[0] * 0.25)
+
+
+class SolitaryOmnivoreTests(unittest.TestCase):
+    def test_omnivores_live_alone_in_neither_herd_nor_pack_and_miss_none(self):
+        from tools.Simulation import HERD_LONELINESS
+        simulation = Simulation(width=12, height=12, population=0, seed=3)
+        dna = encode_dna("omnivore", empathy=7, patience=7)
+        first = simulation._add_agent(dna, 5, 5)
+        second = simulation._add_agent(dna, 6, 5)
+        grazers = [simulation._add_agent(encode_dna("grazer", empathy=7, patience=7), x, 9) for x in (2, 3)]
+        simulation._index_cells()
+        self.assertFalse(simulation._herd_mate(first, second))
+        self.assertFalse(simulation._society(first, second))
+        self.assertEqual(simulation._herd(first), (False, 0, None))
+        self.assertTrue(simulation._herd_mate(*grazers))  # grazers still herd
+        _, _, situation = simulation._sense(first)
+        lonely = dict(situation, herd=False, herd_near=0)
+        with patch("tools.Simulation.HERD_LONELINESS", 1.0):
+            alone = simulation._comfort(first, lonely)
+            with patch("tools.Simulation.SOLITARY_OMNIVORES", 0):
+                self.assertTrue(simulation._herd_mate(first, second))  # the rule off: they herd again
+                self.assertLess(simulation._comfort(first, lonely), alone)  # and miss their herd

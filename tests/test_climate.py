@@ -431,7 +431,7 @@ class SocietyTests(unittest.TestCase):
         self.simulation._index_cells()
         with patch.object(witness.brain, "learn") as learns:
             dying.health = 0
-            self.simulation._die(dying, "froze")
+            self.simulation._die(dying, "exhausted")  # a sudden death, its last choice's doing
             learns.assert_not_called()  # what the herd saw is learnt at the turn's end, with the rest
             self.simulation._learn_witnessed()
         learns.assert_called_once_with(dying.last_senses, dying.last_choice, -DEATH_PENALTY, LEARNING_RATE)

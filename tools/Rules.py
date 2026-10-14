@@ -260,6 +260,8 @@ _TABLE: dict[str, list[tuple]] = {
         ("HERD_SPREAD", "Herd spread", "how far from the herd's middle a fearless animal is content", 0, 12, 1),
         ("HERD_JOY", "Herd joy", "pleasure of being among three or more herd-mates", 0.0, 5.0, 0.05),
         ("HERD_LONELINESS", "Herd loneliness", "unease at having no herd-mate in range", 0.0, 5.0, 0.05),
+        ("SOLITARY_OMNIVORES", "Solitary omnivores", "1: omnivores live alone, in neither herd nor pack; 0: they herd with their own kind",
+         0, 1, 1),
         ("HERD_SAFETY", "Herd safety", "how much three close herd-mates calm fear", 0.0, 1.0, 0.05),
         ("HERD_DEFEND_JOY", "Herd defence joy", "pleasure of striking back at a herd-mate's attacker", 0.0, 5.0, 0.05),
     ],

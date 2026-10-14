@@ -86,6 +86,7 @@ SIZE_IN_MIGHT = 0.5      # share of fighting strength and toughness that comes f
 AGEING = 0.7  # from this share of its lifespan, an animal may die of old age
 
 DEATH_PENALTY = 2.0
+SLOW_DEATHS = frozenset(("old age", "starved", "froze", "overheated"))  # deaths no last choice is blamed for
 # Breeding is the greatest pleasure there is, and courting a mate into reach the next: each at three quarters
 # of its full strength, and the rest by libido, so even the coldest animal learns to seek a mate. Courting is
 # rewarded only once it brings a ready, willing partner within MATE_REACH; neither costs anything when it fails.
@@ -150,8 +151,14 @@ KILL_FOOD = frozenset(ACTIONS.index(action) for action in ("hunt", "attack", "fe
 PLANT_FOOD = frozenset(ACTIONS.index(action) for action in ("eat", "forage", "browse", "uproot"))
 
 
+def lesson_weight(choice: int, outcome: float) -> float:
+    """How much a lesson from a choice counts: a success (an outcome above 0) by the choice's learning weight, a
+    failure as any other, so that a weight makes success more, or less, memorable without making failure so."""
+    return choice_learning(choice) if outcome > 0 else 1.0
+
+
 def choice_learning(choice: int) -> float:
-    """How much more, or less, a choice is learnt from: for the food it seeks, or the mate."""
+    """How much more, or less, a success from a choice is learnt from: for the food it seeks, or the mate."""
     if choice == ACTIONS.index("breed"):
         return BREED_LEARNING
     if choice == ACTIONS.index("court"):
@@ -214,6 +221,12 @@ RIVAL_KILL_JOY = 0.5   # relief at killing a predator in an overcrowded territor
 HERD_SPREAD = 3        # how far from its herd's middle a fearless animal is content; the fearful want the middle
 HERD_JOY = 0.15        # pleasure of being among three or more herd-mates
 HERD_LONELINESS = 0.1  # unease at having no herd-mate in range
+SOLITARY_OMNIVORES = 1  # 1: omnivores live alone, in neither herd nor pack; 0: they herd with their own kind
+
+
+def solitary(species: str) -> bool:
+    """Whether a species lives alone, with no herd or pack: plants, and omnivores while SOLITARY_OMNIVORES."""
+    return species == "plant" or (species == "omnivore" and bool(SOLITARY_OMNIVORES))
 HERD_SAFETY = 0.6      # how much three herd-mates close by calm fear and steady morale
 HERD_DEFEND_JOY = 0.5  # pleasure of striking back at whatever struck a herd-mate alongside
 PACK_BONUS = 0.5       # extra force of a blow at prey that a herd-mate is also alongside
@@ -1190,8 +1203,12 @@ class Simulation:
         for agent in order:
             if not agent.alive:
                 continue
+            full = agent.max_health
+            share_before = max(0.0, agent.health) / full
             agent.age += 1
             agent.health = min(agent.health, agent.max_health)  # growing old, it grows feeble
+            if agent.max_health != full:  # grown out of infancy, or into old age: the change in its health's share
+                agent.last_wellbeing += max(0.0, agent.health) / agent.max_health - share_before  # is no lesson
             plant = agent.species == "plant"
             here = self._climate[agent.y]
             steps = agent.climate_steps(here)
@@ -1385,7 +1402,7 @@ class Simulation:
                 # its mood was a success, whatever lowered them a failure, by how much; both may happen.
                 reward = (agent.reward + self._wellbeing(agent) - agent.last_wellbeing
                           + comfort - agent.last_comfort)
-                self._learn(agent, reward + self._discount(agent) * max(valued[option] for option in options),
+                self._learn(agent, reward + self._discount(agent) * max(valued[option] for option in options), reward,
                             replay=True)
                 if reward > 0:  # a lesson learnt from a choice that turned out well
                     self._experience(agent, "lesson")
@@ -1629,7 +1646,7 @@ class Simulation:
         crowded = (RIVAL_UNEASE * (1 - 0.5 * tolerance) * situation.get("rivalry", 0.0)
                    * (1 + DOMINANCE_EASE * (1 - 2 * agent.feeling("dominance"))))  # the submissive feel it most
         herding = HERD_JOY * instinct * herd_near
-        if not situation.get("herd", True):
+        if not situation.get("herd", True) and not solitary(agent.species):  # a loner misses no herd
             herding -= HERD_LONELINESS * instinct
         herding *= 0.5 + agent.fearfulness  # the fearful feel their herd, and its absence, most
         exposed = CLIMATE_UNEASE * situation.get("exposure", 0.0)
@@ -1648,20 +1665,21 @@ class Simulation:
         hunter = {"predator": PREDATOR_LEARNING, "omnivore": 1 + (PREDATOR_LEARNING - 1) / 2}.get(agent.species, 1.0)
         return LEARNING_RATE * sharpness * (1 + LEARNING_BOOST * sharpness) * hunter
 
-    def _learn(self, agent: Bitzkey, target: float, replay: bool = False) -> None:
-        """Learn from its own last choice, by TD(lambda), so the choices before it share in what came of it.
-        With `replay`, it then re-learns from its most recent experiences, as many as its intellect
-        allows, and remembers this one."""
+    def _learn(self, agent: Bitzkey, target: float, outcome: float, replay: bool = False) -> None:
+        """Learn from its own last choice, by TD(lambda), so the choices before it share in what came of it; its
+        `outcome` (what came of it, before the future's worth) sets how much it counts. With `replay`, it then
+        re-learns from its most recent experiences, as many as its intellect allows, and remembers this one."""
         rate = self._learning_rate(agent)
-        agent.brain.learn_traced(agent.last_senses, agent.last_choice, target, rate * choice_learning(agent.last_choice),
+        weight = lesson_weight(agent.last_choice, outcome)
+        agent.brain.learn_traced(agent.last_senses, agent.last_choice, target, rate * weight,
                                  self._discount(agent), agent.intelligence)
         if not replay:
             return
         count = REPLAY_PER_INTELLECT * thinking_intellect(agent.inborn["intellect"], agent.species)
-        for senses, choice, remembered in agent.memories[-count:] if count else ():  # the latest, up to count
-            agent.brain.learn(senses, choice, remembered, rate * choice_learning(choice))
+        for senses, choice, remembered, counted in agent.memories[-count:] if count else ():  # the latest, up to count
+            agent.brain.learn(senses, choice, remembered, rate * counted)
         if count:
-            agent.memories.append((agent.last_senses, agent.last_choice, target))
+            agent.memories.append((agent.last_senses, agent.last_choice, target, weight))
             del agent.memories[:-count]
 
     def _dies_of_age(self, agent: Bitzkey) -> bool:
@@ -1685,9 +1703,12 @@ class Simulation:
                                                      None if killer is None else killer.identifier,
                                                      None if killer is None else killer.species, activity)
         if agent.brain is not None and agent.last_senses is not None:
-            penalty = 0.0 if cause == "old age" else DEATH_PENALTY
-            self._learn(agent, agent.reward + self._wellbeing(agent) - agent.last_wellbeing - penalty)
-            if cause != "old age":  # its herd sees it fail
+            # A slow death (old age, starving or the cold or heat) is not its last choice's doing: the health it lost
+            # on the way has taught its lessons already.
+            sudden = cause not in SLOW_DEATHS
+            outcome = agent.reward + self._wellbeing(agent) - agent.last_wellbeing - (DEATH_PENALTY if sudden else 0.0)
+            self._learn(agent, outcome, outcome)
+            if sudden:  # its herd sees it fail
                 self._witness(agent, -DEATH_PENALTY)
         agent.brain = None
         agent.womb, agent.due_turn = [], None  # the young it carried die with it
@@ -1804,9 +1825,10 @@ class Simulation:
             if walk:
                 agent.hunger = max(0, agent.hunger - agent.burn * WALK_REST)  # burns less, but eases no hunger
             else:
-                agent.hunger += agent.burn * GO_EFFORT * max(0, moved - 1)
+                self._effort(agent, moved)
                 self._exhausted(agent)
-            agent.reward += CURIOSITY_JOY * agent.feeling("curiosity")
+            if moved:  # setting off pleases the curious; walking into a wall doesn't
+                agent.reward += CURIOSITY_JOY * agent.feeling("curiosity")
             agent.last_action = went
         elif action == "flee":
             self._move_away(agent, situation["hunter"])
@@ -1850,15 +1872,18 @@ class Simulation:
         """Alert its herd within its sight: a grazer to the hunter it sees, so they may flee it from
         further than they would; a hunter to the fresh kill it sees, so they may come to feast on it. A
         herd-mate heeds it only from TRUST_REACH times its trust times its own sight away, or nearer."""
+        heeded = False
         for other in self._nearby(agent, agent.sight):
             if (self._herd_mate(agent, other) and abs(other.x - agent.x) + abs(other.y - agent.y)
                     <= TRUST_REACH * other.feeling("trust") * other.sight):
+                heeded = True
                 if agent.species == "grazer":
                     if other.alarm is None:
                         other.alarm = about.identifier
                 else:
                     other.kill_alert = (about.x, about.y)
-        agent.reward += ALERT_JOY
+        if heeded:  # a pleasure only when a herd-mate took it in
+            agent.reward += ALERT_JOY
         agent.last_action = "alerted"
 
     def _scavenge(self, agent: Bitzkey, corpse: Bitzkey) -> None:
@@ -1969,13 +1994,14 @@ class Simulation:
             self._die(victim, "killed", agent, activity)
 
         sting = 4.5 * self._armed(victim) * self._defence_share(victim) * (1 - 0.6 * agent.toughness)
+        stung = max(0.0, sting)
         if sting > 0:
             agent.health -= sting
             self._experience(agent, "stung")
             if not agent.alive:
                 self._die(agent, "killed", victim, "spines")  # its victim's spines
         self._exhausted(agent)
-        if agent.species == "predator" and agent.alive:  # a blow it lived through
+        if agent.species == "predator" and agent.alive and damage > stung:  # a blow that went its way
             agent.reward += ATTACK_JOY
 
     def _exhausted(self, agent: Bitzkey) -> None:
@@ -1995,7 +2021,8 @@ class Simulation:
         agent.hunger += STRIKE_EFFORT * damage / agent.stomach
         self._experience(assailant, "stung")
         if agent.species != "plant":
-            agent.reward += FIGHT_JOY * agent.feeling("aggression") * (1 - 0.6 * agent.feeling("empathy"))
+            agent.reward += (FIGHT_JOY * agent.feeling("aggression") * (1 - 0.6 * agent.feeling("empathy"))
+                             * (1 - 0.75 * agent.feeling("tolerance")))  # as attacking is
             if for_herd:
                 agent.reward += HERD_DEFEND_JOY * agent.herd_instinct
             agent.last_action = "defended"
@@ -2377,7 +2404,13 @@ class Simulation:
         self._move(agent, x, y)
         return True
 
+    @staticmethod
+    def _effort(agent: Bitzkey, cells: int) -> None:
+        """Going further costs: GO_EFFORT of a turn's burn for each cell past the first, however it moves."""
+        agent.hunger += agent.burn * GO_EFFORT * max(0, cells - 1)
+
     def _move_toward(self, agent: Bitzkey, x: int, y: int, steps: int | None = None) -> None:
+        cells = 0
         for _ in range(agent.steps if steps is None else steps):
             if agent.x != x:
                 moved = self._step(agent, agent.x + (1 if x > agent.x else -1), agent.y)
@@ -2387,13 +2420,18 @@ class Simulation:
                 break
             if not moved:
                 break
+            cells += 1
+        self._effort(agent, cells)
 
     def _move_away(self, agent: Bitzkey, threat: Bitzkey) -> None:
+        cells = 0
         for _ in range(agent.steps):
             dx = 1 if agent.x >= threat.x else -1
             dy = 1 if agent.y >= threat.y else -1
             if not self._step(agent, (agent.x + dx) % self.width, self._within(agent.y + dy)):
                 break
+            cells += 1
+        self._effort(agent, cells)
 
     @staticmethod
     def _compatible(first: Bitzkey, second: Bitzkey) -> bool:
@@ -2531,7 +2569,7 @@ class Simulation:
             heed = (observer.feeling("empathy") * observer.intelligence
                     * (1 + TRUST_HEED * (2 * observer.feeling("trust") - 1)))  # the trusting take in more
             self._witnessed.append((observer, actor.last_senses, actor.last_choice, outcome,
-                                    LEARNING_RATE * heed * SOCIAL_LEARNING * choice_learning(actor.last_choice)))  # at the end
+                                    LEARNING_RATE * heed * SOCIAL_LEARNING * lesson_weight(actor.last_choice, outcome)))  # at the end
             observer.reward += SOCIAL_MOOD * heed * outcome
             if outcome > 0:
                 observer.seen_success = 1.0
@@ -2554,13 +2592,13 @@ class Simulation:
     def _society(self, observer: Bitzkey, actor: Bitzkey) -> bool:
         """Whether an animal counts another, alive or not, as one of its herd (or pack): as for
         _herd_mate."""
-        return (observer is not actor and observer.species != "plant" and observer.species == actor.species
+        return (observer is not actor and not solitary(observer.species) and observer.species == actor.species
                 and (observer.species != "predator" or self._same_kind(observer, actor)) and self._willing(observer, actor))
 
     def _herd_mate(self, agent: Bitzkey, other: Bitzkey) -> bool:
         """Whether an animal counts another as one of its herd: its species, and its kind for a
         predator, alive, and close enough in looks for it to accept as a mate."""
-        return (other is not agent and other.alive and agent.species != "plant" and other.species == agent.species
+        return (other is not agent and other.alive and not solitary(agent.species) and other.species == agent.species
                 and (agent.species != "predator" or self._same_kind(agent, other)) and self._willing(agent, other))
 
     def _herd(self, agent: Bitzkey) -> tuple[bool, int, tuple[int, int] | None]:
