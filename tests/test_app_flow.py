@@ -45,6 +45,37 @@ class SimulationFlowTests(unittest.TestCase):
         pg.event.clear()
         pg.display.quit()  # leave no window behind for other tests
 
+    def test_deploy_paints_groups_on_the_map_until_a_right_click_or_esc(self):
+        from unittest.mock import patch
+        from display.CatalogScreen import CatalogScreen
+        from tools import Catalog
+        entry = Catalog.entry_for(self.animal, self.app.simulation.turn)
+        with patch.object(CatalogScreen, "run", return_value=("deploy", [entry])), \
+                patch("pygame.mouse.set_cursor") as cursor:
+            self.app._browse_catalog()
+            self.assertEqual(cursor.call_args.args[0], pg.SYSTEM_CURSOR_CROSSHAIR)  # a target
+            self.assertEqual(len(self.app.deploying), 1)
+            self.app._draw()
+            board, cell_width, cell_height = self.app._board_geometry()
+            at = lambda x, y: (round(board.left + (x + 0.5) * cell_width), round(board.top + (y + 0.5) * cell_height))
+            before = len(self.app.simulation.agents)
+            pg.event.post(pg.event.Event(pg.MOUSEBUTTONDOWN, button=1, pos=at(10, 15)))
+            pg.event.post(pg.event.Event(pg.MOUSEMOTION, pos=at(12, 15), rel=(1, 0), buttons=(1, 0, 0)))  # too near to paint
+            pg.event.post(pg.event.Event(pg.MOUSEMOTION, pos=at(16, 15), rel=(1, 0), buttons=(1, 0, 0)))  # far enough: another
+            pg.event.post(pg.event.Event(pg.MOUSEBUTTONUP, button=1, pos=at(16, 15)))
+            pg.event.post(pg.event.Event(pg.MOUSEBUTTONDOWN, button=3, pos=at(5, 5)))  # stops
+            pg.event.post(pg.event.Event(pg.MOUSEBUTTONDOWN, button=1, pos=at(5, 5)))  # an ordinary click again
+            pg.event.post(pg.event.Event(pg.QUIT))
+            self.assertEqual(self.app.run(), "quit")
+            self.assertEqual(len(self.app.simulation.agents), before + 10)
+            self.assertEqual(self.app.deploying, [])
+            self.assertEqual(cursor.call_args.args[0], pg.SYSTEM_CURSOR_ARROW)
+            self.app._start_deploying([Catalog.imported(entry)])
+            pg.event.post(key(pg.K_ESCAPE))  # stops it too, rather than asking to leave
+            pg.event.post(pg.event.Event(pg.QUIT))
+            self.app.run()
+            self.assertEqual((self.app.deploying, self.app.dialog), ([], None))
+
     def test_the_advanced_button_pauses_and_sets_the_rules_this_world_plays_by(self):
         from unittest.mock import patch
         from tools import Rules

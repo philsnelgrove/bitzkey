@@ -83,6 +83,48 @@ class CatalogTests(unittest.TestCase):
                          [others[1].identifier, others[2].identifier])
         pg.display.quit()
 
+    def test_browsing_from_a_running_world_deploy_takes_the_place_of_import(self):
+        others = [agent for agent in self.simulation.living if agent.brain][:3]
+        Catalog.add([Catalog.entry_for(agent, self.simulation.turn) for agent in others])
+        pg.init()
+        screen = pg.display.set_mode((1200, 820))
+        catalog = CatalogScreen(screen, browsing=True)
+        catalog._draw()
+        catalog._choose(1)
+        self.assertEqual(catalog._click(catalog._layout()["import"].center), "deploy")
+        pg.event.post(pg.event.Event(pg.KEYDOWN, key=pg.K_RETURN, unicode="", mod=0))
+        outcome, entries = catalog.run()
+        self.assertEqual(outcome, "deploy")
+        self.assertEqual([Catalog.inspected(entry).identifier for entry in entries], [others[1].identifier])
+        pg.display.quit()
+
+    def test_deploying_puts_five_of_each_around_a_cell_with_their_brains_and_minds(self):
+        from tools.Simulation import DEPLOY_GROUP, SPAWN_SPREAD
+        entry = Catalog.entry_for(self.animal, self.simulation.turn)
+        bitzkey = Catalog.imported(entry)
+        turn, before = self.simulation.turn, len(self.simulation.agents)
+        deployed = self.simulation.deploy([bitzkey, bitzkey], 10, 1)  # near the top: kept on the map
+        self.assertEqual((DEPLOY_GROUP, len(deployed), len(self.simulation.agents)), (5, 10, before + 10))
+        for agent in deployed:
+            self.assertEqual(agent.dna, self.animal.dna)
+            self.assertLessEqual(min(abs(agent.x - 10), 30 - abs(agent.x - 10)), SPAWN_SPREAD)
+            self.assertTrue(0 <= agent.y <= 1 + SPAWN_SPREAD)
+            self.assertEqual(agent.brain, bitzkey.brain.resized(agent.brain.depth))  # its catalogued brain
+            self.assertIsNot(agent.brain, deployed[0].brain if agent is not deployed[0] else None)
+            self.assertAlmostEqual(agent.mind["fear"], self.animal.mind["fear"], places=3)
+        self.assertEqual(self.simulation.turn, turn)  # between turns
+        self.assertEqual(self.simulation.history[-1]["turn"], turn)  # this turn, recorded again, as it now is
+        living = set(self.simulation.census.at(turn))
+        self.assertTrue({agent.identifier for agent in deployed} <= living)
+
+        for _ in range(3):
+            self.simulation.advance()
+        self.simulation.seek(turn + 1)  # rewound: deploying lets the future go
+        self.simulation.deploy([bitzkey], 20, 20)
+        self.assertEqual((self.simulation.frontier, self.simulation.history[-1]["turn"]), (turn + 1, turn + 1))
+        self.simulation.advance()
+        self.assertEqual(self.simulation.turn, turn + 2)
+
     def test_several_are_chosen_as_in_windows_with_ctrl_and_shift(self):
         from unittest.mock import patch
         others = [agent for agent in self.simulation.living if agent.brain][:5]

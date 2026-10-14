@@ -57,8 +57,8 @@ class CatalogScreen:
         return UI.font("segoeui", 12)
 
     def run(self) -> tuple[str, list[dict] | None]:
-        """Return ("import", entries) for the Bitzkeys chosen to import, in catalog order, ("close", None)
-        or ("quit", None)."""
+        """Return ("import", entries) for the Bitzkeys chosen to import, in catalog order, ("deploy",
+        entries) for those chosen, browsing, to deploy onto the running world, ("close", None) or ("quit", None)."""
         while True:
             self.clock.tick(30)
             for event in pg.event.get():
@@ -75,8 +75,8 @@ class CatalogScreen:
                 elif event.type == pg.KEYDOWN:
                     if event.key == pg.K_ESCAPE:
                         return "close", None
-                    if event.key in (pg.K_RETURN, pg.K_KP_ENTER) and self.chosen and not self.browsing:
-                        return "import", self._chosen_entries()
+                    if event.key in (pg.K_RETURN, pg.K_KP_ENTER) and self.chosen:
+                        return "deploy" if self.browsing else "import", self._chosen_entries()
                     if event.key == pg.K_F11:
                         self.screen = Window.toggle_fullscreen()
                     elif event.key in (pg.K_UP, pg.K_DOWN) and self.entries:
@@ -90,8 +90,8 @@ class CatalogScreen:
                     self._scroll_to(self.scroll - event.y)
                 elif event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
                     action = self._click(event.pos)
-                    if action == "import":
-                        return "import", self._chosen_entries()
+                    if action in ("import", "deploy"):
+                        return action, self._chosen_entries()
                     if action == "close":
                         return "close", None
             self._draw()
@@ -177,8 +177,8 @@ class CatalogScreen:
         layout = self._layout()
         if layout["close"].collidepoint(position):
             return "close"
-        if layout["import"].collidepoint(position) and self.chosen and not self.browsing:
-            return "import"
+        if layout["import"].collidepoint(position) and self.chosen:
+            return "deploy" if self.browsing else "import"  # browsing, the same place deploys them
         if layout["remove"].collidepoint(position) and self.chosen:
             self._ask_to_remove()
             return None
@@ -233,15 +233,15 @@ class CatalogScreen:
             draw_details(self.screen, agent, inside.left, lambda offset: details.top + UI(150 + offset), inside.width)
 
         adding = "ADD TO IMPORT" if len(self.chosen) <= 1 else f"ADD {len(self.chosen)} TO IMPORT"
+        if self.browsing:  # onto the running world, painted on the map
+            adding = "DEPLOY" if len(self.chosen) <= 1 else f"DEPLOY {len(self.chosen)}"
         for name, label, lit in (("remove", "REMOVE", False), ("import", adding, True), ("close", "CLOSE", False)):
-            if name == "import" and self.browsing:
-                continue
             button = layout[name]
             active = lit and bool(self.chosen)
             pg.draw.rect(self.screen, (131, 205, 143) if active else (44, 57, 52), button, border_radius=UI(6))
             text = self.button_font.render(label, True, (19, 26, 27) if active else (220, 229, 211))
             self.screen.blit(text, text.get_rect(center=button.center))
-        hint = self.note or ("CLICK, SHIFT or CTRL+CLICK  choose    DELETE  remove    ESC  close" if self.browsing else
+        hint = self.note or ("CLICK, SHIFT or CTRL+CLICK  choose    ENTER  deploy    DELETE  remove    ESC  close" if self.browsing else
                              "CLICK, SHIFT or CTRL+CLICK  choose    ENTER  add to import    DELETE  remove    ESC  close")
         self._text(hint, (layout["remove"].right + UI(16), layout["remove"].centery - UI(8)),
                    (238, 183, 110) if self.note else (116, 139, 124), self.small)

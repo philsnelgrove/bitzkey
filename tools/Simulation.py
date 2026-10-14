@@ -35,6 +35,7 @@ SPAWN_GROUP = (3, 5)  # Bitzkeys spawn in groups of this many sharing one genome
 MAX_IMPORTED = 120  # imported Bitzkeys, each spawning a group of its own
 MAX_GRID = 1000  # the widest and tallest a world can be, in cells
 SPAWN_SPREAD = 2      # a group's members appear within this many cells of each other's centre
+DEPLOY_GROUP = 5      # Bitzkeys deployed from the catalog onto a running world, of each chosen, a click
 USE_GPU = 0  # the C++ version's: 1 thinks on the GPUs; the Python version always thinks on the CPU
 SPAWN_AT_HOME = 1     # 1: a group appears in rows whose usual temperature is its home (the nearest, if none); 0: anywhere
 # The history is kept in memory: the world at each of the latest HISTORY_TURNS turns, whole, so the map
@@ -849,6 +850,25 @@ class Simulation:
         self._witnessed: list[tuple] = []
         self._take_census()
         self._record()
+
+    def deploy(self, bitzkeys: Sequence[Imported], x: int, y: int) -> list[Bitzkey]:
+        """Put DEPLOY_GROUP of each of these Bitzkeys, each with its own copy of its saved brain and
+        temperament, within SPAWN_SPREAD cells of a cell of the running world, between its turns. A world
+        rewound lets the future it had go, as a turn played afresh would. Returns those deployed."""
+        if self.turn < self.frontier:
+            while self.history and self.history[-1]["turn"] > self.turn:
+                self._history_bytes -= self.history.pop()["bytes"]
+        deployed = []
+        for bitzkey in bitzkeys:
+            for _ in range(DEPLOY_GROUP):
+                cell_x = (x + self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD)) % self.width
+                cell_y = self._within(y + self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD))
+                deployed.append(self._add_agent(bitzkey.dna, cell_x, cell_y,
+                                                brain=bitzkey.brain.copy() if bitzkey.brain else None, mind=bitzkey.mind))
+        self.census.forget_from(self.turn)  # this turn again, as it now is
+        self._take_census()
+        self._record()
+        return deployed
 
     def rules_changed(self) -> None:
         """The advanced rules were changed while the world runs: work out afresh what the world

@@ -800,10 +800,16 @@ after asking, and CLOSE (`Esc`) returns. Each entry is written as an export reco
 loaded like any export file.
 
 OPEN CATALOG, in the footer beside EXPORT ALL SELECTED and at the bottom right of
-the colour graph, opens the catalog from a running world just to look through it:
-the same screen without ADD TO IMPORT, so nothing is imported or exported (REMOVE
-still works). The world waits while it is open; CLOSE (`Esc`) returns to the map
-or the graph.
+the colour graph, opens the catalog from a running world: the same screen, with
+DEPLOY in place of ADD TO IMPORT (REMOVE still works). The world waits while it is
+open; CLOSE (`Esc`) returns to the map or the graph.
+
+DEPLOY (`Enter`) closes the catalog and turns the cursor into a target over the map.
+Each click there puts 5 of each Bitzkey chosen, each with its own copy of its
+catalogued brain and temperament, within 2 cells of the cell clicked; hold the button
+and drag to paint them, a group every 5 cells. A right-click or `Esc` stops. They join
+the world between its turns, paused or playing; a world rewound lets its abandoned
+future go, as a turn played afresh would.
 
 ## Export Format
 

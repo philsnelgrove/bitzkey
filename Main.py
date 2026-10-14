@@ -27,7 +27,7 @@ from tools.Genome import TEMPERAMENT, decode_climate
 from tools.Insights import ANIMALS, brain_matrix_lines, brain_report, death_report_lines
 from tools import Catalog, Rules
 from tools import Simulation as world
-from tools.Simulation import SEASONS, SPECIES, Bitzkey, Simulation, season, year
+from tools.Simulation import DEPLOY_GROUP, SEASONS, SPECIES, Bitzkey, Simulation, season, year
 
 REPORT_DIR = Config.APP_DIR / "reports"
 INSIGHTS_TOP = 290  # the insights panel's top, in design pixels: just below the population counts
@@ -162,6 +162,10 @@ class BitzkeyApp:
         self._export_button = pg.Rect(0, 0, 0, 0)
         self._open_button = pg.Rect(0, 0, 0, 0)  # the catalog, to look through
         self._advanced_button = pg.Rect(0, 0, 0, 0)  # this world's rules
+        # Deploying from the catalog: the Bitzkeys to paint onto the map, and the cell last painted while the button is
+        # held; none, when not deploying.
+        self.deploying: list[Imported] = []
+        self._painted: tuple[int, int] | None = None
         self.message = ""
         self.message_until = 0
         self.playing = True
@@ -209,6 +213,8 @@ class BitzkeyApp:
                     if choice and self._answer(choice) == "leave":
                         self._leave(dialog)
                         return "configure"
+                elif self.deploying and not self.show_census and self._deploy_event(event):
+                    pass
                 elif event.type == pg.KEYDOWN:
                     if event.key == pg.K_ESCAPE and self._exemplar_menu is not None:
                         self._exemplar_menu = None  # just closes the menu
@@ -396,12 +402,58 @@ class BitzkeyApp:
                       "defaults. Paused: SPACE plays on.")
 
     def _browse_catalog(self) -> None:
-        """Look through the catalog, importing and exporting nothing; the world waits meanwhile. Closing
-        the window from there closes the program."""
-        outcome, _ = CatalogScreen(self.screen, browsing=True).run()
+        """Look through the catalog, importing and exporting nothing; the world waits meanwhile. DEPLOY
+        closes it to paint the Bitzkeys chosen onto the map. Closing the window from there closes the program."""
+        outcome, entries = CatalogScreen(self.screen, browsing=True).run()
         self.screen = pg.display.get_surface()
         if outcome == "quit":
             pg.event.post(pg.event.Event(pg.QUIT))
+        elif outcome == "deploy" and entries:
+            self._start_deploying([Catalog.imported(entry) for entry in entries])
+
+    def _start_deploying(self, bitzkeys: list[Imported]) -> None:
+        """Deploy mode: the cursor becomes a target, and each click on the map, or each step of a drag, puts
+        DEPLOY_GROUP of each Bitzkey there."""
+        self.show_census = False
+        self.deploying, self._painted = bitzkeys, None
+        pg.mouse.set_cursor(pg.SYSTEM_CURSOR_CROSSHAIR)
+        what = "it" if len(bitzkeys) == 1 else f"each of the {len(bitzkeys)}"
+        self._say(f"DEPLOY: click or drag on the map to place {DEPLOY_GROUP} of {what}.  RIGHT-CLICK or ESC  stop")
+
+    def _stop_deploying(self) -> None:
+        self.deploying, self._painted = [], None
+        pg.mouse.set_cursor(pg.SYSTEM_CURSOR_ARROW)
+        self._say("Deploying stopped.")
+
+    def _deploy_event(self, event: pg.event.Event) -> bool:
+        """While deploying: a left press on the map places a group, and holding it, the drag paints another every
+        DEPLOY_GROUP cells; a right-click or ESC stops. Returns whether the event was used."""
+        if event.type == pg.KEYDOWN and event.key == pg.K_ESCAPE or event.type == pg.MOUSEBUTTONDOWN and event.button == 3:
+            self._stop_deploying()
+            return True
+        if event.type == pg.MOUSEBUTTONUP and event.button == 1:
+            self._painted = None
+            return True
+        painting = event.type == pg.MOUSEMOTION and self._painted is not None
+        if not (painting or event.type == pg.MOUSEBUTTONDOWN and event.button == 1):
+            return False
+        cell = self._cell_at(event.pos)
+        if cell is None:
+            return event.type != pg.MOUSEBUTTONDOWN  # a press off the map works the rest of the screen
+        if painting and max(abs(cell[0] - self._painted[0]), abs(cell[1] - self._painted[1])) < DEPLOY_GROUP:
+            return True
+        self._painted = cell
+        placed = self.simulation.deploy(self.deploying, *cell)
+        self._say(f"Deployed {len(placed)} at ({cell[0]}, {cell[1]}).  RIGHT-CLICK or ESC  stop")
+        return True
+
+    def _cell_at(self, position: tuple[int, int]) -> tuple[int, int] | None:
+        """The world's cell under a point on the map, or None off it."""
+        if not self._map_view()[0].collidepoint(position):
+            return None
+        board, cell_width, cell_height = self._board_geometry()
+        x, y = int((position[0] - board.left) // cell_width), int((position[1] - board.top) // cell_height)
+        return (x, y) if 0 <= x < self.width and 0 <= y < self.height else None
 
     # Dialogs
 
