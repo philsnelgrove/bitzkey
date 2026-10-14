@@ -220,6 +220,9 @@ PREDATOR_FOOD_NEEDED = 0.0  # the same for predators: none, so the food about th
 # Plants each grazer needs in its home band, the climate band of its home temperature nearest it, shared
 # among the grazers at home there, to breed; between this and twice this its litter shrinks. 0: no limit.
 PLANTS_PER_GRAZER = 0.1
+# The same for predators: the prey in its home band (the grazers and omnivores there, what it lives on), shared among
+# the predators at home there. Below this a predator doesn't breed; between this and twice this its litter shrinks.
+PREY_PER_PREDATOR = 2.0
 PLANT_MEALS = 2.0      # meals a plant is worth to a full-efficiency browser
 PREY_MEALS = 10.0      # meals a prey animal is worth: meat fills about ten times what grass does
 SHARED_DIET = 0.5      # how much an animal of another species eating some of the same food counts as a mouth
@@ -845,6 +848,8 @@ class Simulation:
         self._home_band: list[list[int]] = []  # by home temperature and row: the home band nearest
         self._band_plants: list[int] = []   # the plants in each band, and the grazers at home there,
         self._band_grazers: list[int] = []  # as the cells were last indexed
+        self._band_prey: list[int] = []       # the prey in each band, and the predators at home there, likewise
+        self._band_predators: list[int] = []
         self._grass_rows: list[int] = []    # the rows where grass grows at all
         self._grass_reach: list[float] = []  # their growth added up, row by row, for sowing
         self._update_climate()
@@ -1433,7 +1438,7 @@ class Simulation:
         if (mate and agent.can_breed and nurseries and self._room() > 0
                 and (not CROWDING_LIMIT or self._crowding(agent, mate, own_kind=True) < CROWDING_LIMIT)  # its own kind crowds it
                 and (not self._food_needed(agent) or self._food_supply(agent) >= self._food_needed(agent))
-                and (not PLANTS_PER_GRAZER or agent.species != "grazer" or self._home_plants(agent) >= PLANTS_PER_GRAZER)):
+                and self._home_food(agent) >= self._home_food_needed(agent)):  # the food at home: plants, or prey
             available.add("breed")
         if quarry:
             available.add("hunt")
@@ -1514,6 +1519,7 @@ class Simulation:
             food_remembered=fed_at,
             danger_remembered=(self._remembered(agent, agent.danger_memory)
                                * max(0.0, self._closeness(agent, agent.danger_memory and agent.danger_memory[:2], sight))),
+            home_food=self._home_food_sense(agent),
             **{trait: agent.feeling(trait) for trait in TEMPERAMENT},
             **agent.genes,
         )
@@ -2002,8 +2008,8 @@ class Simulation:
         needed = self._food_needed(first)
         if needed:  # litters follow food only while food limits breeding
             litter = max(1, int(litter * min(1.0, self._food_supply(first) / (2 * needed)) + 0.5))
-        if PLANTS_PER_GRAZER and first.species == "grazer":  # a grazer's litters follow the plants in its home band
-            litter = max(1, int(litter * min(1.0, self._home_plants(first) / (2 * PLANTS_PER_GRAZER)) + 0.5))
+        if needed := self._home_food_needed(first):  # a grazer's litters follow the plants in its home band, a predator's the prey
+            litter = max(1, int(litter * min(1.0, self._home_food(first) / (2 * needed)) + 0.5))
         costs = [parent.breeding_cost for parent in (first, second)]
         # Energy in absolute terms: a share of each parent's stomach, refilled in the young's.
         given = sum(min(cost, max(0.0, 100 - parent.hunger)) * parent.stomach
@@ -2065,20 +2071,26 @@ class Simulation:
         if len(self._band_of_row) != self.height:
             self._index_bands()
         plants = [0] * (self._band_of_row[-1] + 1 if self._band_of_row else 0)
-        grazers = [0] * len(plants)
+        grazers, prey, predators = [0] * len(plants), [0] * len(plants), [0] * len(plants)
         for agent in self.agents:
             if agent.alive:
                 self._cells.setdefault((agent.x, agent.y), []).append(agent)
                 if agent.species == "plant":
                     plants[self._band_of_row[agent.y]] += 1
-                elif agent.species == "grazer":
-                    grazers[self._home_band[agent.climate[0]][agent.y]] += 1
+                else:
+                    if agent.species == "grazer":
+                        grazers[self._home_band[agent.climate[0]][agent.y]] += 1
+                    elif agent.species == "predator":
+                        predators[self._home_band[agent.climate[0]][agent.y]] += 1
+                    if agent.species in ("grazer", "omnivore"):  # what predators live on
+                        prey[self._band_of_row[agent.y]] += 1
             elif self._fresh(agent):
                 if agent.species != "plant":
                     self._kills.setdefault((agent.x, agent.y), []).append(agent)
             elif agent.meat > 0:
                 self._carrion.setdefault((agent.x, agent.y), []).append(agent)
         self._band_plants, self._band_grazers = plants, grazers
+        self._band_prey, self._band_predators = prey, predators
 
     def _home_plants(self, grazer: Bitzkey) -> float:
         """The plants in a grazer's home band per grazer at home there, itself among them; none
@@ -2087,6 +2099,34 @@ class Simulation:
             return 0.0
         band = self._home_band[grazer.climate[0]][grazer.y]
         return self._band_plants[band] / max(1, self._band_grazers[band])
+
+    def _home_prey(self, predator: Bitzkey) -> float:
+        """The prey in a predator's home band per predator at home there, itself among them; none before the
+        cells are first indexed."""
+        if not self._band_prey:
+            return 0.0
+        band = self._home_band[predator.climate[0]][predator.y]
+        return self._band_prey[band] / max(1, self._band_predators[band])
+
+    def _home_food(self, agent: Bitzkey) -> float:
+        """The food in its home band per mouth at home there: plants for a grazer, prey for a predator; 0 for
+        an omnivore, which no home food limits."""
+        if agent.species == "grazer":
+            return self._home_plants(agent)
+        return self._home_prey(agent) if agent.species == "predator" else 0.0
+
+    @staticmethod
+    def _home_food_needed(agent: Bitzkey) -> float:
+        """The home food a mouth needs to breed: PLANTS_PER_GRAZER, PREY_PER_PREDATOR, or none."""
+        return {"grazer": PLANTS_PER_GRAZER, "predator": PREY_PER_PREDATOR}.get(agent.species, 0.0)
+
+    def _home_food_sense(self, agent: Bitzkey) -> float:
+        """How well fed its home band is, as a sense: 1 at twice the food a mouth needs to breed, or more,
+        falling to 0 with none; 1 where no home food limits it, and 0 for an omnivore."""
+        if agent.species not in ("grazer", "predator"):
+            return 0.0
+        needed = self._home_food_needed(agent)
+        return min(1.0, self._home_food(agent) / (2 * needed)) if needed else 1.0
 
     def _nearby(self, agent: Bitzkey, radius: int) -> list[Bitzkey]:
         found = []

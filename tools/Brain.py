@@ -57,6 +57,7 @@ SENSES = (
     "warmth_south",    # and to the south
     "food_remembered",    # 1 just after it fed somewhere, fading as its memory lets the place go; 0 when forgotten
     "danger_remembered",  # 1 at the place it was last struck, while it remembers it, falling to 0 beyond sight
+    "home_food",          # how well fed its home band is: plants per grazer, prey per predator, 1 at twice what breeding needs; 0 for omnivores
 ) + TEMPERAMENT + (    # then its current temperament, mind and social traits, each 0..7 scaled to 0..1
     *(f"inborn_{trait}" for trait in TEMPERAMENT),        # its dot's and social background's traits, as born, 0..1
     *BODY_TRAITS,                                         # its ring's traits, 0..1 (species 0 plant to 1 predator)

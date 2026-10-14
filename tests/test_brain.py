@@ -172,7 +172,7 @@ class BrainTests(unittest.TestCase):
         self.assertLess(changes[1], changes[0] - 0.1)
 
     def test_hidden_layers_are_34_neurons_wide(self):
-        self.assertEqual((HIDDEN_SIZE, INPUT_SIZE), (34, 87))
+        self.assertEqual((HIDDEN_SIZE, INPUT_SIZE), (34, 88))
 
     def test_a_brain_saved_with_narrower_layers_loads_widened_and_values_alike(self):
         rng = np.random.default_rng(5)

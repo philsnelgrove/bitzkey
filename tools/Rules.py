@@ -101,6 +101,8 @@ _TABLE: dict[str, list[tuple]] = {
          0.0, 20.0, 0.5),
         ("PLANTS_PER_GRAZER", "Plants per grazer", "plants each grazer needs in its home climate band, shared among the grazers at home there, "
          "to breed; twice this for a full litter; 0: no limit", 0.0, 10.0, 0.05),
+        ("PREY_PER_PREDATOR", "Prey per predator", "grazers and omnivores each predator needs in its home climate band, shared among the "
+         "predators at home there, to breed; twice this for a full litter; 0: no limit", 0.0, 20.0, 0.1),
         ("PLANT_MEALS", "Plant meals", "meals a plant is worth to a full-efficiency browser", 0.0, 20.0, 0.5),
         ("PREY_MEALS", "Prey meals", "meals a prey animal is worth", 0.0, 20.0, 0.5),
         ("SHARED_DIET", "Shared diet", "how much another species eating the same food counts as a mouth",

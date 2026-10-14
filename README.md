@@ -88,7 +88,7 @@ Each imported genome spawns as a group of 3 to
 "Bitzkeys" to 0 to start with only your imports.
 
 ADVANCED opens the advanced rules, beneath a word of warning that they are the world's
-'natural law', carefully balanced, and that changing them can have unpredictable results: 201 numbers that shape how the world plays
+'natural law', carefully balanced, and that changing them can have unpredictable results: 202 numbers that shape how the world plays
 out, in groups (World, Bodies, Breeding, Feelings, Mind, Fighting, Territory,
 Herding, Food, Plants, Climate, Society and Experiences). Among them are lifespans, metabolism, litter
 sizes, food-aware breeding, the rewards and pains a brain learns from, blows and
@@ -487,11 +487,12 @@ neural network, and that brain chooses everything it does. Each turn it senses:
   here and at the edge of its sight to the north and to the south
 - how fresh its memory of where it last fed is, and how close it is to where it
   was last struck, while it remembers
+- how well fed its home band is: plants per grazer, or prey per predator (none for omnivores)
 - its current temperament, mind and social traits
 - its own genome: each of its dot's and social background's traits as born, each
   of its ring's traits (species among them) and its climate genes
 
-That is 87 senses in all. Its brain has hidden layers of 34 neurons, twice as
+That is 88 senses in all. Its brain has hidden layers of 34 neurons, twice as
 many layers as its
 inborn intellect, and never fewer than two: from two layers for the dullest to
 fourteen for the brightest. Plants have no brain.
@@ -653,7 +654,13 @@ decides when a starving grazer may uproot a plant: only with fewer than three me
 it (Uproot food). Grazers' breeding also follows the plants in their home band: the climate band of
 their home temperature nearest them (the nearest arctic band for a very cold home). Its plants are
 shared among the grazers at home there, and with fewer than a tenth of a plant each, a grazer doesn't
-breed; between that and twice it, its litter shrinks in proportion (Plants per grazer; 0 switches it off). Other
+breed; between that and twice it, its litter shrinks in proportion (Plants per grazer; 0 switches it off).
+Predators' breeding follows the prey in their home band in the same way: the grazers and omnivores
+there, shared among the predators at home there. With fewer than 2 each, a predator doesn't breed;
+between that and 4 each, its litter shrinks in proportion (Prey per predator; 0 switches it off).
+Over 80 seeds, predators lasted in 26 worlds rather than 15, 117 of them rather than 47, with no
+fewer worlds keeping their animals. Grazers and predators also sense how well fed their home band
+is, 1 at twice what breeding needs (home food); an omnivore senses 0. Other
 kinds of predator may still be hunted, but they are rivals for prey, not a food
 supply to breed on. Omnivores also switch prey: an omnivore only goes after grazers while they
 make up at least half of the food it weighs within six cells (grazers

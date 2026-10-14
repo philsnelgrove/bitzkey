@@ -1256,6 +1256,37 @@ class NewTraitTests(unittest.TestCase):
 
     @patch("tools.Simulation.SMALL_LITTERS", 1.0)
     @patch("tools.Simulation.NEWBORN_FOOD", 0.0)  # no limit from the energy given
+    @patch("tools.Simulation.PREY_PER_PREDATOR", 1.5)
+    def test_a_predators_breeding_follows_the_prey_in_its_home_band_which_it_senses(self):
+        from tools.Simulation import PREY_PER_PREDATOR
+        simulation = Simulation(width=30, height=30, population=0, seed=3)  # temperate bands: rows 6-11 and 18-23
+        dna = encode_dna("predator", fertility=7, litter=7)  # at home in the temperate bands
+        first = simulation._add_agent(dna, 15, 8)
+        second = simulation._add_agent(dna, 15, 9)
+        simulation._add_agent(encode_dna("grazer"), 3, 20)  # the southern temperate band: not its home band
+        simulation._add_agent(encode_dna("plant"), 4, 7)  # no prey
+        simulation._index_cells()
+        simulation._population = 3
+        breed, home_food = ACTIONS.index("breed"), SENSES.index("home_food")
+        self.assertEqual(simulation._home_prey(first), 0.0)
+        senses, options, _ = simulation._sense(first)
+        self.assertNotIn(breed, options)
+        self.assertEqual(senses[home_food], 0.0)
+        for x in (2, 4, 6):  # three prey at home: a grazer and two omnivores, shared by two predators
+            simulation._add_agent(encode_dna("grazer" if x == 2 else "omnivore"), x, 10)
+        simulation._index_cells()
+        self.assertEqual(simulation._home_prey(first), 1.5)
+        senses, options, _ = simulation._sense(first)
+        self.assertIn(breed, options)
+        self.assertEqual(senses[home_food], 0.5)  # half of the twice it needs for a full litter
+        self.assertEqual(simulation._sense(simulation.agents[5])[0][home_food], 0.0)  # nothing for an omnivore
+
+        deliver(simulation, first, second, litter=None)
+
+        self.assertEqual(len(simulation.agents) - 7, 3)  # six young, halved: half the prey of a full litter
+
+    @patch("tools.Simulation.SMALL_LITTERS", 1.0)
+    @patch("tools.Simulation.NEWBORN_FOOD", 0.0)  # no limit from the energy given
     @patch("tools.Simulation.PLANTS_PER_GRAZER", 0.5)
     def test_a_grazers_breeding_follows_the_plants_in_its_home_band(self):
         simulation = Simulation(width=30, height=30, population=0, seed=3)  # temperate bands: rows 6-11 and 18-23
@@ -1565,6 +1596,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(self.simulation._sense(herd_mate)[0][SENSES.index("kill_alert")], 0.0)
 
     @patch("tools.Simulation.FOOD_NEEDED", 3.0)  # food limiting breeding, as it may be set to
+    @patch("tools.Simulation.PREY_PER_PREDATOR", 0.0)  # the prey at home aside
     def test_predators_breed_whatever_the_food_about_them_but_grazers_need_it(self):
         for species in ("predator", "grazer"):
             simulation = Simulation(width=12, height=12, population=0, seed=3)
