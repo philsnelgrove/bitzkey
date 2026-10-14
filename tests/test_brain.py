@@ -11,16 +11,19 @@ from tools.Genome import BODY_TRAITS, TEMPERAMENT, encode_dna
 
 
 class BrainTests(unittest.TestCase):
-    def test_food_that_takes_a_kill_teaches_more_than_grass(self):
+    def test_food_that_takes_a_kill_teaches_more_than_grass_and_mating_as_its_rules_say(self):
         from tools.Brain import ACTIONS
-        from tools.Simulation import KILL_FOOD_LEARNING, PLANT_FOOD_LEARNING, food_learning
+        from tools.Simulation import (BREED_LEARNING, COURT_LEARNING, KILL_FOOD_LEARNING, PLANT_FOOD_LEARNING,
+                                      choice_learning)
+        self.assertEqual(choice_learning(ACTIONS.index("breed")), BREED_LEARNING)
+        self.assertEqual(choice_learning(ACTIONS.index("court")), COURT_LEARNING)
         for action in ("hunt", "attack", "feast"):
-            self.assertEqual(food_learning(ACTIONS.index(action)), KILL_FOOD_LEARNING)
+            self.assertEqual(choice_learning(ACTIONS.index(action)), KILL_FOOD_LEARNING)
         for action in ("eat", "forage", "browse", "uproot"):
-            self.assertEqual(food_learning(ACTIONS.index(action)), PLANT_FOOD_LEARNING)
+            self.assertEqual(choice_learning(ACTIONS.index(action)), PLANT_FOOD_LEARNING)
         for action in ("scavenge", "rest", "flee", "walk_north"):
-            self.assertEqual(food_learning(ACTIONS.index(action)), 1.0)
-        self.assertEqual((KILL_FOOD_LEARNING, PLANT_FOOD_LEARNING), (5.0, 0.5))
+            self.assertEqual(choice_learning(ACTIONS.index(action)), 1.0)
+        self.assertEqual((BREED_LEARNING, COURT_LEARNING, KILL_FOOD_LEARNING, PLANT_FOOD_LEARNING), (1.0, 1.0, 5.0, 0.5))
 
     def test_the_clever_learn_faster_while_the_least_intelligent_learn_as_ever(self):
         from tools.Brain import SMART_TRACE_DECAY, TRACE_DECAY

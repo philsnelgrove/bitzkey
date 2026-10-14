@@ -88,7 +88,7 @@ Each imported genome spawns as a group of 3 to
 "Bitzkeys" to 0 to start with only your imports.
 
 ADVANCED opens the advanced rules, beneath a word of warning that they are the world's
-'natural law', carefully balanced, and that changing them can have unpredictable results: 197 numbers that shape how the world plays
+'natural law', carefully balanced, and that changing them can have unpredictable results: 201 numbers that shape how the world plays
 out, in groups (World, Bodies, Breeding, Feelings, Mind, Fighting, Territory,
 Herding, Food, Plants, Climate, Society and Experiences). Among them are lifespans, metabolism, litter
 sizes, food-aware breeding, the rewards and pains a brain learns from, blows and
@@ -255,7 +255,7 @@ toward them only very slowly (0.05% of the gap a turn):
 | Trait | Effect | Experience that shifts it |
 |---|---|---|
 | aggression | pleasure of a fight, more for a kill | kills raise it; wounds and stings lower it |
-| libido | pleasure of breeding | mating raises it; breeding into starvation sharply lowers it |
+| libido | a quarter of the pleasure of breeding and of courting (the rest every animal feels) | mating raises it; breeding into starvation sharply lowers it |
 | curiosity | pleasure of setting off in a direction | finding grass where none was seen raises it; walking into a hunter lowers it |
 | fear | dread when hunters are adjacent; a predator feels half its fear's effects, and less the hungrier it is, none as it starves | wounds, stings and ambushes raise it; kills lower it |
 | appetite | how much hunger hurts | near-starvation raises it |
@@ -604,6 +604,18 @@ times its intellect, more for the trusting and less for the wary, so the dull or
 callous barely notice, while the bright and caring learn from every loss. It also senses what it saw, fading by a fifth each
 turn. How strongly this teaches, how much it moves the mood and how long it is
 remembered are advanced rules (the Society group).
+
+Breeding is the greatest pleasure there is, so every species learns to seek it: 4 for each parent
+(Breeding joy), three quarters of it whatever its libido. Courting is the next: 2.5 for a courting
+move that brings a ready, willing partner within reach to breed (Courting joy), so it is learnt
+for what it leads to and can't be farmed by chasing a mate it never reaches. The strongest pleasure
+besides is a predator's feasting, at 1.5. Neither costs anything when it fails: a partner that has
+gone, or bred with another first, leaves no penalty. Breeding and courting can also be learnt
+from more strongly than other choices (Breeding learning, Courting learning), but not by default:
+learning them harder unsettles a brain for everything else: over 40 seeds, 13 worlds died out
+by turn 600 when they were learnt 8 and 6 times as strongly, and 22 with the pleasures too,
+against 8 without. With these pleasures, predators lasted in twice as many worlds as before, ten
+times as many of them, over 40 seeds, with no more worlds dying out.
 
 Each parent pays 10 to 25% of its stomach to breed, less the more fertile it is. Animals
 only breed, or court, when both partners can afford it (the Breeding reserve rule can make

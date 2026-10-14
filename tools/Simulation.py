@@ -74,7 +74,12 @@ SIZE_IN_MIGHT = 0.5      # share of fighting strength and toughness that comes f
 AGEING = 0.7  # from this share of its lifespan, an animal may die of old age
 
 DEATH_PENALTY = 2.0
-BREED_JOY = 1.0
+# Breeding is the greatest pleasure there is, and courting a mate into reach the next: each at three quarters
+# of its full strength, and the rest by libido, so even the coldest animal learns to seek a mate. Courting is
+# rewarded only once it brings a ready, willing partner within MATE_REACH; neither costs anything when it fails.
+BREED_JOY = 4.0
+COURT_JOY = 2.5
+LIBIDO_IN_JOY = 0.25  # the share of those pleasures that libido sets
 FIGHT_JOY = 0.5
 COMPANY_JOY = 0.1
 CURIOSITY_JOY = 0.15   # pleasure of setting off in a direction, scaled by curiosity
@@ -123,15 +128,28 @@ PREDATOR_LEARNING = 2.0  # a predator's brain learns this many times as fast, fr
 # an omnivore's gets half the bonus
 # Food that takes a kill is harder to learn than grass: a choice to hunt, attack or feast is learnt from
 # KILL_FOOD_LEARNING times as much, by any animal, and one to eat, forage, browse or uproot PLANT_FOOD_LEARNING.
+# Breeding and courting may be learnt from more than other choices, BREED_LEARNING and COURT_LEARNING times as much;
+# by default no more, as learning them harder unsettles the brain for all else (their pleasures teach them instead).
 KILL_FOOD_LEARNING = 5.0
 PLANT_FOOD_LEARNING = 0.5
+BREED_LEARNING = 1.0
+COURT_LEARNING = 1.0
 KILL_FOOD = frozenset(ACTIONS.index(action) for action in ("hunt", "attack", "feast"))
 PLANT_FOOD = frozenset(ACTIONS.index(action) for action in ("eat", "forage", "browse", "uproot"))
 
 
-def food_learning(choice: int) -> float:
-    """How much more, or less, a choice is learnt from for the food it seeks."""
+def choice_learning(choice: int) -> float:
+    """How much more, or less, a choice is learnt from: for the food it seeks, or the mate."""
+    if choice == ACTIONS.index("breed"):
+        return BREED_LEARNING
+    if choice == ACTIONS.index("court"):
+        return COURT_LEARNING
     return KILL_FOOD_LEARNING if choice in KILL_FOOD else PLANT_FOOD_LEARNING if choice in PLANT_FOOD else 1.0
+
+
+def mating_joy(agent: Bitzkey, joy: float) -> float:
+    """A pleasure of mating as an animal feels it: LIBIDO_IN_JOY of it by its libido, the rest whatever it is."""
+    return joy * (1 - LIBIDO_IN_JOY + LIBIDO_IN_JOY * agent.feeling("libido"))
 # Primal fear: facing a hunter stronger than itself, an animal may be overcome, each turn, with a chance of
 # PRIMAL_FEAR times how lopsided the fight would be (predators PRIMAL_FEAR_PREDATORS as often, and less
 # the hungrier, none as they starve). While a
@@ -1556,13 +1574,13 @@ class Simulation:
         With `replay`, it then re-learns from its most recent experiences, as many as its intellect
         allows, and remembers this one."""
         rate = self._learning_rate(agent)
-        agent.brain.learn_traced(agent.last_senses, agent.last_choice, target, rate * food_learning(agent.last_choice),
+        agent.brain.learn_traced(agent.last_senses, agent.last_choice, target, rate * choice_learning(agent.last_choice),
                                  self._discount(agent), agent.intelligence)
         if not replay:
             return
         count = REPLAY_PER_INTELLECT * thinking_intellect(agent.inborn["intellect"], agent.species)
         for senses, choice, remembered in agent.memories[-count:] if count else ():  # the latest, up to count
-            agent.brain.learn(senses, choice, remembered, rate * food_learning(choice))
+            agent.brain.learn(senses, choice, remembered, rate * choice_learning(choice))
         if count:
             agent.memories.append((agent.last_senses, agent.last_choice, target))
             del agent.memories[:-count]
@@ -1648,6 +1666,9 @@ class Simulation:
             suitor = situation["suitor"]
             self._move_toward(agent, suitor.x, suitor.y)
             agent.last_action = "courted"
+            if (suitor.alive and suitor.can_breed and agent.can_breed
+                    and abs(suitor.x - agent.x) + abs(suitor.y - agent.y) <= MATE_REACH):
+                agent.reward += mating_joy(agent, COURT_JOY)  # courted into reach
         elif action == "breed":
             mate = situation["mate"]
             if not (mate.alive and mate.can_breed and agent.can_breed
@@ -2015,7 +2036,7 @@ class Simulation:
             rest = PREDATOR_BREED_COOLDOWN if parent.species == "predator" else BREED_COOLDOWN
             parent.cooldown = round((20 - 15 * parent.physique("fertility")) * rest)
             parent.children += litter
-            parent.reward += BREED_JOY * parent.feeling("libido")
+            parent.reward += mating_joy(parent, BREED_JOY)
             if not parent.alive:
                 self._die(parent, "bred to death")
             else:
@@ -2355,7 +2376,7 @@ class Simulation:
             heed = (observer.feeling("empathy") * observer.intelligence
                     * (1 + TRUST_HEED * (2 * observer.feeling("trust") - 1)))  # the trusting take in more
             self._witnessed.append((observer, actor.last_senses, actor.last_choice, outcome,
-                                    LEARNING_RATE * heed * SOCIAL_LEARNING * food_learning(actor.last_choice)))  # at the end
+                                    LEARNING_RATE * heed * SOCIAL_LEARNING * choice_learning(actor.last_choice)))  # at the end
             observer.reward += SOCIAL_MOOD * heed * outcome
             if outcome > 0:
                 observer.seen_success = 1.0

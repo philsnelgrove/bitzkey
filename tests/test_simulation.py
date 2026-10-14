@@ -213,6 +213,35 @@ class SimulationTests(unittest.TestCase):
         self.assertFalse(grass_actions & set(self.simulation._sense(predator)[1]))
         self.assertEqual(grass_actions & set(self.simulation._sense(grazer)[1]), grass_actions)
 
+    def test_breeding_is_the_greatest_pleasure_and_courting_into_reach_the_next_and_failing_costs_nothing(self):
+        from tools.Simulation import BREED_JOY, COURT_JOY, FEAST_JOY, LIBIDO_IN_JOY, mating_joy
+        cold = self.simulation._add_agent(encode_dna("predator", sight=7, libido=0), 2, 2)
+        self.assertAlmostEqual(mating_joy(cold, BREED_JOY), 3.0)  # three quarters of it even with no libido
+        self.assertAlmostEqual(mating_joy(cold, COURT_JOY), 1.875)
+        self.assertGreater(mating_joy(cold, COURT_JOY), FEAST_JOY)  # the strongest pleasure besides
+        self.assertEqual((BREED_JOY, COURT_JOY, LIBIDO_IN_JOY), (4.0, 2.5, 0.25))
+
+        mate = self.simulation._add_agent(cold.dna, 2, 8)  # six cells off: a predator closes two a step
+        self.simulation._index_cells()
+        situation = self.simulation._sense(cold)[2]
+        self.simulation._act(cold, "court", situation)
+        self.assertEqual(cold.reward, 0.0)  # not yet in reach: nothing, and nothing lost
+        situation = self.simulation._sense(cold)[2]
+        cold.reward = 0.0
+        while abs(cold.y - mate.y) > 2:  # on until in reach
+            self.simulation._act(cold, "court", situation)
+        self.assertAlmostEqual(cold.reward, 1.875)
+
+        cold.reward = mate.reward = 0.0
+        mate.cooldown = 3  # it bred with another first
+        self.simulation._act(cold, "breed", {"mate": mate})
+        self.assertEqual((cold.last_action, cold.reward), ("was spurned", 0.0))
+        mate.cooldown = 0
+        with patch("tools.Simulation.litter_size", return_value=1):
+            self.simulation._breed(cold, mate)
+        self.assertAlmostEqual(cold.reward, 3.0)
+        self.assertAlmostEqual(mate.reward, 3.0)  # both parents
+
     def test_ready_animals_court_a_willing_mate_they_can_see(self):
         dna = encode_dna("grazer", sight=7)
         suitor = self.simulation._add_agent(dna, 2, 2)

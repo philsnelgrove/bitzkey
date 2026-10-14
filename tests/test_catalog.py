@@ -36,7 +36,7 @@ class CatalogTests(unittest.TestCase):
         self.assertIsNotNone(rebuilt.brain)
         senses = [0.3] * len(self.animal.brain.layers[0][0][0])
         for mine, theirs in zip(rebuilt.brain.values(senses), self.animal.brain.values(senses), strict=True):
-            self.assertAlmostEqual(mine, theirs, places=5)
+            self.assertAlmostEqual(mine, theirs, delta=1e-5 * max(1.0, abs(theirs)))  # its weights saved to six places
         for trait, value in self.animal.mind.items():
             self.assertAlmostEqual(rebuilt.mind[trait], value, places=3)
         self.assertEqual((rebuilt.identifier, rebuilt.age, rebuilt.generation, rebuilt.last_action),
