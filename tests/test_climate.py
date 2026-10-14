@@ -409,6 +409,7 @@ class SocietyTests(unittest.TestCase):
         animal.last_senses, animal.last_choice = senses, options[0]
         return animal
 
+    @patch("tools.Simulation.TRUST_HEED", 0.0)  # trust aside
     def test_herd_mates_in_sight_learn_from_a_death_and_feel_it_by_empathy_and_intellect(self):
         bright = encode_dna("grazer", empathy=7, intellect=7, sight=1)  # sees 5 cells
         dying = self.decided(self.simulation._add_agent(bright, 50, 50))
@@ -424,7 +425,8 @@ class SocietyTests(unittest.TestCase):
             self.simulation._learn_witnessed()
         learns.assert_called_once_with(dying.last_senses, dying.last_choice, -DEATH_PENALTY, LEARNING_RATE)
         self.assertEqual((witness.reward, witness.seen_failure), (SOCIAL_MOOD * -DEATH_PENALTY, 1.0))
-        for unmoved in (dull, far, stranger):  # no intellect, out of sight, not of its herd
+        self.assertEqual(dull.reward, 0.0)  # with no intellect, it sees it but takes nothing in
+        for unmoved in (far, stranger):  # out of sight, not of its herd
             self.assertEqual((unmoved.reward, unmoved.seen_failure), (0.0, 0.0))
 
     def test_an_action_finds_the_world_as_those_before_it_left_it_and_a_stale_plan_fails_softly(self):
@@ -454,6 +456,7 @@ class SocietyTests(unittest.TestCase):
         self.simulation._die(old, "old age")
         self.assertEqual(witness.seen_failure, 0.0)
 
+    @patch("tools.Simulation.TRUST_HEED", 0.0)  # trust aside
     def test_a_pack_learns_from_a_kill_and_enjoys_it(self):
         pack = encode_dna("predator", empathy=7, intellect=7, sight=3, strength=7, weapons=7)
         hunter = self.decided(self.simulation._add_agent(pack, 50, 50))
@@ -470,6 +473,7 @@ class SocietyTests(unittest.TestCase):
         self.assertEqual(mate.seen_success, 1.0)
         self.assertGreater(mate.reward, SOCIAL_MOOD * gained - 2 * 0.15 * 0.4 - 1e-9)  # less its pity for the prey
 
+    @patch("tools.Simulation.RESILIENCE", 0.0)  # resilience aside
     def test_what_it_saw_is_an_input_that_fades(self):
         grazer = self.simulation._add_agent(encode_dna("grazer"), 50, 50)
         grazer.seen_success, grazer.seen_failure = 1.0, 1.0

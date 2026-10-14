@@ -6,7 +6,7 @@ from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING
 
 from tools.Brain import ACTIONS, choice_odds, make_senses
-from tools.Genome import BODY_TRAITS, MIND_TRAITS
+from tools.Genome import BODY_TRAITS, TEMPERAMENT
 
 if TYPE_CHECKING:
     from tools.Simulation import Bitzkey
@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 ANIMALS = ("grazer", "omnivore", "predator")
 GRAZERS = ("grazer", "omnivore")  # the animals that eat grass
-TRAITS = MIND_TRAITS + BODY_TRAITS[1:]
+TRAITS = TEMPERAMENT + BODY_TRAITS[1:]
 DECAY = 0.99
 MIN_SAMPLE = 5.0
 COLUMN = 11  # characters to an action's column in the report: room for the longest name
@@ -196,7 +196,7 @@ def brain_report(turn: int, animals: Iterable[Bitzkey], insights: Insights) -> s
         for animal in thinkers:
             if animal.species not in species_list:
                 continue
-            senses = make_senses(**situation, **{trait: animal.feeling(trait) for trait in MIND_TRAITS},
+            senses = make_senses(**situation, **{trait: animal.feeling(trait) for trait in TEMPERAMENT},
                                  **animal.genes)
             odds = choice_odds(animal.brain.values(senses), options)
             named = {ACTIONS[option]: chance for option, chance in odds.items()}
@@ -222,14 +222,14 @@ def brain_report(turn: int, animals: Iterable[Bitzkey], insights: Insights) -> s
             lines.append(f"  Most keen to {headline}:  " + _join(ranked[::-1][:3]))
 
     lines += ["", "Temperament shaped by experience (average shift from inborn values, 0..7 scale)",
-              "  " + " " * 10 + "".join(f"{trait[:5]:>7}" for trait in MIND_TRAITS)]
+              "  " + " " * 10 + "".join(f"{trait[:5]:>7}" for trait in TEMPERAMENT)]
     for species in ANIMALS:
         members = [animal for animal in thinkers if animal.species == species]
         if not members:
             continue
         shifts = "".join(
             f"{sum(animal.mind[trait] - animal.inborn[trait] for animal in members) / len(members):>+7.2f}"
-            for trait in MIND_TRAITS)
+            for trait in TEMPERAMENT)
         lines.append(f"  {species:<10}{shifts}")
 
     lines += ["", "Observed behaviour, recent turns (share of chances taken)",
@@ -286,7 +286,7 @@ def brain_matrix(animal: Bitzkey) -> list[tuple[str, dict[str, float]]]:
     for title, situation, actions, species_list in SCENARIOS:
         if animal.species not in species_list:
             continue
-        senses = make_senses(**situation, **{trait: animal.feeling(trait) for trait in MIND_TRAITS}, **animal.genes)
+        senses = make_senses(**situation, **{trait: animal.feeling(trait) for trait in TEMPERAMENT}, **animal.genes)
         odds = choice_odds(animal.brain.values(senses), [ACTIONS.index(action) for action in actions])
         rows.append((title, {ACTIONS[option]: chance for option, chance in odds.items()}))
     return rows

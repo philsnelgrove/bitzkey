@@ -1,5 +1,5 @@
 """How a Bitzkey is drawn: an inner dot in its mind word's colour, sized by its body, inside a
-ring in its body word's colour."""
+ring in its body word's colour, with its species icon on its social background word's colour."""
 
 from __future__ import annotations
 
@@ -8,11 +8,10 @@ import math
 import pygame as pg
 
 from display.Icons import draw_icon
-from tools.Genome import TRAIT_MAX, body_word, color_from_word, decode_body, mind_word
+from tools.Genome import TRAIT_MAX, body_word, color_from_word, decode_body, mind_word, social_word
 
 RING_WIDTH = 2
 CROSS = (225, 55, 55)  # the red cross through a dead Bitzkey
-CENTRE = (0, 0, 0)  # the black centre behind a species icon
 OUTLINE = (190, 190, 190)  # the thin light grey outline around a species icon
 DOT_RADIUS_RANGE = (1, 5)  # dot radius in pixels at the smallest and biggest sizes; bigger cells raise the top
 ICON_MIN_RADIUS = 3  # a dot this big or bigger carries its species' icon
@@ -84,8 +83,9 @@ def bitzkey_layer(dna: int, radius: int, ring_width: int = RING_WIDTH, alive: bo
 
 def draw_bitzkey(surface: pg.Surface, dna: int, point: tuple[int, int], radius: int,
                  ring_width: int = RING_WIDTH, alive: bool = True, opacity: float = 1.0) -> None:
-    """The dot inside its ring. A dot big enough to hold its species' icon is black, with the icon
-    drawn in the dot's colour inside a thin light grey outline; a smaller one is simply that colour. A dead Bitzkey is dimmed and
+    """The dot inside its ring. A dot big enough to hold its species' icon is its social background's
+    colour, with the icon drawn in the dot's colour inside a thin light grey outline; a smaller one is
+    simply the dot's colour. A dead Bitzkey is dimmed and
     crossed through in red. With `opacity` below 1, all of it is drawn that faint, as a decaying
     corpse fades away."""
     if opacity <= 0:
@@ -97,11 +97,12 @@ def draw_bitzkey(surface: pg.Surface, dna: int, point: tuple[int, int], radius: 
         surface.blit(layer, (point[0] - reach, point[1] - reach))
         return
     dot, ring, outline = color_from_word(mind_word(dna)), color_from_word(body_word(dna)), OUTLINE
+    social = color_from_word(social_word(dna))
     if not alive:
-        dot, ring, outline = (tuple(channel // 3 for channel in colour) for colour in (dot, ring, outline))
+        dot, ring, outline, social = (tuple(channel // 3 for channel in colour) for colour in (dot, ring, outline, social))
     pg.draw.circle(surface, ring, point, radius + ring_width)
     if radius >= ICON_MIN_RADIUS:
-        pg.draw.circle(surface, CENTRE, point, radius)
+        pg.draw.circle(surface, social, point, radius)
         species, (x, y) = str(decode_body(dna)["species"]), point
         for dx, dy in outline_offsets(max(1, ring_width // RING_WIDTH)):  # as thick as the ring is enlarged
             draw_icon(surface, species, (x + dx, y + dy), radius * 0.8, outline)

@@ -21,8 +21,8 @@ from display.Ui import UI
 from tools.Census import colour_order
 from display.Icons import draw_icon
 from display.Inspector import draw_tooltip
-from tools.Genome import (BODY_TRAITS, MIND_TRAITS, SPECIES, body_word, color_from_word, decode_body, decode_climate,
-                          decode_mind, mind_word)
+from tools.Genome import (BODY_TRAITS, MIND_TRAITS, SOCIAL_TRAITS, SPECIES, TEMPERAMENT, body_word, color_from_word,
+                          decode_body, decode_climate, decode_temperament, mind_word, social_word)
 from tools import Simulation as world
 from tools.Simulation import Bitzkey
 
@@ -37,13 +37,14 @@ MIN_VIEW = 10          # the fewest turns the graph zooms in to
 ZOOM_STEP = 0.8        # each wheel notch shows this share of the turns before it
 HEIGHT_ZOOM_MAX = 32.0  # the closest the graph zooms into its height, times the whole
 BACKGROUND = (30, 40, 40)
-PARTS = ("ring", "dot")
+PARTS = ("ring", "dot", "social")
+TITLES = {"ring": "RING / BODY", "dot": "DOT / MIND", "social": "SOCIAL BACKGROUND"}
 # What a species' Bitzkeys are sorted by: their colour, or an inborn trait or climate gene, lowest at
 # the bottom (for the home temperature, hottest at the bottom).
 CLIMATE_SORTS = ("temperature", "heat tolerance", "cold tolerance")
-SORTS = ("colour", *MIND_TRAITS, *BODY_TRAITS[1:], *CLIMATE_SORTS)
+SORTS = ("colour", *MIND_TRAITS, *SOCIAL_TRAITS, *BODY_TRAITS[1:], *CLIMATE_SORTS)
 YEAR_LABEL_SPACING = 56  # design pixels the year labels on the timeline keep apart, at least
-MENU_ROW = 22  # design pixels per item of the sort menu
+MENU_ROW = 18  # design pixels per item of the sort menu: small enough for every trait to fit
 
 
 @dataclass
@@ -55,8 +56,13 @@ class Bar:
     future: bool = False  # after the present, when the world has been rewound
 
 
+def word_of(dna: int, part: str) -> int:
+    """The genome's word for a part: the ring, the dot or the social background."""
+    return body_word(dna) if part == "ring" else mind_word(dna) if part == "dot" else social_word(dna)
+
+
 def colour_of(dna: int, part: str) -> tuple[int, int, int]:
-    return color_from_word(body_word(dna) if part == "ring" else mind_word(dna))
+    return color_from_word(word_of(dna, part))
 
 
 def faded(colour: tuple[int, int, int], amount: float) -> tuple[int, int, int]:
@@ -78,10 +84,10 @@ def sort_label(sort: str) -> str:
 
 
 def trait_of(dna: int, trait: str) -> int:
-    """An inborn trait, mind or body, or a climate gene, from the genome."""
+    """An inborn trait, mind, social or body, or a climate gene, from the genome."""
     if trait in CLIMATE_SORTS:
         return int(decode_climate(dna)[CLIMATE_SORTS.index(trait)])
-    return decode_mind(dna)[trait] if trait in MIND_TRAITS else int(decode_body(dna)[trait])
+    return decode_temperament(dna)[trait] if trait in TEMPERAMENT else int(decode_body(dna)[trait])
 
 
 def build_bars(simulation: Simulation, part: str, chart: pg.Rect, first: int = 0,
@@ -117,7 +123,7 @@ def build_bars(simulation: Simulation, part: str, chart: pg.Rect, first: int = 0
             dna = lineage[identifier]
             trait = 0 if sort == "colour" else trait_of(dna, sort) if identifier in alive else -1
             keys[identifier] = (SPECIES.index(decode_body(dna)["species"]), trait, colour_order(colour_of(dna, part)),
-                                body_word(dna) if part == "ring" else mind_word(dna), identifier)
+                                word_of(dna, part), identifier)
         return keys[identifier]
 
     bars = []
@@ -222,7 +228,7 @@ class ColourGraph:
         return UI.font("segoeui", 12)
 
     def switch_part(self) -> None:
-        self.part = "dot" if self.part == "ring" else "ring"
+        self.part = PARTS[(PARTS.index(self.part) + 1) % len(PARTS)]
 
     def select(self, picked: set[int], mode: str = "replace") -> None:
         self.selection = updated(self.selection, picked, mode)
@@ -342,12 +348,12 @@ class ColourGraph:
         return ([("map", 140)] if self.ended else []) + [("catalog", 150), ("renew", 310)]
 
     def menu_items(self) -> list[tuple[str, pg.Rect]]:
-        """The sort menu's choices under its button, a small gap before the mind traits, the body
-        traits and the climate genes."""
+        """The sort menu's choices under its button, a small gap before the mind traits, the social
+        traits, the body traits and the climate genes."""
         button = self.layout()["sort"]
         items, top = [], button.bottom + UI(2)
         for index, sort in enumerate(SORTS):
-            if index in (1, 1 + len(MIND_TRAITS), len(SORTS) - len(CLIMATE_SORTS)):
+            if index in (1, 1 + len(MIND_TRAITS), 1 + len(TEMPERAMENT), len(SORTS) - len(CLIMATE_SORTS)):
                 top += UI(6)
             items.append((sort, pg.Rect(button.left, top, button.width, UI(MENU_ROW))))
             top += UI(MENU_ROW)
@@ -441,11 +447,11 @@ class ColourGraph:
         screen.blit(shade, (0, 0))
         pg.draw.rect(screen, BACKGROUND, panel, border_radius=UI(6))
         pg.draw.rect(screen, (80, 99, 85), panel, 1, border_radius=UI(6))
-        title = "RING / BODY" if self.part == "ring" else "DOT / MIND"
+        title = TITLES[self.part]
         self._text(screen, f"COLOUR GRAPH  /  {title}", (panel.left + UI(24), panel.top + UI(18)), (229, 239, 220),
                    self.bold)
         closing = "new world" if self.ended else "close"
-        self._text(screen, "Every Bitzkey alive over time, in its own colour.    TAB  ring / dot    C  copy    "
+        self._text(screen, "Every Bitzkey alive over time, in its own colour.    TAB  ring / dot / social    C  copy    "
                    f"S  save    K  catalog    G or ESC  {closing}",
                    (panel.left + UI(24), panel.top + UI(54)), (144, 170, 151), self.small)
         for name, text in (("clear", "CLEAR"), ("copy", "COPY"), ("save", "SAVE")):
@@ -627,9 +633,9 @@ class ColourGraph:
         dna = simulation.lineage[hovered]
         if hovered not in living:  # remembered by its colour, and how it died
             return (f"{chosen}     |     #{hovered:03d}  {decode_body(dna)['species']}  {death_text(simulation, hovered)}   "
-                    f"ring {body_word(dna):08X}   dot {mind_word(dna):08X}")
+                    f"ring {body_word(dna):08X}   dot {mind_word(dna):08X}   social {social_word(dna):08X}")
         return (f"{chosen}     |     #{hovered:03d}  {decode_body(dna)['species']}  alive   "
-                f"ring {body_word(dna):08X}   dot {mind_word(dna):08X}")
+                f"ring {body_word(dna):08X}   dot {mind_word(dna):08X}   social {social_word(dna):08X}")
 
     def _render(self, simulation: Simulation, chart: pg.Rect) -> pg.Surface:
         """Draw the bars once into an image; slices too thin to see merge with their neighbours.

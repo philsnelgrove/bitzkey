@@ -3,7 +3,8 @@ import unittest
 
 from display.Designer import FIELDS, DesignerForm
 from display.Setup import SetupForm
-from tools.Genome import BODY_TRAITS, MIND_TRAITS, body_word, decode_body, decode_climate, decode_mind, encode_dna, mind_word
+from tools.Genome import (BODY_TRAITS, MIND_TRAITS, SOCIAL_TRAITS, body_word, decode_body, decode_climate, decode_mind,
+                          decode_neurodivergence, decode_social, encode_dna, mind_word, social_word)
 
 
 def field_index(kind: str, name: str) -> int:
@@ -14,7 +15,8 @@ class DesignerFormTests(unittest.TestCase):
     def test_every_trait_is_exposed_once(self):
         self.assertEqual([name for kind, name in FIELDS if kind == "mind"], list(MIND_TRAITS))
         self.assertEqual([name for kind, name in FIELDS if kind == "body"], list(BODY_TRAITS))
-        self.assertEqual([name for kind, name in FIELDS if kind == "hex"], ["ring", "dot"])
+        self.assertEqual([name for kind, name in FIELDS if kind == "social"], [*SOCIAL_TRAITS, "neurodivergence"])
+        self.assertEqual([name for kind, name in FIELDS if kind == "hex"], ["ring", "dot", "social"])
         self.assertEqual([name for kind, name in FIELDS if kind == "climate"], ["hardiness", "temperature"])
 
     def test_the_climate_rows_edit_the_top_bits_of_each_word(self):
@@ -37,6 +39,17 @@ class DesignerFormTests(unittest.TestCase):
         self.assertEqual(decode_mind(form.dna)["fear"], 7)
         self.assertEqual(decode_body(form.dna)["size"], 0)
         self.assertEqual(form.dna, encode_dna("grazer", fear=7))
+
+    def test_the_social_rows_and_code_edit_the_top_word(self):
+        form = DesignerForm(encode_dna("grazer", size=4))
+        form.select(field_index("social", "trust"))
+        form.adjust(5)
+        form.select(field_index("social", "neurodivergence"))
+        form.adjust(12)  # it runs to 15
+        self.assertEqual((decode_social(form.dna)["trust"], decode_neurodivergence(form.dna)), (5, 12))
+        form.select(field_index("hex", "social"))
+        form.type_text("0000ABCD")
+        self.assertEqual((social_word(form.dna), decode_body(form.dna)["size"]), (0xABCD, 4))
 
     def test_species_runs_through_all_eight_values(self):
         form = DesignerForm(encode_dna("plant"))
@@ -99,14 +112,14 @@ class DesignerFormTests(unittest.TestCase):
 class ApplyingDesignsTests(unittest.TestCase):
     def test_each_design_joins_the_bottom_of_the_import_list(self):
         form = SetupForm({"width": 100, "height": 100, "population": 90, "grass_density": 5, "seed": None})
-        form.paste('{"version": 2, "ring": "00000001", "dot": "00000000"}')
+        form.paste('{"version": 3, "ring": "00000001", "dot": "00000000", "social": "00000000"}')
         designs = [encode_dna("predator", size=7, weapons=4), encode_dna("grazer", fear=2)]
 
         for dna in designs:
             form.add_design(dna)
 
         self.assertEqual([item.dna for item in form.values()["imported"]], [1 << 32] + designs)
-        self.assertTrue(form.import_text.endswith('"dot": "00002000"}'))  # fear 2 is the fifth trait, bits 12-14
+        self.assertTrue(form.import_text.endswith('"dot": "00000400", "social": "00000000"}'))  # fear 2 is the fourth trait, bits 9-11
         self.assertEqual(len(form.import_text.splitlines()), 3)
 
 

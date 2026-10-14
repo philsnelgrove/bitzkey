@@ -156,6 +156,7 @@ class SimulationTests(unittest.TestCase):
         self.assertLess(agent.mind["fear"], 7.0)
         self.assertGreater(agent.mind["fear"], 2.0)
 
+    @patch("tools.Simulation.PLANTS_PER_GRAZER", 0.0)  # no plants about: breeding left to the rest
     def test_breeding_needs_a_ready_mate_and_room(self):
         lay_plenty_of_grass(self.simulation)
         dna = encode_dna("grazer")
@@ -265,6 +266,7 @@ class SimulationTests(unittest.TestCase):
 
     @patch("tools.Simulation.BREED_RESERVE", 10)  # a reserve, as it may be set to
     @patch("tools.Simulation.FOOD_NEEDED", 3.0)
+    @patch("tools.Simulation.PLANTS_PER_GRAZER", 0.0)  # no plants about: breeding left to the rest
     def test_only_animals_that_can_afford_it_breed(self):
         lay_plenty_of_grass(self.simulation)
         dna = encode_dna("grazer", fertility=7)  # breeding costs it 10 hunger
@@ -291,6 +293,7 @@ class SimulationTests(unittest.TestCase):
         mate.hunger = 0
         self.assertIn(ACTIONS.index("court"), self.simulation._sense(suitor)[1])
 
+    @patch("tools.Simulation.PLANTS_PER_GRAZER", 0.0)  # no plants about: breeding left to the rest
     def test_population_cap_withdraws_breeding(self):
         lay_plenty_of_grass(self.simulation)
         dna = encode_dna("grazer")
@@ -698,6 +701,7 @@ class NewTraitTests(unittest.TestCase):
 
     @patch("tools.Simulation.SMALL_LITTERS", 1.0)
     @patch("tools.Simulation.NEWBORN_FOOD", 0.0)  # no limit from the energy given
+    @patch("tools.Simulation.PLANTS_PER_GRAZER", 0.0)  # no plants about: breeding left to the rest
     def test_litter_size_sets_how_many_young_share_the_parents_energy(self):
         lay_plenty_of_grass(self.simulation)
         dna = encode_dna("grazer", fertility=7, litter=7)
@@ -716,6 +720,7 @@ class NewTraitTests(unittest.TestCase):
 
     @patch("tools.Simulation.SMALL_LITTERS", 1.0)
     @patch("tools.Simulation.NEWBORN_FOOD", 5.0)
+    @patch("tools.Simulation.PLANTS_PER_GRAZER", 0.0)  # no plants about: breeding left to the rest
     def test_parents_conceive_only_as_many_young_as_they_can_feed(self):
         dna = encode_dna("grazer", fertility=7, litter=7)
         first = self.simulation._add_agent(dna, 5, 5)
@@ -1221,8 +1226,32 @@ class NewTraitTests(unittest.TestCase):
         self.assertLess(simulation._food_supply(corner), expected / 2)
 
     @patch("tools.Simulation.SMALL_LITTERS", 1.0)
+    @patch("tools.Simulation.NEWBORN_FOOD", 0.0)  # no limit from the energy given
+    @patch("tools.Simulation.PLANTS_PER_GRAZER", 0.5)
+    def test_a_grazers_breeding_follows_the_plants_in_its_home_band(self):
+        simulation = Simulation(width=30, height=30, population=0, seed=3)  # temperate bands: rows 6-11 and 18-23
+        dna = encode_dna("grazer", fertility=7, litter=7)  # at home in the temperate bands; a litter of six
+        first = simulation._add_agent(dna, 15, 8)
+        second = simulation._add_agent(dna, 15, 9)
+        simulation._add_agent(encode_dna("plant"), 3, 20)  # the southern temperate band: not its home band
+        simulation._index_cells()
+        simulation._population = 2
+        breed = ACTIONS.index("breed")
+        self.assertEqual(simulation._home_plants(first), 0.0)
+        self.assertNotIn(breed, simulation._sense(first)[1])
+        simulation._add_agent(encode_dna("plant"), 3, 7)
+        simulation._index_cells()
+        self.assertEqual(simulation._home_plants(first), 0.5)  # one plant shared by two grazers
+        self.assertIn(breed, simulation._sense(first)[1])
+
+        deliver(simulation, first, second, litter=None)
+
+        self.assertEqual(len(simulation.agents) - 4, 3)  # six young, halved: half the plants of a full litter
+
+    @patch("tools.Simulation.SMALL_LITTERS", 1.0)
     @patch("tools.Simulation.FOOD_NEEDED", 3.0)  # food limiting breeding, as it may be set to
     @patch("tools.Simulation.NEWBORN_FOOD", 0.0)  # no limit from the energy given
+    @patch("tools.Simulation.PLANTS_PER_GRAZER", 0.0)  # no plants about: breeding left to the rest
     def test_scarce_food_stops_breeding_and_plenty_allows_full_litters(self):
         dna = encode_dna("grazer", fertility=7, litter=7)
         first = self.simulation._add_agent(dna, 5, 5)
@@ -1239,6 +1268,7 @@ class NewTraitTests(unittest.TestCase):
     @patch("tools.Simulation.SMALL_LITTERS", 1.0)
     @patch("tools.Simulation.FOOD_NEEDED", 3.0)  # food limiting breeding, as it may be set to
     @patch("tools.Simulation.NEWBORN_FOOD", 0.0)  # no limit from the energy given
+    @patch("tools.Simulation.PLANTS_PER_GRAZER", 0.0)  # no plants about: breeding left to the rest
     def test_a_litter_shrinks_as_food_runs_short(self):
         dna = encode_dna("grazer", fertility=7, litter=7)
         first = self.simulation._add_agent(dna, 5, 5)
@@ -1480,9 +1510,9 @@ class NewTraitTests(unittest.TestCase):
         self.assertAlmostEqual(armed["grazer"], 0.5 * PREDATOR_WEAPONS)
 
     def test_a_grazer_alerts_its_herd_to_a_hunter_and_a_hunter_its_pack_to_a_kill(self):
-        lookout = self.simulation._add_agent(encode_dna("grazer", sight=7), 2, 2)
+        lookout = self.simulation._add_agent(encode_dna("grazer", sight=7, trust=7), 2, 2)
         herd_mate = self.simulation._add_agent(lookout.dna, 4, 2)
-        hunter = self.simulation._add_agent(encode_dna("predator", sight=7), 2, 6)
+        hunter = self.simulation._add_agent(encode_dna("predator", sight=7, trust=7), 2, 6)
         pack_mate = self.simulation._add_agent(hunter.dna, 4, 6)
         self.simulation._index_cells()
         options, situation = self.simulation._sense(lookout)[1:]
@@ -1706,6 +1736,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertGreater(brute.hunger, weak.hunger)
 
     @patch("tools.Simulation.NEWBORN_FOOD", 0.0)  # the full litter, whatever energy is given
+    @patch("tools.Simulation.PLANTS_PER_GRAZER", 0.0)  # no plants about: breeding left to the rest
     def test_the_mother_carries_her_young_for_a_gestation_set_by_her_size_then_gives_birth(self):
         self.assertEqual([gestation(size) for size in (0, 1, 4, 7)], [10, 16, 33, 50])
         with patch("tools.Simulation.CLIMATE_DAMAGE", 0):
@@ -2154,6 +2185,7 @@ class NewTraitTests(unittest.TestCase):
 
         self.assertEqual(len(self.simulation.agents), before)  # no seedlings
 
+    @patch("tools.Simulation.PLANTS_PER_GRAZER", 0.0)  # no plants about: breeding left to the rest
     def test_plants_do_not_take_up_the_animals_population_cap(self):
         lay_plenty_of_grass(self.simulation)
         dna = encode_dna("grazer")
@@ -2173,6 +2205,7 @@ class NewTraitTests(unittest.TestCase):
     @patch("tools.Simulation.SMALL_LITTERS", 1.0)
     @patch("tools.Simulation.FOOD_NEEDED", 3.0)  # food limiting breeding, as it may be set to
     @patch("tools.Simulation.NEWBORN_FOOD", 0.0)  # no limit from the energy given
+    @patch("tools.Simulation.PLANTS_PER_GRAZER", 0.0)  # no plants about: breeding left to the rest
     def test_crowding_shrinks_litters_and_at_its_limit_stops_breeding(self):
         simulation = Simulation(width=30, height=30, population=0, seed=3)
         dna = encode_dna("grazer", fertility=7, litter=7, sight=1)  # a litter of six where there is room; sees five cells
@@ -2225,6 +2258,118 @@ class NewTraitTests(unittest.TestCase):
         self.assertLess(hunter.reward, callous.reward)
         self.assertLess(kin_witness.reward, 0)
         self.assertEqual(cold_witness.reward, 0)
+
+
+
+class SocialBackgroundTests(unittest.TestCase):
+    """The social background's traits, and the mind's memory, resilience and moodiness."""
+
+    def setUp(self):
+        self.simulation = Simulation(width=12, height=12, population=0, seed=3)
+        self.simulation.grass.clear()
+
+    def test_loyalty_draws_an_animal_to_its_herd(self):
+        loner = self.simulation._add_agent(encode_dna("grazer", sight=1), 2, 2)
+        self.simulation._add_agent(loner.dna, 6, 2)  # four cells off: far enough from its herd to herd
+        self.simulation._index_cells()
+        odds = []
+        for loyalty in (0.0, 7.0):
+            loner.mind["loyalty"] = loyalty
+            with patch.object(Simulation, "_act"):
+                self.simulation._think(loner)
+            loner.last_senses = None  # nothing learnt between the two
+            odds.append(loner.odds["herd"])
+        self.assertGreater(odds[1], odds[0])
+
+    def test_the_most_dominant_willing_partner_is_chosen_and_crowding_troubles_the_dominant_less(self):
+        lay_plenty_of_grass(self.simulation)
+        suitor = self.simulation._add_agent(encode_dna("grazer"), 5, 5)
+        first = self.simulation._add_agent(suitor.dna, 5, 6)
+        second = self.simulation._add_agent(suitor.dna, 6, 5)
+        self.simulation._index_cells()
+        for dominant in (first, second):
+            first.mind["dominance"], second.mind["dominance"] = 0.0, 0.0
+            dominant.mind["dominance"] = 7.0
+            self.assertIs(self.simulation._sense(suitor)[2]["mate"], dominant)
+
+        crowded = {"kin": 0, "others": 0, "threats": 0, "rivalry": 1.0}
+        comfort = []
+        for dominance in (0.0, 7.0):
+            suitor.mind["dominance"] = dominance
+            comfort.append(Simulation._comfort(suitor, crowded))
+        self.assertAlmostEqual(comfort[0], 3 * comfort[1])  # 1.5 times the unease, against half
+
+    def test_trust_sets_how_far_off_an_alert_is_heeded_and_how_much_is_taken_in(self):
+        lookout = self.simulation._add_agent(encode_dna("grazer", sight=7), 2, 2)
+        near = self.simulation._add_agent(lookout.dna, 3, 2)
+        far = self.simulation._add_agent(lookout.dna, 2, 9)  # seven cells off
+        hunter = self.simulation._add_agent(encode_dna("predator"), 9, 9)
+        near.mind["trust"], far.mind["trust"] = 1.0, 1.0  # heeds herd-mates up to twice its sight times 1/7 off: 6.6 cells
+        self.simulation._index_cells()
+        self.simulation._alert(lookout, hunter)
+        self.assertEqual((near.alarm, far.alarm), (hunter.identifier, None))
+
+        bright = encode_dna("grazer", empathy=7, intellect=7, sight=1, trust=7)
+        actor = self.simulation._add_agent(bright, 8, 2)
+        actor.last_senses, actor.last_choice = [0.0] * len(SENSES), 0
+        watcher = self.simulation._add_agent(bright, 8, 4)
+        self.simulation._index_cells()
+        self.simulation._witness(actor, -1.0)
+        self.assertAlmostEqual(watcher.reward, -simulation_module.SOCIAL_MOOD * 1.5)  # half as much again
+
+    def test_kinship_shuns_herd_mates_and_partners_of_another_social_background(self):
+        clannish = self.simulation._add_agent(encode_dna("grazer"), 5, 5)
+        stranger = self.simulation._add_agent(clannish.dna ^ (0xFE000000 << 64), 5, 6)  # its social background a quarter apart
+        clannish.mind["kinship"] = 7.0
+        self.assertFalse(Simulation._willing(clannish, stranger))
+        self.assertFalse(self.simulation._herd_mate(clannish, stranger))
+        clannish.mind["tolerance"] = 7.0  # tolerance widens it
+        self.assertTrue(Simulation._willing(clannish, stranger))
+        clannish.mind["tolerance"], clannish.mind["kinship"] = 0.0, 0.0
+        self.assertTrue(Simulation._willing(clannish, stranger))
+
+    def test_memory_brings_an_animal_back_to_where_it_fed_and_warns_it_where_it_was_struck(self):
+        grazer = self.simulation._add_agent(encode_dna("grazer", memory=7), 5, 5)
+        self.simulation.grass[(5, 5)] = 1
+        self.simulation._index_cells()
+        self.simulation._act(grazer, "eat", {})
+        self.assertEqual(grazer.food_memory, (5, 5, self.simulation.turn))
+        self.simulation._move(grazer, 5, 9)
+        self.simulation.turn += 10
+        senses, options, situation = self.simulation._sense(grazer)
+        self.assertAlmostEqual(senses[SENSES.index("food_remembered")], 1 - 10 / simulation_module.MEMORY_TURNS)
+        self.assertIn(ACTIONS.index("revisit"), options)
+        self.simulation._act(grazer, "revisit", situation)
+        self.assertEqual((grazer.x, grazer.y, grazer.last_action), (5, 7, "revisited"))
+        grazer.mind["memory"] = 0.0  # no memory: nothing to go back to
+        senses, options, _ = self.simulation._sense(grazer)
+        self.assertEqual(senses[SENSES.index("food_remembered")], 0.0)
+        self.assertNotIn(ACTIONS.index("revisit"), options)
+
+        grazer.mind["memory"] = 7.0
+        striker = self.simulation._add_agent(encode_dna("predator"), 5, 8)
+        self.simulation._index_cells()
+        self.simulation._struck(grazer, striker)
+        self.assertEqual(self.simulation._sense(grazer)[0][SENSES.index("danger_remembered")], 1.0)
+
+    def test_resilience_eases_fright_and_loss_and_moodiness_sets_how_far_experience_moves_the_mind(self):
+        fragile = self.simulation._add_agent(encode_dna("grazer", resilience=0), 3, 3)
+        hardy = self.simulation._add_agent(encode_dna("grazer", resilience=7), 8, 8)
+        for animal in (fragile, hardy):
+            self.simulation._experience(animal, "wounded")
+            animal.seen_failure = 1.0
+        self.assertAlmostEqual(fragile.mind["fear"], 3 * hardy.mind["fear"])  # 1.5 times the fright, against half
+        with patch.object(Simulation, "_think_all"), patch.object(Simulation, "_dies_of_age", return_value=False):
+            self.simulation._take_turn()
+        memory = simulation_module.SOCIAL_MEMORY
+        self.assertAlmostEqual(fragile.seen_failure, memory ** 0.5)
+        self.assertAlmostEqual(hardy.seen_failure, memory ** 1.5)
+
+        steady = self.simulation._add_agent(encode_dna("predator", moodiness=0), 3, 8)
+        moody = self.simulation._add_agent(encode_dna("predator", moodiness=7), 8, 3)
+        for animal in (steady, moody):
+            self.simulation._experience(animal, "kill")
+        self.assertAlmostEqual(moody.mind["aggression"], 3 * steady.mind["aggression"])
 
 
 if __name__ == "__main__":

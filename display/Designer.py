@@ -10,17 +10,23 @@ import pygame as pg
 from display import Window
 from display.Look import RING_WIDTH, dot_radius, draw_bitzkey
 from display.Ui import UI
-from tools.Genome import (BODY_TRAITS, GENOME, MIND_TRAITS, SPECIES, TEMPERATURES, TRAIT_BITS, TRAIT_MAX, WORD,
-                          body_word, decode_body, mind_word)
+from tools.Genome import (BODY_TRAITS, GENOME, MIND_TRAITS, NEURODIVERGENCE_MAX, NEURODIVERGENCE_SHIFT, SOCIAL_SHIFT,
+                          SOCIAL_TRAITS, SPECIES, TEMPERATURES, TRAIT_BITS, TRAIT_MAX, WORD, body_word, decode_body,
+                          mind_word, social_word)
 from tools.Simulation import Bitzkey, litter_size
 
-# The rows, a column for each word: the mind traits and then the tolerance flags (the dot's top two
-# bits, as one value: 1 heat, 2 cold, 3 both), the body traits and then the home temperature (the
-# ring's top two bits); then the two hex codes.
+# The rows: a column each for the dot and the ring, the mind traits and then the tolerance flags (the
+# dot's top two bits, as one value: 1 heat, 2 cold, 3 both), the body traits and then the home
+# temperature (the ring's top two bits); beneath them both, the social background's traits and its
+# neurodivergence; then the three hex codes.
 FIELDS = (tuple(("mind", trait) for trait in MIND_TRAITS) + (("climate", "hardiness"),)
           + tuple(("body", trait) for trait in BODY_TRAITS) + (("climate", "temperature"),)
-          + (("hex", "ring"), ("hex", "dot")))
+          + tuple(("social", trait) for trait in SOCIAL_TRAITS) + (("social", "neurodivergence"),)
+          + (("hex", "ring"), ("hex", "dot"), ("hex", "social")))
 COLUMN_ROWS = len(MIND_TRAITS) + 1
+SOCIAL_ROWS = (len(SOCIAL_TRAITS) + 2) // 2  # the social section's rows, in two columns
+PARTS = ("ring", "dot", "social")
+LABELS = {"ring": "RING / BODY", "dot": "DOT / MIND", "social": "SOCIAL"}
 HARDINESS = ("none", "heat", "cold", "both")
 CLIMATE_MAX = 3
 HEX_DIGITS = "0123456789ABCDEF"
@@ -31,11 +37,17 @@ def _shift(field: tuple[str, str]) -> int:
     kind, name = field
     if kind == "climate":
         return 30 if name == "hardiness" else 62
+    if field == ("social", "neurodivergence"):
+        return SOCIAL_SHIFT + NEURODIVERGENCE_SHIFT
+    if kind == "social":
+        return SOCIAL_SHIFT + TRAIT_BITS * SOCIAL_TRAITS.index(name)
     index = MIND_TRAITS.index(name) if kind == "mind" else BODY_TRAITS.index(name)
     return TRAIT_BITS * index + (0 if kind == "mind" else 32)
 
 
 def _largest(field: tuple[str, str]) -> int:
+    if field == ("social", "neurodivergence"):
+        return NEURODIVERGENCE_MAX
     return CLIMATE_MAX if field[0] == "climate" else TRAIT_MAX
 
 
@@ -53,7 +65,7 @@ class DesignerForm:
 
     def value(self, field: tuple[str, str]) -> int:
         """A trait's value, 0 to 7; for species, the raw value that picks it (value mod 4); for the
-        climate genes, 0 to 3."""
+        climate genes, 0 to 3; for neurodivergence, 0 to 15."""
         return (self.dna >> _shift(field)) & _largest(field)
 
     def set_value(self, field: tuple[str, str], value: int) -> None:
@@ -61,7 +73,7 @@ class DesignerForm:
         self.dna = (self.dna & ~(largest << shift) & GENOME) | (max(0, min(largest, value)) << shift)
 
     def word(self, part: str) -> int:
-        return body_word(self.dna) if part == "ring" else mind_word(self.dna)
+        return body_word(self.dna) if part == "ring" else mind_word(self.dna) if part == "dot" else social_word(self.dna)
 
     def code(self, part: str) -> str:
         """The hex code shown for a word: whatever is being typed into it, else its value."""
@@ -104,14 +116,12 @@ class DesignerForm:
             self.typed = None
 
     def randomise(self, rng: random.Random) -> None:
-        self.dna = rng.getrandbits(64)
+        self.dna = rng.getrandbits(96)
         self.typed = None
 
     def _set_word(self, part: str, word: int) -> None:
-        if part == "ring":
-            self.dna = (self.dna & WORD) | ((word & WORD) << 32)
-        else:
-            self.dna = (self.dna & ~WORD & GENOME) | (word & WORD)
+        shift = {"dot": 0, "ring": 32, "social": SOCIAL_SHIFT}[part]
+        self.dna = (self.dna & ~(WORD << shift) & GENOME) | ((word & WORD) << shift)
 
 
 class Designer:
@@ -121,7 +131,7 @@ class Designer:
         self.screen = screen
         self.rng = rng or random.Random()
         if dna is None:
-            dna = self.rng.getrandbits(64) & ~(0x3 << 32) | (self.rng.randrange(1, len(SPECIES)) << 32)
+            dna = self.rng.getrandbits(96) & ~(0x3 << 32) | (self.rng.randrange(1, len(SPECIES)) << 32)
         self.form = DesignerForm(dna)
         self.clock = pg.time.Clock()
 
@@ -190,15 +200,19 @@ class Designer:
         width, height = self.screen.get_size()
         card = pg.Rect(0, 0, UI(1040), UI(800))
         card.center = (width // 2, height // 2)
-        preview = pg.Rect(card.left + UI(24), card.top + UI(92), UI(320), UI(300))
+        preview = pg.Rect(card.left + UI(24), card.top + UI(92), UI(320), UI(270))
         codes = {part: pg.Rect(preview.right - UI(160), preview.bottom + UI(16 + 44 * index), UI(160), UI(34))
-                 for index, part in enumerate(("ring", "dot"))}
+                 for index, part in enumerate(PARTS)}
         column_width = (card.right - UI(24) - (preview.right + UI(32)) - UI(24)) // 2
         rows = {}
-        for index, field in enumerate(FIELDS[:2 * COLUMN_ROWS]):
-            column, row = divmod(index, COLUMN_ROWS)
+        social_top = 124 + COLUMN_ROWS * 36 + 44  # beneath the mind and body, under its own heading
+        for index, field in enumerate(FIELDS[:len(FIELDS) - len(PARTS)]):
+            if index < 2 * COLUMN_ROWS:
+                (column, row), top = divmod(index, COLUMN_ROWS), 124
+            else:
+                (column, row), top = divmod(index - 2 * COLUMN_ROWS, SOCIAL_ROWS), social_top
             left = preview.right + UI(32) + column * (column_width + UI(24))
-            rows[field] = pg.Rect(left, card.top + UI(124 + row * 50), column_width, UI(42))
+            rows[field] = pg.Rect(left, card.top + UI(top + row * 36), column_width, UI(30))
         buttons = {}
         right = card.right - UI(24)
         for name, button_width in (("apply", 120), ("cancel", 120)):
@@ -210,9 +224,9 @@ class Designer:
     @staticmethod
     def _controls(row: pg.Rect) -> tuple[pg.Rect, pg.Rect, pg.Rect]:
         """The minus button, value box and plus button of a trait row."""
-        plus = pg.Rect(row.right - UI(38), row.centery - UI(15), UI(30), UI(30))
-        box = pg.Rect(plus.left - UI(112), row.centery - UI(16), UI(104), UI(32))
-        minus = pg.Rect(box.left - UI(38), row.centery - UI(15), UI(30), UI(30))
+        plus = pg.Rect(row.right - UI(34), row.centery - UI(13), UI(26), UI(26))
+        box = pg.Rect(plus.left - UI(112), row.centery - UI(13), UI(104), UI(26))
+        minus = pg.Rect(box.left - UI(34), row.centery - UI(13), UI(26), UI(26))
         return minus, box, plus
 
     def _click(self, position: tuple[int, int]) -> str | None:
@@ -247,20 +261,20 @@ class Designer:
         self.screen.blit(title, (card.left + UI(24), card.top + UI(22)))
         self._text("NEW WORLD  /  DESIGN AN IMPORT", (card.left + UI(48) + title.get_width(), card.top + UI(31)),
                    (144, 170, 151), self.small)
-        self._text("Every trait is part of the genome, so the dot and ring colours change with them.",
+        self._text("Every trait is part of the genome, so the dot, ring and social background colours change with them.",
                    (card.left + UI(24), card.top + UI(60)), (157, 177, 159), self.font)
 
         # The large preview, and the Bitzkey at the size it will have in the world.
         pg.draw.rect(self.screen, (22, 30, 30), preview, border_radius=UI(6))
         pg.draw.rect(self.screen, (54, 68, 62), preview, 1, border_radius=UI(6))
         size = form.value(("body", "size"))
-        draw_bitzkey(self.screen, form.dna, (preview.centerx, preview.top + UI(150)),
+        draw_bitzkey(self.screen, form.dna, (preview.centerx, preview.top + UI(130)),
                      UI(PREVIEW_ZOOM * dot_radius(size)), ring_width=UI(PREVIEW_ZOOM * RING_WIDTH))
         self._text("actual size", (preview.left + UI(12), preview.bottom - UI(26)), (116, 139, 124), self.small)
         draw_bitzkey(self.screen, form.dna, (preview.left + UI(96), preview.bottom - UI(18)), dot_radius(size))
 
         for part, box in layout["codes"].items():
-            label = "RING / BODY" if part == "ring" else "DOT / MIND"
+            label = LABELS[part]
             focused = form.focused == ("hex", part)
             self._text(label, (preview.left, box.top + UI(8)), (149, 170, 150), self.font)
             pg.draw.rect(self.screen, (19, 26, 27), box, border_radius=UI(4))
@@ -291,12 +305,12 @@ class Designer:
             hardy = ("", "  Tolerates heat.", "  Tolerates cold.", "  Tolerates heat and cold.")[hardiness]
             facts.append(f"At home where it is {TEMPERATURES[home]}.{hardy}")
         for index, fact in enumerate(facts):
-            self._text(fact, (preview.left, layout["codes"]["dot"].bottom + UI(20 + index * 22)), (187, 199, 181),
+            self._text(fact, (preview.left, layout["codes"]["social"].bottom + UI(16 + index * 20)), (187, 199, 181),
                        self.small)
 
-        # The trait rows: mind on the left, body on the right.
-        first_rows = (layout["rows"][FIELDS[0]], layout["rows"][FIELDS[COLUMN_ROWS]])
-        for row, heading in zip(first_rows, ("MIND  /  INNER DOT", "BODY  /  OUTER RING")):
+        # The trait rows: mind on the left, body on the right, and the social background beneath.
+        first_rows = [layout["rows"][FIELDS[index]] for index in (0, COLUMN_ROWS, 2 * COLUMN_ROWS)]
+        for row, heading in zip(first_rows, ("MIND  /  INNER DOT", "BODY  /  OUTER RING", "SOCIAL  /  BACKGROUND")):
             self._text(heading, (row.left, row.top - UI(28)), (220, 229, 211), self.font)
         for field, row in layout["rows"].items():
             self._draw_row(field, row, FIELDS.index(field) == form.focus)
@@ -317,8 +331,8 @@ class Designer:
         if focused:
             pg.draw.rect(self.screen, (131, 205, 143), row, 1, border_radius=UI(5))
         minus, box, plus = self._controls(row)
-        self._text(field[1], (row.left + UI(12), row.top + UI(6)), (232, 236, 219), self.font)
-        meter = pg.Rect(row.left + UI(12), row.bottom - UI(11), minus.left - row.left - UI(28), UI(4))
+        self._text(field[1], (row.left + UI(12), row.top + UI(2)), (232, 236, 219), self.font)
+        meter = pg.Rect(row.left + UI(12), row.bottom - UI(6), minus.left - row.left - UI(28), UI(3))
         pg.draw.rect(self.screen, (44, 57, 52), meter)
         pg.draw.rect(self.screen, (131, 205, 143),
                      (meter.left, meter.top, round(meter.width * value / _largest(field)), meter.height))

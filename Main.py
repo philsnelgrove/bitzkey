@@ -22,7 +22,7 @@ from display.CatalogScreen import CatalogScreen
 from display.ColourGraph import ColourGraph
 from tools.Exchange import Imported, bitzkey_record, export_bitzkeys, format_records
 from tools.Genome import genome_record
-from tools.Genome import MIND_TRAITS, decode_climate
+from tools.Genome import TEMPERAMENT, decode_climate
 from tools.Insights import ANIMALS, brain_matrix_lines, brain_report, death_report_lines
 from tools import Catalog, Rules
 from tools import Simulation as world
@@ -36,13 +36,17 @@ DRAG_THRESHOLD = 5    # design pixels a press must move on the map to draw a mar
 TRAIL_OPACITY = 0.5   # how faintly a Bitzkey shows on each cell it passed through this turn
 # What an exemplar card can show: the living animal that stands out most by a statistic, highest, or
 # lowest where `lowest`. Each is (title, kind, name, lowest): kind "mind" is an inborn temperament
-# trait, "body" a body trait, "home" its home temperature, and "state" what it is now.
+# trait, of the mind or social, "body" a body trait, "home" its home temperature, and "state" what it is now.
 EXEMPLAR_STATS = (
     ("SMARTEST", "mind", "intellect", False), ("MOST AGGRESSIVE", "mind", "aggression", False),
     ("MOST AMOROUS", "mind", "libido", False), ("MOST SOCIABLE", "mind", "sociability", False),
     ("MOST CURIOUS", "mind", "curiosity", False), ("MOST FEARFUL", "mind", "fear", False),
     ("GREATEST APPETITE", "mind", "appetite", False), ("MOST PATIENT", "mind", "patience", False),
     ("MOST EMPATHETIC", "mind", "empathy", False), ("MOST TOLERANT", "mind", "tolerance", False),
+    ("BEST MEMORY", "mind", "memory", False), ("MOST RESILIENT", "mind", "resilience", False),
+    ("MOODIEST", "mind", "moodiness", False), ("MOST LOYAL", "mind", "loyalty", False),
+    ("MOST DOMINANT", "mind", "dominance", False), ("MOST TRUSTING", "mind", "trust", False),
+    ("MOST CLANNISH", "mind", "kinship", False),
     ("SIMPLEST", "mind", "intellect", True), ("GENTLEST", "mind", "aggression", True),
     ("BRAVEST", "mind", "fear", True), ("MOST SOLITARY", "mind", "sociability", True),
     ("LARGEST", "body", "size", False), ("SMALLEST", "body", "size", True),
@@ -84,7 +88,7 @@ def exemplar_value(agent: Bitzkey, kind: str, name: str) -> float:
     if name == "herd":
         return agent.herd_instinct
     if name == "changed":  # how far experience has moved its temperament from what it was born with
-        return sum(abs(agent.mind[trait] - agent.inborn[trait]) for trait in MIND_TRAITS)
+        return sum(abs(agent.mind[trait] - agent.inborn[trait]) for trait in TEMPERAMENT)
     return getattr(agent, name)
 
 
@@ -1045,7 +1049,7 @@ class BitzkeyApp:
             y += 17
 
         y = heading("TEMPERAMENT", "average now; green above inborn, amber below", y + 14)
-        for trait in MIND_TRAITS:
+        for trait in TEMPERAMENT:
             self._text(trait.upper(), (x, at(y)), (149, 170, 150), self.small)
             for column, species in zip(columns, ANIMALS):
                 now = average(species, lambda agent: agent.mind[trait])

@@ -8,11 +8,11 @@ from collections.abc import Mapping, Sequence
 
 import numpy as np
 
-from tools.Genome import BODY_TRAITS, MIND_TRAITS, SPECIES, TEMPERATURES, decode_body, decode_climate, decode_mind, share
+from tools.Genome import BODY_TRAITS, SPECIES, TEMPERAMENT, TEMPERATURES, decode_body, decode_climate, decode_temperament, share
 
 ACTIONS = ("eat", "forage", "browse", "uproot", "scavenge", "feast", "rest", "court", "breed", "hunt", "attack", "defend",
            "flee", "herd", "go_north", "go_south", "go_east", "go_west", "walk_north", "walk_south", "walk_east",
-           "walk_west", "alert")
+           "walk_west", "alert", "revisit")
 SENSES = (
     "hunger",          # 0..1
     "health",          # 0..1
@@ -55,8 +55,10 @@ SENSES = (
     "warmth",          # here
     "warmth_north",    # at the edge of its sight to the north, or the map's edge if nearer
     "warmth_south",    # and to the south
-) + MIND_TRAITS + (    # then its current temperament, each trait 0..7 scaled to 0..1
-    *(f"inborn_{trait}" for trait in MIND_TRAITS),        # its dot's traits, as born, 0..1
+    "food_remembered",    # 1 just after it fed somewhere, fading as its memory lets the place go; 0 when forgotten
+    "danger_remembered",  # 1 at the place it was last struck, while it remembers it, falling to 0 beyond sight
+) + TEMPERAMENT + (    # then its current temperament, mind and social traits, each 0..7 scaled to 0..1
+    *(f"inborn_{trait}" for trait in TEMPERAMENT),        # its dot's and social background's traits, as born, 0..1
     *BODY_TRAITS,                                         # its ring's traits, 0..1 (species 0 plant to 1 predator)
     "home_temperature", "heat_tolerance", "cold_tolerance",  # its climate genes: home 0 hot to 1 very cold, flags 0 or 1
 )
@@ -91,10 +93,10 @@ def make_senses(**values: float) -> list[float]:
 
 
 def gene_senses(dna: int) -> dict[str, float]:
-    """The inputs for a genome's traits, ring and dot, and its climate genes."""
-    inborn, body = decode_mind(dna), decode_body(dna)
+    """The inputs for a genome's traits, ring, dot and social background, and its climate genes."""
+    inborn, body = decode_temperament(dna), decode_body(dna)
     temperature, heat, cold = decode_climate(dna)
-    values = {f"inborn_{trait}": share(inborn[trait]) for trait in MIND_TRAITS}
+    values = {f"inborn_{trait}": share(inborn[trait]) for trait in TEMPERAMENT}
     values["species"] = SPECIES.index(str(body["species"])) / (len(SPECIES) - 1)
     values.update({trait: share(int(body[trait])) for trait in BODY_TRAITS[1:]})
     values.update(home_temperature=temperature / (len(TEMPERATURES) - 1), heat_tolerance=float(heat),

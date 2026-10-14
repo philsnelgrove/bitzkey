@@ -99,6 +99,8 @@ _TABLE: dict[str, list[tuple]] = {
          0.0, 2.0, 0.05),
         ("PREDATOR_FOOD_NEEDED", "Food needed, predators", "meals each mouth needs nearby for a predator to breed; 0: no limit",
          0.0, 20.0, 0.5),
+        ("PLANTS_PER_GRAZER", "Plants per grazer", "plants each grazer needs in its home climate band, shared among the grazers at home there, "
+         "to breed; twice this for a full litter; 0: no limit", 0.0, 10.0, 0.05),
         ("PLANT_MEALS", "Plant meals", "meals a plant is worth to a full-efficiency browser", 0.0, 20.0, 0.5),
         ("PREY_MEALS", "Prey meals", "meals a prey animal is worth", 0.0, 20.0, 0.5),
         ("SHARED_DIET", "Shared diet", "how much another species eating the same food counts as a mouth",
@@ -127,6 +129,13 @@ _TABLE: dict[str, list[tuple]] = {
          0.0, 3.0, 0.05),
         ("SOCIAL_MOOD", "Social mood", "how much a herd-mate's success or failure seen moves the mood", 0.0, 3.0, 0.05),
         ("SOCIAL_MEMORY", "Social memory", "share of a seen success or failure still sensed a turn later", 0.0, 1.0, 0.05),
+        ("LOYALTY_PULL", "Loyalty pull", "how much more an animal values keeping to its herd, times its loyalty", 0.0, 5.0, 0.05),
+        ("DOMINANCE_EASE", "Dominance ease", "share less a crowded territory troubles the most dominant, and more the most submissive",
+         0.0, 1.0, 0.05),
+        ("TRUST_HEED", "Trust heed", "share more the most trusting take in what herd-mates do, and less the least", 0.0, 1.0, 0.05),
+        ("TRUST_REACH", "Trust reach", "times its trust times its sight away a herd-mate's alert is heeded", 0.0, 5.0, 0.25),
+        ("KINSHIP_SHUN", "Kinship shun", "at full kinship and no tolerance, a herd-mate's or partner's social background may "
+         "differ by no more than 1 less this", 0.0, 1.0, 0.05),
     ],
     "Mind": [
         ("LEARNING_RATE", "Learning rate", "how fast a brain learns, at the highest intellect", 0.0, 0.5, 0.005),
@@ -150,6 +159,10 @@ _TABLE: dict[str, list[tuple]] = {
          0.0, 2.0, 0.05),
         ("TEMPERAMENT_RELAPSE", "Temperament relapse", "share of the gap back to the inborn value closed each turn",
          0.0, 0.1, 0.001),
+        ("MEMORY_TURNS", "Memory turns", "turns the best memory recalls where it last fed or was struck; fewer the poorer", 0, 1000, 10),
+        ("RESILIENCE", "Resilience", "share faster the most resilient get over a seen failure, and less they fear a bad experience",
+         0.0, 1.0, 0.05),
+        ("MOODINESS", "Moodiness", "share more experience moves the moodiest temperament, and less the steadiest", 0.0, 1.0, 0.05),
         ("PANIC.0", "Panic, unhurt", "chance a fully fearful animal breaks when struck, unhurt", 0.0, 1.0, 0.05),
         ("PANIC.1", "Panic, near death", "chance a fully fearful animal breaks when struck, near death",
          0.0, 1.0, 0.05),

@@ -7,7 +7,7 @@ import numpy as np
 
 from tools.Brain import (ACTIONS, HIDDEN_SIZE, INPUT_SIZE, MIN_DEPTH, SENSES, Brain, choice_odds, depth_for, gene_senses,
                          make_senses)
-from tools.Genome import BODY_TRAITS, MIND_TRAITS, encode_dna
+from tools.Genome import BODY_TRAITS, TEMPERAMENT, encode_dna
 
 
 class BrainTests(unittest.TestCase):
@@ -92,13 +92,13 @@ class BrainTests(unittest.TestCase):
                          (6, (HIDDEN_SIZE, INPUT_SIZE), (HIDDEN_SIZE, HIDDEN_SIZE)))
         self.assertEqual(Brain.random(random.Random(7)).depth, MIN_DEPTH)
 
-    def test_there_is_an_input_for_each_action_and_each_ring_and_dot_trait(self):
-        for name in ([f"inborn_{trait}" for trait in MIND_TRAITS]
+    def test_there_is_an_input_for_each_action_and_each_ring_dot_and_social_trait(self):
+        for name in ([f"inborn_{trait}" for trait in TEMPERAMENT] + list(TEMPERAMENT)
                      + list(BODY_TRAITS) + ["home_temperature", "heat_tolerance", "cold_tolerance"]):
             self.assertIn(name, SENSES)
-        genes = gene_senses(encode_dna("predator", temperature=2, cold_tolerance=True, size=7, intellect=7, fear=0))
-        self.assertEqual((genes["species"], genes["size"], genes["inborn_intellect"], genes["inborn_fear"]),
-                         (1.0, 1.0, 1.0, 0.0))
+        genes = gene_senses(encode_dna("predator", temperature=2, cold_tolerance=True, size=7, intellect=7, fear=0, trust=7))
+        self.assertEqual((genes["species"], genes["size"], genes["inborn_intellect"], genes["inborn_fear"],
+                          genes["inborn_trust"]), (1.0, 1.0, 1.0, 0.0, 1.0))
         self.assertEqual((genes["home_temperature"], genes["heat_tolerance"], genes["cold_tolerance"]), (2 / 3, 0.0, 1.0))
 
     def test_child_takes_each_neuron_whole_from_one_parent(self):
@@ -169,7 +169,7 @@ class BrainTests(unittest.TestCase):
         self.assertLess(changes[1], changes[0] - 0.1)
 
     def test_hidden_layers_are_34_neurons_wide(self):
-        self.assertEqual((HIDDEN_SIZE, INPUT_SIZE), (34, 71))
+        self.assertEqual((HIDDEN_SIZE, INPUT_SIZE), (34, 87))
 
     def test_a_brain_saved_with_narrower_layers_loads_widened_and_values_alike(self):
         rng = np.random.default_rng(5)

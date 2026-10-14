@@ -16,9 +16,10 @@ from itertools import accumulate
 from pathlib import Path
 
 from tools.Brain import ACTIONS, SENSES, Brain, choice_odds, depth_for, gene_senses, make_senses
-from tools.Genome import (GENOME, MIND_TRAITS, SPECIES, TRAIT_MAX, body_word, color_from_word, cross, dot_difference, inherit_mind, ring_difference,
-                          BODY_MUTATION_CHANCE, COLD_TOLERANCE, HEAT_TOLERANCE, MIND_MUTATION_CHANCE,
-                          TEMPERATURE_SHIFT, TEMPERATURES, decode_body, decode_climate, decode_mind, make_dna, mind_word, share)
+from tools.Genome import (GENOME, SPECIES, TEMPERAMENT, TRAIT_MAX, body_word, color_from_word, cross, dot_difference, inherit_mind,
+                          ring_difference, social_difference, social_word, BODY_MUTATION_CHANCE, COLD_TOLERANCE,
+                          HEAT_TOLERANCE, MIND_MUTATION_CHANCE, TEMPERATURE_SHIFT, TEMPERATURES, decode_body, decode_climate,
+                          decode_temperament, make_dna, mind_word, share)
 from tools.Census import Census
 from tools.Exchange import Imported
 from tools.Insights import Insights
@@ -91,6 +92,25 @@ SOCIAL_LEARNING = 1.0  # how fast it learns from what it sees, beside learning f
 SOCIAL_MOOD = 0.3      # how much what it sees moves its mood
 SOCIAL_MEMORY = 0.8    # the share of a seen success or failure it still senses a turn later
 OTHER_KIND = 0.4       # how much of that pain reaches it when the victim is of another species
+# The social background's traits. Loyalty: whenever it can herd, an animal values keeping to its herd this much
+# more, times its loyalty. Dominance: a ready animal breeds with the most dominant willing partner in reach, and
+# a territory's crowding troubles the dominant less and the submissive more, by up to this share.
+LOYALTY_PULL = 0.25
+DOMINANCE_EASE = 0.5
+# Trust: how much more, or less, the most and least trusting take in what they see of their herd-mates, by
+# this share; and an alert reaches it from a herd-mate this many times its trust times its sight away.
+TRUST_HEED = 0.5
+TRUST_REACH = 2.0
+# Kinship: the most a herd-mate's or partner's social background may differ from its own, at full kinship and
+# no tolerance, is 1 less this; less kinship, or more tolerance, accepts more.
+KINSHIP_SHUN = 0.8
+# The mind's new traits. Memory: an animal remembers where it last fed, and where it was last struck, for up to
+# MEMORY_TURNS at the best memory, fewer the poorer. Resilience: the most resilient get over a herd-mate's failure
+# faster, and fear a bad experience less, by up to this share, the least resilient slower and more. Moodiness:
+# experience moves the moodiest temperament by up to this share more, the steadiest by this share less.
+MEMORY_TURNS = 100
+RESILIENCE = 0.5
+MOODINESS = 0.5
 LEARNING_RATE = 0.045  # at the highest intellect, before its boost
 # The clever learn faster. The learning rate rises with intellect, and on top of that by up to
 # LEARNING_BOOST times again at the highest; the least intelligent get no boost. And each turn an
@@ -178,6 +198,9 @@ UPROOT_FOOD = 3.0  # a starving grazer uproots a plant only with fewer meals a m
 BREED_COOLDOWN = 0.0  # share of the usual rest after breeding, 20 turns for the least fertile to 5 for the most
 PREDATOR_BREED_COOLDOWN = 0.5  # the same for predators: a short rest
 PREDATOR_FOOD_NEEDED = 0.0  # the same for predators: none, so the food about them never stops them breeding
+# Plants each grazer needs in its home band, the climate band of its home temperature nearest it, shared
+# among the grazers at home there, to breed; between this and twice this its litter shrinks. 0: no limit.
+PLANTS_PER_GRAZER = 0.1
 PLANT_MEALS = 2.0      # meals a plant is worth to a full-efficiency browser
 PREY_MEALS = 10.0      # meals a prey animal is worth: meat fills about ten times what grass does
 SHARED_DIET = 0.5      # how much an animal of another species eating some of the same food counts as a mouth
@@ -295,6 +318,8 @@ HUNT, ATTACK = ACTIONS.index("hunt"), ACTIONS.index("attack")
 FEAST, SCAVENGE, COURT, BREED = (ACTIONS.index("feast"), ACTIONS.index("scavenge"), ACTIONS.index("court"),
                                  ACTIONS.index("breed"))
 EAT, UPROOT, FEAST = ACTIONS.index("eat"), ACTIONS.index("uproot"), ACTIONS.index("feast")
+HERD = ACTIONS.index("herd")
+FED = {"ate", "browsed", "uprooted", "feasted", "scavenged"}  # what it did when it fed, to remember where
 MAX_SIGHT = 2 + SIGHT_PER_TRAIT * TRAIT_MAX + MAX_PREDATOR_SIGHT  # the furthest anything is seen: a predator's sight for prey
 SIGHT_OFFSETS = sorted(
     ((dx, dy) for dx in range(-MAX_SIGHT, MAX_SIGHT + 1) for dy in range(-MAX_SIGHT, MAX_SIGHT + 1)
@@ -457,10 +482,10 @@ def nearby_offsets(radius: int) -> tuple[tuple[int, int], ...]:
 
 
 @lru_cache(maxsize=1 << 16)
-def looks_apart(first: int, second: int) -> tuple[float, float]:
-    """How far two genomes' ring and dot colours are apart, each from 0 to 1. Groups share
-    genomes, so the same pairs come up again and again."""
-    return ring_difference(first, second), dot_difference(first, second)
+def looks_apart(first: int, second: int) -> tuple[float, float, float]:
+    """How far two genomes' ring, dot and social background colours are apart, each from 0 to 1.
+    Groups share genomes, so the same pairs come up again and again."""
+    return ring_difference(first, second), dot_difference(first, second), social_difference(first, second)
 SEED_OFFSETS = sum(abs(dx) + abs(dy) <= SEED_REACH for dx, dy in SIGHT_OFFSETS)  # the first offsets: those a seed reaches
 
 
@@ -491,6 +516,8 @@ class Bitzkey:
     seen_success: float = 0.0  # a herd-mate's success it saw, fading turn by turn
     seen_failure: float = 0.0  # a herd-mate's failure it saw, the same
     herd_assailant: int | None = None  # what struck a herd-mate close by, from alongside it: it may defend against it
+    food_memory: tuple[int, int, int] | None = None    # where it last fed, and the turn: (x, y, turn)
+    danger_memory: tuple[int, int, int] | None = None  # where it was last struck, and the turn
     meat: float = 0.0  # a corpse's meat left for scavengers
     rot: float = 0.0   # meat lost to rot each turn
     portions: int = 0  # a body's portions left to eat, feasting or scavenging: one for each size class
@@ -501,7 +528,7 @@ class Bitzkey:
     # turn they are born.
     womb: list[tuple] = field(default_factory=list)
     due_turn: int | None = None
-    # Current temperament: starts at the inborn values and is reshaped by experience.
+    # Current temperament, mind and social traits: starts at the inborn values and is reshaped by experience.
     mind: dict[str, float] = field(default_factory=dict)
     # The last decision, kept until the next one so the brain can learn from how it turned out.
     last_senses: list[float] | None = None
@@ -517,14 +544,14 @@ class Bitzkey:
 
     @cached_property
     def inborn(self) -> dict[str, int]:
-        return decode_mind(self.dna)
+        return decode_temperament(self.dna)
 
     @cached_property
     def body(self) -> dict[str, int | str]:
         return decode_body(self.dna)
 
-    def looks_apart(self, other: Bitzkey) -> tuple[float, float]:
-        """How far its ring and dot colours are from another's, each from 0 to 1."""
+    def looks_apart(self, other: Bitzkey) -> tuple[float, float, float]:
+        """How far its ring, dot and social background colours are from another's, each from 0 to 1."""
         return looks_apart(self.dna, other.dna)
 
     @cached_property
@@ -699,6 +726,10 @@ class Bitzkey:
         return color_from_word(body_word(self.dna))
 
     @property
+    def social_color(self) -> tuple[int, int, int]:
+        return color_from_word(social_word(self.dna))
+
+    @property
     def brain_bytes(self) -> int:
         """The memory its brain, and those of the young it carries, take."""
         return sum(brain.nbytes for brain in (self.brain, *(young[2] for young in self.womb)) if brain is not None)
@@ -791,6 +822,10 @@ class Simulation:
         self.seeds: list[tuple[int, int, int, int, int]] = []
         self._climate: list[float] = []
         self._growth: list[float] = []      # each row's share of medium, where grass grows
+        self._band_of_row: list[int] = []   # the climate band each row lies in, top to bottom
+        self._home_band: list[list[int]] = []  # by home temperature and row: the home band nearest
+        self._band_plants: list[int] = []   # the plants in each band, and the grazers at home there,
+        self._band_grazers: list[int] = []  # as the cells were last indexed
         self._grass_rows: list[int] = []    # the rows where grass grows at all
         self._grass_reach: list[float] = []  # their growth added up, row by row, for sowing
         self._update_climate()
@@ -919,7 +954,7 @@ class Simulation:
         agent = Bitzkey(self.next_identifier, dna & GENOME, x, y)
         agent.health = agent.max_health
         if mind:
-            agent.mind.update({trait: mind[trait] for trait in MIND_TRAITS if trait in mind})
+            agent.mind.update({trait: mind[trait] for trait in TEMPERAMENT if trait in mind})
         if agent.species != "plant":  # plants need no brain
             depth = depth_for(thinking_intellect(agent.inborn["intellect"], agent.species))  # twice its inborn intellect, at least two
             agent.brain = Brain.random(self.random, depth) if brain is None else brain.resized(depth)
@@ -1070,7 +1105,7 @@ class Simulation:
             if agent.due_turn is not None and agent.due_turn <= self.turn:
                 self._give_birth(agent)
             agent.seen_success *= SOCIAL_MEMORY
-            agent.seen_failure *= SOCIAL_MEMORY
+            agent.seen_failure *= SOCIAL_MEMORY ** (1 + RESILIENCE * (2 * agent.feeling("resilience") - 1))  # got over sooner
             self._settle(agent)
             if agent.hunger >= 80:
                 self._experience(agent, "starving")
@@ -1179,15 +1214,18 @@ class Simulation:
     # Temperament
 
     def _experience(self, agent: Bitzkey, event: str) -> None:
-        """Shift temperament after an experience; intellect sets how far."""
-        plasticity = 0.2 + 0.8 * agent.intelligence
+        """Shift temperament after an experience; intellect sets how far, more for the moody and less
+        for the steady. The resilient take fright less, and the fragile more."""
+        plasticity = (0.2 + 0.8 * agent.intelligence) * (1 + MOODINESS * (2 * agent.feeling("moodiness") - 1))
         for trait, change in EXPERIENCES[event].items():
+            if trait == "fear" and change > 0:
+                change *= 1 + RESILIENCE * (1 - 2 * agent.feeling("resilience"))
             agent.mind[trait] = max(0.0, min(float(TRAIT_MAX), agent.mind[trait] + change * TRAIT_MAX * plasticity))
 
     @staticmethod
     def _settle(agent: Bitzkey) -> None:
         """Let learned temperament drift slowly back toward the inborn values."""
-        for trait in MIND_TRAITS:
+        for trait in TEMPERAMENT:
             agent.mind[trait] += (agent.inborn[trait] - agent.mind[trait]) * TEMPERAMENT_RELAPSE
 
     # Decisions and learning
@@ -1249,6 +1287,7 @@ class Simulation:
             if call and agent.can_breed:  # the mating call: to breed if it can, else to court a mate it seeks
                 valued[BREED if BREED in options else COURT] += call
             valued[SCAVENGE] += CARRION_CRAVING * max(0.0, 2 * agent.physique("carrion") - 1)  # a carrion-eater's craving
+            valued[HERD] += LOYALTY_PULL * agent.feeling("loyalty")  # loyalty: keeping to its herd
             odds = choice_odds(valued, options)
             roll = self.random.random()
             choice = options[-1]
@@ -1288,8 +1327,9 @@ class Simulation:
         if not surveyed:
             self._survey(agent)
         neighbors = self._nearby(agent, 1)
-        mate = next((other for other in self._nearby(agent, MATE_REACH) if self._compatible(agent, other) and other.can_breed),
-                    None)  # close enough to breed with
+        # Close enough to breed with: the most dominant willing partner, the first found on a tie.
+        mate = max((other for other in self._nearby(agent, MATE_REACH) if self._compatible(agent, other) and other.can_breed),
+                   key=lambda other: other.mind["dominance"], default=None)
         nurseries = self._free_cells_near(agent)
         prey = [other for other in neighbors if self._is_prey(agent, other)]
         threats = [other for other in neighbors if self._is_prey(other, agent)]
@@ -1345,7 +1385,8 @@ class Simulation:
             available.add("court")
         if (mate and agent.can_breed and nurseries and self._room() > 0
                 and (not CROWDING_LIMIT or self._crowding(agent, mate, own_kind=True) < CROWDING_LIMIT)  # its own kind crowds it
-                and (not self._food_needed(agent) or self._food_supply(agent) >= self._food_needed(agent))):
+                and (not self._food_needed(agent) or self._food_supply(agent) >= self._food_needed(agent))
+                and (not PLANTS_PER_GRAZER or agent.species != "grazer" or self._home_plants(agent) >= PLANTS_PER_GRAZER)):
             available.add("breed")
         if quarry:
             available.add("hunt")
@@ -1375,6 +1416,9 @@ class Simulation:
                 alert_to = seen_kill
         if alert_to is not None:
             available.add("alert")
+        fed_at = self._remembered(agent, agent.food_memory)
+        if fed_at and agent.food_memory[:2] != (agent.x, agent.y):
+            available.add("revisit")  # back to where it last fed, while it remembers
         if agent.y > 0:
             available.update(("go_north", "walk_north"))
         if agent.y < self.height - 1:
@@ -1420,7 +1464,10 @@ class Simulation:
             warmth=self._warmth(agent, agent.y),
             warmth_north=self._warmth(agent, max(0, agent.y - sight)),
             warmth_south=self._warmth(agent, min(self.height - 1, agent.y + sight)),
-            **{trait: agent.feeling(trait) for trait in MIND_TRAITS},
+            food_remembered=fed_at,
+            danger_remembered=(self._remembered(agent, agent.danger_memory)
+                               * max(0.0, self._closeness(agent, agent.danger_memory and agent.danger_memory[:2], sight))),
+            **{trait: agent.feeling(trait) for trait in TEMPERAMENT},
             **agent.genes,
         )
         situation = {"mate": mate, "nurseries": nurseries, "prey": target, "threat": threat,
@@ -1429,7 +1476,7 @@ class Simulation:
                      "others": others, "defend_target": defend_target, "for_herd": assailant is None,
                      "herd": herd, "herd_near": herd_near, "herd_middle": herd_middle,
                      "exposure": min(2, discomfort) / 2 * agent.exposure_share(here), "uprootable": uprootable,
-                     "alert_to": alert_to}
+                     "alert_to": alert_to, "revisit": agent.food_memory and agent.food_memory[:2]}
         return senses, [ACTIONS.index(action) for action in ACTIONS if action in available], situation
 
     def _wellbeing(self, agent: Bitzkey) -> float:
@@ -1453,7 +1500,8 @@ class Simulation:
         dread = (FEAR_DREAD * agent.fearfulness * (1 - 0.5 * tolerance) * min(2, situation["threats"]) / 2
                  * (1 - HERD_SAFETY * instinct * herd_near))
         unease = UNEASE * (1 - tolerance) * min(3, situation["others"]) / 3
-        crowded = RIVAL_UNEASE * (1 - 0.5 * tolerance) * situation.get("rivalry", 0.0)
+        crowded = (RIVAL_UNEASE * (1 - 0.5 * tolerance) * situation.get("rivalry", 0.0)
+                   * (1 + DOMINANCE_EASE * (1 - 2 * agent.feeling("dominance"))))  # the submissive feel it most
         herding = HERD_JOY * instinct * herd_near
         if not situation.get("herd", True):
             herding -= HERD_LONELINESS * instinct
@@ -1533,6 +1581,11 @@ class Simulation:
     # Actions
 
     def _act(self, agent: Bitzkey, action: str, situation: dict) -> None:
+        self._do(agent, action, situation)
+        if agent.last_action in FED:
+            agent.food_memory = (agent.x, agent.y, self.turn)
+
+    def _do(self, agent: Bitzkey, action: str, situation: dict) -> None:
         if action == "eat":
             cell = (agent.x, agent.y)
             if not self.grass.get(cell):  # another got here first
@@ -1600,6 +1653,9 @@ class Simulation:
             agent.last_action = "herded"
         elif action == "alert":
             self._alert(agent, situation["alert_to"])
+        elif action == "revisit":
+            self._move_toward(agent, *situation["revisit"])
+            agent.last_action = "revisited"
         elif action in HEADINGS:
             dx, dy, walk, went = HEADINGS[action]
             cells = 1 if walk else agent.steps
@@ -1653,9 +1709,11 @@ class Simulation:
 
     def _alert(self, agent: Bitzkey, about: Bitzkey) -> None:
         """Alert its herd within its sight: a grazer to the hunter it sees, so they may flee it from
-        further than they would; a hunter to the fresh kill it sees, so they may come to feast on it."""
+        further than they would; a hunter to the fresh kill it sees, so they may come to feast on it. A
+        herd-mate heeds it only from TRUST_REACH times its trust times its own sight away, or nearer."""
         for other in self._nearby(agent, agent.sight):
-            if self._herd_mate(agent, other):
+            if (self._herd_mate(agent, other) and abs(other.x - agent.x) + abs(other.y - agent.y)
+                    <= TRUST_REACH * other.feeling("trust") * other.sight):
                 if agent.species == "grazer":
                     if other.alarm is None:
                         other.alarm = about.identifier
@@ -1815,6 +1873,7 @@ class Simulation:
         must flee instead. Its herd-mates close by are alarmed, and those alongside the striker may
         defend it."""
         victim.assailant = striker.identifier
+        victim.danger_memory = (victim.x, victim.y, self.turn)
         herd_near = 0
         for other in self._nearby(victim, 2):
             if other is striker or other.brain is None:
@@ -1882,7 +1941,7 @@ class Simulation:
     def _breed(self, first: Bitzkey, second: Bitzkey) -> None:
         """Fertile parents breed cheaply and often. The parent that chose to breed conceives a
         litter, LITTER_RANGE young (bigger for a high litter trait and small bodies, smaller where
-        animals crowd around, and no more than the energy they give can start on NEWBORN_FOOD each), and carries it for its gestation before giving birth. The young
+        animals crowd around or, for a grazer, plants are few in its home band, and no more than the energy they give can start on NEWBORN_FOOD each), and carries it for its gestation before giving birth. The young
         share the energy both parents give up now. Animals only choose to breed when both can
         afford it, but a parent can only give what it has left. Each child inherits a mix of its
         parents' brains, and starts its temperament at the average of its parents' current
@@ -1893,6 +1952,8 @@ class Simulation:
         needed = self._food_needed(first)
         if needed:  # litters follow food only while food limits breeding
             litter = max(1, int(litter * min(1.0, self._food_supply(first) / (2 * needed)) + 0.5))
+        if PLANTS_PER_GRAZER and first.species == "grazer":  # a grazer's litters follow the plants in its home band
+            litter = max(1, int(litter * min(1.0, self._home_plants(first) / (2 * PLANTS_PER_GRAZER)) + 0.5))
         costs = [parent.breeding_cost for parent in (first, second)]
         # Energy in absolute terms: a share of each parent's stomach, refilled in the young's.
         given = sum(min(cost, max(0.0, 100 - parent.hunger)) * parent.stomach
@@ -1911,7 +1972,7 @@ class Simulation:
             if "predator" in (first.species, second.species):
                 dna = predator_dna(dna)  # a predator's young are predators, whatever crossing over or a mutation made
             brain = Brain.inherit(first.brain, second.brain, self.random,
-                                  depth_for(thinking_intellect(decode_mind(dna)["intellect"], decode_body(dna)["species"])))
+                                  depth_for(thinking_intellect(decode_temperament(dna)["intellect"], decode_body(dna)["species"])))
             if decode_body(dna)["species"] == "predator" and first.species != "predator":
                 # Born a predator of other parents: what they learnt of eating and uprooting it brings to
                 # hunting and feasting.
@@ -1933,18 +1994,49 @@ class Simulation:
 
     # Space
 
+    def _index_bands(self) -> None:
+        """The climate bands: the band each row lies in, and for each home temperature and row, the
+        home band nearest: of the bands whose usual temperature is nearest home, the one nearest the
+        row, the upper on a tie."""
+        bands = self._zones()
+        self._band_of_row = [band for band, rows in enumerate(bands) for _ in rows]
+        temperatures = [zone_temperature(rows[0], self.height) for rows in bands]
+        self._home_band = []
+        for home in range(len(TEMPERATURES)):
+            nearest = min(abs(temperature - home) for temperature in temperatures)
+            homes = [band for band, temperature in enumerate(temperatures) if abs(temperature - home) == nearest]
+            self._home_band.append([min(homes, key=lambda band: (max(0, bands[band][0] - y, y - bands[band][-1]), band))
+                                    for y in range(self.height)])
+
     def _index_cells(self) -> None:
         self._cells = {}
         self._carrion = {}
         self._kills = {}
+        if len(self._band_of_row) != self.height:
+            self._index_bands()
+        plants = [0] * (self._band_of_row[-1] + 1 if self._band_of_row else 0)
+        grazers = [0] * len(plants)
         for agent in self.agents:
             if agent.alive:
                 self._cells.setdefault((agent.x, agent.y), []).append(agent)
+                if agent.species == "plant":
+                    plants[self._band_of_row[agent.y]] += 1
+                elif agent.species == "grazer":
+                    grazers[self._home_band[agent.climate[0]][agent.y]] += 1
             elif self._fresh(agent):
                 if agent.species != "plant":
                     self._kills.setdefault((agent.x, agent.y), []).append(agent)
             elif agent.meat > 0:
                 self._carrion.setdefault((agent.x, agent.y), []).append(agent)
+        self._band_plants, self._band_grazers = plants, grazers
+
+    def _home_plants(self, grazer: Bitzkey) -> float:
+        """The plants in a grazer's home band per grazer at home there, itself among them; none
+        before the cells are first indexed."""
+        if not self._band_plants:
+            return 0.0
+        band = self._home_band[grazer.climate[0]][grazer.y]
+        return self._band_plants[band] / max(1, self._band_grazers[band])
 
     def _nearby(self, agent: Bitzkey, radius: int) -> list[Bitzkey]:
         found = []
@@ -2106,13 +2198,15 @@ class Simulation:
 
     @staticmethod
     def _willing(agent: Bitzkey, other: Bitzkey) -> bool:
-        """Whether an animal would breed with another: it shuns a partner whose ring or dot
-        colour differs from its own by more than it accepts, which its tolerance widens."""
+        """Whether an animal would breed with another, or count it among its herd: it shuns a partner
+        whose ring or dot colour differs from its own by more than it accepts, which its tolerance widens,
+        or whose social background differs by more than its kinship accepts."""
         tolerance = agent.feeling("tolerance")
-        ring, dot = agent.looks_apart(other)
+        ring, dot, social = agent.looks_apart(other)
         accepted = KIND_DIFFERENCE if agent.species == "predator" else MATE_RING_DIFFERENCE  # a predator its kind
         return (ring <= accepted + (1 - accepted) * tolerance
-                and dot <= MATE_DOT_DIFFERENCE + (1 - MATE_DOT_DIFFERENCE) * tolerance)
+                and dot <= MATE_DOT_DIFFERENCE + (1 - MATE_DOT_DIFFERENCE) * tolerance
+                and social <= 1 - KINSHIP_SHUN * agent.feeling("kinship") * (1 - tolerance))
 
     @staticmethod
     def _same_kind(first: Bitzkey, second: Bitzkey) -> bool:
@@ -2169,6 +2263,14 @@ class Simulation:
                     return agent.x, y
         return None
 
+    def _remembered(self, agent: Bitzkey, memory: tuple[int, int, int] | None) -> float:
+        """How clearly it remembers a place: 1 the turn it happened, fading to nothing over MEMORY_TURNS
+        times its memory; 0 when it has nothing to remember."""
+        span = MEMORY_TURNS * agent.feeling("memory")
+        if memory is None or span <= 0:
+            return 0.0
+        return max(0.0, 1 - (self.turn - memory[2]) / span)
+
     @staticmethod
     def _food_needed(agent: Bitzkey) -> float:
         """The meals a mouth an animal needs about it to breed: 0, none."""
@@ -2221,7 +2323,8 @@ class Simulation:
             if (observer.brain is None or not self._society(observer, actor)
                     or abs(observer.x - actor.x) + abs(observer.y - actor.y) > observer.sight):
                 continue
-            heed = observer.feeling("empathy") * observer.intelligence
+            heed = (observer.feeling("empathy") * observer.intelligence
+                    * (1 + TRUST_HEED * (2 * observer.feeling("trust") - 1)))  # the trusting take in more
             self._witnessed.append((observer, actor.last_senses, actor.last_choice, outcome,
                                     LEARNING_RATE * heed * SOCIAL_LEARNING * food_learning(actor.last_choice)))  # at the end
             observer.reward += SOCIAL_MOOD * heed * outcome

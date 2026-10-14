@@ -1,8 +1,8 @@
 """Exporting and importing Bitzkeys as JSON, so they can move between simulations.
 
-A Bitzkey is written as its two colour words in hex; an animal adds its current temperament
+A Bitzkey is written as its three colour words in hex; an animal adds its current temperament
 and its brain:
-{"ring": "7421FF41", "dot": "637E4B01", "mind": {"aggression": 9.412, ...},
+{"version": 3, "ring": "7421FF41", "dot": "637E4B01", "social": "0A1B2C3D", "mind": {"aggression": 4.412, ...},
  "brain": {"senses": [...], "actions": [...], ...}}
 Several Bitzkeys form a JSON array, one per line.
 """
@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from tools.Brain import Brain
-from tools.Genome import MIND_TRAITS, TRAIT_MAX, V1_MAX, genome_from_record, genome_record, record_version
+from tools.Genome import TEMPERAMENT, TRAIT_MAX, V1_MAX, genome_from_record, genome_record, record_version
 
 if TYPE_CHECKING:
     from tools.Simulation import Bitzkey
@@ -35,7 +35,7 @@ class Imported:
 def bitzkey_record(agent: Bitzkey) -> dict:
     record: dict = genome_record(agent.dna)
     if agent.species != "plant":
-        record["mind"] = {trait: round(agent.mind[trait], MIND_DIGITS) for trait in MIND_TRAITS}
+        record["mind"] = {trait: round(agent.mind[trait], MIND_DIGITS) for trait in TEMPERAMENT}
     if agent.brain is not None:
         record["brain"] = agent.brain.to_record()
     return record
@@ -95,7 +95,7 @@ def _mind_from_record(value: object, version: int) -> dict[str, float]:
         raise ValueError('"mind" must map trait names to numbers.')
     scale = TRAIT_MAX / V1_MAX if version == 1 else 1.0
     mind = {}
-    for trait in MIND_TRAITS:
+    for trait in TEMPERAMENT:
         if trait in value:
             try:
                 mind[trait] = max(0.0, min(float(TRAIT_MAX), float(value[trait]) * scale))

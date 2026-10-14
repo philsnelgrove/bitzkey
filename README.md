@@ -1,8 +1,9 @@
 # Bitzkey
 
-Bitzkey is a small artificial-ecology experiment. Each Bitzkey carries a 64-bit
-genome made of two CMYK colour words: an inner dot for its mind and an outer
-ring for its body. The world advances in turns on a grid (100x100 by default).
+Bitzkey is a small artificial-ecology experiment. Each Bitzkey carries a 96-bit
+genome made of three CMYK colour words: an inner dot for its mind, an outer
+ring for its body, and a social background, behind its species icon, for how it
+treats others. The world advances in turns on a grid (100x100 by default).
 
 ## Run
 
@@ -37,7 +38,8 @@ A configuration panel opens first. Set:
 - an optional population cap: the most animals alive at once. Leave it blank,
   the default, for no limit, and crowding alone decides.
 - the mind mutation chance (0 to 100, default 25). A birth has three chances,
-  each this percent, to change one of the child's mind traits by one step: about
+  each this percent, to change one of the child's temperament traits, mind or
+  social, by one step: about
   1.5 mind mutations a birth at 50, and three at 100. At 0 minds are
   genetically stable.
 - the body mutation chance (0 to 100, default 25): the percent chance that a
@@ -86,7 +88,7 @@ Each imported genome spawns as a group of 3 to
 "Bitzkeys" to 0 to start with only your imports.
 
 ADVANCED opens the advanced rules, beneath a word of warning that they are the world's
-'natural law', carefully balanced, and that changing them can have unpredictable results: 151 numbers that shape how the world plays
+'natural law', carefully balanced, and that changing them can have unpredictable results: 197 numbers that shape how the world plays
 out, in groups (World, Bodies, Breeding, Feelings, Mind, Fighting, Territory,
 Herding, Food, Plants, Climate, Society and Experiences). Among them are lifespans, metabolism, litter
 sizes, food-aware breeding, the rewards and pains a brain learns from, blows and
@@ -137,7 +139,7 @@ folder you can write to. The first launch takes a few seconds while it unpacks.
 ## Exemplars
 
 Either side of the map, five cards a side, evenly spaced, show the living animals
-that most stand out. Each card's title is a menu: click it to choose, from 43
+that most stand out. Each card's title is a menu: click it to choose, from 50
 statistics, what that card looks for, and the card shows the animal that is
 highest by it (or lowest, for those that say so). By default the left column shows
 the smartest, the largest, the oldest, the one with the most children and the
@@ -147,7 +149,9 @@ through new worlds. They are:
 
 - temperament, as born: the smartest, most aggressive, most amorous, most
   sociable, most curious, most fearful, greatest appetite, most patient, most
-  empathetic and most tolerant; and the simplest, gentlest, bravest and most solitary
+  empathetic, most tolerant, best memory, most resilient, moodiest, most loyal, most
+  dominant, most trusting and most clannish (kinship); and the simplest, gentlest,
+  bravest and most solitary
 - body: the largest and smallest, strongest, best armoured, best armed, fastest
   and slowest, sharpest-eyed, most fertile, biggest litters and best scavenger
 - climate: the hottest and the coldest home
@@ -219,43 +223,61 @@ Bitzkey will slow to a crawl or crash.
 
 ## Genome
 
-Each Bitzkey is drawn as an inner dot inside a 2px ring (a dot big enough for
-its species' icon is black, with the icon in the dot's colour). Its 64-bit genome is
-the two colour words together. The low 32 bits colour the dot and shape the
-mind; the high 32 bits colour the ring and shape the body. In each word, the
-four bytes from most to least significant are cyan, magenta, yellow and black.
-Each word also holds ten three-bit traits, each 0 to 7, read from its
-least-significant bits. The top two bits of each word hold the climate genes,
-and like the rest they shade the colour: in the ring, the home temperature (0
-hot, 1 medium, 2 cold, 3 very cold); in the dot, the heat tolerance flag (bit 30)
-and the cold tolerance flag (bit 31). See Seasons and Climate.
+Each Bitzkey is drawn as an inner dot inside a 2px ring. A dot big enough for
+its species' icon is filled with its social background's colour, with the icon
+in the dot's colour. Its 96-bit genome is the three colour words together. The
+low 32 bits colour the dot and shape the mind; the next 32 bits colour the ring
+and shape the body; the high 32 bits colour the social background and shape how
+it treats others. In each word, the four bytes from most to least significant
+are cyan, magenta, yellow and black. The dot and the ring each hold ten
+three-bit traits, each 0 to 7, read from their least-significant bits. Their top
+two bits hold the climate genes, and like the rest they shade the colour: in the
+ring, the home temperature (0 hot, 1 medium, 2 cold, 3 very cold); in the dot,
+the heat tolerance flag (bit 30) and the cold tolerance flag (bit 31). See
+Seasons and Climate. The social background holds seven three-bit traits, then a
+four-bit neurodivergence gene (0 to 15) that does nothing yet; its top seven bits
+are spare, shading its colour only.
 
-**Inner dot: mind, emotion and social life.** These traits start at their
-gene values and are then reshaped by experience, drifting back toward them only very slowly (0.05% of the
-gap a turn):
+**Inner dot: mind and emotion.** These traits, and the social background's,
+start at their gene values and are then reshaped by experience, drifting back
+toward them only very slowly (0.05% of the gap a turn):
 
 | Trait | Effect | Experience that shifts it |
 |---|---|---|
 | aggression | pleasure of a fight, more for a kill | kills raise it; wounds and stings lower it |
 | libido | pleasure of breeding | mating raises it; breeding into starvation sharply lowers it |
-| sociability | pleasure of company | mating raises it; being wounded alone raises it |
 | curiosity | pleasure of setting off in a direction | finding grass where none was seen raises it; walking into a hunter lowers it |
 | fear | dread when hunters are adjacent; a predator feels half its fear's effects, and less the hungrier it is, none as it starves | wounds, stings and ambushes raise it; kills lower it |
 | appetite | how much hunger hurts | near-starvation raises it |
 | patience | how much it values the future (its learning discount) | meals earned by foraging raise it; starving lowers it |
 | intellect | how deep its brain is (twice its intellect in hidden layers, at least two), how fast it learns (its learning rate, boosted for the bright, how many recent experiences it replays each turn, and how far back it traces an outcome), how much experience can reshape the mind, how much it learns from what it sees, and how rarely primal fear freezes it. A predator's intellect counts twice over in all of these, up to the full range, and its brain learns twice as fast again (an omnivore's half as much faster again). | kills, breeding, discoveries, successful defences and, a little, good meals raise it; so does, very slightly, every lesson learnt from a choice that turned out well |
+| memory | how long it remembers where it last fed and where it was last struck: up to 100 turns at the best memory, fewer the poorer, none at 0 (Memory turns). It senses how fresh the memory of its last meal is, and how close it is to where it was struck, and while it remembers where it fed it may revisit, heading back there | fixed |
+| resilience | how quickly it gets over fright and loss. A herd-mate's failure it saw fades half as fast again for the most resilient, and half as slowly for the least, and the fear a bad experience adds is half again for the least resilient and half for the most (Resilience) | fixed |
+| moodiness | how far experience moves its temperament: half as far again for the moodiest, half as far for the steadiest (Moodiness) | fixed |
+
+**Social background: how it treats others.** These are part of its
+temperament, inherited and reshaped by experience as the dot's are:
+
+| Trait | Effect | Experience that shifts it |
+|---|---|---|
+| sociability | pleasure of company | mating raises it; being wounded alone raises it |
 | empathy | pain at seeing an animal wounded or killed nearby; more for its own kind, double for a death. An empathetic hunter feels some of its victim's pain and enjoys fighting less. | fixed |
-| tolerance | ease among other species: they count as company, hunters are less frightening, and attacking gives less pleasure. The intolerant are uneasy whenever other species are near. The tolerant also accept mates that look less like themselves. | fixed |
+| tolerance | ease among other species: they count as company, hunters are less frightening, and attacking gives less pleasure. The intolerant are uneasy whenever other species are near. The tolerant also accept mates, and herd-mates, that look less like themselves. | fixed |
+| loyalty | keeping to its herd: whenever it can herd, it values herding more, a quarter of a point at full loyalty (Loyalty pull) | fixed |
+| dominance | a ready animal breeds with the most dominant willing partner within reach; and a crowded territory troubles the most dominant half as much and the most submissive half as much again (Dominance ease) | fixed |
+| trust | how much it takes in of what it sees its herd-mates do, half as much again for the most trusting and half for the least (Trust heed), and how far off it heeds a herd-mate's alert: up to twice its trust times its sight away (Trust reach) | fixed |
+| kinship | how strongly it favours its own social background: a partner or herd-mate whose social background colour differs by more than 1 less 0.8 times its kinship, less its tolerance's share, is shunned (Kinship shun). At no kinship any social background will do; at full kinship and no tolerance, only one within 20% | fixed |
+| neurodivergence | (four bits, 0 to 15) nothing yet; inherited whole from either parent | fixed |
 
 A learned shift fades slowly back toward the inborn value. Children inherit
 learned temperament as well as genes and brains: each child's traits start at
 the average of its parents' current traits, as experience has left them, not
 their inborn ones. Then three times, each with the world's mind mutation
 chance (25% by default), a random trait mutates a step up or down, within 0
-to 7. The child's dot is written from that starting mind, each
-fraction rounding up with a chance equal to it, so its colour shows the
-temperament it was born with, and what its parents lived through shows in
-their young.
+to 7. The child's dot and social background are written from that starting
+temperament, each fraction rounding up with a chance equal to it, so their
+colours show the temperament it was born with, and what its parents lived
+through shows in their young. Its neurodivergence comes whole from either parent.
 
 **Outer ring: the body.**
 
@@ -284,8 +306,10 @@ times. Strength, speed, weapons and armour all add to the burn.
 Two animals can mate only if they are the same species and each is willing to
 breed with the other. An animal shuns a partner whose ring colour differs from
 its own by more than 5% (25% for a predator), or whose dot colour differs by more than 20% (the mean
-difference of the four CMYK bytes). Tolerance widens both: at the greatest
-tolerance it accepts any ring and any dot of its species. A child's ring is a
+difference of the four CMYK bytes), or whose social background differs by more
+than its kinship accepts (see above). Tolerance widens all three: at the greatest
+tolerance it accepts any ring, dot and social background of its species. The same
+test decides who counts as its herd. A child's ring is a
 single-point crossover of its parents' rings; a predator's young are always predators, whatever the crossover or a mutation would make them. A child's dot comes from its
 starting mind (see above); its two tolerance flags come together from either
 parent. The home temperature travels with the ring. With the world's body
@@ -299,15 +323,20 @@ and feasting: its brain starts out valuing hunting as its parents valued eating 
 they valued uprooting.
 Minds blend, but experience and mind mutations keep them varied.
 
-This is genome version 2. Version 1 held eight four-bit traits (0 to 15) per
+This is genome version 3. Version 2 had no social background: its dot held
+sociability, empathy and tolerance in place of memory, resilience and moodiness.
+Version 2 exports are converted when imported: their ring and climate genes are
+kept, sociability, empathy and tolerance move to the social background, and the
+traits version 2 lacked (memory, resilience, moodiness, loyalty, dominance, trust
+and kinship) start at 3, with no neurodivergence. Their dot colours change,
+because the bits move. Version 1 held eight four-bit traits (0 to 15) per
 word, before empathy, tolerance, litter and carrion existed. Older exports,
 which carry no version, are converted when imported: each trait is scaled to 0
 to 7, and empathy starts at 0, tolerance at 3, litter at 0 and carrion at 0,
-with a medium home temperature and neither tolerance. Their colours change,
-because the bits move. Version 2 genomes made before the climate genes existed
-are read as they are: whatever their top bits were becomes their climate.
+the version 3 traits at 3, with a medium home temperature and neither tolerance.
 
-The inspector shows both words in hex and every trait. Mind traits appear
+The inspector shows all three words in hex and every trait, the mind's beside
+the social background's. Temperament traits appear
 inborn and as they are now, coloured green where experience has raised them
 and amber where it has lowered them. It also shows the body's energy burn,
 its climate (home temperature, the temperature where it stands, coloured amber
@@ -446,11 +475,13 @@ neural network, and that brain chooses everything it does. Each turn it senses:
   Seasons and Climate)
 - how far north or south it is, and how much warmer or colder than home it is
   here and at the edge of its sight to the north and to the south
-- its current temperament
-- its own genome: each of its dot's traits as born, each of its ring's traits
-  (species among them) and its climate genes
+- how fresh its memory of where it last fed is, and how close it is to where it
+  was last struck, while it remembers
+- its current temperament, mind and social traits
+- its own genome: each of its dot's and social background's traits as born, each
+  of its ring's traits (species among them) and its climate genes
 
-That is 71 senses in all. Its brain has hidden layers of 34 neurons, twice as
+That is 87 senses in all. Its brain has hidden layers of 34 neurons, twice as
 many layers as its
 inborn intellect, and never fewer than two: from two layers for the dullest to
 fourteen for the brightest. Plants have no brain.
@@ -472,8 +503,9 @@ world it can double the time each turn spends learning.
 
 It then picks one of the actions open to it: eat, forage, browse, uproot,
 scavenge, feast, rest, court, breed, hunt, attack, defend, flee, herd, go north,
-go south, go east, go west, walk north, walk south, walk east, walk west or alert.
-Alerting tells its herd within its sight: a grazer that sees a hunter raises the alarm, so its
+go south, go east, go west, walk north, walk south, walk east, walk west, alert or
+revisit. Revisiting heads back toward where it last fed, while it remembers where
+that was (see memory, under Genome). Alerting tells its herd within its sight: a grazer that sees a hunter raises the alarm, so its
 herd-mates may flee that hunter from up to six cells away; a predator or omnivore that sees a
 fresh kill points its pack to it, so they may come to feast though they don't see it themselves.
 Alerting pleases it a little (Alert joy). Two instincts sit on top of what a brain learns: a
@@ -558,8 +590,8 @@ learns from it as if it had made that herd-mate's last choice itself, in the
 same situation, toward the death penalty for a death or the fullness the killer
 gained for a kill. It feels it too: a kill lifts its mood and a death lowers it,
 by how much the herd-mate gained or lost. How much it takes in is its empathy
-times its intellect, so the dull or callous barely notice, while the bright and
-caring learn from every loss. It also senses what it saw, fading by a fifth each
+times its intellect, more for the trusting and less for the wary, so the dull or
+callous barely notice, while the bright and caring learn from every loss. It also senses what it saw, fading by a fifth each
 turn. How strongly this teaches, how much it moves the mood and how long it is
 remembered are advanced rules (the Society group).
 
@@ -596,7 +628,10 @@ kind, and another species eating some of the same food is half a mouth (an
 omnivore to a grazer, or a predator to an omnivore). Below the food needed a mouth it
 doesn't breed; between that and twice it, its litter shrinks in proportion. The same weighing
 decides when a starving grazer may uproot a plant: only with fewer than three meals a mouth about
-it (Uproot food). Other
+it (Uproot food). Grazers' breeding also follows the plants in their home band: the climate band of
+their home temperature nearest them (the nearest arctic band for a very cold home). Its plants are
+shared among the grazers at home there, and with fewer than a tenth of a plant each, a grazer doesn't
+breed; between that and twice it, its litter shrinks in proportion (Plants per grazer; 0 switches it off). Other
 kinds of predator may still be hunted, but they are rivals for prey, not a food
 supply to breed on. Omnivores also switch prey: an omnivore only goes after grazers while they
 make up at least half of the food it weighs within six cells (grazers
@@ -627,7 +662,7 @@ picture at half strength on each cell it passed through on the way, back to
 where it set off (the shorter way round east or west). The trail lasts only
 until the next turn. A dead Bitzkey is dimmed and crossed through in red, and fades
 away as its corpse decays, vanishing when the corpse is gone. A dot big enough
-to hold an icon (3px or more) is black, carrying its species' icon in the dot's
+to hold an icon (3px or more) is filled with its social background's colour, carrying its species' icon in the dot's
 colour with a thin light grey outline: a tree for plants, a leaf for grazers, an apple for omnivores and a
 drumstick for predators. A smaller dot is simply its colour. The inspector, the designer and the colour graph show them too. A corpse holds the energy its body had left: up to 30 meat, plus
 up to 50 more for the largest. A starved body leaves nothing, and a killed one
@@ -641,11 +676,12 @@ Grazers, omnivores and predators can all herd. An animal's herd instinct is the
 lower of its current empathy and patience, so only animals high in both herd
 strongly, and every herd effect scales smoothly with it. Its herd-mates are
 animals of its own species that it would accept as mates, so tolerant animals
-herd with other kinds of their species. Predators only form packs with their
+herd with other kinds of their species, and clannish ones only with those of a
+like social background. Predators only form packs with their
 own kind, those within 25% in ring colour. Herd-mates are sought within its sight.
 
 - Herding: the herd action moves an animal toward the middle of its herd-mates
-  in range. The brain learns when to use it. Fear sets how close it keeps: a
+  in range. The brain learns when to use it, and loyalty draws it there. Fear sets how close it keeps: a
   fearless animal is content up to three cells from the middle, and a fully
   fearful one only at the middle itself, so frightened herds bunch tightly.
 - Comfort: a herd animal enjoys having herd-mates close by, and is uneasy with
@@ -672,14 +708,14 @@ own exact colour. Slices are stacked by species, plants at the bottom, then
 grazers, omnivores and predators, and each species' band is labelled, with its
 icon, at the right end of the chart. Within a species, slices are sorted by hue,
 so similar colours flow together from bar to bar. The SORT menu at the top sorts
-each species by a trait instead: any of the ten mind traits, the body traits, or
+each species by a trait instead: any of the ten mind traits, the seven social traits, the body traits, or
 the climate genes (home temperature, heat tolerance, cold tolerance), taken from
 the genome, lowest at the bottom (for temperature, hottest at the bottom). Slices with the same value are then
 sorted by colour. A trait sorts only the Bitzkeys living now; the dead are
 remembered by their colour alone, and sit beneath the living in each species,
 sorted by colour. Colour value is the default. A bar's height is the
-population. `Tab` switches between ring
-(body) and dot (mind) colours. The timeline shades each winter quarter and marks
+population. `Tab` steps between ring
+(body), dot (mind) and social background colours. The timeline shades each winter quarter and marks
 where each year begins, with a line up through the chart. The graph covers the whole run. It samples who was
 alive at evenly spaced turns, spacing them further apart as the run grows.
 
@@ -713,7 +749,7 @@ A selected Bitzkey stays lit in every bar it appears in while the others fade.
 Hovering over a living Bitzkey's slice shows a tooltip with its details, as the
 sidebar shows them for a selected one: genome codes, temperament, body, hunger,
 health, age and latest chances. The line under the chart also names it. A dead
-Bitzkey shows only its ring and dot colours there.
+Bitzkey shows only its ring, dot and social background colours there.
 
 The graph and the map share one selection. Close the graph and the Bitzkeys picked
 on it stay ringed on the map, while the sidebar shows no single Bitzkey and counts
@@ -761,12 +797,13 @@ or the graph.
 
 ## Export Format
 
-A Bitzkey is written as its genome version and its two colour words in hex,
-ring then dot. Animals also carry their current temperament and their brain, so
-they pick up in the next simulation where they left off:
+A Bitzkey is written as its genome version and its three colour words in hex,
+ring, dot, then social background. Animals also carry their current temperament
+(mind and social traits) and their brain, so they pick up in the next simulation
+where they left off:
 
 ```json
-{"version": 2, "ring": "7421FF41", "dot": "637E4B01",
+{"version": 3, "ring": "7421FF41", "dot": "637E4B01", "social": "0A1B2C3D",
  "mind": {"aggression": 9.412, "libido": 3.0, ...},
  "brain": {"senses": ["hunger", ...], "actions": ["eat", ...],
            "layers": [{"weights": [[...], ...], "biases": [...]}, ...],
@@ -779,7 +816,8 @@ JSON array, one per line; an animal with its brain takes about 13 to 31 KB, by h
 Import accepts single objects, arrays, several blocks pasted one after another,
 and `#`-prefixed or lowercase hex. A record without a `"version"` is read as
 genome version 1 and converted, so hand-written records for this version need
-`"version": 2`. A record without a brain gets a fresh one.
+`"version": 3` and a `"social"` word; version 2 records, without one, are converted
+(see Genome). A record without a brain gets a fresh one.
 Brain weights are matched to senses and actions by name, so exports from an
 earlier version still load: senses or actions they lack start neutral, and ones
 this version no longer has are dropped. A brain saved with one hidden layer, from

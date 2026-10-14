@@ -3,9 +3,9 @@ from unittest.mock import MagicMock
 
 import pygame as pg
 
-from display.Look import CENTRE, CROSS, ICON_MIN_RADIUS, OUTLINE, draw_bitzkey, outline_offsets
+from display.Look import CROSS, ICON_MIN_RADIUS, OUTLINE, draw_bitzkey, outline_offsets
 from Main import DOT_RADIUS_RANGE, BitzkeyApp
-from tools.Genome import color_from_word, encode_dna, mind_word
+from tools.Genome import color_from_word, encode_dna, mind_word, social_word
 from tools.Simulation import CORPSE_TURNS, Bitzkey
 
 
@@ -41,13 +41,13 @@ class DotSizeTests(unittest.TestCase):
 
 
 class CentreTests(unittest.TestCase):
-    def test_a_big_dot_is_black_with_its_icon_in_the_dots_colour(self):
-        dna = encode_dna("grazer", size=7)
+    def test_a_big_dot_is_its_social_backgrounds_colour_with_its_icon_in_the_dots_colour(self):
+        dna = encode_dna("grazer", size=7, loyalty=5, kinship=3, neurodivergence=11)
         surface = pg.Surface((40, 40))
         surface.fill((90, 90, 90))
         draw_bitzkey(surface, dna, (20, 20), 10)
         self.assertEqual(surface.get_at((20, 20))[:3], color_from_word(mind_word(dna)))  # on the leaf
-        self.assertEqual(surface.get_at((26, 26))[:3], CENTRE)  # beside it
+        self.assertEqual(surface.get_at((26, 26))[:3], color_from_word(social_word(dna)))  # beside it
         outlined = [(x, y) for x in range(40) for y in range(40) if surface.get_at((x, y))[:3] == OUTLINE]
         self.assertTrue(outlined)
         self.assertTrue(all(abs(x - 20) < 10 and abs(y - 20) < 10 for x, y in outlined))  # inside the dot
