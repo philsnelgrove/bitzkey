@@ -187,6 +187,9 @@ ready to copy, export or catalog; the selected one's card is outlined in amber.
   The Bitzkeys zoom with the map: the largest body's dot, ring and all, fills a
   cell, and the smallest, always big enough for its icon, grows with it in
   proportion
+- Hover over a map square to list the Bitzkeys stacked in it, with the spaces
+  each takes and the square's spaces in use; the list stays while the pointer is
+  on it, and clicking a name selects that Bitzkey.
 - Click a dot on the map to select that Bitzkey, or empty ground to select none;
   drag a box with the left button to select every living Bitzkey inside it.
   `Ctrl`-click adds a Bitzkey to the selection or takes it out again, and
@@ -629,8 +632,8 @@ gestation: the parent that chose to breed conceives the litter at once, and
 carries it for 10 turns if it is the smallest body, up to 50 for the largest,
 evenly between; it can't breed again until it has given birth, and if it dies
 first, its young die with it. The young's genes, minds and brains are fixed at
-mating. At birth, each newborn needs a free cell within two cells of its mother,
-nearest first; those with no room are lost, and if a population cap is set, the world holds at most that
+mating. At birth, each newborn needs room (one space plus its size) in its mother's square or one within
+two cells of it, nearest first; those with no room are lost, and if a population cap is set, the world holds at most that
 many living animals (plants don't count toward it). Crowding also
 limits breeding: for each other animal within sight of a would-be parent,
 besides its partner, of its own kind, its litter shrinks by a tenth, and with ten or more around,
@@ -673,8 +676,21 @@ reluctance, which an overcrowded territory wears down by half (Rivalry wear), as
 reluctance to hunt its own species; killing a rival is a smaller relief than it was (Rival kill joy, 0.5).
 A predator's pack-mates don't count as rivals crowding its territory (Pack rivalry: none), so packs
 gather and herd together without unease.
-Territorial fights, between omnivores or between predators, go on regardless. Reaching 100% hunger or zero health is fatal, and so, in
-time, is age. Plants and animals alike live about a year at the smallest body
+Territorial fights, between omnivores or between predators, go on regardless. Zero health is fatal, and so, in
+time, is age. Hunger stops at 100%: an animal (or plant) that full hunger reaches is starving, and loses 10% of its
+full health each turn until it eats or dies of it (Starving damage, in the Bodies group).
+
+Meat lasts twice as long as plant food. Each Bitzkey keeps track of how much of its fullness is meat, from
+hunting, attacking, feasting and scavenging, and that share is digested at half the speed of the rest
+(Meat digestion), so a predator fed on meat grows hungry half as fast as one fed on plants.
+
+A map square holds 10 spaces (Square space, in the World group). Every Bitzkey, plant or animal, takes
+one space plus its size (0 to 7), so up to ten of the smallest share a square, and one of the largest
+leaves room for a single smallest one. Bitzkeys sharing a square are as close as can be, and meet, fight,
+eat and breed there as they would alongside. A square with no room left stops births, moves and spawning:
+an animal stepping toward a full square stops short of it, a mother bears her young in her own square while
+it has room and then in the squares around, and groups spawned or deployed take the nearest squares with room.
+Seeds still need an empty square. Plants and animals alike live about a year at the smallest body
 and fastest metabolism, five years at a middling one and ten at the largest and
 slowest, their lifespan rising steadily between, so it scales with the year
 length. From 70% of its lifespan, a Bitzkey's chance of

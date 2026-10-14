@@ -169,11 +169,12 @@ class SimulationTests(unittest.TestCase):
         mate.cooldown = 3
         self.assertNotIn(breed, self.simulation._sense(agent)[1])
         mate.cooldown = 0
-        for x, y in ((5, 4), (4, 5), (6, 5), (4, 4), (6, 4), (4, 6), (6, 6)):  # every cell around but the mate's
-            self.simulation._add_agent(encode_dna("plant"), x, y)
-        self.assertIn(breed, self.simulation._sense(agent)[1])  # room still, two cells away
-        with patch("tools.Simulation.BIRTH_REACH", 1):
-            self.assertNotIn(breed, self.simulation._sense(agent)[1])
+        for x in (4, 5, 6):  # the largest plant in every square around, its own and the mate's among them
+            for y in (4, 5, 6):
+                self.simulation._add_agent(encode_dna("plant", size=7), x, y)
+        self.assertIn(breed, self.simulation._sense(agent)[1])  # room still: each takes 8 of a square's 10
+        with patch("tools.Simulation.BIRTH_REACH", 1), patch("tools.Simulation.CELL_SPACE", 8):
+            self.assertNotIn(breed, self.simulation._sense(agent)[1])  # every square near full
         agent.womb = [(dna, {}, None, 0.0, 1)]
         self.assertNotIn(breed, self.simulation._sense(agent)[1])  # already carrying young
 
@@ -345,14 +346,14 @@ class SimulationTests(unittest.TestCase):
         deliver(self.simulation, first, second)
 
         child = self.simulation.agents[-1]
-        self.assertEqual((child.x, child.y), (5, 4))
+        self.assertEqual((child.x, child.y), (5, 5))  # in its mother's square, with room for it
         self.assertEqual(child.hunger, 100 - 2 * 10)
         self.assertEqual(child.generation, 1)
         self.assertNotIn(child.brain, (first.brain, second.brain))
         self.assertEqual((first.hunger, first.cooldown, first.children, second.children), (10, 5, 1, 1))
         self.assertGreater(first.reward, 0)
 
-    def test_breeding_past_full_hunger_kills_the_parent(self):
+    def test_breeding_past_full_hunger_leaves_the_parent_starving_not_dead(self):
         dna = encode_dna("grazer")
         first = self.simulation._add_agent(dna, 5, 5)
         second = self.simulation._add_agent(dna, 5, 6)
@@ -362,10 +363,14 @@ class SimulationTests(unittest.TestCase):
 
         self.simulation._breed(first, second)
 
-        self.assertFalse(first.alive)
-        self.assertEqual((first.last_action, first.died_turn, first.brain), ("bred to death", 0, None))
-        self.assertEqual((first.womb, first.due_turn), ([], None))  # the young it carried die with it
-        self.assertEqual(self.simulation.deaths, 1)
+        self.assertTrue(first.alive)  # full hunger wears its health away rather than killing it
+        self.assertGreater(first.hunger, 100)
+        self.assertTrue(first.womb)
+        self.assertEqual(self.simulation.deaths, 0)
+        with patch.object(Simulation, "_think_all"), patch.object(Simulation, "_dies_of_age", return_value=False):
+            self.simulation._take_turn()
+        self.assertEqual(first.hunger, 100)  # its hunger stops at full
+        self.assertLess(first.health, first.max_health)
         self.assertTrue(second.alive)
 
     def test_child_brain_is_built_from_its_parents_brains(self):
@@ -514,7 +519,7 @@ class SimulationTests(unittest.TestCase):
         deliver(self.simulation, first, second)
 
         self.assertEqual(self.simulation.agents[-1].hunger, 100 - (10 + 4))
-        self.assertEqual(second.last_action, "bred to death")
+        self.assertTrue(second.alive)  # starving, not dead
 
     def test_intellect_decides_whether_brain_learns(self):
         slow = self.simulation._add_agent(encode_dna("grazer", intellect=0), 1, 1)
@@ -1718,14 +1723,19 @@ class NewTraitTests(unittest.TestCase):
         predator.hunger = 95
         self.assertTrue(simulation._is_prey(predator, rival))
 
-    def test_a_blow_that_exhausts_the_striker_kills_it_and_its_body_rots(self):
+    def test_a_blow_that_exhausts_the_striker_leaves_it_starving_and_its_body_rots_once_it_dies(self):
         grazer = self.simulation._add_agent(encode_dna("grazer", size=7, strength=7, weapons=7), 5, 5)
         predator = self.simulation._add_agent(encode_dna("predator", size=7), 5, 6)
         self.simulation._index_cells()
         grazer.hunger = 99.9
         self.simulation._defend(grazer, predator)
+        self.assertTrue(grazer.alive)  # past full hunger, but alive: starving wears its health away
+        grazer.health = 0.05 * grazer.max_health
+        with patch.object(Simulation, "_think_all"), patch.object(Simulation, "_dies_of_age", return_value=False):
+            self.simulation._take_turn()
         self.assertFalse(grazer.alive)
-        self.assertEqual((grazer.died_turn, grazer.last_action), (self.simulation.turn, "exhausted"))
+        self.assertEqual(grazer.died_turn, self.simulation.turn)
+        self.assertIn(grazer.last_action, ("starved", "overheated", "froze"))  # starving, or out of its temperature too
         for _ in range(CORPSE_TURNS):
             self.simulation._take_turn()
         self.assertNotIn(grazer, self.simulation.agents)  # it decayed and was cleared away
@@ -1768,7 +1778,8 @@ class NewTraitTests(unittest.TestCase):
         simulation._think(grazer)  # a decision to learn from
         herd_mate.x, herd_mate.y = grazer.x + 1, grazer.y  # still alongside, wherever that took it
         simulation._index_cells()
-        grazer.hunger = 100.5  # starved by something that recorded nothing
+        grazer.hunger = 100.5  # starving, with a turn of health left
+        grazer.health = 0.05 * grazer.max_health
         before = grazer.brain.copy()
         deaths = simulation.deaths
         simulation.advance()
@@ -1783,7 +1794,7 @@ class NewTraitTests(unittest.TestCase):
         simulation._index_cells()
         with patch("tools.Simulation.SEED_COST", 100), patch.object(simulation.random, "random", return_value=0.0):
             simulation._seed(plant)
-        self.assertEqual((plant.last_action, plant.died_turn), ("seeded to death", simulation.turn))
+        self.assertEqual((plant.last_action, plant.died_turn), ("seeded", None))  # starving, not dead
 
     def test_striking_burns_food_by_the_damage_dealt(self):
         target = self.simulation._add_agent(encode_dna("grazer", size=7), 5, 5)
@@ -1820,8 +1831,8 @@ class NewTraitTests(unittest.TestCase):
             self.assertEqual((len(young), first.womb, first.due_turn), (12, [], None))
             self.assertEqual({child.generation for child in young}, {1})
             reach = [max(abs(child.x - first.x), abs(child.y - first.y)) for child in young]
-            self.assertTrue(all(1 <= cells <= BIRTH_REACH for cells in reach))
-            self.assertIn(2, reach)  # more than the eight cells beside her
+            self.assertTrue(all(cells <= BIRTH_REACH for cells in reach))
+            self.assertEqual(reach.count(0), 9)  # her own square first: nine more of the smallest fit beside her
             self.assertEqual(simulation._population, 14)
 
     def test_young_die_with_the_mother_carrying_them(self):
@@ -1836,6 +1847,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(len(self.simulation.agents), 2)
 
     @patch("tools.Simulation.BIRTH_REACH", 1)
+    @patch("tools.Simulation.CELL_SPACE", 1)  # a square holds one of the smallest
     def test_a_mother_hemmed_in_bears_only_the_young_there_is_room_for(self):
         dna = encode_dna("grazer", fertility=7, litter=7)
         first = self.simulation._add_agent(dna, 5, 5)
@@ -2431,6 +2443,78 @@ class SocialBackgroundTests(unittest.TestCase):
         for animal in (steady, moody):
             self.simulation._experience(animal, "kill")
         self.assertAlmostEqual(moody.mind["aggression"], 3 * steady.mind["aggression"])
+
+
+
+class SquareTests(unittest.TestCase):
+    """Squares hold CELL_SPACE spaces, each Bitzkey taking 1 + its size; meat lasts; full hunger wastes."""
+
+    def setUp(self):
+        self.simulation = Simulation(width=12, height=12, population=0, seed=3)
+        self.simulation.grass.clear()
+
+    def test_a_square_holds_ten_spaces_and_a_full_one_stops_steps_spawning_and_births(self):
+        from tools.Simulation import CELL_SPACE
+        walker = self.simulation._add_agent(encode_dna("grazer", size=3), 5, 5)  # four spaces
+        self.assertEqual((CELL_SPACE, walker.space), (10, 4))
+        self.simulation._add_agent(encode_dna("plant", size=7), 6, 5)  # eight of the next square's ten
+        self.simulation._index_cells()
+        self.assertEqual(self.simulation._room_in((6, 5)), 2)
+        self.simulation._move_toward(walker, 8, 5, steps=3)
+        self.assertEqual((walker.x, walker.y), (5, 5))  # stopped short of the full square
+        self.simulation._act(walker, "walk_east", {})
+        self.assertEqual((walker.x, walker.y, walker.last_action), (5, 5, "walked east"))  # it stayed
+        small = self.simulation._add_agent(encode_dna("grazer", size=0), 7, 7)
+        self.simulation._index_cells()
+        self.simulation._move_toward(small, 6, 5, steps=3)
+        self.assertEqual((small.x, small.y), (6, 5))  # one space: room enough, sharing the plant's square
+        self.assertEqual(self.simulation._spot_near((6, 5), 4), (6, 4))  # the nearest square with room
+        self.simulation._spawn_group(encode_dna("grazer", size=7), 3, rows=[1])
+        for square in {(agent.x, agent.y) for agent in self.simulation.living}:
+            self.assertGreaterEqual(self.simulation._room_in(square), 0)  # none overfilled
+
+    @patch("tools.Simulation.SMALL_LITTERS", 1.0)
+    @patch("tools.Simulation.NEWBORN_FOOD", 0.0)
+    @patch("tools.Simulation.PLANTS_PER_GRAZER", 0.0)
+    def test_several_young_are_born_into_one_square_while_it_has_room(self):
+        dna = encode_dna("grazer", fertility=7, litter=7, size=1)  # two spaces each: six young
+        first = self.simulation._add_agent(dna, 5, 5)
+        second = self.simulation._add_agent(dna, 5, 6)
+        self.simulation._index_cells()
+        deliver(self.simulation, first, second, litter=None)
+        young = self.simulation.agents[2:]
+        self.assertEqual(len(young), 6)
+        self.assertEqual(sum((child.x, child.y) == (5, 5) for child in young), 4)  # 2 + 4 x 2 fills her square
+        self.assertEqual(sum((child.x, child.y) == (5, 4) for child in young), 2)  # the rest in the next square, north of her
+        self.assertEqual(self.simulation._room_in((5, 5)), 0)
+
+    def test_meat_lasts_twice_as_long_as_plant_food(self):
+        from tools.Simulation import MEAT_DIGESTION
+        hunter, grazer = (self.simulation._add_agent(encode_dna(kind), x, 5) for kind, x in (("predator", 3), ("grazer", 8)))
+        for animal in (hunter, grazer):
+            animal.hunger = 50
+        hunter.nourish(40 * hunter.stomach, meat=True)
+        grazer.nourish(40 * grazer.stomach)
+        self.assertEqual((hunter.hunger, hunter.meat_fill, grazer.meat_fill), (10, 40, 0))
+        self.assertAlmostEqual(hunter.digest(10), 10 * (1 - 40 / 90 * (1 - MEAT_DIGESTION)))  # its meat share at half the rate
+        self.assertAlmostEqual(grazer.digest(10), 10)
+        self.assertEqual(MEAT_DIGESTION, 0.5)
+        hunter.meat_fill, hunter.hunger = 90, 10  # all its fullness meat: half the hunger a turn
+        self.assertAlmostEqual(hunter.digest(10), 5)
+
+    def test_full_hunger_wears_a_tenth_of_its_health_away_each_turn(self):
+        from tools.Simulation import STARVING_DAMAGE
+        grazer = self.simulation._add_agent(encode_dna("grazer", temperature=1), 5, 3)  # medium: at home here
+        self.simulation._add_agent(encode_dna("predator"), 10, 10)
+        grazer.hunger = 150
+        with patch.object(Simulation, "_think_all"), patch.object(Simulation, "_dies_of_age", return_value=False):
+            self.simulation._take_turn()
+            self.assertTrue(grazer.alive)
+            self.assertEqual(grazer.hunger, 100)
+            self.assertAlmostEqual(grazer.health, (1 - STARVING_DAMAGE) * grazer.max_health)
+            for _ in range(9):
+                self.simulation._take_turn()
+        self.assertEqual((grazer.alive, grazer.last_action), (False, "starved"))  # ten turns at full hunger
 
 
 if __name__ == "__main__":

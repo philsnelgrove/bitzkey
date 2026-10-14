@@ -140,6 +140,7 @@ class EffectTests(unittest.TestCase):
         at_home = simulation._add_agent(encode_dna("grazer", temperature=HOT), 40, 50)
         for animal in (away, at_home):
             animal.hunger = 99.9
+            animal.health = 0.05 * animal.max_health  # wasting, it has a turn left
         simulation._add_agent(encode_dna("predator"), 90, 90)
         take_turn(simulation)
         self.assertEqual((away.last_action, at_home.last_action), ("overheated", "starved"))

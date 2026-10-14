@@ -157,6 +157,9 @@ class BitzkeyApp:
         self._marquee_from: tuple[tuple[int, int], bool] | None = None
         self._exemplar_titles: list[pg.Rect] = []  # each card's title, a menu of statistics, card by card
         self._exemplar_menu: int | None = None  # the card whose menu is open
+        self._square: tuple[int, int] | None = None  # the map square under the pointer, listed in a popup
+        self._square_panel: pg.Rect | None = None
+        self._square_rows: list[tuple[pg.Rect, int]] = []
         self._menu_items: list[tuple[pg.Rect, int]] = []  # the open menu's choices, and which statistic each is
         self.renewal = ""  # the Bitzkeys to start a new world with, on leaving for one
         self._export_button = pg.Rect(0, 0, 0, 0)
@@ -214,6 +217,8 @@ class BitzkeyApp:
                         self._leave(dialog)
                         return "configure"
                 elif self.deploying and not self.show_census and self._deploy_event(event):
+                    pass
+                elif not self.show_census and self._square_event(event):
                     pass
                 elif event.type == pg.KEYDOWN:
                     if event.key == pg.K_ESCAPE and self._exemplar_menu is not None:
@@ -446,6 +451,54 @@ class BitzkeyApp:
         placed = self.simulation.deploy(self.deploying, *cell)
         self._say(f"Deployed {len(placed)} at ({cell[0]}, {cell[1]}).  RIGHT-CLICK or ESC  stop")
         return True
+
+    def _square_event(self, event: pg.event.Event) -> bool:
+        """The square popup: moving the pointer over a map square lists the Bitzkeys stacked there, and
+        the list stays while the pointer is over it; clicking a name selects that Bitzkey. Returns whether
+        the event was used."""
+        if event.type == pg.MOUSEMOTION:
+            on_panel = self._square_panel is not None and self._square_panel.collidepoint(event.pos)
+            if not on_panel:
+                quiet = not any(event.buttons) and self._exemplar_menu is None and not self.deploying
+                self._square = self._cell_at(event.pos) if quiet else None
+            return False
+        if event.type == pg.MOUSEBUTTONDOWN and event.button == 1 and self._square_panel is not None                 and self._square_panel.collidepoint(event.pos):
+            for row, identifier in self._square_rows:
+                if row.collidepoint(event.pos):
+                    self._select(identifier)
+            return True
+        return False
+
+    def _draw_square(self) -> None:
+        """The popup listing the Bitzkeys in the square under the pointer, beside the square."""
+        self._square_panel, self._square_rows = None, []
+        if self._square is None or self.show_census or self.dialog or self.report:
+            return
+        here = [agent for agent in self.simulation.living if (agent.x, agent.y) == self._square]
+        if not here:
+            return
+        board, cell_width, cell_height = self._board_geometry()
+        row = UI(MENU_ROW)
+        width = UI(230)
+        title = f"SQUARE ({self._square[0]}, {self._square[1]})   {sum(agent.space for agent in here)}/{world.CELL_SPACE} SPACES"
+        panel = pg.Rect(0, 0, width, (len(here) + 1) * row + UI(8))
+        panel.left = int(board.left + (self._square[0] + 1) * cell_width)  # touching the square, to reach it
+        panel.top = int(board.top + self._square[1] * cell_height)
+        if panel.right > self.screen.get_width() - UI(4):
+            panel.right = int(board.left + self._square[0] * cell_width)
+        panel.top = max(UI(4), min(self.screen.get_height() - panel.height - UI(4), panel.top))
+        pg.draw.rect(self.screen, (27, 37, 37), panel, border_radius=UI(5))
+        pg.draw.rect(self.screen, (131, 205, 143), panel, 1, border_radius=UI(5))
+        self._text(title, (panel.left + UI(10), panel.top + UI(6)), (144, 170, 151), self.small)
+        for index, agent in enumerate(here):
+            item = pg.Rect(panel.left + UI(4), panel.top + UI(4) + (index + 1) * row, width - UI(8), row)
+            if item.collidepoint(pg.mouse.get_pos()):
+                pg.draw.rect(self.screen, (44, 57, 52), item, border_radius=UI(3))
+            chosen = agent.identifier == self.selected_id
+            self._text(f"#{agent.identifier:03d}  {agent.species.upper()}   size {agent.body['size']}  ·  {agent.space} spaces",
+                       (item.left + UI(6), item.top + UI(2)), (131, 205, 143) if chosen else (220, 229, 211), self.small)
+            self._square_rows.append((item, agent.identifier))
+        self._square_panel = panel
 
     def _cell_at(self, position: tuple[int, int]) -> tuple[int, int] | None:
         """The world's cell under a point on the map, or None off it."""
@@ -757,6 +810,7 @@ class BitzkeyApp:
         self._draw_exemplars()
         self._draw_sidebar()
         self._draw_footer()
+        self._draw_square()
         self._draw_exemplar_menu()  # over everything but the graph and dialogs
         if self.show_census:
             note = self.message if pg.time.get_ticks() < self.message_until else None

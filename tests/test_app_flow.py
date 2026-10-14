@@ -76,6 +76,28 @@ class SimulationFlowTests(unittest.TestCase):
             self.app.run()
             self.assertEqual((self.app.deploying, self.app.dialog), ([], None))
 
+    def test_hovering_a_square_lists_its_bitzkeys_and_a_click_on_one_selects_it(self):
+        self.app.selected_id = None
+        self.app.playing = False
+        x, y = self.animal.x, self.animal.y
+        here = [agent.identifier for agent in self.app.simulation.living if (agent.x, agent.y) == (x, y)]
+        self.app._draw()
+        board, cell_width, cell_height = self.app._board_geometry()
+        pointer = (round(board.left + (x + 0.5) * cell_width), round(board.top + (y + 0.5) * cell_height))
+        pg.event.post(pg.event.Event(pg.MOUSEMOTION, pos=pointer, rel=(1, 0), buttons=(0, 0, 0)))
+        pg.event.post(pg.event.Event(pg.QUIT))
+        self.app.run()
+        self.app._draw()
+        self.assertEqual(self.app._square, (x, y))
+        self.assertEqual([identifier for _, identifier in self.app._square_rows], here)
+        row = next(rect for rect, identifier in self.app._square_rows if identifier == self.animal.identifier)
+        pg.event.post(pg.event.Event(pg.MOUSEMOTION, pos=row.center, rel=(1, 0), buttons=(0, 0, 0)))  # onto the list
+        pg.event.post(pg.event.Event(pg.MOUSEBUTTONDOWN, button=1, pos=row.center))
+        pg.event.post(pg.event.Event(pg.QUIT))
+        self.app.run()
+        self.assertEqual(self.app._square, (x, y))  # the list stays while the pointer is on it
+        self.assertEqual(self.app.selected_id, self.animal.identifier)
+
     def test_the_advanced_button_pauses_and_sets_the_rules_this_world_plays_by(self):
         from unittest.mock import patch
         from tools import Rules

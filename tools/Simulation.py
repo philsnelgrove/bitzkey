@@ -35,6 +35,13 @@ SPAWN_GROUP = (3, 5)  # Bitzkeys spawn in groups of this many sharing one genome
 MAX_IMPORTED = 120  # imported Bitzkeys, each spawning a group of its own
 MAX_GRID = 1000  # the widest and tallest a world can be, in cells
 SPAWN_SPREAD = 2      # a group's members appear within this many cells of each other's centre
+# A square holds CELL_SPACE spaces, and every Bitzkey, plant or animal, takes 1 + its size of them. Bitzkeys share
+# a square, and meet there as they would alongside, but none is born, moves or spawns into one without room for it.
+CELL_SPACE = 10
+# Full hunger doesn't kill at once: a starving Bitzkey loses this share of its full health each turn.
+STARVING_DAMAGE = 0.1
+# Meat lasts: the share of its fullness that is meat empties at this share of the usual rate.
+MEAT_DIGESTION = 0.5
 DEPLOY_GROUP = 5      # Bitzkeys deployed from the catalog onto a running world, of each chosen, a click
 USE_GPU = 0  # the C++ version's: 1 thinks on the GPUs; the Python version always thinks on the CPU
 SPAWN_AT_HOME = 1     # 1: a group appears in rows whose usual temperature is its home (the nearest, if none); 0: anywhere
@@ -541,6 +548,7 @@ class Bitzkey:
     food_memory: tuple[int, int, int] | None = None    # where it last fed, and the turn: (x, y, turn)
     danger_memory: tuple[int, int, int] | None = None  # where it was last struck, and the turn
     meat: float = 0.0  # a corpse's meat left for scavengers
+    meat_fill: float = 0.0  # how much of its fullness is meat, which it digests more slowly
     rot: float = 0.0   # meat lost to rot each turn
     portions: int = 0  # a body's portions left to eat, feasting or scavenging: one for each size class
     trail: list[tuple[int, int]] = field(default_factory=list)  # the cells it passed through this turn, for the map
@@ -667,15 +675,34 @@ class Bitzkey:
         """How well its body turns blows: its armour trait and, strongly, its size."""
         return (1 - SIZE_IN_MIGHT) * self.physique("armour") + SIZE_IN_MIGHT * self.physique("size")
 
-    def nourish(self, food: float) -> None:
-        """Eat: the same food fills a small stomach more than a large one."""
-        self.relieve(food / self.stomach)
+    def nourish(self, food: float, meat: bool = False) -> None:
+        """Eat: the same food fills a small stomach more than a large one. Meat is kept track of, as it
+        lasts longer."""
+        eased = self.relieve(food / self.stomach)
+        if meat:
+            self.meat_fill += eased
 
-    def relieve(self, amount: float) -> None:
-        """Ease its hunger by an amount, eating, and take SATED_JOY's pleasure in what was eased."""
+    def relieve(self, amount: float) -> float:
+        """Ease its hunger by an amount, eating, and take SATED_JOY's pleasure in what was eased. Returns
+        what was eased."""
         eased = min(self.hunger, amount)
         self.hunger -= eased
         self.reward += SATED_JOY * eased / 100
+        return eased
+
+    def digest(self, burn: float) -> float:
+        """The hunger a turn's burn brings: the share of its fullness that is meat empties at MEAT_DIGESTION of
+        the rate, so a meal of meat keeps it fed longer."""
+        fullness = 100 - self.hunger
+        self.meat_fill = min(self.meat_fill, max(0.0, fullness))
+        meat = self.meat_fill / fullness if fullness > 0 else 0.0
+        self.meat_fill = max(0.0, self.meat_fill - burn * meat * MEAT_DIGESTION)
+        return burn * (1 - meat * (1 - MEAT_DIGESTION))
+
+    @property
+    def space(self) -> int:
+        """The spaces of a square it takes: 1 + its size."""
+        return 1 + int(self.body["size"])
 
     def heal(self, share: float) -> None:
         """Heal a share of the health pool, faster with a faster metabolism."""
@@ -737,7 +764,8 @@ class Bitzkey:
 
     @property
     def alive(self) -> bool:
-        return self.health > 0 and self.hunger < 100
+        """Full hunger doesn't kill at once: it wears its health away (STARVING_DAMAGE)."""
+        return self.health > 0
 
     @property
     def dot_color(self) -> tuple[int, int, int]:
@@ -883,11 +911,13 @@ class Simulation:
                 self._history_bytes -= self.history.pop()["bytes"]
         deployed = []
         for bitzkey in bitzkeys:
+            space = 1 + int(decode_body(bitzkey.dna)["size"])
             for _ in range(DEPLOY_GROUP):
-                cell_x = (x + self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD)) % self.width
-                cell_y = self._within(y + self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD))
-                deployed.append(self._add_agent(bitzkey.dna, cell_x, cell_y,
-                                                brain=bitzkey.brain.copy() if bitzkey.brain else None, mind=bitzkey.mind))
+                spot = self._spot_near((x + self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD),
+                                        y + self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD)), space)
+                if spot is not None:  # only where there is room
+                    deployed.append(self._add_agent(bitzkey.dna, *spot, brain=bitzkey.brain.copy() if bitzkey.brain else None,
+                                                    mind=bitzkey.mind))
         self.census.forget_from(self.turn)  # this turn again, as it now is
         self._take_census()
         self._record()
@@ -989,10 +1019,12 @@ class Simulation:
                 dna = dna | flag if self.random.random() < STARTING_TOLERANCE else dna & ~flag
         if native and decode_body(dna)["species"] == "plant":
             dna = dna & ~(0x3 << TEMPERATURE_SHIFT) | zone_temperature(y, self.height) << TEMPERATURE_SHIFT
+        space = 1 + int(decode_body(dna)["size"])
         for _ in range(size):
-            self._add_agent(dna, x + self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD),
-                            y + self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD),
-                            brain=brain.copy() if brain else None, mind=mind)
+            spot = self._spot_near((x + self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD),
+                                    y + self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD)), space)
+            if spot is not None:  # only where there is room
+                self._add_agent(dna, *spot, brain=brain.copy() if brain else None, mind=mind)
 
     def _home_rows(self, home: int) -> list[int]:
         """The rows a group's centre may fall in whose usual temperature is `home`, or nearest it:
@@ -1126,7 +1158,8 @@ class Simulation:
             hungrier = steps > 0 and (not plant or here < agent.climate[0])  # out of its temperature; a plant, too hot
             share = agent.exposure_share(here)  # less for the hardy
             # The extra food it needs rises with the weather's turning, to the full amount a step away.
-            agent.hunger += agent.burn * (1 + (CLIMATE_HUNGER - 1) * share * min(1.0, steps) if hungrier else 1)
+            burn = agent.burn * (1 + (CLIMATE_HUNGER - 1) * share * min(1.0, steps) if hungrier else 1)
+            agent.hunger = min(100.0, agent.hunger + agent.digest(burn))  # meat lasts; hunger stops at full
             if agent.cooldown:
                 agent.cooldown -= 1
             if agent.health < agent.max_health and agent.hunger < 65:
@@ -1136,11 +1169,11 @@ class Simulation:
             felt = max(0.0, min(steps, 2 * (steps - 1))) if plant else steps
             if felt > 0:
                 agent.health -= CLIMATE_DAMAGE * felt * share * agent.max_health
-            if agent.hunger >= 100:  # hungrier out of its temperature, it died of exposure
-                self._die(agent, self._exposure(agent, here) if hungrier else "starved")
-                continue
-            if agent.health <= 0:
-                self._die(agent, self._exposure(agent, here))
+            starving = agent.hunger >= 100
+            if starving:  # it wastes away
+                agent.health -= STARVING_DAMAGE * agent.max_health
+            if agent.health <= 0:  # starving, and hungrier out of its temperature, it died of exposure
+                self._die(agent, "starved" if starving and not hungrier else self._exposure(agent, here))
                 continue
             if self._dies_of_age(agent):
                 self._die(agent, "old age")
@@ -1715,9 +1748,14 @@ class Simulation:
         elif action in HEADINGS:
             dx, dy, walk, went = HEADINGS[action]
             cells = 1 if walk else agent.steps
-            y = self._within(agent.y + dy * cells)
-            moved = abs(y - agent.y) if dy else cells  # north and south stop at the map's edge
-            self._move(agent, (agent.x + dx * cells) % self.width, y)
+            moved = 0  # as far as it goes before the map's edge (north and south) or a full square
+            for step in range(1, cells + 1):
+                x, y = (agent.x + dx * step) % self.width, agent.y + dy * step
+                if not 0 <= y < self.height or self._room_in((x, y), agent) < agent.space:
+                    break
+                moved = step
+            if moved:
+                self._move(agent, (agent.x + dx * moved) % self.width, agent.y + dy * moved)
             if walk:
                 agent.hunger = max(0, agent.hunger - agent.burn * WALK_REST)  # burns less, but eases no hunger
             else:
@@ -1787,7 +1825,7 @@ class Simulation:
             return
         bite = corpse.meat / corpse.portions
         corpse.meat -= bite
-        agent.nourish(bite * agent.digestion)
+        agent.nourish(bite * agent.digestion, meat=True)
         agent.last_action = "scavenged"
         self._eat_portion(corpse)
 
@@ -1800,7 +1838,7 @@ class Simulation:
                 or corpse.portions <= 0):
             agent.last_action = "sought a kill"  # out of reach, or already eaten
             return
-        agent.nourish(FRESH_KILL_MEALS * (KILL_MEAL + KILL_MEAL_FOR_SIZE * corpse.physique("size")))
+        agent.nourish(FRESH_KILL_MEALS * (KILL_MEAL + KILL_MEAL_FOR_SIZE * corpse.physique("size")), meat=True)
         if agent.species == "predator":
             agent.reward += FEAST_JOY
         corpse.meat -= corpse.meat / corpse.portions
@@ -1856,7 +1894,7 @@ class Simulation:
         if any(self._herd_mate(agent, other) for other in self._nearby(victim, 1) if other is not agent):
             damage *= 1 + PACK_BONUS * agent.herd_instinct  # hunting as a pack
         victim.health -= damage
-        agent.nourish(5)
+        agent.nourish(5, meat=True)
         agent.hunger += STRIKE_EFFORT * damage / agent.stomach  # the harder the blow, the more it costs
         agent.reward += joy
         agent.last_action = "attacked"
@@ -1870,7 +1908,7 @@ class Simulation:
                 self._experience(victim, "wounded_alone")
         else:
             meal = KILL_MEAL + KILL_MEAL_FOR_SIZE * victim.physique("size")
-            agent.nourish(meal)
+            agent.nourish(meal, meat=True)
             agent.reward += 2 * joy
             self._witness(agent, meal / agent.stomach / 100)  # its pack sees it succeed: the fullness it gained
             if self._rival_weight(agent, victim) > 0:  # one fewer rival for the feeding ground
@@ -2148,30 +2186,50 @@ class Simulation:
                    for other in self._nearby(agent, agent.sight))
 
     def _give_birth(self, mother: Bitzkey) -> None:
-        """The young it carries are born on the free cells nearest it, as many as there are cells
-        and the population cap allows; the rest are lost. Each starts with its share of the energy
-        its parents gave."""
-        cells = self._free_cells_near(mother)
-        born = int(min(len(mother.womb), len(cells), max(0, self._room())))
-        for (dna, mind, brain, energy, generation), cell in zip(mother.womb[:born], cells):
+        """The young it carries are born in the squares nearest it with room for each, its own first and several
+        to a square while there is room, as many as the population cap allows; the rest are lost. Each starts
+        with its share of the energy its parents gave."""
+        born = 0
+        for dna, mind, brain, energy, generation in mother.womb:
+            if born >= self._room():
+                break
+            space = 1 + int(decode_body(dna)["size"])
+            cell = next((cell for cell in self._squares_near(mother) if self._room_in(cell) >= space), None)
+            if cell is None:  # no room left near it
+                continue
             child = self._add_agent(dna, *cell, brain=brain)
             child.mind = mind
             child.hunger = max(0.0, 100 - energy / child.stomach)
             child.generation = generation
             self._population += 1
+            born += 1
         mother.womb, mother.due_turn = [], None
 
-    def _free_cells_near(self, agent: Bitzkey) -> list[tuple[int, int]]:
-        """The empty cells around an animal, up to BIRTH_REACH away and nearest first, where young
-        can be born."""
-        cells = []
+    def _squares_near(self, agent: Bitzkey) -> list[tuple[int, int]]:
+        """Its own square, then those around it up to BIRTH_REACH away, nearest first, on the map."""
+        cells = [(agent.x, agent.y)]
         for dx, dy in birth_offsets(BIRTH_REACH):
-            if not 0 <= agent.y + dy < self.height:  # beyond the top or bottom of the map
-                continue
-            cell = ((agent.x + dx) % self.width, agent.y + dy)
-            if not any(other.alive for other in self._cells.get(cell, ())):
-                cells.append(cell)
+            if 0 <= agent.y + dy < self.height:  # not beyond the top or bottom of the map
+                cells.append(((agent.x + dx) % self.width, agent.y + dy))
         return cells
+
+    def _free_cells_near(self, agent: Bitzkey) -> list[tuple[int, int]]:
+        """The squares around an animal, its own among them, up to BIRTH_REACH away and nearest first, with any
+        room for young to be born."""
+        return [cell for cell in self._squares_near(agent) if self._room_in(cell) > 0]
+
+    def _room_in(self, cell: tuple[int, int], leaving: Bitzkey | None = None) -> int:
+        """The spaces of a square that are free, as though `leaving` were not there."""
+        return CELL_SPACE - sum(other.space for other in self._cells.get(cell, ()) if other.alive and other is not leaving)
+
+    def _spot_near(self, cell: tuple[int, int], space: int) -> tuple[int, int] | None:
+        """A square with room for a Bitzkey taking `space`: this one, or else the nearest within BIRTH_REACH;
+        None if there is none."""
+        x, y = cell[0] % self.width, self._within(cell[1])
+        for dx, dy in ((0, 0), *birth_offsets(BIRTH_REACH)):
+            if 0 <= y + dy < self.height and self._room_in(((x + dx) % self.width, y + dy)) >= space:
+                return (x + dx) % self.width, y + dy
+        return None
 
     def _nearest_grass(self, agent: Bitzkey, sight: int) -> tuple[int, int] | None:
         """The nearest grass in sight, but none in a row further from its home temperature than here."""
@@ -2267,18 +2325,30 @@ class Simulation:
         agent.x, agent.y = x, y
         self._cells.setdefault((x, y), []).append(agent)
 
+    def _step(self, agent: Bitzkey, x: int, y: int) -> bool:
+        """A step into a square, if it has room for it; whether it took it."""
+        if (x, y) != (agent.x, agent.y) and self._room_in((x, y), agent) < agent.space:
+            return False  # full: it stops short
+        self._move(agent, x, y)
+        return True
+
     def _move_toward(self, agent: Bitzkey, x: int, y: int, steps: int | None = None) -> None:
         for _ in range(agent.steps if steps is None else steps):
             if agent.x != x:
-                self._move(agent, agent.x + (1 if x > agent.x else -1), agent.y)
+                moved = self._step(agent, agent.x + (1 if x > agent.x else -1), agent.y)
             elif agent.y != y:
-                self._move(agent, agent.x, agent.y + (1 if y > agent.y else -1))
+                moved = self._step(agent, agent.x, agent.y + (1 if y > agent.y else -1))
+            else:
+                break
+            if not moved:
+                break
 
     def _move_away(self, agent: Bitzkey, threat: Bitzkey) -> None:
         for _ in range(agent.steps):
             dx = 1 if agent.x >= threat.x else -1
             dy = 1 if agent.y >= threat.y else -1
-            self._move(agent, (agent.x + dx) % self.width, self._within(agent.y + dy))
+            if not self._step(agent, (agent.x + dx) % self.width, self._within(agent.y + dy)):
+                break
 
     @staticmethod
     def _compatible(first: Bitzkey, second: Bitzkey) -> bool:
