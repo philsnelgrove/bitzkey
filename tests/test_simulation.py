@@ -2900,3 +2900,31 @@ class BreedingCostTests(unittest.TestCase):
             stung.append(striker.max_health - striker.health)
         self.assertGreater(stung[0], 0)
         self.assertAlmostEqual(stung[1], stung[0] * 0.5)
+
+
+class ScavengerTests(unittest.TestCase):
+    def test_a_carrion_eater_scales_into_a_coward_and_away_from_hunting(self):
+        simulation = Simulation(width=12, height=12, population=0, seed=3)
+        scavenger = simulation._add_agent(encode_dna("grazer", carrion=7, fear=0), 2, 2)  # fearless, but a carrion-eater
+        middling = simulation._add_agent(encode_dna("grazer", carrion=3, fear=0), 8, 8)
+        striker = simulation._add_agent(encode_dna("predator"), 2, 3)
+        simulation._index_cells()
+        self.assertEqual((scavenger.scavenger, middling.scavenger), (1.0, 0.0))
+        with patch.object(simulation.random, "random", return_value=0.99):  # the least likely roll
+            simulation._struck(scavenger, striker)
+            simulation._struck(middling, striker)
+        self.assertTrue(scavenger.panicked)  # always breaks, like an omnivore
+        self.assertFalse(middling.panicked)
+        hunter = simulation._add_agent(encode_dna("predator", carrion=7, sight=3), 5, 5)
+        simulation._add_agent(encode_dna("grazer"), 5, 8)
+        simulation._index_cells()
+        hunter.brain = Brain.random(random.Random(1))
+        odds = []
+        for aversion in (0.0, 1.0):
+            hunter.x, hunter.y = 5, 5
+            simulation._index_cells()
+            simulation.random.seed(1)
+            with patch("tools.Simulation.CARRION_AVERSION", aversion), patch.object(Simulation, "_act"):
+                simulation._think_all([hunter])
+            odds.append(hunter.odds["hunt"])
+        self.assertLess(odds[1], odds[0])  # it naturally shies from hunting

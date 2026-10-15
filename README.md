@@ -88,7 +88,7 @@ Each imported genome spawns as a group of 3 to
 "Bitzkeys" to 0 to start with only your imports.
 
 ADVANCED opens the advanced rules, beneath a word of warning that they are the world's
-'natural law', carefully balanced, and that changing them can have unpredictable results: 212 numbers that shape how the world plays
+'natural law', carefully balanced, and that changing them can have unpredictable results: 214 numbers that shape how the world plays
 out, in groups (World, Bodies, Breeding, Feelings, Mind, Fighting, Territory,
 Herding, Food, Plants, Climate, Society and Experiences). Among them are lifespans, metabolism, litter
 sizes, food-aware breeding, the rewards and pains a brain learns from, blows and
@@ -305,7 +305,7 @@ through shows in their young. Its neurodivergence comes whole from either parent
 | sight | how far it sees: 2 cells, and 3 more for each step of the trait (2 to 23 cells). Its sight also sets how far its herd, its crowding and its territory reach |
 | fertility | high: cheap, frequent breeding and weak, hungry young; low: costly, rare breeding and well-fed young |
 | litter | young per birth: 1 to 6, before the small-body boost. A high litter trait and a small body both make litters bigger, half each, averaged over both parents, so small animals tend to have large litters and large animals small ones. On top of that, the smallest bodies have twice as many young, falling evenly to the usual number for the largest (up to 12 in all). Each young is born on a free cell up to two cells from its mother (the sides first, then the corners, then the ring beyond), and the litter shares the energy its parents give. Parents conceive no more young than they could start on 5% of a stomach each (Newborn food): what they could give is a quarter of each stomach, the most any parent pays to breed, or what each has left if less, whatever they actually pay, so neither a fertile parent's cheap breeding nor a hunter's halved cost shrinks its litters, while a hungry pair has fewer young. Up to ten young; the energy they share is still what the parents pay. |
-| carrion | how much of carrion's meat nourishes it: 20% at 0, all of it at 7 |
+| carrion | how much of carrion's meat nourishes it: 20% at 0, all of it at 7. Above the middle of the range it makes a carrion-eater, more of one the higher it is, up to fully at 7: it craves the carrion it sees (Carrion craving), shies from hunting and attacking (Carrion aversion), and scales into a coward, breaking when struck at least as often as it is a carrion-eater, so always at 7, as an omnivore does (Carrion cowardice) |
 
 There is no metabolism gene: size sets it. The smallest bodies run at 1.6 and
 the largest at 0.6. A faster metabolism empties the stomach sooner, heals

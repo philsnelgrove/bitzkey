@@ -191,6 +191,8 @@ PACK_MOUTHS = 0.5      # a hunter's pack-mates count as this many mouths each on
 BLOODLUST = 1.0        # how much more a predator values feasting whenever it sees a fresh kill, whatever its hunger
 CARRION_CRAVING = 1.0  # how much more an animal values scavenging carrion it sees, at the highest carrion trait;
                        # nothing up to the middle of the trait's range
+CARRION_AVERSION = 1.0  # how much less a carrion-eater values hunting and attacking, at the highest carrion trait, likewise
+CARRION_COWARDICE = 1.0  # a carrion-eater's least chance of breaking when struck, at the highest carrion trait, likewise
 ALERT_JOY = 0.1        # pleasure of alerting its herd: to a hunter, for a grazer; to a fresh kill, for a hunter
 ALARM_REACH = 6        # an alarmed animal knows where the hunter is within this many steps
 SIGHT_PER_TRAIT = 3  # each step of the sight trait lets an animal see this many cells further
@@ -675,6 +677,11 @@ class Bitzkey:
         """The share of its fear's effects hunger leaves a predator: all when fed, falling with its hunger
         to none as it starves; any other animal feels them all."""
         return max(0.0, 1 - self.hunger / 100) if self.species == "predator" else 1.0
+
+    @property
+    def scavenger(self) -> float:
+        """How much a carrion-eater it is: 0 up to the middle of its carrion trait's range, rising to 1 at the top."""
+        return max(0.0, 2 * self.physique("carrion") - 1)
 
     @property
     def herd_instinct(self) -> float:
@@ -1447,7 +1454,10 @@ class Simulation:
             call = MATING_CALL if agent.species == "predator" else OMNIVORE_MATING_CALL if agent.species == "omnivore" else 0.0
             if call and agent.can_breed:  # the mating call: to breed if it can, else to court a mate it seeks
                 valued[BREED if BREED in options else COURT] += call
-            valued[SCAVENGE] += CARRION_CRAVING * max(0.0, 2 * agent.physique("carrion") - 1)  # a carrion-eater's craving
+            scavenger = agent.scavenger
+            valued[SCAVENGE] += CARRION_CRAVING * scavenger  # a carrion-eater's craving
+            valued[HUNT] -= CARRION_AVERSION * scavenger  # and its aversion to killing for itself
+            valued[ATTACK] -= CARRION_AVERSION * scavenger
             valued[HERD] += LOYALTY_PULL * agent.feeling("loyalty")  # loyalty: keeping to its herd
             odds = choice_odds(valued, options)
             roll = self.random.random()
@@ -2074,7 +2084,9 @@ class Simulation:
         hurt = 1 - max(0.0, victim.health) / victim.max_health
         steadied = 1 - HERD_SAFETY * victim.herd_instinct * min(3, herd_near) / 3
         coward = victim.species == "omnivore" and COWARDLY_OMNIVORES  # an omnivore struck always breaks
-        if coward or self.random.random() < victim.fearfulness * (unhurt + (dying - unhurt) * hurt) * steadied:
+        chance = max(victim.fearfulness * (unhurt + (dying - unhurt) * hurt) * steadied,
+                     CARRION_COWARDICE * victim.scavenger)  # and a carrion-eater, the more so the more it is one
+        if coward or self.random.random() < chance:
             victim.panicked = True
             self._experience(victim, "panicked")
 
