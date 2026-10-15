@@ -191,6 +191,9 @@ PREDATOR_STING = 0.5   # share of a victim's spines a predator striking it takes
 SCARCE_POPULATION = 100
 RARE_POPULATION = 10
 RARE_BREEDING_COST = 1 / 3
+FULL_LITTER_FOOD = 4.0  # a full litter needs this many times the home food a mouth needs to breed; at the need, 1/this
+RARE_PREY = 10          # a hunter doesn't breed while fewer of its prey species (all together) live, sparing the last
+HUNTERS_PREY = {"predator": ("grazer", "omnivore"), "omnivore": ("grazer", "predator")}  # the species each hunter lives on
 
 
 def scarcity_share(population: int) -> float:
@@ -961,6 +964,7 @@ class Simulation:
         self._band_predators: list[int] = []
         self._band_omnivores: list[int] = []       # the omnivores at home in each band, and what they hunt there:
         self._band_omnivore_prey: list[int] = []   # grazers and predators
+        self._living: Counter[str] = Counter()  # the living of each species, as the cells were last indexed
         self._grass_rows: list[int] = []    # the rows where grass grows at all
         self._grass_reach: list[float] = []  # their growth added up, row by row, for sowing
         self._update_climate()
@@ -2262,9 +2266,9 @@ class Simulation:
         self._band_plants, self._band_grazers = plants, grazers
         self._band_prey, self._band_predators = prey, predators
         self._band_omnivores, self._band_omnivore_prey = omnivores, omnivore_prey
-        living = Counter(agent.species for agent in self.agents if agent.alive)  # a scarce species breeds more cheaply
-        shares = {species: scarcity_share(count) for species, count in living.items()}
-        for agent in self.agents:
+        self._living = Counter(agent.species for agent in self.agents if agent.alive)
+        shares = {species: scarcity_share(count) for species, count in self._living.items()}
+        for agent in self.agents:  # a scarce species breeds more cheaply
             if agent.alive and agent.species != "plant":
                 agent.cost_share = shares[agent.species]
 
@@ -2296,7 +2300,18 @@ class Simulation:
         return (agent.can_breed and partner.can_breed and self._room() > 0
                 and (not CROWDING_LIMIT or self._crowding(agent, partner, own_kind=True) < CROWDING_LIMIT)  # its own kind
                 and (not self._food_needed(agent) or self._food_supply(agent) >= self._food_needed(agent))
-                and (agent.species == "predator" or self._home_food(agent) >= self._home_food_needed(agent)))
+                and self._well_fed(agent) and not self._prey_rare(agent))
+
+    def _well_fed(self, agent: Bitzkey) -> bool:
+        """Whether its home band holds the food a mouth needs to breed: plants for a grazer, prey for a predator, both
+        together, half each, for an omnivore."""
+        return self._home_fed(agent) >= 1 / FULL_LITTER_FOOD
+
+    def _prey_rare(self, agent: Bitzkey) -> bool:
+        """Whether a hunter's prey species, all together, have grown so few (under RARE_PREY living) that it spares
+        them by not breeding."""
+        prey = HUNTERS_PREY.get(agent.species)
+        return prey is not None and sum(self._living[species] for species in prey) < RARE_PREY
 
     def _home_food(self, agent: Bitzkey) -> float:
         """The food in its home band per mouth at home there: plants for a grazer, prey for a predator; 0 for
@@ -2333,7 +2348,7 @@ class Simulation:
     @staticmethod
     def _fed_share(food: float, needed: float) -> float:
         """The share of a full litter `food` a mouth feeds where `needed` is the least to breed: full at twice it."""
-        return min(1.0, food / (2 * needed)) if needed else 1.0
+        return min(1.0, food / (FULL_LITTER_FOOD * needed)) if needed else 1.0
 
     def _nearby(self, agent: Bitzkey, radius: int) -> list[Bitzkey]:
         found = []

@@ -195,6 +195,8 @@ _TABLE: dict[str, list[tuple]] = {
         ("SCARCE_POPULATION", "Scarce population", "below this many living, a species' breeding cost begins to fall", 1, 2000, 10),
         ("RARE_POPULATION", "Rare population", "at this many living or fewer, a species pays the rare breeding cost", 0, 1000, 1),
         ("RARE_BREEDING_COST", "Rare breeding cost", "share of the usual breeding cost a rare species pays", 0.0, 1.0, 0.05),
+        ("FULL_LITTER_FOOD", "Full litter food", "times the home food a mouth needs to breed that a full litter needs", 1.0, 10.0, 0.5),
+        ("RARE_PREY", "Rare prey", "a hunter doesn't breed while fewer of its prey species, all together, live", 0, 1000, 1),
         ("PREDATOR_STING", "Predator sting", "share of a victim's spines a predator striking it takes", 0.0, 1.0, 0.05),
         ("NEWBORN_FOOD", "Newborn food", "food, as a share of a stomach, each young must start with: parents conceive no more young than they can give this; 0: no limit",
          0.0, 100.0, 5.0),

@@ -88,7 +88,7 @@ Each imported genome spawns as a group of 3 to
 "Bitzkeys" to 0 to start with only your imports.
 
 ADVANCED opens the advanced rules, beneath a word of warning that they are the world's
-'natural law', carefully balanced, and that changing them can have unpredictable results: 218 numbers that shape how the world plays
+'natural law', carefully balanced, and that changing them can have unpredictable results: 220 numbers that shape how the world plays
 out, in groups (World, Bodies, Breeding, Feelings, Mind, Fighting, Territory,
 Herding, Food, Plants, Climate, Society and Experiences). Among them are lifespans, metabolism, litter
 sizes, food-aware breeding, the rewards and pains a brain learns from, blows and
@@ -672,16 +672,18 @@ decides when a starving grazer may uproot a plant: only with fewer than three me
 it (Uproot food). Grazers' breeding also follows the plants in their home band: the climate band of
 their home temperature nearest them (the nearest arctic band for a very cold home). Its plants are
 shared among the grazers at home there, and with fewer than a tenth of a plant each, a grazer doesn't
-breed; between that and twice it, its litter shrinks in proportion (Plants per grazer; 0 switches it off).
-Predators' litters follow the prey in their home band: the grazers and omnivores there, shared among
-the predators at home there. Scarce prey never stops a predator breeding; below 4 each, its litter
-shrinks in proportion, to a single young at the least (Prey per predator, half the prey for a full
-litter; 0 switches it off). Blocking breeding outright below 2 each left predators courting partners
-they could never breed with, turn after turn, for the courting joy, instead of hunting.
-Omnivores' litters follow both foods in their home band, half each: half the share of a full litter its
-plants would give a grazer, and half the share its prey (grazers and predators) would give a predator,
-each counted per omnivore at home there. Like a predator's, scarce food only shrinks an omnivore's
-litters, to a single young at the least; it never stops it breeding.
+breed (Plants per grazer; 0 switches it off). Predators' breeding follows the prey in their home band:
+the grazers and omnivores there, shared among the predators at home there; with fewer than 2 each, a
+predator doesn't breed (Prey per predator). Omnivores' follows both foods in their home band, half
+each: half the share of a full litter its plants would give a grazer, and half the share its prey
+(grazers and predators) would give a predator, each counted per omnivore at home there; with less than
+its need, the two together, it doesn't breed. Above its need, an animal's litters grow with its home
+food, to a full litter at four times the need (Full litter food), so at just the need its litter is a
+quarter of what its traits would give (at least one young). An animal that can't breed can't court
+either, so a hunter short of prey hunts rather than courting a partner it couldn't breed with. And a
+hunter spares the last of its prey: while fewer than 10 of its prey species, all together, live in the
+world (Rare prey), a predator or omnivore doesn't breed at all. Sparse food was made this telling after
+species hunted one another to extinction, breeding on as their prey ran out.
 Over 80 seeds, predators lasted in 26 worlds rather than 15, 117 of them rather than 47, with no
 fewer worlds keeping their animals. Grazers and predators also sense how well fed their home band
 is, 1 at twice what breeding needs (home food); an omnivore senses 0. Other

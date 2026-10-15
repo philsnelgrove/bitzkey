@@ -13,16 +13,22 @@ from tools.Simulation import (Death, DEATH_PENALTY, AGENT_BYTES, ATTACK_JOY, FEA
 
 
 def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, unless a test says so
-    global _grown, _common
+    global _grown, _common, _plenty
     _grown = patch("tools.Simulation.FEEBLE_YOUTH", 0.0)
     _grown.start()
     _common = patch("tools.Simulation.RARE_BREEDING_COST", 1.0)  # the few Bitzkeys of a test breed at the usual cost
     _common.start()
+    _plenty = [patch("tools.Simulation.RARE_PREY", 0),  # a test's lone hunters may breed with no prey alive
+               patch("tools.Simulation.FULL_LITTER_FOOD", 2.0)]  # and full litters at twice the need, as these figures assume
+    for each in _plenty:
+        each.start()
 
 
 def tearDownModule():
     _grown.stop()
     _common.stop()
+    for each in _plenty:
+        each.stop()
 
 
 def deliver(simulation: Simulation, first: Bitzkey, second: Bitzkey, litter: int | None = 1) -> None:
@@ -227,6 +233,7 @@ class SimulationTests(unittest.TestCase):
         self.assertFalse(grass_actions & set(self.simulation._sense(predator)[1]))
         self.assertEqual(grass_actions & set(self.simulation._sense(grazer)[1]), grass_actions)
 
+    @patch("tools.Simulation.PREY_PER_PREDATOR", 0.0)  # the prey at home aside
     def test_breeding_is_the_greatest_pleasure_and_courting_into_reach_the_next_and_failing_costs_nothing(self):
         from tools.Simulation import BREED_JOY, COURT_JOY, FEAST_JOY, LIBIDO_IN_JOY, mating_joy
         cold = self.simulation._add_agent(encode_dna("predator", sight=7, libido=0), 2, 2)
@@ -1313,7 +1320,7 @@ class NewTraitTests(unittest.TestCase):
         breed, home_food = ACTIONS.index("breed"), SENSES.index("home_food")
         self.assertEqual(simulation._home_prey(first), 0.0)
         senses, options, _ = simulation._sense(first)
-        self.assertIn(breed, options)  # no prey at home shrinks its litters, but doesn't stop it breeding
+        self.assertNotIn(breed, options)  # no prey at home: a hunter, like a grazer, doesn't breed below its need
         self.assertEqual(senses[home_food], 0.0)
         for x in (2, 4, 6):  # three prey at home: a grazer and two omnivores, shared by two predators
             simulation._add_agent(encode_dna("grazer" if x == 2 else "omnivore"), x, 10)
@@ -2775,6 +2782,7 @@ class CourtingTests(unittest.TestCase):
 
 
 class PackClimateTests(unittest.TestCase):
+    @patch("tools.Simulation.PREY_PER_PREDATOR", 0.0)  # the prey at home aside
     def test_a_pack_courts_and_hunts_only_toward_its_home_temperature_as_a_herd_herds(self):
         from tools.Simulation import HOT
         simulation = Simulation(width=100, height=100, population=0, seed=3)  # cold rows 0-19, medium 20-39, hot 40-59
@@ -2964,3 +2972,28 @@ class PredatorInfancyTests(unittest.TestCase):
         self.assertTrue(grazer.feeble)
         predator.age = int(0.04 * predator.lifespan)
         self.assertTrue(predator.feeble)
+
+
+class SparseFoodTests(unittest.TestCase):
+    @patch("tools.Simulation.FULL_LITTER_FOOD", 4.0)
+    @patch("tools.Simulation.RARE_PREY", 10)
+    @patch("tools.Simulation.PREY_PER_PREDATOR", 1.0)
+    def test_hunters_need_their_food_full_litters_need_four_times_it_and_the_last_prey_are_spared(self):
+        from tools.Simulation import Simulation as World
+        simulation = World(width=30, height=30, population=0, seed=3)  # temperate bands: rows 6-11 and 18-23
+        dna = encode_dna("predator", fertility=7, litter=7, sight=3)  # at home in the temperate bands
+        first = simulation._add_agent(dna, 15, 8)
+        second = simulation._add_agent(dna, 15, 9)
+        breed = ACTIONS.index("breed")
+        far = [simulation._add_agent(encode_dna("grazer"), x, 26) for x in range(12)]  # twelve prey alive, none at home
+        simulation._index_cells()
+        self.assertNotIn(breed, simulation._sense(first)[1])  # below its need at home: no breeding, as for a grazer
+        for x in (2, 4):  # two prey at home for two predators: just its need
+            simulation._add_agent(encode_dna("grazer"), x, 10)
+        simulation._index_cells()
+        self.assertEqual(simulation._home_fed(first), 0.25)  # a quarter of a full litter at the need
+        self.assertIn(breed, simulation._sense(first)[1])
+        for grazer in far:  # the prey dying out: only the two at home left
+            grazer.health = 0
+        simulation._index_cells()
+        self.assertNotIn(breed, simulation._sense(first)[1])  # under ten of its prey alive: it spares them
