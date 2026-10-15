@@ -3025,3 +3025,19 @@ class PredatorGlutTests(unittest.TestCase):
                 simulation._add_agent(encode_dna("predator"), x, 10)
             simulation._index_cells()
             self.assertEqual((Simulation._is_prey(hunter, other), Simulation._is_prey(hunter, kin)), (other_prey, kin_prey), count)
+
+
+class PredatorFamineTests(unittest.TestCase):
+    @patch("tools.Simulation.RARE_PREY", 10)
+    def test_predators_turn_on_other_kinds_then_their_own_as_their_prey_die_out(self):
+        simulation = Simulation(width=30, height=30, population=0, seed=3)
+        hunter = simulation._add_agent(encode_dna("predator", empathy=7, tolerance=7, patience=7), 5, 5)  # loath to
+        kin = simulation._add_agent(hunter.dna, 5, 6)
+        other = simulation._add_agent(encode_dna("predator", size=7, strength=7, armour=7, weapons=7, speed=7, sight=7), 6, 5)
+        prey = [simulation._add_agent(encode_dna("grazer"), x % 25, 20 + x // 25) for x in range(20)]
+        hunter.hunger = 50
+        for alive, other_prey, kin_prey in ((20, False, False), (10, True, False), (0, True, True)):  # twice Rare prey, it, none
+            for grazer in prey[alive:]:
+                grazer.health = 0
+            simulation._index_cells()
+            self.assertEqual((Simulation._is_prey(hunter, other), Simulation._is_prey(hunter, kin)), (other_prey, kin_prey), alive)
