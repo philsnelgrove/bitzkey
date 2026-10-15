@@ -2986,7 +2986,7 @@ class PredatorInfancyTests(unittest.TestCase):
 class SparseFoodTests(unittest.TestCase):
     @patch("tools.Simulation.FULL_LITTER_FOOD", 4.0)
     @patch("tools.Simulation.PREDATOR_FULL_LITTER_FOOD", 8.0)
-    @patch("tools.Simulation.RARE_PREY", 10)
+    @patch("tools.Simulation.RARE_PREY", 200)
     @patch("tools.Simulation.PREY_PER_PREDATOR", 1.0)
     def test_hunters_need_their_food_full_litters_need_four_times_it_and_the_last_prey_are_spared(self):
         from tools.Simulation import Simulation as World
@@ -3006,7 +3006,8 @@ class SparseFoodTests(unittest.TestCase):
         for grazer in far:  # the prey dying out: only the two at home left
             grazer.health = 0
         simulation._index_cells()
-        self.assertNotIn(breed, simulation._sense(first)[1])  # under ten of its prey alive: it spares them
+        self.assertEqual(first.population, 2)  # it knows its own numbers
+        self.assertNotIn(breed, simulation._sense(first)[1])  # prey under twice its own numbers: it spares them
 
 
 class PredatorGlutTests(unittest.TestCase):
@@ -3028,15 +3029,15 @@ class PredatorGlutTests(unittest.TestCase):
 
 
 class PredatorFamineTests(unittest.TestCase):
-    @patch("tools.Simulation.RARE_PREY", 10)
+    @patch("tools.Simulation.RARE_PREY", 500)  # three predators: rare under 15 prey, famine from 30
     def test_predators_turn_on_other_kinds_then_their_own_as_their_prey_die_out(self):
         simulation = Simulation(width=30, height=30, population=0, seed=3)
         hunter = simulation._add_agent(encode_dna("predator", empathy=7, tolerance=7, patience=7), 5, 5)  # loath to
         kin = simulation._add_agent(hunter.dna, 5, 6)
         other = simulation._add_agent(encode_dna("predator", size=7, strength=7, armour=7, weapons=7, speed=7, sight=7), 6, 5)
-        prey = [simulation._add_agent(encode_dna("grazer"), x % 25, 20 + x // 25) for x in range(20)]
+        prey = [simulation._add_agent(encode_dna("grazer"), x % 25, 20 + x // 25) for x in range(30)]
         hunter.hunger = 50
-        for alive, other_prey, kin_prey in ((20, False, False), (10, True, False), (0, True, True)):  # twice Rare prey, it, none
+        for alive, other_prey, kin_prey in ((30, False, False), (15, True, False), (0, True, True)):  # twice Rare prey, it, none
             for grazer in prey[alive:]:
                 grazer.health = 0
             simulation._index_cells()

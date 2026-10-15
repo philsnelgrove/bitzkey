@@ -200,7 +200,7 @@ _TABLE: dict[str, list[tuple]] = {
         ("PREDATOR_GLUT", "Predator glut", "above this many predators alive, they turn on other kinds, fully at twice it, and their own kind past that", 0, 5000, 10),
         ("GRAZER_SCARCE_POPULATION", "Grazer scarce population", "below this many living, grazers' breeding cost begins to fall", 1, 3000, 10),
         ("GRAZER_RARE_BREEDING_COST", "Grazer rare breeding cost", "share of the usual breeding cost rare grazers pay", 0.0, 1.0, 0.01),
-        ("RARE_PREY", "Rare prey", "a hunter doesn't breed while fewer of its prey species, all together, live", 0, 1000, 1),
+        ("RARE_PREY", "Rare prey", "a hunter doesn't breed while its prey species, all together, number under this percentage of its own", 0, 1000, 5),
         ("PREDATOR_STING", "Predator sting", "share of a victim's spines a predator striking it takes", 0.0, 1.0, 0.05),
         ("NEWBORN_FOOD", "Newborn food", "food, as a share of a stomach, each young must start with: parents conceive no more young than they can give this; 0: no limit",
          0.0, 100.0, 5.0),

@@ -199,11 +199,11 @@ GRAZER_RARE_BREEDING_COST = 1 / 9  # and falls to this share of the usual cost a
 PREDATOR_FULL_LITTER_FOOD = 8.0  # a predator's full litter needs this many times the prey a predator needs to breed
 # Predators glutting the world turn on one another: above PREDATOR_GLUT alive, their reluctance to hunt other kinds of
 # predator wears away, to none at twice it; past that their own kind become prey too, fully at three times it. So do
-# predators whose prey are dying out: below twice RARE_PREY of them alive, other kinds, to none at RARE_PREY; below
-# that, their own kind too, fully with none left.
+# predators whose prey are dying out: below twice the rare-prey line, other kinds, to none at it; below that, their own
+# kind too, fully with none left.
 PREDATOR_GLUT = 600
 FULL_LITTER_FOOD = 4.0  # a full litter needs this many times the home food a mouth needs to breed; at the need, 1/this
-RARE_PREY = 500         # a hunter doesn't breed while fewer of its prey species (all together) live, sparing the last
+RARE_PREY = 50          # a hunter doesn't breed while its prey species (all together) number under this percentage of its own
 HUNTERS_PREY = {"predator": ("grazer", "omnivore"), "omnivore": ("grazer", "predator")}  # the species each hunter lives on
 
 
@@ -614,6 +614,7 @@ class Bitzkey:
     danger_memory: tuple[int, int, int] | None = None  # where it was last struck, and the turn
     meat: float = 0.0  # a corpse's meat left for scavengers
     meat_fill: float = 0.0  # how much of its fullness is meat, which it digests more slowly
+    population: int = 0  # how many of its species live, as of the turn's start: its awareness of its own numbers
     cost_share: float = 1.0  # the share of its breeding cost its species' scarcity leaves it, as of the turn's start
     glut: float = 0.0  # for a predator, what drives it to hunt other predators: 1 for other kinds fully, 2 its own kind
     rot: float = 0.0   # meat lost to rot each turn
@@ -2317,12 +2318,13 @@ class Simulation:
         self._living = Counter(agent.species for agent in self.agents if agent.alive)
         shares = {species: scarcity_share(count, species) for species, count in self._living.items()}
         glut = max(0.0, (self._living["predator"] - PREDATOR_GLUT) / PREDATOR_GLUT) if PREDATOR_GLUT > 0 else 0.0
-        famine_line = 2 * RARE_PREY  # and prey dying out: from twice RARE_PREY, other kinds by RARE_PREY, its own by none
+        famine_line = 2 * RARE_PREY / 100 * self._living["predator"]  # and prey dying out: from twice the rare line, other kinds by it, its own by none
         prey = sum(self._living[species] for species in HUNTERS_PREY["predator"])
         if famine_line > 0:
             glut = max(glut, min(2.0, 2 * (famine_line - prey) / famine_line))
         for agent in self.agents:  # a scarce species breeds more cheaply; a glut of predators turns them on one another
             if agent.alive and agent.species != "plant":
+                agent.population = self._living[agent.species]
                 agent.cost_share = shares[agent.species]
                 if agent.species == "predator":
                     agent.glut = glut
@@ -2369,10 +2371,10 @@ class Simulation:
         return PREDATOR_FULL_LITTER_FOOD if agent.species == "predator" else FULL_LITTER_FOOD
 
     def _prey_rare(self, agent: Bitzkey) -> bool:
-        """Whether a hunter's prey species, all together, have grown so few (under RARE_PREY living) that it spares
-        them by not breeding."""
+        """Whether a hunter's prey species, all together, have grown so few (under RARE_PREY percent of its own
+        species' numbers) that it spares them by not breeding."""
         prey = HUNTERS_PREY.get(agent.species)
-        return prey is not None and sum(self._living[species] for species in prey) < RARE_PREY
+        return prey is not None and sum(self._living[species] for species in prey) < RARE_PREY / 100 * agent.population
 
     def _home_food(self, agent: Bitzkey) -> float:
         """The food in its home band per mouth at home there: plants for a grazer, prey for a predator; 0 for
