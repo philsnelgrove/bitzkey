@@ -193,7 +193,7 @@ ready to copy, export or catalog; the selected one's card is outlined in amber.
 - Click a dot on the map to select that Bitzkey, or empty ground to select none;
   drag a box with the left button to select every living Bitzkey inside it.
   `Ctrl`-click adds a Bitzkey to the selection or takes it out again, and
-  `Ctrl`-drag adds a box's worth. Each selected Bitzkey wears a target's sights:
+  `Ctrl`-drag adds a box's worth. Each selected Bitzkey wears a target's sights, swelling slowly to twice their size and back every two seconds, paused or not:
   a white ring inside a black one, with a pip at each point of the compass
 - `R`: restart with the same launch settings
 - `I`: toggle the insights panel (scroll it with the wheel or its scroll bar)

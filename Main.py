@@ -1,6 +1,7 @@
 """PyGame interface for the Bitzkey ecology experiment."""
 
 import argparse
+import math
 import os
 import sys
 from collections import Counter
@@ -34,6 +35,7 @@ INSIGHTS_TOP = 290  # the insights panel's top, in design pixels: just below the
 MAP_ZOOM_STEP = 1.25  # each wheel notch zooms the map in (or out) by this much
 MAP_ZOOM_MAX = 12.0   # the closest the map zooms in, times its whole-map size
 DRAG_THRESHOLD = 5    # design pixels a press must move on the map to draw a marquee rather than click
+RETICLE_PULSE_MS = 2000  # a selected Bitzkey's sights swell to twice their size and back this often, paused or not
 TRAIL_OPACITY = 0.5   # how faintly a Bitzkey shows on each cell it passed through this turn
 # What an exemplar card can show: the living animal that stands out most by a statistic, highest, or
 # lowest where `lowest`. Each is (title, kind, name, lowest): kind "mind" is an inborn temperament
@@ -884,7 +886,7 @@ class BitzkeyApp:
             radius = self._dot_radius(agent, largest, smallest)
             self._draw_bitzkey(agent, point, radius, self._corpse_opacity(agent))
             if agent.identifier == self.selected_id or (agent.alive and agent.identifier in self.graph.selection):
-                draw_reticle(self.screen, point, radius + RING_WIDTH + UI(3))
+                draw_reticle(self.screen, point, round((radius + RING_WIDTH + UI(3)) * reticle_pulse()))
             if agent.identifier in self.export_list:
                 pg.draw.circle(self.screen, EXPORTING, point, radius + RING_WIDTH + UI(6), max(1, UI(1)))
         if self._marquee_from:  # the marquee being drawn
@@ -1319,6 +1321,11 @@ class BitzkeyApp:
     def _text(self, text: str, position: tuple[int, int], color: tuple[int, int, int],
               font: pg.font.Font) -> None:
         self.screen.blit(font.render(text, True, color), position)
+
+
+def reticle_pulse() -> float:
+    """How large the selected Bitzkeys' sights are now: from their size to twice it and back, every RETICLE_PULSE_MS."""
+    return 1.5 - 0.5 * math.cos(2 * math.pi * pg.time.get_ticks() / RETICLE_PULSE_MS)
 
 
 def _shown(value: float | None, pattern: str) -> str:
