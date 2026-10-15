@@ -183,6 +183,8 @@ MATING_CALL = 0.5      # how much more a predator ready to breed values breeding
 MATING_CALL_RANGE = 2.0  # a predator ready to breed that sees no mate seeks one this many times its sight off
 OMNIVORE_MATING_CALL = 0.25  # an omnivore's milder mating call
 HUNTER_BREEDING_COST = 0.5  # share of the usual breeding cost a predator or omnivore pays
+GRAZER_BREEDING_COST = 0.5  # share of the usual breeding cost a grazer pays
+PREDATOR_STING = 0.5   # share of a victim's spines a predator striking it takes
 NEWBORN_FOOD = 5.0     # parents conceive only as many young as can each start with this much of a stomach of food; 0: no limit
 BREEDING_COST_MOST = 25.0  # the hunger the least fertile pay to breed: the most a parent could give its young
 PACK_MOUTHS = 0.5      # a hunter's pack-mates count as this many mouths each on its food, sharing their kills
@@ -789,8 +791,10 @@ class Bitzkey:
 
     @property
     def breeding_cost(self) -> float:
-        """Hunger it pays to breed: less the more fertile it is, and HUNTER_BREEDING_COST of that for a hunter."""
-        hunter = HUNTER_BREEDING_COST if self.species in ("omnivore", "predator") else 1.0
+        """Hunger it pays to breed: less the more fertile it is, and HUNTER_BREEDING_COST of that for a hunter,
+        GRAZER_BREEDING_COST for a grazer."""
+        hunter = (HUNTER_BREEDING_COST if self.species in ("omnivore", "predator")
+                  else GRAZER_BREEDING_COST if self.species == "grazer" else 1.0)
         return (BREEDING_COST_MOST - 15 * self.physique("fertility")) * hunter
 
     @property
@@ -2008,8 +2012,9 @@ class Simulation:
         if killed:
             self._die(victim, "killed", agent, activity)
 
-        sting = (0.0 if victim.species == "omnivore"  # an omnivore's weapons are for fighting, not spines
-                 else 4.5 * self._armed(victim) * self._defence_share(victim) * (1 - 0.6 * agent.toughness))
+        sting = ((0.0 if victim.species == "omnivore"  # an omnivore's weapons are for fighting, not spines
+                  else 4.5 * self._armed(victim) * self._defence_share(victim) * (1 - 0.6 * agent.toughness))
+                 * (PREDATOR_STING if agent.species == "predator" else 1.0))  # a predator takes spines half as hard
         stung = max(0.0, sting)
         if sting > 0:
             agent.health -= sting

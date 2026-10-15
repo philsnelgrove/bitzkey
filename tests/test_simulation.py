@@ -308,6 +308,7 @@ class SimulationTests(unittest.TestCase):
     @patch("tools.Simulation.BREED_RESERVE", 10)  # a reserve, as it may be set to
     @patch("tools.Simulation.FOOD_NEEDED", 3.0)
     @patch("tools.Simulation.PLANTS_PER_GRAZER", 0.0)  # no plants about: breeding left to the rest
+    @patch("tools.Simulation.GRAZER_BREEDING_COST", 1.0)  # a grazer's full cost, as these figures assume
     def test_only_animals_that_can_afford_it_breed(self):
         lay_plenty_of_grass(self.simulation)
         dna = encode_dna("grazer", fertility=7)  # breeding costs it 10 hunger
@@ -324,6 +325,7 @@ class SimulationTests(unittest.TestCase):
         self.assertNotIn(breed, self.simulation._sense(agent)[1])
 
     @patch("tools.Simulation.PLANTS_PER_GRAZER", 0)  # the plants at home aside
+    @patch("tools.Simulation.GRAZER_BREEDING_COST", 1.0)  # a grazer's full cost, as these figures assume
     def test_nobody_courts_a_partner_who_cannot_afford_to_breed(self):
         dna = encode_dna("grazer", sight=7, fertility=7)
         suitor = self.simulation._add_agent(dna, 2, 2)
@@ -349,6 +351,7 @@ class SimulationTests(unittest.TestCase):
         self.assertNotIn(ACTIONS.index("breed"), self.simulation._sense(agent)[1])
 
     @patch("tools.Simulation.BREED_COOLDOWN", 1.0)  # the usual rest after breeding, as it may be set to
+    @patch("tools.Simulation.GRAZER_BREEDING_COST", 1.0)  # a grazer's full cost, as these figures assume
     def test_fertile_parents_breed_cheaply_and_their_child_gets_the_energy(self):
         dna = encode_dna("grazer", fertility=7, libido=7)
         first = self.simulation._add_agent(dna, 5, 5)
@@ -520,6 +523,7 @@ class SimulationTests(unittest.TestCase):
         self.assertIn(child.inborn["fear"], (3, 4))
         self.assertEqual((child.inborn["curiosity"], child.inborn["libido"]), (4, 7))
 
+    @patch("tools.Simulation.GRAZER_BREEDING_COST", 1.0)  # a grazer's full cost, as these figures assume
     def test_a_parent_gives_its_young_no_more_energy_than_it_has_left(self):
         dna = encode_dna("grazer", fertility=7)
         first = self.simulation._add_agent(dna, 5, 5)
@@ -748,6 +752,7 @@ class NewTraitTests(unittest.TestCase):
     @patch("tools.Simulation.SMALL_LITTERS", 1.0)
     @patch("tools.Simulation.NEWBORN_FOOD", 0.0)  # no limit from the energy given
     @patch("tools.Simulation.PLANTS_PER_GRAZER", 0.0)  # no plants about: breeding left to the rest
+    @patch("tools.Simulation.GRAZER_BREEDING_COST", 1.0)  # a grazer's full cost, as these figures assume
     def test_litter_size_sets_how_many_young_share_the_parents_energy(self):
         lay_plenty_of_grass(self.simulation)
         dna = encode_dna("grazer", fertility=7, litter=7)
@@ -1657,6 +1662,7 @@ class NewTraitTests(unittest.TestCase):
             offered = ACTIONS.index("breed") in simulation._sense(first)[1]
             self.assertEqual(offered, species == "predator", species)
 
+    @patch("tools.Simulation.GRAZER_BREEDING_COST", 1.0)  # a grazer's full cost, as these figures assume
     def test_a_ready_predator_seeks_a_mate_beyond_its_sight_and_hunters_breed_cheaply(self):
         seeker = self.simulation._add_agent(encode_dna("predator", sight=0), 2, 2)  # sees two cells
         mate = self.simulation._add_agent(seeker.dna, 2, 6)  # four away: twice its sight
@@ -2874,3 +2880,23 @@ class CorpsePlantTests(unittest.TestCase):
         self.assertEqual(decode_body(seeds[0][2])["species"], "plant")
         self.assertEqual(decode_climate(seeds[0][2])[0], zone_temperature(8, 30))  # at home where it lay
         self.assertNotIn(rotted, simulation.agents)
+
+
+class BreedingCostTests(unittest.TestCase):
+    def test_grazers_breed_at_half_the_cost_and_predators_take_spines_half_as_hard(self):
+        from tools.Simulation import GRAZER_BREEDING_COST, HUNTER_BREEDING_COST, PREDATOR_STING
+        simulation = Simulation(width=12, height=12, population=0, seed=3)
+        grazer = simulation._add_agent(encode_dna("grazer", fertility=0), 2, 2)
+        self.assertEqual((GRAZER_BREEDING_COST, PREDATOR_STING), (0.5, 0.5))
+        self.assertEqual(grazer.breeding_cost, 25 * GRAZER_BREEDING_COST)
+        self.assertEqual(simulation._add_agent(encode_dna("predator", fertility=0), 4, 4).breeding_cost, 25 * HUNTER_BREEDING_COST)
+        stung = []
+        for share, x in ((1.0, 2), (PREDATOR_STING, 8)):  # the same blow, its spines taken in full, then half as hard
+            spiny = simulation._add_agent(encode_dna("grazer", weapons=7, size=7, strength=7), x, 8)
+            striker = simulation._add_agent(encode_dna("predator"), x, 9)
+            simulation._index_cells()
+            with patch("tools.Simulation.PREDATOR_STING", share):
+                simulation._attack(striker, spiny)
+            stung.append(striker.max_health - striker.health)
+        self.assertGreater(stung[0], 0)
+        self.assertAlmostEqual(stung[1], stung[0] * 0.5)
