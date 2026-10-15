@@ -3007,3 +3007,21 @@ class SparseFoodTests(unittest.TestCase):
             grazer.health = 0
         simulation._index_cells()
         self.assertNotIn(breed, simulation._sense(first)[1])  # under ten of its prey alive: it spares them
+
+
+class PredatorGlutTests(unittest.TestCase):
+    @patch("tools.Simulation.PREDATOR_GLUT", 3)  # a glut of three predators, for a small world
+    def test_a_glut_of_predators_turns_them_on_other_kinds_then_their_own(self):
+        simulation = Simulation(width=12, height=12, population=0, seed=3)
+        hunter = simulation._add_agent(encode_dna("predator", empathy=7, tolerance=7, patience=7), 5, 5)  # loath to
+        kin = simulation._add_agent(hunter.dna, 5, 6)
+        other = simulation._add_agent(encode_dna("predator", size=7, strength=7, armour=7, weapons=7, speed=7, sight=7), 6, 5)  # another kind: its ring far apart
+        self.assertFalse(Simulation._same_kind(hunter, other))
+        hunter.hunger = 50
+        for count, other_prey, kin_prey in ((3, False, False), (6, True, False), (8, True, True)):  # at it, twice it, past it
+            for extra in [agent for agent in simulation.agents if agent.identifier > 2]:
+                extra.health = 0
+            for x in range(count - 3):
+                simulation._add_agent(encode_dna("predator"), x, 10)
+            simulation._index_cells()
+            self.assertEqual((Simulation._is_prey(hunter, other), Simulation._is_prey(hunter, kin)), (other_prey, kin_prey), count)

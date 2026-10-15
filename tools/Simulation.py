@@ -194,6 +194,9 @@ RARE_BREEDING_COST = 1 / 3
 GRAZER_SCARCE_POPULATION = 300  # grazers' cheap breeding begins below this many,
 GRAZER_RARE_BREEDING_COST = 1 / 9  # and falls to this share of the usual cost at RARE_POPULATION or fewer
 PREDATOR_FULL_LITTER_FOOD = 8.0  # a predator's full litter needs this many times the prey a predator needs to breed
+# Predators glutting the world turn on one another: above PREDATOR_GLUT alive, their reluctance to hunt other kinds of
+# predator wears away, to none at twice it; past that their own kind become prey too, fully at three times it.
+PREDATOR_GLUT = 600
 FULL_LITTER_FOOD = 4.0  # a full litter needs this many times the home food a mouth needs to breed; at the need, 1/this
 RARE_PREY = 10          # a hunter doesn't breed while fewer of its prey species (all together) live, sparing the last
 HUNTERS_PREY = {"predator": ("grazer", "omnivore"), "omnivore": ("grazer", "predator")}  # the species each hunter lives on
@@ -607,6 +610,7 @@ class Bitzkey:
     meat: float = 0.0  # a corpse's meat left for scavengers
     meat_fill: float = 0.0  # how much of its fullness is meat, which it digests more slowly
     cost_share: float = 1.0  # the share of its breeding cost its species' scarcity leaves it, as of the turn's start
+    glut: float = 0.0  # for a predator, how far predators glut the world past PREDATOR_GLUT, in multiples of it
     rot: float = 0.0   # meat lost to rot each turn
     portions: int = 0  # a body's portions left to eat, feasting or scavenging: one for each size class
     trail: list[tuple[int, int]] = field(default_factory=list)  # the cells it passed through this turn, for the map
@@ -2275,9 +2279,12 @@ class Simulation:
         self._band_omnivores, self._band_omnivore_prey = omnivores, omnivore_prey
         self._living = Counter(agent.species for agent in self.agents if agent.alive)
         shares = {species: scarcity_share(count, species) for species, count in self._living.items()}
-        for agent in self.agents:  # a scarce species breeds more cheaply
+        glut = max(0.0, (self._living["predator"] - PREDATOR_GLUT) / PREDATOR_GLUT) if PREDATOR_GLUT > 0 else 0.0
+        for agent in self.agents:  # a scarce species breeds more cheaply; a glut of predators turns them on one another
             if agent.alive and agent.species != "plant":
                 agent.cost_share = shares[agent.species]
+                if agent.species == "predator":
+                    agent.glut = glut
 
     def _home_plants(self, grazer: Bitzkey) -> float:
         """The plants in a grazer's home band per grazer at home there, itself among them; none
@@ -2788,8 +2795,12 @@ class Simulation:
             return hunter.hunts_grazers
         if other.species == "omnivore":  # only one it would beat, blow for blow
             return hunter.hunts_omnivores and cls.would_win(hunter, other)
-        if other.species != "predator" or cls._same_kind(hunter, other):  # never its own kind
+        if other.species != "predator":
             return False
-        # Other kinds of predator only when hungry past its reluctance, which a territory overcrowded
-        # with predators wears away.
-        return hunter.hunger / 100 > cls.cannibal_reluctance(hunter) * (1 - RIVALRY_WEAR * hunter.own_rivalry)
+        # Other kinds of predator only when hungry past its reluctance, which a territory overcrowded with predators
+        # wears away, and so does a world glutted with them; its own kind only once that glut is twice as deep.
+        reluctance = cls.cannibal_reluctance(hunter) * (1 - RIVALRY_WEAR * hunter.own_rivalry)
+        if cls._same_kind(hunter, other):
+            own = min(1.0, max(0.0, hunter.glut - 1))
+            return own > 0 and hunter.hunger / 100 > reluctance * (1 - own)
+        return hunter.hunger / 100 > reluctance * (1 - min(1.0, hunter.glut))
