@@ -2851,3 +2851,26 @@ class SpineTests(unittest.TestCase):
         simulation._attack(second, grazer)
         self.assertEqual(first.health, first.max_health)  # struck an omnivore: unstung
         self.assertLess(second.health, second.max_health)  # struck a well-armed grazer: stung
+
+
+class CorpsePlantTests(unittest.TestCase):
+    @patch("tools.Simulation.CORPSE_PLANT", 1.0)  # every body that rots away
+    def test_a_body_rotted_away_leaves_the_seed_of_a_plant_at_home_where_it_lay(self):
+        from tools.Genome import decode_climate
+        from tools.Simulation import CORPSE_TURNS, zone_temperature
+        simulation = Simulation(width=30, height=30, population=0, seed=3)
+        rotted = simulation._add_agent(encode_dna("grazer"), 5, 8)
+        eaten = simulation._add_agent(encode_dna("grazer"), 9, 8)
+        simulation._add_agent(encode_dna("predator"), 25, 25)
+        simulation._index_cells()
+        simulation._die(rotted, "starved")
+        simulation._die(eaten, "killed")
+        rotted.died_turn = eaten.died_turn = simulation.turn + 1 - CORPSE_TURNS  # both gone by the coming turn's end
+        eaten.portions = 0  # eaten to the last portion: nothing left to rot
+        with patch.object(Simulation, "_think_all"):
+            simulation._take_turn()
+        seeds = [seed for seed in simulation.seeds if (seed[0], seed[1]) in ((5, 8), (9, 8))]
+        self.assertEqual([(seed[0], seed[1]) for seed in seeds], [(5, 8)])
+        self.assertEqual(decode_body(seeds[0][2])["species"], "plant")
+        self.assertEqual(decode_climate(seeds[0][2])[0], zone_temperature(8, 30))  # at home where it lay
+        self.assertNotIn(rotted, simulation.agents)

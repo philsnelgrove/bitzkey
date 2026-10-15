@@ -88,7 +88,7 @@ Each imported genome spawns as a group of 3 to
 "Bitzkeys" to 0 to start with only your imports.
 
 ADVANCED opens the advanced rules, beneath a word of warning that they are the world's
-'natural law', carefully balanced, and that changing them can have unpredictable results: 209 numbers that shape how the world plays
+'natural law', carefully balanced, and that changing them can have unpredictable results: 210 numbers that shape how the world plays
 out, in groups (World, Bodies, Breeding, Feelings, Mind, Fighting, Territory,
 Herding, Food, Plants, Climate, Society and Experiences). Among them are lifespans, metabolism, litter
 sizes, food-aware breeding, the rewards and pains a brain learns from, blows and
@@ -743,7 +743,10 @@ colour with a thin light grey outline: a tree for plants, a leaf for grazers, an
 drumstick for predators. A smaller dot is simply its colour. The inspector, the designer and the colour graph show them too. A corpse holds the energy its body had left: up to 30 meat, plus
 up to 50 more for the largest. A starved body leaves nothing, and a killed one
 half, as the killer has already eaten. The meat rots away over the 30 turns
-before the corpse fades. Brains, temperament, learning and statistics are all
+before the corpse fades. An animal's body that rots away entirely, rather than being eaten to its last
+portion, has a 10% chance (Corpse plant) of leaving the seed of a new plant where it lay: a random plant
+genome, at home in the temperature there, that sprouts as any seed does, once it has lain 10 turns and
+the cell is free and not crowded with plants. Brains, temperament, learning and statistics are all
 part of turn history, so rewind and replay are exact.
 
 ### Herds and Packs

@@ -63,6 +63,7 @@ HISTORY_PREFIX = "bitzkey-history-"  # their names start so
 STALE_HISTORY_HOURS = 24  # one left this long by a run that never closed it is cleared away
 CORPSE_FERTILITY = 2   # grass grows this many times as fast on and around a corpse
 CORPSE_TURNS = 30
+CORPSE_PLANT = 0.1     # chance an animal's body that rots away entirely leaves the seed of a new plant where it lay
 BREED_RESERVE = 0  # hunger a parent must still have spare after paying to breed
 # The most a partner's ring and dot colours may differ from an animal's own before it shuns
 # them, at no tolerance; full tolerance widens both to 1, accepting any partner of its species.
@@ -1264,6 +1265,10 @@ class Simulation:
         for agent in self.agents:
             if agent.died_turn is not None and self.turn - agent.died_turn >= FRESH_KILL_TURNS:
                 agent.meat = max(0.0, agent.meat - agent.rot)  # no longer fresh by next turn: it rots
+        for agent in self.agents:  # bodies rotted away, not eaten to the last portion, may feed a new plant
+            if (agent.died_turn is not None and self.turn - agent.died_turn >= CORPSE_TURNS and agent.species != "plant"
+                    and agent.portions > 0 and CORPSE_PLANT and self.random.random() < CORPSE_PLANT):
+                self._seed_corpse(agent)
         self.agents = [agent for agent in self.agents
                        if agent.died_turn is None or self.turn - agent.died_turn < CORPSE_TURNS]
         self.insights.decay()
@@ -1296,6 +1301,13 @@ class Simulation:
         if not plant.alive:  # it spent the last of its food on the seed
             self._die(plant, "seeded to death")
         self.seeds.append((*cell, dna, plant.generation + 1, self.turn))
+
+    def _seed_corpse(self, corpse: Bitzkey) -> None:
+        """A body rotted away leaves the seed of a new plant where it lay: a random plant genome, at home in the
+        temperature there. It sprouts as any seed does, once it has lain PLANT_GESTATION turns and there is room."""
+        dna = make_dna(SPECIES.index("plant"), self.random)
+        dna = dna & ~(0x3 << TEMPERATURE_SHIFT) | zone_temperature(corpse.y, self.height) << TEMPERATURE_SHIFT
+        self.seeds.append((corpse.x, corpse.y, dna, 0, self.turn))
 
     def _wither_grass(self) -> None:
         """Grass dies back where it isn't medium: a tuft a cell every GRASS_DIEBACK turns, the cells

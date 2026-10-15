@@ -49,6 +49,7 @@ _TABLE: dict[str, list[tuple]] = {
         ("GRASS_REGROWTH", "Grass regrowth", "share of the starting grass that grows back each turn", 0, 0.1, 0.001),
         ("CORPSE_FERTILITY", "Corpse fertility", "grass grows this many times as fast on and around a corpse", 1, 10, 1),
         ("CORPSE_TURNS", "Corpse turns", "turns a corpse lasts while its meat rots away", 1, 500, 5),
+        ("CORPSE_PLANT", "Corpse plant", "chance an animal's body that rots away entirely leaves the seed of a new plant", 0.0, 1.0, 0.05),
         ("CELL_SPACE", "Square space", "spaces in a square; a Bitzkey takes 1 + its size, and none is born, moves or spawns "
          "into a square without room", 1, 80, 1),
         ("SPAWN_SPREAD", "Spawn spread", "a starting group appears within this many cells of its centre", 0, 4, 1),
