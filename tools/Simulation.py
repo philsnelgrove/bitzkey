@@ -203,7 +203,7 @@ PREDATOR_FULL_LITTER_FOOD = 8.0  # a predator's full litter needs this many time
 # that, their own kind too, fully with none left.
 PREDATOR_GLUT = 600
 FULL_LITTER_FOOD = 4.0  # a full litter needs this many times the home food a mouth needs to breed; at the need, 1/this
-RARE_PREY = 10          # a hunter doesn't breed while fewer of its prey species (all together) live, sparing the last
+RARE_PREY = 100         # a hunter doesn't breed while fewer of its prey species (all together) live, sparing the last
 HUNTERS_PREY = {"predator": ("grazer", "omnivore"), "omnivore": ("grazer", "predator")}  # the species each hunter lives on
 
 
