@@ -13,13 +13,16 @@ from tools.Simulation import (Death, DEATH_PENALTY, AGENT_BYTES, ATTACK_JOY, FEA
 
 
 def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, unless a test says so
-    global _grown
+    global _grown, _common
     _grown = patch("tools.Simulation.FEEBLE_YOUTH", 0.0)
     _grown.start()
+    _common = patch("tools.Simulation.RARE_BREEDING_COST", 1.0)  # the few Bitzkeys of a test breed at the usual cost
+    _common.start()
 
 
 def tearDownModule():
     _grown.stop()
+    _common.stop()
 
 
 def deliver(simulation: Simulation, first: Bitzkey, second: Bitzkey, litter: int | None = 1) -> None:
@@ -2928,3 +2931,36 @@ class ScavengerTests(unittest.TestCase):
                 simulation._think_all([hunter])
             odds.append(hunter.odds["hunt"])
         self.assertLess(odds[1], odds[0])  # it naturally shies from hunting
+
+
+class ScarcityTests(unittest.TestCase):
+    @patch("tools.Simulation.RARE_BREEDING_COST", 1 / 3)
+    def test_a_scarce_species_breeds_more_cheaply_down_to_a_third_when_rare(self):
+        from tools.Simulation import scarcity_share
+        self.assertEqual((scarcity_share(100), scarcity_share(250)), (1.0, 1.0))
+        self.assertEqual((scarcity_share(10), scarcity_share(3)), (1 / 3, 1 / 3))
+        self.assertAlmostEqual(scarcity_share(55), 2 / 3)  # halfway
+        simulation = Simulation(width=12, height=12, population=0, seed=3)
+        grazer = simulation._add_agent(encode_dna("grazer", fertility=0), 2, 2)
+        usual = grazer.breeding_cost
+        simulation._index_cells()  # one grazer: rare
+        self.assertAlmostEqual(grazer.breeding_cost, usual / 3)
+        for x in range(10):
+            for y in range(10):
+                simulation._add_agent(encode_dna("grazer"), x, y + 1) if (x, y + 1) != (2, 2) else None
+        simulation._index_cells()  # a hundred: common again
+        self.assertEqual(grazer.breeding_cost, usual)
+
+
+class PredatorInfancyTests(unittest.TestCase):
+    @patch("tools.Simulation.FEEBLE_YOUTH", 0.1)
+    def test_a_predator_is_an_infant_half_as_long(self):
+        simulation = Simulation(width=12, height=12, population=0, seed=3)
+        predator = simulation._add_agent(encode_dna("predator", size=7), 2, 2)
+        grazer = simulation._add_agent(encode_dna("grazer", size=7), 8, 8)
+        for animal in (predator, grazer):
+            animal.age = int(0.07 * animal.lifespan)  # past a predator's 5%, within the usual 10%
+        self.assertFalse(predator.feeble)
+        self.assertTrue(grazer.feeble)
+        predator.age = int(0.04 * predator.lifespan)
+        self.assertTrue(predator.feeble)

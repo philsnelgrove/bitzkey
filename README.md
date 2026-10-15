@@ -88,7 +88,7 @@ Each imported genome spawns as a group of 3 to
 "Bitzkeys" to 0 to start with only your imports.
 
 ADVANCED opens the advanced rules, beneath a word of warning that they are the world's
-'natural law', carefully balanced, and that changing them can have unpredictable results: 214 numbers that shape how the world plays
+'natural law', carefully balanced, and that changing them can have unpredictable results: 218 numbers that shape how the world plays
 out, in groups (World, Bodies, Breeding, Feelings, Mind, Fighting, Territory,
 Herding, Food, Plants, Climate, Society and Experiences). Among them are lifespans, metabolism, litter
 sizes, food-aware breeding, the rewards and pains a brain learns from, blows and
@@ -636,7 +636,7 @@ by turn 600 when they were learnt 8 and 6 times as strongly, and 22 with the ple
 against 8 without. With these pleasures, predators lasted in twice as many worlds as before, ten
 times as many of them, over 40 seeds, with no more worlds dying out.
 
-Each parent pays 10 to 25% of its stomach to breed, less the more fertile it is, and every animal pays half of that: grazers (Breeding cost, grazers) as hunters do, so 5 to 12.5%. Animals
+Each parent pays 10 to 25% of its stomach to breed, less the more fertile it is, and every animal pays half of that: grazers (Breeding cost, grazers) as hunters do, so 5 to 12.5%. A species grown scarce breeds more cheaply still: below 100 living (Scarce population), its breeding cost falls evenly, to a third of the usual at 10 or fewer (Rare population, Rare breeding cost), counted at the start of each turn. Animals
 only breed, or court, when both partners can afford it (the Breeding reserve rule can make
 them keep hunger to spare as well; none by default). There is no rest between litters by default
 (the Breeding cooldown rule restores the old 5 to 20 turns, by fertility), but for predators, which
@@ -701,7 +701,7 @@ Territorial fights, between omnivores or between predators, go on regardless. Ze
 time, is age. Hunger stops at 100%: an animal (or plant) that full hunger reaches is starving, and loses 10% of its
 full health each turn until it eats or dies of it (Starving damage, in the Bodies group).
 
-An animal is feeble in its infancy, the first 10% of its lifespan, and in its old age, from 70% of it,
+An animal is feeble in its infancy, the first 10% of its lifespan (a predator only the first 5%: Predator infancy), and in its old age, from 70% of it,
 when it may begin to die of age (Feeble youth and Ageing, in the Bodies group). While feeble, every body
 trait (size, strength, armour, weapons, speed, sight, fertility, litter and carrion) and its full health
 are at half its own (Feeble share), rounding down, with all that follows from them: a feeble animal is

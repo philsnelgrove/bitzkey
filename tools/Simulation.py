@@ -8,7 +8,7 @@ import random
 import shutil
 import tempfile
 import time
-from collections import deque
+from collections import Counter, deque
 from collections.abc import Mapping, Sequence
 from typing import NamedTuple
 from dataclasses import dataclass, field, replace
@@ -46,6 +46,7 @@ MEAT_DIGESTION = 0.5
 # Feeble: an animal in its infancy (the first FEEBLE_YOUTH of its lifespan) or its old age (past AGEING of it)
 # has every body trait, and its health, at FEEBLE_SHARE of its own.
 FEEBLE_YOUTH = 0.1
+PREDATOR_INFANCY = 0.5  # a predator is an infant this share as long
 FEEBLE_SHARE = 0.5
 DEPLOY_GROUP = 5      # Bitzkeys deployed from the catalog onto a running world, of each chosen, a click
 USE_GPU = 0  # the C++ version's: 1 thinks on the GPUs; the Python version always thinks on the CPU
@@ -185,6 +186,21 @@ OMNIVORE_MATING_CALL = 0.25  # an omnivore's milder mating call
 HUNTER_BREEDING_COST = 0.5  # share of the usual breeding cost a predator or omnivore pays
 GRAZER_BREEDING_COST = 0.5  # share of the usual breeding cost a grazer pays
 PREDATOR_STING = 0.5   # share of a victim's spines a predator striking it takes
+# A species grown scarce breeds more cheaply: below SCARCE_POPULATION living, its breeding cost falls evenly, to
+# RARE_BREEDING_COST of the usual at RARE_POPULATION or fewer.
+SCARCE_POPULATION = 100
+RARE_POPULATION = 10
+RARE_BREEDING_COST = 1 / 3
+
+
+def scarcity_share(population: int) -> float:
+    """The share of the usual breeding cost a species of this many living pays: all of it at SCARCE_POPULATION or
+    more, falling evenly to RARE_BREEDING_COST at RARE_POPULATION or fewer."""
+    if population >= SCARCE_POPULATION:
+        return 1.0
+    if population <= RARE_POPULATION or SCARCE_POPULATION <= RARE_POPULATION:
+        return RARE_BREEDING_COST
+    return RARE_BREEDING_COST + (1 - RARE_BREEDING_COST) * (population - RARE_POPULATION) / (SCARCE_POPULATION - RARE_POPULATION)
 NEWBORN_FOOD = 5.0     # parents conceive only as many young as can each start with this much of a stomach of food; 0: no limit
 BREEDING_COST_MOST = 25.0  # the hunger the least fertile pay to breed: the most a parent could give its young
 PACK_MOUTHS = 0.5      # a hunter's pack-mates count as this many mouths each on its food, sharing their kills
@@ -580,6 +596,7 @@ class Bitzkey:
     danger_memory: tuple[int, int, int] | None = None  # where it was last struck, and the turn
     meat: float = 0.0  # a corpse's meat left for scavengers
     meat_fill: float = 0.0  # how much of its fullness is meat, which it digests more slowly
+    cost_share: float = 1.0  # the share of its breeding cost its species' scarcity leaves it, as of the turn's start
     rot: float = 0.0   # meat lost to rot each turn
     portions: int = 0  # a body's portions left to eat, feasting or scavenging: one for each size class
     trail: list[tuple[int, int]] = field(default_factory=list)  # the cells it passed through this turn, for the map
@@ -650,7 +667,8 @@ class Bitzkey:
         if self.species == "plant":
             return False
         lifespan = self.lifespan
-        return self.age < FEEBLE_YOUTH * lifespan or self.age > AGEING * lifespan
+        infancy = FEEBLE_YOUTH * (PREDATOR_INFANCY if self.species == "predator" else 1.0)  # a predator's is shorter
+        return self.age < infancy * lifespan or self.age > AGEING * lifespan
 
     def trait(self, name: str) -> int:
         """A body trait as it is now: its genes' value, or FEEBLE_SHARE of it while feeble."""
@@ -799,10 +817,10 @@ class Bitzkey:
     @property
     def breeding_cost(self) -> float:
         """Hunger it pays to breed: less the more fertile it is, and HUNTER_BREEDING_COST of that for a hunter,
-        GRAZER_BREEDING_COST for a grazer."""
+        GRAZER_BREEDING_COST for a grazer; less again while its species is scarce (cost_share)."""
         hunter = (HUNTER_BREEDING_COST if self.species in ("omnivore", "predator")
                   else GRAZER_BREEDING_COST if self.species == "grazer" else 1.0)
-        return (BREEDING_COST_MOST - 15 * self.physique("fertility")) * hunter
+        return (BREEDING_COST_MOST - 15 * self.physique("fertility")) * hunter * self.cost_share
 
     @property
     def can_breed(self) -> bool:
@@ -2244,6 +2262,11 @@ class Simulation:
         self._band_plants, self._band_grazers = plants, grazers
         self._band_prey, self._band_predators = prey, predators
         self._band_omnivores, self._band_omnivore_prey = omnivores, omnivore_prey
+        living = Counter(agent.species for agent in self.agents if agent.alive)  # a scarce species breeds more cheaply
+        shares = {species: scarcity_share(count) for species, count in living.items()}
+        for agent in self.agents:
+            if agent.alive and agent.species != "plant":
+                agent.cost_share = shares[agent.species]
 
     def _home_plants(self, grazer: Bitzkey) -> float:
         """The plants in a grazer's home band per grazer at home there, itself among them; none
