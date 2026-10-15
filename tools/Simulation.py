@@ -117,6 +117,9 @@ OTHER_KIND = 0.4       # how much of that pain reaches it when the victim is of 
 # more, times its loyalty. Dominance: a ready animal breeds with the most dominant willing partner in reach, and
 # a territory's crowding troubles the dominant less and the submissive more, by up to this share.
 LOYALTY_PULL = 0.25
+INFANT_HERDING = 1.0  # how much more an infant values keeping to its kind, and it herds once a cell from their middle
+NURSING_REACH = 2     # each turn, a grown animal feeds the hungriest infant of its kind this close, a turn's burn of food,
+NURSING_LIMIT = 80    # while it stays below this hunger itself
 DOMINANCE_EASE = 0.5
 # Trust: how much more, or less, the most and least trusting take in what they see of their herd-mates, by
 # this share; and an alert reaches it from a herd-mate this many times its trust times its sight away.
@@ -685,6 +688,14 @@ class Bitzkey:
         lifespan = self.lifespan
         infancy = FEEBLE_YOUTH * (PREDATOR_INFANCY if self.species == "predator" else 1.0)  # a predator's is shorter
         return self.age < infancy * lifespan or self.age > AGEING * lifespan
+
+    @property
+    def infant(self) -> bool:
+        """Whether it is an animal in its infancy: the first FEEBLE_YOUTH of its lifespan, a predator's PREDATOR_INFANCY
+        as long."""
+        if self.species == "plant":
+            return False
+        return self.age < FEEBLE_YOUTH * (PREDATOR_INFANCY if self.species == "predator" else 1.0) * self.lifespan
 
     def trait(self, name: str) -> int:
         """A body trait as it is now: its genes' value, or FEEBLE_SHARE of it while feeble."""
@@ -1299,6 +1310,7 @@ class Simulation:
             agent.seen_success *= SOCIAL_MEMORY
             agent.seen_failure *= SOCIAL_MEMORY ** (1 + RESILIENCE * (2 * agent.feeling("resilience") - 1))  # got over sooner
             self._settle(agent)
+            self._nurse(agent)
             if agent.hunger >= 80:
                 self._experience(agent, "starving")
             thinkers.append(agent)
@@ -1347,6 +1359,25 @@ class Simulation:
         if not plant.alive:  # it spent the last of its food on the seed
             self._die(plant, "seeded to death")
         self.seeds.append((*cell, dna, plant.generation + 1, self.turn))
+
+    def _nurse(self, agent: Bitzkey) -> None:
+        """A grown animal feeds the hungriest infant of its kind within NURSING_REACH: a turn's burn of food, so the
+        infant grows no hungrier, paid from its own stomach, while it stays below NURSING_LIMIT hunger itself."""
+        if agent.species == "plant" or agent.infant or not agent.alive:
+            return
+        infant = None
+        for other in self._nearby(agent, NURSING_REACH):
+            if (other is not agent and other.alive and other.species == agent.species and other.infant and other.hunger > 0
+                    and (infant is None or other.hunger > infant.hunger)):
+                infant = other
+        if infant is None:
+            return
+        fed = min(infant.hunger, infant.burn)
+        cost = fed * infant.stomach / agent.stomach
+        if agent.hunger + cost >= NURSING_LIMIT:
+            return
+        agent.hunger += cost
+        infant.hunger -= fed
 
     def _seed_corpse(self, corpse: Bitzkey) -> None:
         """A body rotted away leaves the seed of a new plant where it lay: a random plant genome, at home in the
@@ -1494,6 +1525,8 @@ class Simulation:
             valued[HUNT] -= CARRION_AVERSION * scavenger  # and its aversion to killing for itself
             valued[ATTACK] -= CARRION_AVERSION * scavenger
             valued[HERD] += LOYALTY_PULL * agent.feeling("loyalty")  # loyalty: keeping to its herd
+            if agent.infant:  # an infant keeps close to its kind
+                valued[HERD] += INFANT_HERDING
             odds = choice_odds(valued, options)
             roll = self.random.random()
             choice = options[-1]
@@ -1603,8 +1636,8 @@ class Simulation:
             available.add("flee")  # only from a hunter close by, unless the herd raised the alarm
         if defend_target and (agent.species != "grazer" or agent.trait("strength") > GRAZER_DEFENCE_STRENGTH):
             available.add("defend")  # a grazer only when strong enough
-        if herd_middle is not None and (abs(herd_middle[0] - agent.x) + abs(herd_middle[1] - agent.y)
-                                        > HERD_SPREAD * (1 - agent.fearfulness)):
+        spread = 1 if agent.infant else HERD_SPREAD * (1 - agent.fearfulness)  # an infant wants to be right among them
+        if herd_middle is not None and abs(herd_middle[0] - agent.x) + abs(herd_middle[1] - agent.y) > spread:
             # The more fearful it is, the closer it keeps to the herd's middle, but not where the
             # middle is further from its home temperature than here.
             if self._homeward(agent, herd_middle[1], discomfort):
@@ -2189,10 +2222,6 @@ class Simulation:
             litter = max(1, int(litter * min(1.0, self._food_supply(first) / (2 * needed)) + 0.5))
         # A grazer's litters follow the plants in its home band, a predator's the prey, an omnivore's both, half each.
         litter = max(1, int(litter * self._home_fed(first) + 0.5))
-        costs = [parent.breeding_cost for parent in (first, second)]
-        # Energy in absolute terms: a share of each parent's stomach, refilled in the young's.
-        given = sum(min(cost, max(0.0, 100 - parent.hunger)) * parent.stomach
-                    for cost, parent in zip(costs, (first, second)))
         if NEWBORN_FOOD:  # only as many young as the parents could feed, rather than many born starving
             # What the parents could give, BREEDING_COST_MOST of each stomach (or what each has left), whatever they
             # pay: neither a fertile parent's cheap breeding nor a hunter's halved cost shrinks its litters.
@@ -2200,6 +2229,12 @@ class Simulation:
             stomach = (first.stomach + second.stomach) / 2
             litter = max(1, min(litter, int(could_give / (NEWBORN_FOOD * stomach))))
         litter = max(1, min(litter, self._room()))
+        # Each parent pays its breeding cost, and at least its half of what its young need, NEWBORN_FOOD of a stomach
+        # each, so a large litter costs what it is worth rather than being born starving.
+        costs = [max(parent.breeding_cost, litter * NEWBORN_FOOD / 2) for parent in (first, second)]
+        # Energy in absolute terms: a share of each parent's stomach, refilled in the young's.
+        given = sum(min(cost, max(0.0, 100 - parent.hunger)) * parent.stomach
+                    for cost, parent in zip(costs, (first, second)))
         generation = max(first.generation, second.generation) + 1
         for _ in range(litter):
             # The child's mind starts at the average of its parents' current minds, mutated, and
@@ -2737,7 +2772,8 @@ class Simulation:
     def _herd_mate(self, agent: Bitzkey, other: Bitzkey) -> bool:
         """Whether an animal counts another as one of its herd: its species, and its kind for a
         predator, alive, and close enough in looks for it to accept as a mate."""
-        return (other is not agent and other.alive and not solitary(agent.species) and other.species == agent.species
+        return (other is not agent and other.alive and (not solitary(agent.species) or agent.infant)  # a loner's infant herds
+                and other.species == agent.species
                 and (agent.species != "predator" or self._same_kind(agent, other)) and self._willing(agent, other))
 
     def _herd(self, agent: Bitzkey) -> tuple[bool, int, tuple[int, int] | None]:

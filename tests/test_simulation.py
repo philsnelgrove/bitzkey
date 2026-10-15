@@ -3041,3 +3041,61 @@ class PredatorFamineTests(unittest.TestCase):
                 grazer.health = 0
             simulation._index_cells()
             self.assertEqual((Simulation._is_prey(hunter, other), Simulation._is_prey(hunter, kin)), (other_prey, kin_prey), alive)
+
+
+@patch("tools.Simulation.FEEBLE_YOUTH", 0.1)
+class NursingTests(unittest.TestCase):
+    def setUp(self):
+        self.simulation = Simulation(width=12, height=12, population=0, seed=3)
+
+    @patch("tools.Simulation.SMALL_LITTERS", 1.0)
+    @patch("tools.Simulation.PLANTS_PER_GRAZER", 0.0)
+    def test_parents_pay_at_least_what_their_young_need(self):
+        from tools.Simulation import NEWBORN_FOOD
+        dna = encode_dna("grazer", fertility=7, litter=7, size=4)
+        first = self.simulation._add_agent(dna, 5, 5)
+        second = self.simulation._add_agent(dna, 5, 6)
+        for parent in (first, second):
+            parent.age = round(parent.lifespan / 2)  # grown
+        self.simulation._index_cells()
+        self.simulation._population = 2
+        cheap = first.breeding_cost
+        self.simulation._breed(first, second)
+        litter = len(first.womb)
+        self.assertGreater(litter * NEWBORN_FOOD / 2, cheap)  # a litter needs more than breeding costs them
+        self.assertAlmostEqual(first.hunger, litter * NEWBORN_FOOD / 2)  # so each paid its half of the young's food
+        for young in first.womb:  # and each young starts on NEWBORN_FOOD of a stomach of its parents'
+            self.assertAlmostEqual(young[3] / first.stomach, NEWBORN_FOOD)
+
+    def test_a_grown_animal_feeds_the_hungriest_infant_of_its_kind_close_by(self):
+        from tools.Simulation import NURSING_LIMIT
+        adult = self.simulation._add_agent(encode_dna("grazer", size=4), 5, 5)
+        adult.age = round(adult.lifespan / 2)
+        hungry = self.simulation._add_agent(encode_dna("grazer", size=4), 6, 5)
+        fed = self.simulation._add_agent(encode_dna("grazer", size=4), 5, 6)
+        stranger = self.simulation._add_agent(encode_dna("omnivore", size=4), 4, 5)  # another species: not its to feed
+        far = self.simulation._add_agent(encode_dna("grazer", size=4), 10, 10)
+        self.simulation._index_cells()
+        self.assertTrue(all(young.infant for young in (hungry, fed, stranger, far)) and not adult.infant)
+        hungry.hunger, fed.hunger, stranger.hunger, far.hunger = 60, 20, 90, 99
+        adult.hunger = 10
+        self.simulation._nurse(adult)
+        self.assertAlmostEqual(hungry.hunger, 60 - hungry.burn)  # the hungriest close by, a turn's burn
+        self.assertEqual((fed.hunger, stranger.hunger, far.hunger), (20, 90, 99))
+        self.assertAlmostEqual(adult.hunger, 10 + hungry.burn * hungry.stomach / adult.stomach)  # from its own stomach
+        adult.hunger = NURSING_LIMIT - 0.01  # too hungry itself
+        self.simulation._nurse(adult)
+        self.assertAlmostEqual(hungry.hunger, 60 - hungry.burn)
+        self.simulation._nurse(hungry)  # an infant feeds no one
+        self.assertEqual(fed.hunger, 20)
+
+    def test_an_infant_keeps_close_to_its_kind_even_a_loners(self):
+        dna = encode_dna("omnivore", empathy=7, patience=7, sight=3)
+        infant = self.simulation._add_agent(dna, 2, 5)
+        grown = [self.simulation._add_agent(dna, x, 5) for x in (4, 5)]
+        for adult in grown:
+            adult.age = round(adult.lifespan / 2)
+        self.simulation._index_cells()
+        self.assertTrue(self.simulation._herd_mate(infant, grown[0]))  # a solitary omnivore's infant herds with its kind
+        self.assertFalse(self.simulation._herd_mate(grown[0], grown[1]))  # though grown omnivores still don't
+        self.assertIn(ACTIONS.index("herd"), self.simulation._sense(infant)[1])  # two cells off their middle: it herds

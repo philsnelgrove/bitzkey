@@ -88,7 +88,7 @@ Each imported genome spawns as a group of 3 to
 "Bitzkeys" to 0 to start with only your imports.
 
 ADVANCED opens the advanced rules, beneath a word of warning that they are the world's
-'natural law', carefully balanced, and that changing them can have unpredictable results: 224 numbers that shape how the world plays
+'natural law', carefully balanced, and that changing them can have unpredictable results: 227 numbers that shape how the world plays
 out, in groups (World, Bodies, Breeding, Feelings, Mind, Fighting, Territory,
 Herding, Food, Plants, Climate, Society and Experiences). Among them are lifespans, metabolism, litter
 sizes, food-aware breeding, the rewards and pains a brain learns from, blows and
@@ -304,7 +304,7 @@ through shows in their young. Its neurodivergence comes whole from either parent
 | speed | cells moved per step of foraging, fleeing or going off in a direction (1 to 4; grazers move half as far again, rounded up: 2, 3, 5 or 6) |
 | sight | how far it sees: 2 cells, and 3 more for each step of the trait (2 to 23 cells). Its sight also sets how far its herd, its crowding and its territory reach |
 | fertility | high: cheap, frequent breeding and weak, hungry young; low: costly, rare breeding and well-fed young |
-| litter | young per birth: 1 to 6, before the small-body boost. A high litter trait and a small body both make litters bigger, half each, averaged over both parents, so small animals tend to have large litters and large animals small ones. On top of that, the smallest bodies have twice as many young, falling evenly to the usual number for the largest (up to 12 in all). Each young is born on a free cell up to two cells from its mother (the sides first, then the corners, then the ring beyond), and the litter shares the energy its parents give. Parents conceive no more young than they could start on 5% of a stomach each (Newborn food): what they could give is a quarter of each stomach, the most any parent pays to breed, or what each has left if less, whatever they actually pay, so neither a fertile parent's cheap breeding nor a hunter's halved cost shrinks its litters, while a hungry pair has fewer young. Up to ten young; the energy they share is still what the parents pay. |
+| litter | young per birth: 1 to 6, before the small-body boost. A high litter trait and a small body both make litters bigger, half each, averaged over both parents, so small animals tend to have large litters and large animals small ones. On top of that, the smallest bodies have twice as many young, falling evenly to the usual number for the largest (up to 12 in all). Each young is born on a free cell up to two cells from its mother (the sides first, then the corners, then the ring beyond), and the litter shares the energy its parents give. Parents conceive no more young than they could start on 5% of a stomach each (Newborn food): what they could give is a quarter of each stomach, the most any parent pays to breed, or what each has left if less, whatever they actually pay, so neither a fertile parent's cheap breeding nor a hunter's halved cost shrinks its litters, while a hungry pair has fewer young. Up to ten young; each parent pays at least its half of what they need, 5% of a stomach each, so every young starts fed and a large litter costs what it is worth. |
 | carrion | how much of carrion's meat nourishes it: 20% at 0, all of it at 7. Above the middle of the range it makes a carrion-eater, more of one the higher it is, up to fully at 7: it craves the carrion it sees (Carrion craving), shies from hunting and attacking (Carrion aversion), and scales into a coward, breaking when struck at least as often as it is a carrion-eater, so always at 7, as an omnivore does (Carrion cowardice) |
 
 There is no metabolism gene: size sets it. The smallest bodies run at 1.6 and
@@ -704,7 +704,7 @@ Territorial fights, between omnivores or between predators, go on regardless. Ze
 time, is age. Hunger stops at 100%: an animal (or plant) that full hunger reaches is starving, and loses 10% of its
 full health each turn until it eats or dies of it (Starving damage, in the Bodies group).
 
-An animal is feeble in its infancy, the first 10% of its lifespan (a predator only the first 5%: Predator infancy), and in its old age, from 70% of it,
+Infants are cared for. Each turn, every grown animal that isn't starving (below 80% hunger: Nursing limit) feeds the hungriest infant of its own kind within two cells (Nursing reach) a turn's worth of its food, from its own stomach, so the infant grows no hungrier while it is cared for. Infants keep close to their kind: they value herding more (Infant herding) and herd once they are more than a cell from their herd's middle, and even a solitary omnivore's infant herds with other omnivores until it grows up. An animal is feeble in its infancy, the first 10% of its lifespan (a predator only the first 5%: Predator infancy), and in its old age, from 70% of it,
 when it may begin to die of age (Feeble youth and Ageing, in the Bodies group). While feeble, every body
 trait (size, strength, armour, weapons, speed, sight, fertility, litter and carrion) and its full health
 are at half its own (Feeble share), rounding down, with all that follows from them: a feeble animal is
