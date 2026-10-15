@@ -191,19 +191,26 @@ PREDATOR_STING = 0.5   # share of a victim's spines a predator striking it takes
 SCARCE_POPULATION = 100
 RARE_POPULATION = 10
 RARE_BREEDING_COST = 1 / 3
+GRAZER_SCARCE_POPULATION = 300  # grazers' cheap breeding begins below this many,
+GRAZER_RARE_BREEDING_COST = 1 / 9  # and falls to this share of the usual cost at RARE_POPULATION or fewer
+PREDATOR_FULL_LITTER_FOOD = 8.0  # a predator's full litter needs this many times the prey a predator needs to breed
 FULL_LITTER_FOOD = 4.0  # a full litter needs this many times the home food a mouth needs to breed; at the need, 1/this
 RARE_PREY = 10          # a hunter doesn't breed while fewer of its prey species (all together) live, sparing the last
 HUNTERS_PREY = {"predator": ("grazer", "omnivore"), "omnivore": ("grazer", "predator")}  # the species each hunter lives on
 
 
-def scarcity_share(population: int) -> float:
+def scarcity_share(population: int, species: str | None = None) -> float:
     """The share of the usual breeding cost a species of this many living pays: all of it at SCARCE_POPULATION or
-    more, falling evenly to RARE_BREEDING_COST at RARE_POPULATION or fewer."""
-    if population >= SCARCE_POPULATION:
+    more, falling evenly to RARE_BREEDING_COST at RARE_POPULATION or fewer; for grazers, from GRAZER_SCARCE_POPULATION
+    to GRAZER_RARE_BREEDING_COST."""
+    grazer = species == "grazer"
+    scarce = GRAZER_SCARCE_POPULATION if grazer else SCARCE_POPULATION
+    rare_cost = GRAZER_RARE_BREEDING_COST if grazer else RARE_BREEDING_COST
+    if population >= scarce:
         return 1.0
-    if population <= RARE_POPULATION or SCARCE_POPULATION <= RARE_POPULATION:
-        return RARE_BREEDING_COST
-    return RARE_BREEDING_COST + (1 - RARE_BREEDING_COST) * (population - RARE_POPULATION) / (SCARCE_POPULATION - RARE_POPULATION)
+    if population <= RARE_POPULATION or scarce <= RARE_POPULATION:
+        return rare_cost
+    return rare_cost + (1 - rare_cost) * (population - RARE_POPULATION) / (scarce - RARE_POPULATION)
 NEWBORN_FOOD = 5.0     # parents conceive only as many young as can each start with this much of a stomach of food; 0: no limit
 BREEDING_COST_MOST = 25.0  # the hunger the least fertile pay to breed: the most a parent could give its young
 PACK_MOUTHS = 0.5      # a hunter's pack-mates count as this many mouths each on its food, sharing their kills
@@ -2267,7 +2274,7 @@ class Simulation:
         self._band_prey, self._band_predators = prey, predators
         self._band_omnivores, self._band_omnivore_prey = omnivores, omnivore_prey
         self._living = Counter(agent.species for agent in self.agents if agent.alive)
-        shares = {species: scarcity_share(count) for species, count in self._living.items()}
+        shares = {species: scarcity_share(count, species) for species, count in self._living.items()}
         for agent in self.agents:  # a scarce species breeds more cheaply
             if agent.alive and agent.species != "plant":
                 agent.cost_share = shares[agent.species]
@@ -2305,7 +2312,13 @@ class Simulation:
     def _well_fed(self, agent: Bitzkey) -> bool:
         """Whether its home band holds the food a mouth needs to breed: plants for a grazer, prey for a predator, both
         together, half each, for an omnivore."""
-        return self._home_fed(agent) >= 1 / FULL_LITTER_FOOD
+        return self._home_fed(agent) >= 1 / self._full_litter(agent)
+
+    @staticmethod
+    def _full_litter(agent: Bitzkey) -> float:
+        """How many times the home food it needs to breed a full litter needs: PREDATOR_FULL_LITTER_FOOD for a
+        predator, FULL_LITTER_FOOD for any other."""
+        return PREDATOR_FULL_LITTER_FOOD if agent.species == "predator" else FULL_LITTER_FOOD
 
     def _prey_rare(self, agent: Bitzkey) -> bool:
         """Whether a hunter's prey species, all together, have grown so few (under RARE_PREY living) that it spares
@@ -2343,12 +2356,13 @@ class Simulation:
                     + 0.5 * self._fed_share(self._band_omnivore_prey[band] / mouths, PREY_PER_PREDATOR))
         if agent.species == "plant":
             return 0.0
-        return self._fed_share(self._home_food(agent), self._home_food_needed(agent))
+        return self._fed_share(self._home_food(agent), self._home_food_needed(agent), self._full_litter(agent))
 
     @staticmethod
-    def _fed_share(food: float, needed: float) -> float:
-        """The share of a full litter `food` a mouth feeds where `needed` is the least to breed: full at twice it."""
-        return min(1.0, food / (FULL_LITTER_FOOD * needed)) if needed else 1.0
+    def _fed_share(food: float, needed: float, full: float | None = None) -> float:
+        """The share of a full litter `food` a mouth feeds where `needed` is the least to breed: full at `full` times
+        it (FULL_LITTER_FOOD unless given)."""
+        return min(1.0, food / ((FULL_LITTER_FOOD if full is None else full) * needed)) if needed else 1.0
 
     def _nearby(self, agent: Bitzkey, radius: int) -> list[Bitzkey]:
         found = []

@@ -88,7 +88,7 @@ Each imported genome spawns as a group of 3 to
 "Bitzkeys" to 0 to start with only your imports.
 
 ADVANCED opens the advanced rules, beneath a word of warning that they are the world's
-'natural law', carefully balanced, and that changing them can have unpredictable results: 220 numbers that shape how the world plays
+'natural law', carefully balanced, and that changing them can have unpredictable results: 223 numbers that shape how the world plays
 out, in groups (World, Bodies, Breeding, Feelings, Mind, Fighting, Territory,
 Herding, Food, Plants, Climate, Society and Experiences). Among them are lifespans, metabolism, litter
 sizes, food-aware breeding, the rewards and pains a brain learns from, blows and
@@ -636,7 +636,7 @@ by turn 600 when they were learnt 8 and 6 times as strongly, and 22 with the ple
 against 8 without. With these pleasures, predators lasted in twice as many worlds as before, ten
 times as many of them, over 40 seeds, with no more worlds dying out.
 
-Each parent pays 10 to 25% of its stomach to breed, less the more fertile it is, and every animal pays half of that: grazers (Breeding cost, grazers) as hunters do, so 5 to 12.5%. A species grown scarce breeds more cheaply still: below 100 living (Scarce population), its breeding cost falls evenly, to a third of the usual at 10 or fewer (Rare population, Rare breeding cost), counted at the start of each turn. Animals
+Each parent pays 10 to 25% of its stomach to breed, less the more fertile it is, and every animal pays half of that: grazers (Breeding cost, grazers) as hunters do, so 5 to 12.5%. A species grown scarce breeds more cheaply still: below 100 living (Scarce population), its breeding cost falls evenly, to a third of the usual at 10 or fewer (Rare population, Rare breeding cost), counted at the start of each turn. Grazers, the prey everything else lives on, get three times the help: theirs falls from 300 living (Grazer scarce population) to a ninth of the cost at 10 or fewer (Grazer rare breeding cost). Animals
 only breed, or court, when both partners can afford it (the Breeding reserve rule can make
 them keep hunger to spare as well; none by default). There is no rest between litters by default
 (the Breeding cooldown rule restores the old 5 to 20 turns, by fertility), but for predators, which
@@ -679,7 +679,8 @@ each: half the share of a full litter its plants would give a grazer, and half t
 (grazers and predators) would give a predator, each counted per omnivore at home there; with less than
 its need, the two together, it doesn't breed. Above its need, an animal's litters grow with its home
 food, to a full litter at four times the need (Full litter food), so at just the need its litter is a
-quarter of what its traits would give (at least one young). An animal that can't breed can't court
+quarter of what its traits would give (at least one young); a predator's only at eight times the prey it
+needs (Predator full litter), so at its need an eighth. An animal that can't breed can't court
 either, so a hunter short of prey hunts rather than courting a partner it couldn't breed with. And a
 hunter spares the last of its prey: while fewer than 10 of its prey species, all together, live in the
 world (Rare prey), a predator or omnivore doesn't breed at all. Sparse food was made this telling after

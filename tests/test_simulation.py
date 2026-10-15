@@ -13,13 +13,16 @@ from tools.Simulation import (Death, DEATH_PENALTY, AGENT_BYTES, ATTACK_JOY, FEA
 
 
 def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, unless a test says so
-    global _grown, _common, _plenty
+    global _grown, _common, _grazers, _plenty
     _grown = patch("tools.Simulation.FEEBLE_YOUTH", 0.0)
     _grown.start()
     _common = patch("tools.Simulation.RARE_BREEDING_COST", 1.0)  # the few Bitzkeys of a test breed at the usual cost
     _common.start()
+    _grazers = patch("tools.Simulation.GRAZER_RARE_BREEDING_COST", 1.0)  # grazers too
+    _grazers.start()
     _plenty = [patch("tools.Simulation.RARE_PREY", 0),  # a test's lone hunters may breed with no prey alive
-               patch("tools.Simulation.FULL_LITTER_FOOD", 2.0)]  # and full litters at twice the need, as these figures assume
+               patch("tools.Simulation.FULL_LITTER_FOOD", 2.0),  # and full litters at twice the need, as these figures assume
+               patch("tools.Simulation.PREDATOR_FULL_LITTER_FOOD", 2.0)]
     for each in _plenty:
         each.start()
 
@@ -27,6 +30,7 @@ def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, u
 def tearDownModule():
     _grown.stop()
     _common.stop()
+    _grazers.stop()
     for each in _plenty:
         each.stop()
 
@@ -2943,21 +2947,26 @@ class ScavengerTests(unittest.TestCase):
 
 class ScarcityTests(unittest.TestCase):
     @patch("tools.Simulation.RARE_BREEDING_COST", 1 / 3)
-    def test_a_scarce_species_breeds_more_cheaply_down_to_a_third_when_rare(self):
+    @patch("tools.Simulation.GRAZER_RARE_BREEDING_COST", 1 / 9)
+    def test_a_scarce_species_breeds_more_cheaply_down_to_a_third_when_rare_and_grazers_to_a_ninth(self):
         from tools.Simulation import scarcity_share
         self.assertEqual((scarcity_share(100), scarcity_share(250)), (1.0, 1.0))
         self.assertEqual((scarcity_share(10), scarcity_share(3)), (1 / 3, 1 / 3))
         self.assertAlmostEqual(scarcity_share(55), 2 / 3)  # halfway
+        self.assertEqual((scarcity_share(300, "grazer"), scarcity_share(10, "grazer")), (1.0, 1 / 9))  # grazers' from 300
+        self.assertAlmostEqual(scarcity_share(155, "grazer"), 1 / 9 + (8 / 9) * 145 / 290)
         simulation = Simulation(width=12, height=12, population=0, seed=3)
-        grazer = simulation._add_agent(encode_dna("grazer", fertility=0), 2, 2)
-        usual = grazer.breeding_cost
-        simulation._index_cells()  # one grazer: rare
-        self.assertAlmostEqual(grazer.breeding_cost, usual / 3)
+        omnivore = simulation._add_agent(encode_dna("omnivore", fertility=0), 2, 2)
+        grazer = simulation._add_agent(encode_dna("grazer", fertility=0), 8, 8)
+        usual, usual_grazer = omnivore.breeding_cost, grazer.breeding_cost
+        simulation._index_cells()  # one of each: rare
+        self.assertAlmostEqual(omnivore.breeding_cost, usual / 3)
+        self.assertAlmostEqual(grazer.breeding_cost, usual_grazer / 9)
         for x in range(10):
             for y in range(10):
-                simulation._add_agent(encode_dna("grazer"), x, y + 1) if (x, y + 1) != (2, 2) else None
-        simulation._index_cells()  # a hundred: common again
-        self.assertEqual(grazer.breeding_cost, usual)
+                simulation._add_agent(encode_dna("omnivore"), x, y + 1) if (x, y + 1) != (2, 2) else None
+        simulation._index_cells()  # a hundred omnivores: common again
+        self.assertEqual(omnivore.breeding_cost, usual)
 
 
 class PredatorInfancyTests(unittest.TestCase):
@@ -2976,6 +2985,7 @@ class PredatorInfancyTests(unittest.TestCase):
 
 class SparseFoodTests(unittest.TestCase):
     @patch("tools.Simulation.FULL_LITTER_FOOD", 4.0)
+    @patch("tools.Simulation.PREDATOR_FULL_LITTER_FOOD", 8.0)
     @patch("tools.Simulation.RARE_PREY", 10)
     @patch("tools.Simulation.PREY_PER_PREDATOR", 1.0)
     def test_hunters_need_their_food_full_litters_need_four_times_it_and_the_last_prey_are_spared(self):
@@ -2991,7 +3001,7 @@ class SparseFoodTests(unittest.TestCase):
         for x in (2, 4):  # two prey at home for two predators: just its need
             simulation._add_agent(encode_dna("grazer"), x, 10)
         simulation._index_cells()
-        self.assertEqual(simulation._home_fed(first), 0.25)  # a quarter of a full litter at the need
+        self.assertEqual(simulation._home_fed(first), 0.125)  # an eighth of a predator's full litter at the need
         self.assertIn(breed, simulation._sense(first)[1])
         for grazer in far:  # the prey dying out: only the two at home left
             grazer.health = 0
