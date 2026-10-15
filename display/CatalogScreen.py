@@ -8,6 +8,7 @@ from __future__ import annotations
 import pygame as pg
 
 from display import Window
+from display.Designer import Designer
 from display.Dialog import Dialog
 from display.Inspector import draw_details
 from display.Look import RING_WIDTH, dot_radius, draw_bitzkey
@@ -90,6 +91,8 @@ class CatalogScreen:
                     self._scroll_to(self.scroll - event.y)
                 elif event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
                     action = self._click(event.pos)
+                    if action == "design" and not self._design():
+                        return "quit", None
                     if action in ("import", "deploy"):
                         return action, self._chosen_entries()
                     if action == "close":
@@ -136,6 +139,21 @@ class CatalogScreen:
                                                           else "It will be gone from the catalog for good."],
                              [("keep", "KEEP"), ("remove", "REMOVE")], cancel="keep")
 
+    def _design(self) -> bool:
+        """Open the designer on the entry picked (a fresh genome if the catalog is empty); a design applied joins the
+        catalog as a new entry, its genome alone, and is picked. Returns False if the window was closed from it."""
+        dna = self._inspect(self.picked).dna if self.entries else None
+        outcome, designed = Designer(self.screen, dna).run()
+        if outcome == "quit":
+            return False
+        if outcome == "apply" and designed is not None:
+            Catalog.add([Catalog.design_entry(designed)])
+            self.entries = Catalog.load()
+            self._inspected.clear()
+            self._choose(len(self.entries) - 1)
+            self.note = "Designed and added to the catalog."
+        return True
+
     def _remove(self) -> None:
         count = len(self.chosen)
         for index in sorted(self.chosen, reverse=True):  # the last first, so the rest keep their places
@@ -158,15 +176,18 @@ class CatalogScreen:
         width, height = self.screen.get_size()
         card = pg.Rect(0, 0, min(UI(940), width - UI(40)), min(UI(760), height - UI(40)))
         card.center = (width // 2, height // 2)
-        details = pg.Rect(card.right - UI(24) - UI(330), card.top + UI(96), UI(330), card.height - UI(170))
-        listing = pg.Rect(card.left + UI(24), card.top + UI(96), details.left - card.left - UI(48), card.height - UI(170))
+        details = pg.Rect(card.right - UI(24) - UI(330), card.top + UI(96), UI(330), card.height - UI(186))
+        listing = pg.Rect(card.left + UI(24), card.top + UI(96), details.left - card.left - UI(48), card.height - UI(186))
         close = pg.Rect(0, 0, UI(120), UI(36))
         close.bottomright = (card.right - UI(24), card.bottom - UI(18))
         add = pg.Rect(0, 0, UI(180), UI(36))
         add.bottomright = (close.left - UI(10), close.bottom)
         remove = pg.Rect(0, 0, UI(110), UI(36))
         remove.bottomleft = (card.left + UI(24), card.bottom - UI(18))
-        return {"card": card, "list": listing, "details": details, "close": close, "import": add, "remove": remove}
+        design = pg.Rect(0, 0, UI(110), UI(36))
+        design.bottomleft = (remove.right + UI(10), remove.bottom)
+        return {"card": card, "list": listing, "details": details, "close": close, "import": add, "remove": remove,
+                "design": design}
 
     def _row(self, index: int) -> pg.Rect:
         listing = self._layout()["list"]
@@ -182,6 +203,8 @@ class CatalogScreen:
         if layout["remove"].collidepoint(position) and self.chosen:
             self._ask_to_remove()
             return None
+        if layout["design"].collidepoint(position):
+            return "design"
         if layout["list"].collidepoint(position):
             for index in range(self.scroll, min(len(self.entries), self.scroll + self._rows_shown())):
                 if self._row(index).collidepoint(position):
@@ -235,7 +258,8 @@ class CatalogScreen:
         adding = "ADD TO IMPORT" if len(self.chosen) <= 1 else f"ADD {len(self.chosen)} TO IMPORT"
         if self.browsing:  # onto the running world, painted on the map
             adding = "DEPLOY" if len(self.chosen) <= 1 else f"DEPLOY {len(self.chosen)}"
-        for name, label, lit in (("remove", "REMOVE", False), ("import", adding, True), ("close", "CLOSE", False)):
+        for name, label, lit in (("remove", "REMOVE", False), ("design", "DESIGNER", False), ("import", adding, True),
+                                 ("close", "CLOSE", False)):
             button = layout[name]
             active = lit and bool(self.chosen)
             pg.draw.rect(self.screen, (131, 205, 143) if active else (44, 57, 52), button, border_radius=UI(6))
@@ -243,8 +267,8 @@ class CatalogScreen:
             self.screen.blit(text, text.get_rect(center=button.center))
         hint = self.note or ("CLICK, SHIFT or CTRL+CLICK  choose    ENTER  deploy    DELETE  remove    ESC  close" if self.browsing else
                              "CLICK, SHIFT or CTRL+CLICK  choose    ENTER  add to import    DELETE  remove    ESC  close")
-        self._text(hint, (layout["remove"].right + UI(16), layout["remove"].centery - UI(8)),
-                   (238, 183, 110) if self.note else (116, 139, 124), self.small)
+        label = self.small.render(hint, True, (238, 183, 110) if self.note else (116, 139, 124))
+        self.screen.blit(label, (card.right - UI(24) - label.get_width(), listing.bottom + UI(6)))  # above the buttons
         if self.dialog:
             self.dialog.draw(self.screen)
 

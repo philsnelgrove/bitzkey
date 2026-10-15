@@ -149,6 +149,18 @@ class TimeTravelTests(unittest.TestCase):
             self.graph.draw(surface, self.simulation, None)
         self.assertEqual(tooltip.call_args.args[1].identifier, identifier)
 
+        living = {agent.identifier for agent in self.simulation.living}  # and a dead one: what is known of it
+        dead = next((bar, slice_) for bar in self.graph._bars for slice_ in bar.slices if slice_[0] not in living)
+        bar, (identifier, top, bottom) = dead
+        self.graph._mouse = (bar.left + 1, round((top + bottom) / 2))
+        with unittest.mock.patch("display.ColourGraph.draw_tooltip") as tooltip:
+            self.graph.draw(surface, self.simulation, None)
+        shown, known = tooltip.call_args.args[1], tooltip.call_args.args[2]
+        self.assertEqual((shown.identifier, shown.dna, known), (identifier, self.simulation.lineage[identifier], False))
+        self.assertIn(tooltip.call_args.kwargs["note"].split(":")[0], ("Died at turn " + str(self.simulation.death_records[identifier].turn)
+                                                                        if identifier in self.simulation.death_records else "Dead"))
+        self.graph.draw(surface, self.simulation, None)  # and it draws
+
     def test_dragging_the_timeline_seeks_where_it_is_let_go(self):
         y = self.timeline.centery
         self.click(pg.MOUSEBUTTONDOWN, self.chart.left + 5, y)

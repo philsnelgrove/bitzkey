@@ -822,7 +822,11 @@ whole run at its whole height again.
 Hovering over a dead Bitzkey's slice shows how it died: the cause, and, when something killed it
 (a hunter, a defender, a victim's spines, or a grazer eating or uprooting a plant), that killer's
 number and species and what it was doing: hunting, attacking, defending, browsing, uprooting, or spines
-(struck, its spines killed its attacker), as in "died: killed by #012 predator, hunting".
+(struck, its spines killed its attacker), as in "died: killed by #012 predator, hunting". A popup
+beside the pointer shows what is known of it, as for the living: its genome (its colours, the traits it
+was born with, its body as grown and its home temperature) and its lifespan, and, in place of how it
+fares, how it died and on what turn. What it became over its life (its temperament, hunger and health)
+went with it.
 
 Pick Bitzkeys straight from the graph. Only the living can be picked, and one
 that dies drops out of the selection:
@@ -873,7 +877,9 @@ to add one or take it out, `Shift`-click to choose every one from the last one
 clicked (`Ctrl`+`Shift` to add them), `Shift`+`Up`/`Down` to extend the choice,
 and `Ctrl`+`A` for all. ADD TO IMPORT (`Enter`) adds every one chosen to the import
 list, brains and all, REMOVE (`Delete`) takes them out of the catalog for good
-after asking, and CLOSE (`Esc`) returns. Each entry is written as an export record, so `catalog.json` can also be
+after asking, DESIGNER opens the designer on the entry picked, a design applied joining the catalog
+as a new entry (its genome alone, listed as "designed", with no brain, ready to import or deploy like
+any other), and CLOSE (`Esc`) returns. Each entry is written as an export record, so `catalog.json` can also be
 loaded like any export file.
 
 OPEN CATALOG, in the footer beside EXPORT ALL SELECTED and at the bottom right of

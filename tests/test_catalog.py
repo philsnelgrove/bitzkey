@@ -171,6 +171,38 @@ class CatalogTests(unittest.TestCase):
                          [agent.identifier for agent in others[2:]])
         pg.display.quit()
 
+    def test_the_designer_button_adds_a_design_to_the_catalog_as_a_genome_alone(self):
+        from tools.Genome import encode_dna
+        Catalog.add([Catalog.entry_for(self.animal, self.simulation.turn)])
+        designed = encode_dna("grazer", size=5, speed=7)
+        screen = pg.display.set_mode((1200, 820))
+        catalog = CatalogScreen(screen, browsing=True)
+        catalog._draw()
+        button = catalog._layout()["design"]
+        with patch("display.CatalogScreen.Designer") as designer:
+            designer.return_value.run.return_value = ("apply", designed)
+            pg.event.post(pg.event.Event(pg.MOUSEBUTTONDOWN, button=1, pos=button.center))
+            pg.event.post(pg.event.Event(pg.KEYDOWN, key=pg.K_ESCAPE, unicode="", mod=0))
+            self.assertEqual(catalog.run(), ("close", None))
+        self.assertEqual(designer.call_args.args[1], self.animal.dna)  # opened on the entry picked
+        entries = Catalog.load()
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(Catalog.imported(entries[1]).dna, designed)
+        self.assertIsNone(Catalog.imported(entries[1]).brain)  # its genome alone
+        self.assertTrue(Catalog.describe(entries[1]).startswith("designed grazer"))
+        self.assertEqual(catalog.picked, 1)  # the design, picked
+        with patch("display.CatalogScreen.Designer") as designer:
+            designer.return_value.run.return_value = ("cancel", None)
+            self.assertTrue(catalog._design())
+        self.assertEqual(len(Catalog.load()), 2)  # cancelled: nothing added
+
+    def test_a_dead_bitzkey_on_the_graph_shows_how_it_died(self):
+        from display.ColourGraph import death_note
+        dead = next(identifier for identifier in self.simulation.death_records)
+        death = self.simulation.death_records[dead]
+        self.assertTrue(death_note(self.simulation, dead).startswith(f"Died at turn {death.turn}: {death.cause}"))
+        self.assertEqual(death_note(self.simulation, 10_000), "Dead: only its genome is known.")
+
 
 if __name__ == "__main__":
     unittest.main()

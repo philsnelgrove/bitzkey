@@ -60,10 +60,11 @@ def _bar(screen: pg.Surface, x: int, y: int, width: int, value: float, color: tu
 
 
 def draw_details(screen: pg.Surface, agent: Bitzkey, x: int, at: Callable[[float], int], width: int,
-                 known: bool = True, here: float | None = None) -> None:
+                 known: bool = True, here: float | None = None, note: str | None = None) -> None:
     """Draw the details from x across `width`; `at` turns a design offset from their top into a
     screen y. A Bitzkey not `known` is one no longer (or not yet) in the world, rebuilt from its
-    genome, so only what its genes fix is shown. `here` is the temperature where it is."""
+    genome, so only what its genes fix is shown, with `note` (how it died, say) beneath. `here` is the
+    temperature where it is."""
     font, small = UI.font("segoeui", 15), UI.font("segoeui", 12)
     mono_small = UI.font("consolas", 12)
     draw_bitzkey(screen, agent.dna, (x + UI(10), at(11)), dot_radius(int(agent.body["size"]), UI(DOT_RADIUS_RANGE[1])),
@@ -98,8 +99,8 @@ def draw_details(screen: pg.Surface, agent: Bitzkey, x: int, at: Callable[[float
 
     if not known:
         _text(screen, f"LIFESPAN ~{agent.lifespan:.0f}", (x, at(302)), (145, 164, 146), small)
-        _text(screen, "Not in the world at this turn: only its genome is known.", (x, at(318)), (116, 139, 124),
-              small)
+        _text(screen, note or "Not in the world at this turn: only its genome is known.", (x, at(318)),
+              (116, 139, 124), small)
         return
     half = (width - UI(12)) // 2
     _text(screen, f"HUNGER {min(100.0, agent.hunger):5.1f}%", (x, at(302)), (224, 177, 118), mono_small)
@@ -121,7 +122,7 @@ def draw_details(screen: pg.Surface, agent: Bitzkey, x: int, at: Callable[[float
 
 
 def draw_tooltip(screen: pg.Surface, agent: Bitzkey, known: bool, mouse: tuple[int, int],
-                 here: float | None = None) -> pg.Rect:
+                 here: float | None = None, note: str | None = None) -> pg.Rect:
     """The details in a box beside the mouse, kept on the screen. Returns the box."""
     width, padding = UI(300), UI(12)
     box = pg.Rect(0, 0, width + 2 * padding, UI(DETAILS_HEIGHT if known else GENOME_HEIGHT) + 2 * padding)
@@ -132,5 +133,5 @@ def draw_tooltip(screen: pg.Surface, agent: Bitzkey, known: bool, mouse: tuple[i
     pg.draw.rect(screen, (19, 26, 27), box, border_radius=UI(6))
     pg.draw.rect(screen, (131, 205, 143), box, 1, border_radius=UI(6))
     top = box.top + padding
-    draw_details(screen, agent, box.left + padding, lambda offset: top + UI(offset), width, known, here)
+    draw_details(screen, agent, box.left + padding, lambda offset: top + UI(offset), width, known, here, note)
     return box

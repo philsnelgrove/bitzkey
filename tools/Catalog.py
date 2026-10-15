@@ -15,7 +15,7 @@ from pathlib import Path
 
 from config.Globals import Config
 from tools.Exchange import Imported, bitzkey_record, format_records, import_bitzkeys
-from tools.Genome import decode_body
+from tools.Genome import decode_body, genome_record
 from tools.Simulation import Bitzkey
 
 
@@ -38,6 +38,13 @@ def entry_for(agent: Bitzkey, turn: int) -> dict:
         "last_action": agent.last_action,
         "odds": {action: round(chance, STATE_DIGITS) for action, chance in agent.odds.items()},
     }
+    return record
+
+
+def design_entry(dna: int) -> dict:
+    """A catalog entry for a design: its genome alone, no brain, marked as designed."""
+    record = genome_record(dna)
+    record["catalog"] = {"designed": True, "added": datetime.now().strftime("%Y-%m-%d %H:%M")}
     return record
 
 
@@ -110,6 +117,7 @@ def describe(entry: dict) -> str:
     state = entry.get("catalog", {})
     species = decode_body(imported(entry).dna)["species"]
     identifier = state.get("identifier")
-    name = f"#{identifier:03d} {species}" if isinstance(identifier, int) else species
+    name = (f"#{identifier:03d} {species}" if isinstance(identifier, int)
+            else f"designed {species}" if state.get("designed") else species)
     when = f"turn {state['turn']}" if "turn" in state else ""
     return "   ".join(part for part in (name, when, state.get("added", "")) if part)

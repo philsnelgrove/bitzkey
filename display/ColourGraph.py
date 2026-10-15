@@ -147,6 +147,15 @@ def death_text(simulation: Simulation, identifier: int) -> str:
                                      f" by #{death.killer:03d} {death.killer_species}, {death.activity}")
 
 
+def death_note(simulation: Simulation, identifier: int) -> str:
+    """How a dead Bitzkey died, as far as it is known: the turn, the cause, and what killed it, doing what."""
+    death = simulation.death_records.get(identifier)
+    if death is None:
+        return "Dead: only its genome is known."
+    killer = "" if death.killer is None else f" by #{death.killer:03d} {death.killer_species}, {death.activity}"
+    return f"Died at turn {death.turn}: {death.cause}{killer}."
+
+
 def fit_text(text: str, font: pg.font.Font, width: int) -> str:
     """The text, cut short with an ellipsis if it is wider than `width`."""
     if font.size(text)[0] <= width:
@@ -515,9 +524,13 @@ class ColourGraph:
                    (panel.left + UI(24), panel.bottom - UI(28)), (144, 170, 151), self.small)
         if self.menu_open:
             self._draw_menu(screen)
-        elif hovered in self._alive and not self._press:  # the dead show only their colour, below
+        elif hovered in self._alive and not self._press:
             agent = next(item for item in simulation.agents if item.identifier == hovered)
             draw_tooltip(screen, agent, True, self._mouse, simulation.temperature(agent.y))
+        elif hovered is not None and not self._press:  # the dead: what the genome fixes, and how it died
+            remembered = Bitzkey(hovered, simulation.lineage[hovered], 0, 0)
+            remembered.age = round(remembered.lifespan / 2)  # grown, not feeble: its genome's body
+            draw_tooltip(screen, remembered, False, self._mouse, note=death_note(simulation, hovered))
 
     def _draw_sort_button(self, screen: pg.Surface, button: pg.Rect) -> None:
         pg.draw.rect(screen, (44, 57, 52), button, border_radius=UI(4))
