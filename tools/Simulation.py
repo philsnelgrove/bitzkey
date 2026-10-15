@@ -1996,7 +1996,8 @@ class Simulation:
         if killed:
             self._die(victim, "killed", agent, activity)
 
-        sting = 4.5 * self._armed(victim) * self._defence_share(victim) * (1 - 0.6 * agent.toughness)
+        sting = (0.0 if victim.species == "omnivore"  # an omnivore's weapons are for fighting, not spines
+                 else 4.5 * self._armed(victim) * self._defence_share(victim) * (1 - 0.6 * agent.toughness))
         stung = max(0.0, sting)
         if sting > 0:
             agent.health -= sting

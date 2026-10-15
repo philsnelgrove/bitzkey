@@ -300,7 +300,7 @@ through shows in their young. Its neurodivergence comes whole from either parent
 | size | health pool (60 to 150), dot radius (1px to 5px), half its striking force and half its toughness, metabolism, stomach, lifespan, and the meat its corpse leaves |
 | strength | the other half of its striking force |
 | armour | the other half of its toughness, which reduces damage taken by up to 60% |
-| weapons | sharpen blows by up to 75%, and spines hurt anyone who attacks; a predator's count three times over, sharpening its blows by up to 225%; an omnivore's 2.25 times (up to 169%) and a grazer's 1.5 times (up to 113%); in defence, striking back or stinging, a grazer brings half its weapons and an omnivore three quarters |
+| weapons | sharpen blows by up to 75%, and spines hurt anyone who attacks; a predator's count three times over, sharpening its blows by up to 225%; an omnivore's 2.25 times (up to 169%) and a grazer's 1.5 times (up to 113%); in defence, striking back or stinging, a grazer brings half its weapons and an omnivore three quarters, though an omnivore has no spines: struck, it never stings its attacker |
 | speed | cells moved per step of foraging, fleeing or going off in a direction (1 to 4; grazers move half as far again, rounded up: 2, 3, 5 or 6) |
 | sight | how far it sees: 2 cells, and 3 more for each step of the trait (2 to 23 cells). Its sight also sets how far its herd, its crowding and its territory reach |
 | fertility | high: cheap, frequent breeding and weak, hungry young; low: costly, rare breeding and well-fed young |

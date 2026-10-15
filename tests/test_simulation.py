@@ -2837,3 +2837,17 @@ class OmnivoreFoodTests(unittest.TestCase):
         self.assertEqual(simulation._home_fed(first), 0.5)  # prey alone: half
         deliver(simulation, first, second, litter=None)
         self.assertEqual(sum(agent.generation == 1 for agent in simulation.agents), 3)  # six by their traits, halved
+
+
+class SpineTests(unittest.TestCase):
+    def test_an_omnivore_has_no_spines_but_an_armed_grazer_does(self):
+        simulation = Simulation(width=12, height=12, population=0, seed=3)
+        omnivore = simulation._add_agent(encode_dna("omnivore", weapons=7, size=7), 2, 2)
+        grazer = simulation._add_agent(encode_dna("grazer", weapons=7, size=7, strength=7), 8, 8)
+        first = simulation._add_agent(encode_dna("predator"), 2, 3)
+        second = simulation._add_agent(encode_dna("predator"), 8, 9)
+        simulation._index_cells()
+        simulation._attack(first, omnivore)
+        simulation._attack(second, grazer)
+        self.assertEqual(first.health, first.max_health)  # struck an omnivore: unstung
+        self.assertLess(second.health, second.max_health)  # struck a well-armed grazer: stung
