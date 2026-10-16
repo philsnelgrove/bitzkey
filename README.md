@@ -998,3 +998,9 @@ with the same all around. Each offers the moves north, south, east and west and
 rest. Mirrored pairs tell a brain that follows the warmth senses from one that
 has only a habit of heading one way: a brain that reads the weather picks
 differently in each, while one that doesn't gives them all the same odds.
+
+## Licence
+
+Copyright (C) 2026 Phil Snelgrove. Bitzkey is free software: you can redistribute it and/or modify it under the
+terms of the GNU General Public License, version 3 or (at your option) any later version, as published by the Free
+Software Foundation. It is distributed in the hope that it will be useful, but without any warranty; see `LICENSE`.
