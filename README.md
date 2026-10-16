@@ -130,7 +130,10 @@ by the panel's settings. The rewind history starts again at the turn loaded.
 A world file is the same for the Python and C++ versions and the web daemon, so a world saved in one
 loads in the others and carries on there turn for turn the same. Brains are most of a file, kept
 exactly, at about 120 KB an animal: 8 MB for a world of 60 animals, 120 MB for a thousand. The
-format is described at the top of `tools/WorldFile.py`.
+format is described at the top of `tools/WorldFile.py`. A long-lived world also carries its history: the
+genome of every Bitzkey that ever lived and the record of every death, 40 bytes for each, kept compact and
+written straight to the file as it goes, so a world of 20 million deaths saves and loads in seconds. Worlds
+saved in the first format, before that, still load.
 
 To add a setting, add a `Setting` to `SETTINGS` in `display/Setup.py` and a
 parameter with the same name to `BitzkeyApp`. To make another constant in

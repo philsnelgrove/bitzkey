@@ -1,22 +1,31 @@
 """Saving a whole world to a file and loading it back, to carry on exactly as it would have.
 
-A world file is the same for the Python and C++ versions, so a world saved by either loads in both:
+A world file is the same for the Python and C++ versions, so a world saved by either loads in both.
+Format 2, written now:
 
     WORLD_MAGIC (16 bytes), the JSON part's length (8 bytes, little-endian), the JSON part (UTF-8),
-    then the numbers part: 64-bit little-endian floats.
+    the count of numbers (8 bytes), the numbers part: 64-bit little-endian floats,
+    the count of whole numbers (8 bytes), the whole-numbers part: 32-bit little-endian integers.
 
 The JSON part holds the world's settings, its rules, and everything in it: the random generator's state,
-the grass, the seeds waiting to sprout, every Bitzkey and every field of it, the insights, the census, the
-genomes of all who ever lived and the record of every death. Brains and senses would make the JSON part
-enormous, and must come back exactly, so they go in the numbers part, and the JSON part names where:
+the grass, the seeds waiting to sprout, every Bitzkey and every field of it, and the insights. What would
+make it enormous goes in the other parts, and the JSON part names where:
 
 - a brain is {"at": its first number, "depth": hidden layers, "traced": whether learning traces follow}.
   Its numbers are each hidden layer's weights (HIDDEN_SIZE rows, each reading the senses or the layer
   before) and biases, then the output weights (a row of HIDDEN_SIZE for each action) and biases; then,
   if traced, its traces, laid out the same.
 - a set of senses (its last, or a memory's) is the position of INPUT_SIZE numbers.
+- the census's snapshots are [turn, the first whole number, how many]: the identifiers alive then.
+- "lineage" {"at", "count"}: the genome of every Bitzkey that ever lived, by identifier, three whole numbers
+  each (the social background word, the ring, the dot, as unsigned words).
+- "death_records" {"at", "count"}: every death, seven whole numbers each: the dead's identifier, its cause
+  (an index into "death_strings"), its species (an index into SPECIES), the turn, the killer's identifier,
+  its species and what it was doing (an index into "death_strings"); the last three -1 for none.
 
-A genome is 24 hex digits: the social background word, then the ring, then the dot.
+Elsewhere a genome is 24 hex digits: the social background word, then the ring, then the dot. Format 1 had no
+counts and no whole-numbers part, the numbers running to the file's end, and kept the census, lineage and
+deaths in the JSON part; it still loads.
 """
 
 from __future__ import annotations
@@ -32,10 +41,12 @@ from tools import Rules
 from tools import Simulation as world
 from tools.Brain import ACTIONS, HIDDEN_SIZE, INPUT_SIZE, SENSES, Brain
 from tools.Genome import TEMPERAMENT
-from tools.Simulation import Bitzkey, Death, Simulation
+from tools.Simulation import SPECIES, Bitzkey, Death, Simulation
 
-WORLD_MAGIC = b"BITZKEY WORLD 1\n"
-WORLD_FORMAT = 1
+WORLD_MAGIC = b"BITZKEY WORLD 2\n"
+WORLD_MAGIC_1 = b"BITZKEY WORLD 1\n"  # format 1's, still read
+WORLD_FORMAT = 2
+WORD = 0xFFFFFFFF
 WORLD_SUFFIX = ".bzworld"
 # Rules that say how this computer runs a world rather than how the world unfolds: loading keeps the user's own.
 MACHINE_RULES = ("USE_GPU", "HISTORY_TURNS", "HISTORY_MEMORY")
@@ -83,12 +94,18 @@ class _Numbers:
 
 
 class _Reader:
-    """The numbers part, as it is read back."""
+    """The numbers part, as it is read back, and the whole numbers."""
 
-    def __init__(self, data: bytes) -> None:
+    def __init__(self, data: bytes, ints: bytes = b"") -> None:
         if len(data) % 8:
             raise ValueError("The world file's numbers are cut short.")
         self.numbers = np.frombuffer(data, dtype="<f8")
+        self.ints = np.frombuffer(ints, dtype="<i4")
+
+    def whole(self, at: int, count: int) -> np.ndarray:
+        if at < 0 or at + count > self.ints.size:
+            raise ValueError("The world file's whole numbers are cut short.")
+        return self.ints[at:at + count]
 
     def take(self, at: int, count: int) -> np.ndarray:
         if at < 0 or at + count > self.numbers.size:
@@ -193,6 +210,28 @@ def _agent_from(record: Mapping, numbers: _Reader) -> Bitzkey:
 def world_bytes(simulation: Simulation) -> bytes:
     """The whole world, as a world file holds it."""
     numbers = _Numbers()
+    ints: list[np.ndarray] = []  # the census, the lineage and the deaths
+    held = 0
+
+    def whole(values) -> int:
+        nonlocal held
+        array = np.ascontiguousarray(values, dtype="<i4").ravel()
+        ints.append(array)
+        at, held = held, held + array.size
+        return at
+
+    snapshots = [[turn, whole(alive), len(alive)] for turn, alive in simulation.census.snapshots]
+    lineage = [simulation.lineage.get(identifier, 0) for identifier in range(max(simulation.lineage, default=-1) + 1)]
+    lineage_at = whole(np.array([[dna >> 64 & WORD, dna >> 32 & WORD, dna & WORD] for dna in lineage],
+                                dtype="<u4").reshape(-1, 3).view("<i4"))
+    strings: dict[str, int] = {}  # the causes and doings, each once
+    code = lambda text: strings.setdefault(text, len(strings))  # noqa: E731
+    deaths = sorted(simulation.death_records.items())
+    rows = [[identifier, code(death.cause), SPECIES.index(death.species), death.turn,
+             -1 if death.killer is None else death.killer,
+             -1 if death.killer_species is None else SPECIES.index(death.killer_species),
+             -1 if death.activity is None else code(death.activity)] for identifier, death in deaths]
+    deaths_at = whole(np.array(rows, dtype="<i4").reshape(-1, 7))
     version, internal, gauss_next = simulation.random.getstate()
     record = {
         "format": WORLD_FORMAT, "senses": list(SENSES), "actions": list(ACTIONS), "temperament": list(TEMPERAMENT),
@@ -210,38 +249,56 @@ def world_bytes(simulation: Simulation) -> bytes:
                      for key, offered in simulation.insights.offered.items()]
                     + [[*key, 0.0, chosen] for key, chosen in simulation.insights.chosen.items()
                        if key not in simulation.insights.offered],
-        "census": {"stride": simulation.census.stride,
-                   "snapshots": [[turn, list(alive)] for turn, alive in simulation.census.snapshots]},
-        "lineage": [_genome(simulation.lineage.get(identifier, 0))
-                    for identifier in range(max(simulation.lineage, default=-1) + 1)],
-        "death_records": [[identifier, *death] for identifier, death in sorted(simulation.death_records.items())],
+        "census": {"stride": simulation.census.stride, "snapshots": snapshots},
+        "lineage": {"at": lineage_at, "count": len(lineage)},
+        "death_strings": list(strings), "death_records": {"at": deaths_at, "count": len(rows)},
         "agents": [_agent_record(agent, numbers) for agent in simulation.agents],
     }
     text = json.dumps(record, separators=(",", ":")).encode("utf-8")
-    return WORLD_MAGIC + struct.pack("<Q", len(text)) + text + numbers.data()
+    whole_part = b"".join(array.tobytes() for array in ints)
+    return (WORLD_MAGIC + struct.pack("<Q", len(text)) + text + struct.pack("<Q", numbers.count) + numbers.data()
+            + struct.pack("<Q", held) + whole_part)
 
 
 def world_from_bytes(data: bytes) -> Simulation:
     """The world a world file holds, ready to carry on as it would have; its rules become the rules, all but
     those saying how this computer runs it. Raises ValueError, naming the problem, if it can't be read."""
-    if not data.startswith(WORLD_MAGIC):
+    first_format = data.startswith(WORLD_MAGIC_1)
+    if not first_format and not data.startswith(WORLD_MAGIC):
         raise ValueError("This isn't a Bitzkey world file.")
-    start = len(WORLD_MAGIC) + 8
-    if len(data) < start:
-        raise ValueError("The world file is cut short.")
-    (length,) = struct.unpack("<Q", data[len(WORLD_MAGIC):start])
+    at = len(WORLD_MAGIC)
+
+    def counted(width: int) -> int:  # a count, then the room for that many values `width` bytes each
+        nonlocal at
+        if len(data) < at + 8:
+            raise ValueError("The world file is cut short.")
+        (count,) = struct.unpack("<Q", data[at:at + 8])
+        at += 8
+        if count > (len(data) - at) // width:
+            raise ValueError("The world file is cut short.")
+        return count
+
+    length = counted(1)
+    text, at = data[at:at + length], at + length
+    if first_format:  # the numbers run to the end
+        reader = _Reader(data[at:])
+    else:
+        count = counted(8)
+        numbers, at = data[at:at + 8 * count], at + 8 * count
+        count = counted(4)
+        reader = _Reader(numbers, data[at:at + 4 * count])
     try:
-        record = json.loads(data[start:start + length].decode("utf-8"))
+        record = json.loads(text.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError(f"The world file is damaged ({error}).") from None
     try:
-        return _world_from(record, _Reader(data[start + length:]))
+        return _world_from(record, reader, 1 if first_format else WORLD_FORMAT)
     except (KeyError, TypeError, IndexError) as error:
         raise ValueError(f"The world file is incomplete ({error}).") from None
 
 
-def _world_from(record: Mapping, numbers: _Reader) -> Simulation:
-    if record.get("format") != WORLD_FORMAT:
+def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
+    if record.get("format") != format_:
         raise ValueError(f"This world file is format {record.get('format')}; this version reads format {WORLD_FORMAT}.")
     if (record["senses"], record["actions"], record["temperament"]) != (list(SENSES), list(ACTIONS), list(TEMPERAMENT)):
         raise ValueError("This world was saved by a version of Bitzkey whose brains sense or act differently.")
@@ -273,9 +330,23 @@ def _world_from(record: Mapping, numbers: _Reader) -> Simulation:
         if chosen:
             simulation.insights.chosen[key] = chosen
     simulation.census.stride = record["census"]["stride"]
-    simulation.census.snapshots = [(turn, tuple(alive)) for turn, alive in record["census"]["snapshots"]]
-    simulation.lineage = {identifier: int(dna, 16) for identifier, dna in enumerate(record["lineage"])}
-    simulation.death_records = {identifier: Death(*death) for identifier, *death in record["death_records"]}
+    if format_ == 1:
+        simulation.census.snapshots = [(turn, tuple(alive)) for turn, alive in record["census"]["snapshots"]]
+        simulation.lineage = {identifier: int(dna, 16) for identifier, dna in enumerate(record["lineage"])}
+        simulation.death_records = {identifier: Death(*death) for identifier, *death in record["death_records"]}
+    else:
+        simulation.census.snapshots = [(turn, tuple(numbers.whole(first, count).tolist()))
+                                       for turn, first, count in record["census"]["snapshots"]]
+        lineage = record["lineage"]
+        words = numbers.whole(lineage["at"], 3 * lineage["count"]).view("<u4").reshape(-1, 3).tolist()
+        simulation.lineage = {identifier: social << 64 | ring << 32 | dot for identifier, (social, ring, dot) in enumerate(words)}
+        strings, deaths = record["death_strings"], record["death_records"]
+        species = lambda index: None if index < 0 else SPECIES[index]  # noqa: E731
+        simulation.death_records = {
+            identifier: Death(strings[cause], SPECIES[kind], turn, None if killer < 0 else killer, species(killer_kind),
+                              None if doing < 0 else strings[doing])
+            for identifier, cause, kind, turn, killer, killer_kind, doing
+            in numbers.whole(deaths["at"], 7 * deaths["count"]).reshape(-1, 7).tolist()}
     simulation.agents = [_agent_from(agent, numbers) for agent in record["agents"]]
     simulation._update_climate()
     simulation._index_cells()
