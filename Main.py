@@ -22,6 +22,7 @@ from tools.Brain import ACTIONS
 from display.Advanced import AdvancedScreen
 from display.CatalogScreen import CatalogScreen
 from display.ColourGraph import ColourGraph
+from display.WorldFiles import choose_save_path
 from tools.Exchange import Imported, bitzkey_record, export_bitzkeys, format_records
 from tools.Genome import genome_record
 from tools.Genome import TEMPERAMENT, decode_climate
@@ -29,6 +30,7 @@ from tools.Insights import ANIMALS, brain_matrix_lines, brain_report, death_repo
 from tools import Catalog, Rules
 from tools import Simulation as world
 from tools.Simulation import DEPLOY_GROUP, SEASONS, SPECIES, Bitzkey, Simulation, season, year
+from tools.WorldFile import WORLD_SUFFIX, save_world
 
 REPORT_DIR = Config.APP_DIR / "reports"
 INSIGHTS_TOP = 290  # the insights panel's top, in design pixels: just below the population counts
@@ -118,7 +120,9 @@ class BitzkeyApp:
     def __init__(self, width: int, height: int, population: int, grass_density: int, seed: int | None,
                  population_cap: int | None = None, mind_mutation: int = Config.MIND_MUTATION,
                  body_mutation: int = Config.BODY_MUTATION, year_length: int = Config.YEAR_LENGTH,
-                 imported: Sequence[Imported] = ()):
+                 imported: Sequence[Imported] = (), simulation: Simulation | None = None):
+        """Start a world by these settings, or carry on `simulation`, a world loaded; restarting starts afresh by
+        the settings either way."""
         self.screen = Window.open_window()
         self.width = width
         self.height = height
@@ -130,7 +134,8 @@ class BitzkeyApp:
         self.year_length = year_length
         self.seed = seed
         self.imported = list(imported)
-        self.simulation = self._new_world()
+        self.simulation = simulation if simulation is not None else self._new_world()
+        width, height = self.simulation.width, self.simulation.height
         self.selected_id: int | None = None
         self.show_insights = False
         self.show_census = False
@@ -167,6 +172,7 @@ class BitzkeyApp:
         self._export_button = pg.Rect(0, 0, 0, 0)
         self._open_button = pg.Rect(0, 0, 0, 0)  # the catalog, to look through
         self._advanced_button = pg.Rect(0, 0, 0, 0)  # this world's rules
+        self._save_button = pg.Rect(0, 0, 0, 0)  # the whole world, to a file
         # Deploying from the catalog: the Bitzkeys to paint onto the map, and the cell last painted while the button is
         # held; none, when not deploying.
         self.deploying: list[Imported] = []
@@ -389,6 +395,8 @@ class BitzkeyApp:
             self._browse_catalog()
         elif self._advanced_button.collidepoint(position):
             self._edit_rules()
+        elif self._save_button.collidepoint(position):
+            self._save_world()
         elif picked := [identifier for card, identifier in self._exemplar_cards if card.collidepoint(position)]:
             self._select(picked[0])
         elif self._map_view()[0].collidepoint(position):  # a click on the map, pressed and let go at once
@@ -519,6 +527,8 @@ class BitzkeyApp:
         """Act on a dialog's choice; returns "leave" when the user leaves the simulation."""
         kind, self.dialog = self._dialog_kind, None
         if kind == "leave":
+            if choice == "save":  # saved first; if that's cancelled or fails, it stays
+                return "leave" if self._save_world() else None
             return "leave" if choice == "leave" else None
         if choice in ("save", "copy"):
             self._export_chosen(to_file=choice == "save")
@@ -555,12 +565,30 @@ class BitzkeyApp:
 
     def _ask_to_leave(self) -> None:
         lines = ["You'll return to the configuration panel to set up a new world.",
-                 "This world won't be kept."]
+                 "This world won't be kept unless you save it."]
         if self.export_list:
             count = len(self.export_list)
             lines.append(f"{count} Bitzkey{'s' if count != 1 else ''} added to export will be lost unless exported first.")
-        self._open("leave", Dialog("Leave this simulation?", lines, [("stay", "STAY"), ("leave", "LEAVE")],
-                                   cancel="stay"))
+        self._open("leave", Dialog("Leave this simulation?", lines, [("stay", "STAY"), ("save", "SAVE AND LEAVE"),
+                                                                     ("leave", "LEAVE")], cancel="stay"))
+
+    def _save_world(self) -> bool:
+        """Pause, and save the whole world to a file of the user's choosing, to load from the configuration panel
+        and carry on exactly as it would have. Returns whether it saved."""
+        self.playing = False
+        path = choose_save_path(f"world-turn-{self.simulation.turn:05d}{WORLD_SUFFIX}")
+        if path is None:
+            return False
+        self._say("Saving the world, please be patient...")
+        self._draw()
+        pg.display.flip()
+        try:
+            save_world(self.simulation, path)
+        except OSError as error:
+            self._say(f"Couldn't save the world to {path.name}: {error}")
+            return False
+        self._say(f"Saved the world at turn {self.simulation.turn} to {path.name}")
+        return True
 
     def _open_export_dialog(self) -> None:
         count = len(self.export_list)
@@ -1300,8 +1328,13 @@ class BitzkeyApp:
         self._advanced_button.midright = (self._open_button.left - UI(10), height - UI(26))
         pg.draw.rect(self.screen, (238, 183, 110) if changed else (44, 57, 52), self._advanced_button, border_radius=UI(6))
         self.screen.blit(label, label.get_rect(center=self._advanced_button.center))
+        label = UI.font("segoeui", 13, bold=True).render("SAVE WORLD", True, (220, 229, 211))
+        self._save_button = pg.Rect(0, 0, label.get_width() + UI(32), UI(34))
+        self._save_button.midright = (self._advanced_button.left - UI(10), height - UI(26))
+        pg.draw.rect(self.screen, (44, 57, 52), self._save_button, border_radius=UI(6))
+        self.screen.blit(label, label.get_rect(center=self._save_button.center))
         left = max(UI(185), UI(22) + self.small.size(history)[0] + UI(24))  # clear of the history, however long
-        room = self._advanced_button.left - left - UI(16)
+        room = self._save_button.left - left - UI(16)
         if pg.time.get_ticks() < self.message_until:
             self._text(self._fit(self.message, room), (left, height - UI(36)), (238, 183, 110), self.small)
             return
@@ -1360,7 +1393,9 @@ def main() -> None:
     setup = SetupScreen(Window.open_window(fullscreen=not options.windowed), vars(options))
     settings = setup.run()
     while settings is not None:
-        Rules.apply(settings.pop("rules", {}))  # the advanced rules hold for this world and its restarts
+        rules = settings.pop("rules", {})
+        if "simulation" not in settings:  # a world loaded brought its own rules
+            Rules.apply(rules)  # the advanced rules hold for this world and its restarts
         app = BitzkeyApp(**settings)
         outcome = app.run()
         if app.simulation is not None:

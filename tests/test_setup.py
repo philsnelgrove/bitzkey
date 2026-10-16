@@ -136,7 +136,7 @@ class SetupFormTests(unittest.TestCase):
     def test_every_setting_is_a_parameter_of_the_app(self):
         parameters = list(inspect.signature(BitzkeyApp.__init__).parameters)[1:]
 
-        self.assertEqual([setting.key for setting in SETTINGS] + ["imported"], parameters)
+        self.assertEqual([setting.key for setting in SETTINGS] + ["imported", "simulation"], parameters)  # and a world loaded, if any
 
 
 if __name__ == "__main__":

@@ -114,6 +114,24 @@ they were, so rewinding replays them, though a turn played again after a rewind 
 rules as they now stand. The button turns amber while the world plays by changed rules. A new
 world from the configuration panel plays by the panel's rules again.
 
+### Saving and loading worlds
+
+SAVE WORLD, in the map's footer beside ADVANCED, pauses the world and saves the whole of it to a
+file, in `worlds/` unless you choose another folder. `Esc` on the map asks whether to leave, and
+SAVE AND LEAVE saves the world first. LOAD WORLD, on the configuration panel, carries on a saved
+world: it comes back at the turn it was saved, paused, and plays on exactly as it would have.
+Every Bitzkey comes back with its position, brain, learning traces, memories, temperament, the
+young it carries and everything else about it, along with the grass, the seeds waiting to sprout,
+the random generator's state, the insights, the colour graph's census and the record of every
+death. The world brings its own rules, all but the three that say how this computer runs it:
+Think on the GPU, History turns and History memory. Restarting a loaded world (`R`) starts afresh
+by the panel's settings. The rewind history starts again at the turn loaded.
+
+A world file is the same for the Python and C++ versions and the web daemon, so a world saved in one
+loads in the others and carries on there turn for turn the same. Brains are most of a file, kept
+exactly, at about 120 KB an animal: 8 MB for a world of 60 animals, 120 MB for a thousand. The
+format is described at the top of `tools/WorldFile.py`.
+
 To add a setting, add a `Setting` to `SETTINGS` in `display/Setup.py` and a
 parameter with the same name to `BitzkeyApp`. To make another constant in
 `tools/Simulation.py` or `tools/Brain.py` tunable, add a row for it to `_TABLE` in

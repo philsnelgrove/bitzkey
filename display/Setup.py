@@ -16,9 +16,11 @@ from display.CatalogScreen import CatalogScreen
 from display.Ui import UI
 from display.Designer import Designer
 from display.Dialog import Dialog
+from display.WorldFiles import choose_world_file
 from tools.Exchange import Imported, format_records, import_bitzkeys
 from tools.Genome import decode_body, genome_record
-from tools.Simulation import MAX_GRID, MAX_IMPORTED, MAX_POPULATION, SPAWN_GROUP
+from tools.WorldFile import load_world
+from tools.Simulation import MAX_GRID, MAX_IMPORTED, MAX_POPULATION, SPAWN_GROUP, Simulation
 
 EXPORT_DIR = Config.APP_DIR / "exports"
 MAX_IMPORT_BYTES = 5_000_000
@@ -194,6 +196,7 @@ class SetupScreen:
         self.clock = pg.time.Clock()
         self.note = ""
         self.note_until = 0
+        self.loaded: Simulation | None = None  # a saved world, loaded to carry on
         self.dialog: Dialog | None = None  # the quit confirmation, while it is open
         self.last_design: int | None = None  # the designer reopens on the last design applied
         self.rules: dict[str, float] = {}  # the advanced rules changed from their defaults
@@ -262,6 +265,8 @@ class SetupScreen:
                         self._ask_to_quit()
                     if action == "start" and self._ready():
                         return self._values()
+                    if action == "world":  # a saved world, loaded, to carry on
+                        return {**self._values(), "simulation": self.loaded}
             self._draw()
             pg.display.flip()
 
@@ -370,6 +375,22 @@ class SetupScreen:
         if path:
             self._load(path)
 
+    def _load_world(self) -> str | None:
+        """Ask for a saved world and load it, to carry on exactly as it would have: "world" once it is loaded (it
+        waits in `loaded`), None if the user cancels or it can't be read."""
+        path = choose_world_file()
+        if path is None:
+            return None
+        self._tell(f"Loading {path.name}, please be patient...")
+        self._draw()
+        pg.display.flip()
+        try:
+            self.loaded = load_world(path)
+        except (OSError, ValueError) as error:
+            self._tell(f"Couldn't load {path.name}: {error}")
+            return None
+        return "world"
+
     def _load(self, path: str) -> None:
         file = Path(path)
         try:
@@ -406,10 +427,13 @@ class SetupScreen:
         start.bottomleft = (card.centerx + UI(6), card.bottom - UI(42))
         quit = pg.Rect(0, 0, UI(140), UI(44))
         quit.bottomright = (card.centerx - UI(6), card.bottom - UI(42))
+        world = pg.Rect(0, 0, UI(140), UI(44))
+        world.bottomleft = (card.left + UI(20), card.bottom - UI(42))
         advanced = pg.Rect(0, 0, UI(120), UI(28))
         advanced.topright = (card.right - UI(20), card.top + UI(28))
         return {"card": card, "rows": rows, "box": box, "catalog": catalog, "design": design, "paste": paste, "load": load,
-                "clear": clear, "start": start, "quit": quit, "advanced": advanced}
+                "clear": clear, "start": start, "quit": quit, "advanced": advanced,
+                "world": world}
 
     @staticmethod
     def _buttons(row: pg.Rect) -> tuple[pg.Rect, pg.Rect, pg.Rect]:
@@ -427,6 +451,8 @@ class SetupScreen:
             return "start"
         if layout["quit"].collidepoint(position):
             return "quit"
+        if layout["world"].collidepoint(position):
+            return self._load_world()
         if layout["design"].collidepoint(position):
             return self._design()
         if layout["catalog"].collidepoint(position):
@@ -486,6 +512,10 @@ class SetupScreen:
         pg.draw.rect(self.screen, (44, 57, 52), quit, border_radius=UI(6))
         label = self.bold.render("QUIT", True, (220, 229, 211))
         self.screen.blit(label, label.get_rect(center=quit.center))
+        world = layout["world"]
+        pg.draw.rect(self.screen, (44, 57, 52), world, border_radius=UI(6))
+        label = self.button_font.render("LOAD WORLD", True, (220, 229, 211))
+        self.screen.blit(label, label.get_rect(center=world.center))
         if pg.time.get_ticks() < self.note_until:
             hint = self.small.render(self.note, True, (238, 183, 110))
         else:
