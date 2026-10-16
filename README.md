@@ -1,5 +1,11 @@
 # Bitzkey
 
+The Bitzkey project was started years ago, to teach my best friend programming. He wanted to learn about Python and AI, so it seemed like a natural project. Since then, my friend has passed away. So I finished this to honour him. I open-sourced it for the same reason. So, Sam Bunn, wherever you are, may you live on through Bitzkeys!
+
+This is the original Bitzkey, the research build, written in Python. It runs very slowly, but every rule is plain to read, so it is the place to learn how Bitzkeys work: how they sense, think, learn, breed and evolve. It is too slow to run a world for long, though. For that, use the much faster C++ versions: the [Windows desktop app](https://github.com/philsnelgrove/bitzkey_cpp), or the [Linux daemon](https://github.com/philsnelgrove/bitzkey_daemon), which runs larger worlds as a service and shows them as a web page.
+
+Download it for Windows from the [latest release](https://github.com/philsnelgrove/bitzkey/releases/latest): `Bitzkey.exe` runs as it is, with nothing to install.
+
 Bitzkey is a small artificial-ecology experiment. Each Bitzkey carries a 96-bit
 genome made of three CMYK colour words: an inner dot for its mind, an outer
 ring for its body, and a social background, behind its species icon, for how it
