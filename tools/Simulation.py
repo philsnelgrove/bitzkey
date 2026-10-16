@@ -29,7 +29,7 @@ from tools.Insights import Insights
 GRID_SIZE = 100
 INITIAL_POPULATION = 90
 GRASS_DENSITY = 50      # percent of cells that start with grass
-GRASS_REGROWTH = 0.016  # share of the starting grass that grows back each turn
+GRASS_REGROWTH = 0.032  # share of the starting grass that grows back each turn
 MAX_POPULATION = 20000  # the most Bitzkeys spawned at the start; a world's population cap is a setting
 CROWDING_LIMIT = 10    # litters shrink as crowding nears this; at it, an animal doesn't breed; 0: no limit
 SPAWN_GROUP = (3, 5)  # Bitzkeys spawn in groups of this many sharing one genome
@@ -219,7 +219,7 @@ def scarcity_share(population: int, species: str | None = None) -> float:
     if population <= RARE_POPULATION or scarce <= RARE_POPULATION:
         return rare_cost
     return rare_cost + (1 - rare_cost) * (population - RARE_POPULATION) / (scarce - RARE_POPULATION)
-NEWBORN_FOOD = 5.0     # parents conceive only as many young as can each start with this much of a stomach of food; 0: no limit
+NEWBORN_FOOD = 15.0    # parents conceive only as many young as can each start with this much of a stomach of food; 0: no limit
 BREEDING_COST_MOST = 25.0  # the hunger the least fertile pay to breed: the most a parent could give its young
 PACK_MOUTHS = 0.5      # a hunter's pack-mates count as this many mouths each on its food, sharing their kills
 BLOODLUST = 1.0        # how much more a predator values feasting whenever it sees a fresh kill, whatever its hunger
@@ -296,6 +296,9 @@ SHARED_DIET = 0.5      # how much an animal of another species eating some of th
 # of the food it weighs within FORAGE_RADIUS (for omnivores, grazers against plants; for predators,
 # grazers against omnivores), so a scarce prey is left alone to recover.
 SWITCH_SHARE = 0.5
+OMNIVORE_PREDATOR_FOOD = 0  # an omnivore hunts predators only while no more of its other food (grazers, plants and
+                            # grassy cells) is within FORAGE_RADIUS; a predator's infant with a grown one of its kind
+                            # within NURSING_REACH is guarded, and no prey to anyone
 STRIKE_EFFORT = 0.2    # food burned for each point of damage a blow deals
 STRIKE_FORCE = 3.5     # scales every blow: the best-armed, mightiest predator kills the largest, best-armoured grazer in three
 GRAZER_DEFENCE_WEAPONS = 0.5    # share of its weapons a grazer brings to defence: striking back, and its spines
@@ -351,7 +354,7 @@ YEAR_LENGTH = DEFAULT_YEAR_LENGTH  # each world sets it from its year length set
 ARCTIC_SHARE = 0.2
 EQUATOR_SHARE = 0.2
 CLIMATE_HUNGER = 2.0   # an animal a step or more from home, or a plant too hot, needs this many times the food
-CLIMATE_DAMAGE = 0.02  # for each step from home, a Bitzkey loses this share of its full health a turn; plants from two
+CLIMATE_DAMAGE = 0.01  # for each step from home, a Bitzkey loses this share of its full health a turn; plants from two
 PLANT_CLIMATE_YIELD = 0.0  # a plant out of its temperature gives this share of its food
 GRASS_DIEBACK = 20     # where it isn't medium, a cell's grass loses a tuft every this many turns
 # The weather turns in waves, one in each climate zone, all setting off together as the season turns,
@@ -604,6 +607,8 @@ class Bitzkey:
     rivalry: float = 0.0    # hunters: how overcrowded its territory was with rivals when it last looked
     hunts_grazers: bool = True    # hunters: whether grazers were common enough to hunt when it last looked
     hunts_omnivores: bool = True  # predators: the same for omnivores
+    hunts_predators: bool = True  # omnivores: whether its other food was scarce enough to hunt predators
+    guarded: bool = False  # a predator's infant: whether a grown one of its kind was close by as the turn began
     own_rivalry: float = 0.0  # the same, counting only its own species: what wears down its reluctance
     alarm: int | None = None  # what struck a herd-mate close by since it last acted, or a herd-mate alerted it to
     kill_alert: tuple[int, int] | None = None  # where a pack-mate alerted it to a fresh kill since it last acted
@@ -1560,6 +1565,8 @@ class Simulation:
         if agent.species in TERRITORY:
             agent.rivalry, agent.own_rivalry = self._territory(agent)
             agent.hunts_grazers, agent.hunts_omnivores = self._prey_switching(agent)
+            if agent.species == "omnivore":
+                agent.hunts_predators = self._other_food(agent) <= OMNIVORE_PREDATOR_FOOD
 
     def _sense(self, agent: Bitzkey, surveyed: bool = False) -> tuple[list[float], list[int], dict]:
         """What an animal senses, the actions open to it, and its situation, surveying its territory
@@ -2328,6 +2335,11 @@ class Simulation:
                 agent.cost_share = shares[agent.species]
                 if agent.species == "predator":
                     agent.glut = glut
+        for agent in self.agents:  # a predator's infant is guarded while a grown one of its kind is close by
+            if agent.alive and agent.species == "predator":
+                agent.guarded = agent.infant and any(
+                    other.species == "predator" and not other.infant and self._same_kind(agent, other)
+                    for other in self._nearby(agent, NURSING_REACH))
 
     def _home_plants(self, grazer: Bitzkey) -> float:
         """The plants in a grazer's home band per grazer at home there, itself among them; none
@@ -2816,6 +2828,12 @@ class Simulation:
         total = grazers + plants
         return (total == 0 or grazers / total >= SWITCH_SHARE), False
 
+    def _other_food(self, omnivore: Bitzkey) -> int:
+        """The food an omnivore has besides predators within FORAGE_RADIUS: grazers, plants and grassy cells."""
+        food = sum(other.species in ("grazer", "plant") for other in self._nearby(omnivore, FORAGE_RADIUS))
+        grass, x, y = self.grass, omnivore.x, omnivore.y
+        return food + sum(grass.get((x + dx, y + dy), 0) > 0 for dx, dy in nearby_offsets(FORAGE_RADIUS))
+
     @classmethod
     def would_win(cls, agent: Bitzkey, opponent: Bitzkey) -> bool:
         """Whether an animal's blows would bring the opponent down as fast as the opponent's would bring
@@ -2825,12 +2843,14 @@ class Simulation:
 
     @classmethod
     def _is_prey(cls, hunter: Bitzkey, other: Bitzkey) -> bool:
+        if other.guarded:  # a predator's infant, guarded by a grown one of its kind
+            return False
         if hunter.species == "omnivore":
             # Grazers while they are common enough to switch to, and other omnivores only in an
             # overcrowded territory, once hungry past its reluctance as that rivalry wears it down.
             # Predators only when it would win, blow for blow.
             return ((other.species == "grazer" and hunter.hunts_grazers)
-                    or (other.species == "predator" and cls.would_win(hunter, other)) or (
+                    or (other.species == "predator" and hunter.hunts_predators and cls.would_win(hunter, other)) or (
                 other.species == "omnivore" and hunter.own_rivalry > 0
                 and hunter.hunger / 100 > cls.cannibal_reluctance(hunter) * (1 - RIVALRY_WEAR * hunter.own_rivalry)))
         if hunter.species != "predator":

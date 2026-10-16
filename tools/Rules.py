@@ -254,6 +254,8 @@ _TABLE: dict[str, list[tuple]] = {
         ("HERD_VIGILANCE", "Herd vigilance", "how far a close herd shrinks that range", 0.0, 1.0, 0.05),
         ("SWITCH_SHARE", "Prey switching", "a prey is hunted while it is at least this share of the food",
          0.0, 1.0, 0.05),
+        ("OMNIVORE_PREDATOR_FOOD", "Omnivores' last resort", "an omnivore hunts predators only while no more grazers, plants and grassy cells than this are near",
+         0, 100, 1),
     ],
     "Territory": [
         ("TERRITORY_RAMP", "Territory ramp", "rivals past the limit that bring rivalry to its full strength", 1, 20, 1),

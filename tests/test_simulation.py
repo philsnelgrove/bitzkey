@@ -552,6 +552,7 @@ class SimulationTests(unittest.TestCase):
         self.assertTrue(second.alive)  # starving, not dead
 
     def test_intellect_decides_whether_brain_learns(self):
+        self.simulation.grass_regrowth = 0  # no grass to cheer the slow one into thinking
         slow = self.simulation._add_agent(encode_dna("grazer", intellect=0), 1, 1)
         quick = self.simulation._add_agent(encode_dna("grazer", intellect=7), 8, 8)
         slow_brain, quick_brain = slow.brain.copy(), quick.brain.copy()
@@ -802,6 +803,7 @@ class NewTraitTests(unittest.TestCase):
 
     @patch("tools.Simulation.SMALL_LITTERS", 1.0)
     @patch("tools.Simulation.PLANTS_PER_GRAZER", 0.0)
+    @patch("tools.Simulation.NEWBORN_FOOD", 5.0)
     def test_what_parents_could_give_sets_the_litter_not_their_cheap_breeding(self):
         for species in ("grazer", "predator"):  # the fertile pay little, and a predator half that: no smaller litters
             simulation = Simulation(width=12, height=12, population=0, seed=3)
@@ -3100,3 +3102,40 @@ class NursingTests(unittest.TestCase):
         self.assertTrue(self.simulation._herd_mate(infant, grown[0]))  # a solitary omnivore's infant herds with its kind
         self.assertFalse(self.simulation._herd_mate(grown[0], grown[1]))  # though grown omnivores still don't
         self.assertIn(ACTIONS.index("herd"), self.simulation._sense(infant)[1])  # two cells off their middle: it herds
+
+
+@patch("tools.Simulation.FEEBLE_YOUTH", 0.1)
+class OmnivoresLastResortTests(unittest.TestCase):
+    def setUp(self):
+        self.simulation = Simulation(width=20, height=20, population=0, seed=3)
+        self.simulation.grass.clear()
+
+    def test_an_omnivore_hunts_predators_only_with_no_other_food_near(self):
+        hunter = self.simulation._add_agent(encode_dna("omnivore", size=7, strength=7, weapons=7), 10, 10)
+        hunter.age = round(hunter.lifespan / 2)
+        target = self.simulation._add_agent(encode_dna("predator", size=0), 11, 10)
+        target.age = round(target.lifespan / 2)  # grown: no infant to guard
+        self.simulation._index_cells()
+        self.simulation._survey(hunter)
+        self.assertTrue(Simulation._is_prey(hunter, target))  # nothing else to eat: a predator will do
+        self.simulation.grass[(13, 10)] = 1  # a grassy cell near
+        self.simulation._survey(hunter)
+        self.assertFalse(Simulation._is_prey(hunter, target))
+        del self.simulation.grass[(13, 10)]
+        self.simulation._add_agent(encode_dna("plant"), 10, 14)  # or a plant
+        self.simulation._index_cells()
+        self.simulation._survey(hunter)
+        self.assertFalse(Simulation._is_prey(hunter, target))
+
+    def test_a_grown_predator_guards_the_infants_of_its_kind(self):
+        hunter = self.simulation._add_agent(encode_dna("omnivore", size=7, strength=7, weapons=7), 10, 10)
+        hunter.age = round(hunter.lifespan / 2)
+        infant = self.simulation._add_agent(encode_dna("predator", size=0), 11, 10)
+        self.simulation._index_cells()
+        self.simulation._survey(hunter)
+        self.assertTrue(infant.infant and not infant.guarded and Simulation._is_prey(hunter, infant))  # alone: prey
+        parent = self.simulation._add_agent(infant.dna, 12, 11)
+        parent.age = round(parent.lifespan / 2)
+        self.simulation._index_cells()
+        self.assertTrue(infant.guarded and not parent.guarded)
+        self.assertFalse(Simulation._is_prey(hunter, infant))  # guarded: prey to no one

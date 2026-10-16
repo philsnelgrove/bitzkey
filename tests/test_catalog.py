@@ -109,7 +109,7 @@ class CatalogTests(unittest.TestCase):
         pg.display.quit()
 
     def test_deploying_puts_five_of_each_around_a_cell_with_their_brains_and_minds(self):
-        from tools.Simulation import DEPLOY_GROUP, SPAWN_SPREAD
+        from tools.Simulation import BIRTH_REACH, DEPLOY_GROUP, SPAWN_SPREAD
         entry = Catalog.entry_for(self.animal, self.simulation.turn)
         bitzkey = Catalog.imported(entry)
         turn, before = self.simulation.turn, len(self.simulation.agents)
@@ -117,8 +117,8 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual((DEPLOY_GROUP, len(deployed), len(self.simulation.agents)), (5, 10, before + 10))
         for agent in deployed:
             self.assertEqual(agent.dna, self.animal.dna)
-            self.assertLessEqual(min(abs(agent.x - 10), 30 - abs(agent.x - 10)), SPAWN_SPREAD)
-            self.assertTrue(0 <= agent.y <= 1 + SPAWN_SPREAD)
+            self.assertLessEqual(min(abs(agent.x - 10), 30 - abs(agent.x - 10)), SPAWN_SPREAD + BIRTH_REACH)  # the nearest room to its spot
+            self.assertTrue(0 <= agent.y <= 1 + SPAWN_SPREAD + BIRTH_REACH)
             self.assertEqual(agent.brain, bitzkey.brain.resized(agent.brain.depth))  # its catalogued brain
             self.assertIsNot(agent.brain, deployed[0].brain if agent is not deployed[0] else None)
             self.assertAlmostEqual(agent.mind["fear"], self.animal.mind["fear"], places=3)
@@ -198,6 +198,8 @@ class CatalogTests(unittest.TestCase):
 
     def test_a_dead_bitzkey_on_the_graph_shows_how_it_died(self):
         from display.ColourGraph import death_note
+        while not self.simulation.death_records:  # until something has died
+            self.simulation.advance()
         dead = next(identifier for identifier in self.simulation.death_records)
         death = self.simulation.death_records[dead]
         self.assertTrue(death_note(self.simulation, dead).startswith(f"Died at turn {death.turn}: {death.cause}"))
