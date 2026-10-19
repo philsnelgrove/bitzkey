@@ -267,13 +267,24 @@ SITUATION = 42  # characters to the situations' column
 DEADLIEST = 10  # the killers the death report names
 
 
-def death_report_lines(deaths: Iterable[Death]) -> list[str]:
+def death_report_lines(deaths: Iterable[Death], word=None) -> list[str]:
     """Every death so far, back to the world's start: a table of causes by the species of the dead, the most
     common first; who killed whom, by the species of the dead and of their killers; what the killers were doing,
-    by the killers' species; and the deadliest killers, each with its kills by what it was doing."""
+    by the killers' species; and the deadliest killers, each with its kills by what it was doing.
+
+    Given `word`, a translation for each piece of text, the tables' cells are parted by tabs instead of padded,
+    for the app to line them up in columns in any script."""
     deaths = list(deaths)
+    tabs = word is not None
+    word = word or (lambda text: text)
 
     def table(title: str, rows: list[tuple[str, dict[str, int]]]) -> list[str]:
+        if tabs:
+            lines = ["\t".join([word(title), *(word(species.upper()) for species in SPECIES_ORDER), word("ALL")])]
+            for label, counts in rows:
+                lines.append("\t".join([word(label), *(str(counts.get(species, 0)) for species in SPECIES_ORDER),
+                                        str(sum(counts.values()))]))
+            return lines
         lines = [f"{title:<18}" + "".join(f"{species.upper():>10}" for species in SPECIES_ORDER) + f"{'ALL':>10}"]
         for label, counts in rows:
             lines.append(f"{label:<18}" + "".join(f"{counts.get(species, 0):>10}" for species in SPECIES_ORDER)
@@ -293,30 +304,34 @@ def death_report_lines(deaths: Iterable[Death]) -> list[str]:
     by_species: dict[str, int] = {}
     for death in deaths:
         by_species[death.species] = by_species.get(death.species, 0) + 1
-    lines = table("CAUSE", tally(lambda death: death.cause, lambda death: death.species)) + [
-        f"{'ALL':<18}" + "".join(f"{by_species.get(species, 0):>10}" for species in SPECIES_ORDER) + f"{len(deaths):>10}"]
+    total = ([word("ALL"), *(str(by_species.get(species, 0)) for species in SPECIES_ORDER), str(len(deaths))] if tabs else
+             [f"{'ALL':<18}" + "".join(f"{by_species.get(species, 0):>10}" for species in SPECIES_ORDER) + f"{len(deaths):>10}"])
+    lines = table("CAUSE", tally(lambda death: death.cause, lambda death: death.species)) + ["\t".join(total)]
     kills = [death for death in deaths if death.killer is not None]
     if not kills:
-        return lines + ["", "Nothing has killed anything yet."]
-    lines += ["", f"WHO KILLED WHOM: {len(kills)} killed, by the species of the dead (rows) and of their killers (columns)"]
+        return lines + ["", word("Nothing has killed anything yet.")]
+    lines += ["", word(f"WHO KILLED WHOM: {len(kills)} killed, by the species of the dead (rows) and of their killers (columns)")]
     rows: dict[str, dict[str, int]] = {species: {} for species in SPECIES_ORDER}
     for death in kills:
         rows[death.species][death.killer_species] = rows[death.species].get(death.killer_species, 0) + 1
     lines += table("THE DEAD", [(species, counts) for species, counts in rows.items() if counts])
-    lines += ["", "WHAT THE KILLERS WERE DOING, by the killers' species"]
+    lines += ["", word("WHAT THE KILLERS WERE DOING, by the killers' species")]
     lines += table("ACTIVITY", tally(lambda death: death.activity if death.killer is not None else None,
                                      lambda death: death.killer_species))
     killers: dict[int, list[Death]] = {}
     for death in kills:
         killers.setdefault(death.killer, []).append(death)
     deadliest = sorted(killers.items(), key=lambda item: (-len(item[1]), item[0]))[:DEADLIEST]
-    lines += ["", f"THE DEADLIEST KILLERS, {len(deadliest)} of {len(killers)}"]
+    lines += ["", word(f"THE DEADLIEST KILLERS, {len(deadliest)} of {len(killers)}")]
     for killer, theirs in deadliest:
         doing: dict[str, int] = {}
         for death in theirs:
             doing[death.activity] = doing.get(death.activity, 0) + 1
-        what = ", ".join(f"{activity} {count}" for activity, count in sorted(doing.items(), key=lambda item: (-item[1], item[0])))
-        lines.append(f"#{killer:03d} {theirs[0].killer_species:<10}{len(theirs):>4} killed   {what}")
+        what = ", ".join(f"{word(activity)} {count}" for activity, count in sorted(doing.items(), key=lambda item: (-item[1], item[0])))
+        if tabs:
+            lines.append("\t".join([f"#{killer:03d}", word(theirs[0].killer_species), str(len(theirs)), word("killed"), what]))
+        else:
+            lines.append(f"#{killer:03d} {theirs[0].killer_species:<10}{len(theirs):>4} killed   {what}")
     return lines
 
 
@@ -333,11 +348,19 @@ def brain_matrix(animal: Bitzkey) -> list[tuple[str, dict[str, float]]]:
     return rows
 
 
-def brain_matrix_lines(animal: Bitzkey) -> list[str]:
+def brain_matrix_lines(animal: Bitzkey, word=None) -> list[str]:
     """The brain matrix as a table: a row for each situation, a column for each action any of them offers, the
-    likeliest choice in each row marked; an action not open in a situation shows a dot."""
+    likeliest choice in each row marked; an action not open in a situation shows a dot. Given `word`, a
+    translation for each piece of text, the cells are parted by tabs instead of padded."""
     rows = brain_matrix(animal)
     used = [action for action in ACTIONS if any(action in chances for _, chances in rows)]
+    if word is not None:
+        lines = ["\t".join([word("SITUATION"), *(word(SHORT_ACTIONS[action]) for action in used)])]
+        for title, chances in rows:
+            best = max(chances, key=chances.get)
+            lines.append("\t".join([word(title), *((f"{chances[action]:.0%}" + ("*" if action == best else " "))
+                                                    if action in chances else "· " for action in used)]))
+        return lines
     lines = [f"{'SITUATION':<{SITUATION}}" + "".join(f"{SHORT_ACTIONS[action]:>{CELL}}" for action in used)]
     for title, chances in rows:
         best = max(chances, key=chances.get)

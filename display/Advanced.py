@@ -9,7 +9,7 @@ from collections.abc import Mapping
 import pygame as pg
 
 from display import Window
-from display.Ui import UI
+from display.Ui import UI, fit_text, draw_label, wrapped_lines
 from tools import Rules
 from tools.Rules import RULES, Rule
 
@@ -230,15 +230,7 @@ class AdvancedScreen:
 
     def _law_lines(self, width: int) -> list[str]:
         """The word on natural law, wrapped to fit the width."""
-        lines, line = [], ""
-        for word in NATURAL_LAW.split(" "):
-            trial = f"{line} {word}" if line else word
-            if line and self.font.size(trial)[0] > width:
-                lines.append(line)
-                line = word
-            else:
-                line = trial
-        return lines + [line]
+        return wrapped_lines(self.font, NATURAL_LAW, width)
 
     def _max_scroll(self, view: pg.Rect) -> int:
         return max(0, UI(self.list_height) - view.height)
@@ -313,14 +305,13 @@ class AdvancedScreen:
             self._text(line, (card.left + UI(28), card.top + UI(66) + index * UI(self.LAW_LINE)), (229, 239, 220), self.font)
         changed = len(self.form.changed())
         whose = "This world plays by these from its next turn." if self.running else "The rules the world plays by."
-        self._text(f"{whose} {changed} changed from the defaults; changed values show in amber.",
-                   (card.left + UI(28), card.top + UI(66) + len(lines) * UI(self.LAW_LINE) + UI(6)), (157, 177, 159),
-                   self.font)
+        note = f"{whose} {changed} changed from the defaults; changed values show in amber."
+        self._text(note, (card.left + UI(28), card.top + UI(66) + len(lines) * UI(self.LAW_LINE) + UI(6)), (157, 177, 159),
+                   UI.fitting(self.font, note, card.width - UI(56)))
         for name, label in (("reset", "RESET"), ("reset_all", "RESET ALL")):
             button = layout[name]
             pg.draw.rect(self.screen, (44, 57, 52), button, border_radius=UI(4))
-            text = self.button_font.render(label, True, (220, 229, 211))
-            self.screen.blit(text, text.get_rect(center=button.center))
+            draw_label(self.screen, self.button_font, label, (220, 229, 211), button)
 
         view = layout["view"]
         self.scroll = min(self.scroll, self._max_scroll(view))
@@ -337,8 +328,7 @@ class AdvancedScreen:
                                         ("cancel", "CANCEL", (44, 57, 52), (220, 229, 211))):
             button = layout[name]
             pg.draw.rect(self.screen, color, button, border_radius=UI(6))
-            text = self.bold.render(label, True, ink)
-            self.screen.blit(text, text.get_rect(center=button.center))
+            draw_label(self.screen, self.bold, label, ink, button)
         warning = Rules.WARNINGS.get(RULES[self.form.focus].key)
         if pg.time.get_ticks() < self.note_until:
             hint = self.small.render(self.note, True, (238, 183, 110))
@@ -363,8 +353,7 @@ class AdvancedScreen:
                    (96, 110, 100) if lock else (238, 183, 110) if warned else (130, 152, 136), self.small)
         for button, sign in ((minus, "-"), (plus, "+")):
             pg.draw.rect(self.screen, (34, 44, 42) if lock else (44, 57, 52), button, border_radius=UI(4))
-            label = self.bold.render(sign, True, (96, 110, 100) if lock else (220, 229, 211))
-            self.screen.blit(label, label.get_rect(center=button.center))
+            draw_label(self.screen, self.bold, sign, (96, 110, 100) if lock else (220, 229, 211), button)
         pg.draw.rect(self.screen, (19, 26, 27), box, border_radius=UI(4))
         pg.draw.rect(self.screen, (131, 205, 143) if focused else (54, 68, 62), box, 1, border_radius=UI(4))
         shown = self.form.text(rule)
@@ -386,11 +375,7 @@ class AdvancedScreen:
         pg.draw.rect(self.screen, (80, 99, 85), (track.left, top, track.width, length), border_radius=UI(3))
 
     def _fit(self, text: str, width: int) -> str:
-        if self.small.size(text)[0] <= width:
-            return text
-        while text and self.small.size(text + "...")[0] > width:
-            text = text[:-1]
-        return text.rstrip() + "..."
+        return fit_text(self.small, text, width)
 
     def _text(self, text: str, position: tuple[int, int], color: tuple[int, int, int],
               font: pg.font.Font) -> None:

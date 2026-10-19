@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 import pygame as pg
 
-from display.Ui import UI
+from display.Ui import UI, draw_label
 
 
 @dataclass
@@ -75,8 +75,7 @@ class Dialog:
             else:
                 fill, ink = ((131, 205, 143), (19, 26, 27)) if default else ((44, 57, 52), (220, 229, 211))
             pg.draw.rect(screen, fill, rect, border_radius=UI(6))
-            text = UI.font("segoeui", 13, bold=True).render(labels[choice], True, ink)
-            screen.blit(text, text.get_rect(center=rect.center))
+            draw_label(screen, UI.font("segoeui", 13, bold=True), labels[choice], ink, rect)
         if self.busy and self.caption:
             caption = UI.font("segoeui", 16).render(self.caption, True, (144, 170, 151))
             screen.blit(caption, caption.get_rect(midtop=(panel.centerx, panel.bottom + UI(22))))

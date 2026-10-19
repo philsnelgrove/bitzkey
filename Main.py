@@ -17,7 +17,9 @@ from display.Inspector import draw_details
 from display.Look import (DOT_RADIUS_RANGE, EXPORTING, GRASS, GRID, RING_WIDTH, bitzkey_layer, dot_radius, draw_reticle, map_dot_radii,
                           draw_bitzkey, zone_colour)
 from display.Setup import EXPORT_DIR, SetupScreen
-from display.Ui import UI
+from display.Language import start_language
+from display.LanguageMenu import LanguageMenu
+from display.Ui import UI, fit_text, draw_label, tr
 from tools.Brain import ACTIONS
 from display.Advanced import AdvancedScreen
 from display.CatalogScreen import CatalogScreen
@@ -124,6 +126,7 @@ class BitzkeyApp:
         """Start a world by these settings, or carry on `simulation`, a world loaded; restarting starts afresh by
         the settings either way."""
         self.screen = Window.open_window()
+        self.language_menu = LanguageMenu()
         self.width = width
         self.height = height
         self.population = population
@@ -305,7 +308,9 @@ class BitzkeyApp:
                     elif action:
                         self._export_graph(to_file=action == "save")
                 elif event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
-                    if self._exemplar_menu is None and self._map_view()[0].collidepoint(event.pos):
+                    if self.language_menu.click(event.pos):
+                        pass  # the language menu opened, closed or chose
+                    elif self._exemplar_menu is None and self._map_view()[0].collidepoint(event.pos):
                         self._marquee_from = (event.pos, bool(pg.key.get_mods() & pg.KMOD_CTRL))
                     else:
                         self._click(event.pos)
@@ -842,6 +847,7 @@ class BitzkeyApp:
         self._draw_footer()
         self._draw_square()
         self._draw_exemplar_menu()  # over everything but the graph and dialogs
+        self.language_menu.draw_list(self.screen)
         if self.show_census:
             note = self.message if pg.time.get_ticks() < self.message_until else None
             self.graph.draw(self.screen, self.simulation, note)
@@ -855,7 +861,7 @@ class BitzkeyApp:
         total = self.simulation.deaths
         self.report = Report("Death report", f"Every death in this world up to turn {self.simulation.turn}: {total} in all, "
                              "by cause and species, who killed whom and what the killers were doing, and the deadliest "
-                             "killers.", death_report_lines(self.simulation.deaths_so_far()))
+                             "killers.", death_report_lines(self.simulation.deaths_so_far(), tr))
 
     def _inspect_brains(self) -> None:
         """Pause, and show the selected Bitzkey's chance of choosing each action in each standard situation."""
@@ -866,7 +872,7 @@ class BitzkeyApp:
         self.playing = False
         self.report = Report(f"Brains of #{agent.identifier:03d}, {agent.species}",
                              "Its chance of choosing each action open to it, in each standard situation, with its temperament "
-                             "now. * marks the likeliest; · an action not open.", brain_matrix_lines(agent))
+                             "now. * marks the likeliest; · an action not open.", brain_matrix_lines(agent, tr))
 
     def _draw_header(self) -> None:
         pg.draw.rect(self.screen, (27, 37, 37), (0, 0, self.screen.get_width(), UI(62)))
@@ -876,8 +882,9 @@ class BitzkeyApp:
                    (144, 170, 151), self.small)
         status = "RUNNING" if self.playing else "ENDED" if self.simulation.ended else "PAUSED"
         status_color = (131, 205, 143) if self.playing else (238, 183, 110)
+        menu_left = self.language_menu.draw_button(self.screen, self.screen.get_width() - UI(24), UI(31))
         label = self.font.render(status, True, status_color)
-        self.screen.blit(label, (self.screen.get_width() - label.get_width() - UI(24), UI(20)))
+        self.screen.blit(label, (menu_left - label.get_width() - UI(20), UI(20)))
 
     def _draw_world(self) -> None:
         board, cell_width, cell_height = self._board_geometry()
@@ -1023,7 +1030,7 @@ class BitzkeyApp:
         if self.show_insights:
             self._draw_insights(x, width)
             return
-        self._text("SELECTED BITZKEY", (x, UI(301)), (220, 229, 211), self.font)
+        self._text("SELECTED BITZKEY", (x, UI(301)), (220, 229, 211), UI.fitting(self.font, "SELECTED BITZKEY", width - UI(140)))
         agent = next((item for item in self.simulation.agents if item.identifier == self.selected_id), None)
         if agent is None:
             self._text("Click a dot to inspect its genome.", (x, UI(332)), (146, 165, 149), self.small)
@@ -1042,19 +1049,16 @@ class BitzkeyApp:
         self._add_button = pg.Rect(x, UI(737), half, UI(28))
         self._catalog_button = pg.Rect(x + half + UI(8), UI(737), width - half - UI(8), UI(28))
         pg.draw.rect(self.screen, (44, 57, 52), self._catalog_button, border_radius=UI(5))
-        label = UI.font("segoeui", 13, bold=True).render("ADD TO CATALOG", True, (220, 229, 211))
-        self.screen.blit(label, label.get_rect(center=self._catalog_button.center))
+        draw_label(self.screen, UI.font("segoeui", 13, bold=True), "ADD TO CATALOG", (220, 229, 211), self._catalog_button)
         pg.draw.rect(self.screen, (44, 57, 52), self._add_button, border_radius=UI(5))
         if chosen:
             pg.draw.rect(self.screen, (238, 183, 110), self._add_button, 1, border_radius=UI(5))
-        label = UI.font("segoeui", 13, bold=True).render("REMOVE FROM EXPORT" if chosen else "ADD TO EXPORT", True,
-                                                         (238, 183, 110) if chosen else (220, 229, 211))
-        self.screen.blit(label, label.get_rect(center=self._add_button.center))
+        draw_label(self.screen, UI.font("segoeui", 13, bold=True), "REMOVE FROM EXPORT" if chosen else "ADD TO EXPORT",
+              (238, 183, 110) if chosen else (220, 229, 211), self._add_button)
         if agent.brain is not None:  # a living animal: its brain can be inspected, beside the heading
             self._brains_button = pg.Rect(x + width - UI(130), UI(299), UI(130), UI(26))
             pg.draw.rect(self.screen, (44, 57, 52), self._brains_button, border_radius=UI(5))
-            label = UI.font("segoeui", 13, bold=True).render("INSPECT BRAINS", True, (220, 229, 211))
-            self.screen.blit(label, label.get_rect(center=self._brains_button.center))
+            draw_label(self.screen, UI.font("segoeui", 13, bold=True), "INSPECT BRAINS", (220, 229, 211), self._brains_button)
 
     @staticmethod
     def _dot_radius(agent: Bitzkey, largest: int = DOT_RADIUS_RANGE[1], smallest: int = DOT_RADIUS_RANGE[0]) -> int:
@@ -1148,8 +1152,7 @@ class BitzkeyApp:
         if view.colliderect(button):
             self._deaths_button = button.clip(view)
             pg.draw.rect(self.screen, (44, 57, 52), button, border_radius=UI(5))
-            label = UI.font("segoeui", 13, bold=True).render("DEATH REPORT", True, (220, 229, 211))
-            self.screen.blit(label, label.get_rect(center=button.center))
+            draw_label(self.screen, UI.font("segoeui", 13, bold=True), "DEATH REPORT", (220, 229, 211), button)
         y = heading("BEHAVIOUR", "% of chances taken, recent turns", INSIGHTS_TOP + 11)
         for action in ACTIONS:
             self._text(action.upper(), (x, at(y)), (149, 170, 150), self.small)
@@ -1353,6 +1356,7 @@ class BitzkeyApp:
     def _wrapped(self, text: str, width: int) -> list[str]:
         """Text in the small font in at most two lines of the width, broken between groups (three spaces apart) where it
         has them, else between words."""
+        text = tr(text)  # wrapped in the language it is shown in
         if self.small.size(text)[0] <= width:
             return [text]
         gap = "   " if "   " in text else " "
@@ -1367,11 +1371,7 @@ class BitzkeyApp:
     def _fit(self, text: str, width: int) -> str:
         """Shorten text in the small font, with an ellipsis, to fit the width: footer notes, and
         group names in the insights panel."""
-        if self.small.size(text)[0] <= width:
-            return text
-        while text and self.small.size(text + "...")[0] > width:
-            text = text[:-1]
-        return text.rstrip() + "..."
+        return fit_text(self.small, text, width)
 
     def _text(self, text: str, position: tuple[int, int], color: tuple[int, int, int],
               font: pg.font.Font) -> None:
@@ -1412,7 +1412,9 @@ def main() -> None:
     """Configure a world, run it, and come back to the configuration panel until the user quits."""
     options = parse_args()
     world.remove_stale_histories()  # left behind by a run that ended without closing its world
-    setup = SetupScreen(Window.open_window(fullscreen=not options.windowed), vars(options))
+    screen = Window.open_window(fullscreen=not options.windowed)
+    start_language()  # the language chosen last time, else the system's
+    setup = SetupScreen(screen, vars(options))
     settings = setup.run()
     while settings is not None:
         rules = settings.pop("rules", {})

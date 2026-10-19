@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 
 import pygame as pg
 
-from display.Ui import UI
+from display.Ui import UI, draw_label, fit_text as shortened
 from tools.Census import colour_order
 from display.Icons import draw_icon
 from display.Inspector import draw_tooltip
@@ -158,11 +158,7 @@ def death_note(simulation: Simulation, identifier: int) -> str:
 
 def fit_text(text: str, font: pg.font.Font, width: int) -> str:
     """The text, cut short with an ellipsis if it is wider than `width`."""
-    if font.size(text)[0] <= width:
-        return text
-    while text and font.size(text + "...")[0] > width:
-        text = text[:-1]
-    return text.rstrip() + "..."
+    return shortened(font, text, width)
 
 
 def bitzkey_at(bars: list[Bar], point: tuple[int, int]) -> int | None:
@@ -457,16 +453,16 @@ class ColourGraph:
         pg.draw.rect(screen, BACKGROUND, panel, border_radius=UI(6))
         pg.draw.rect(screen, (80, 99, 85), panel, 1, border_radius=UI(6))
         title = TITLES[self.part]
-        self._text(screen, f"COLOUR GRAPH  /  {title}", (panel.left + UI(24), panel.top + UI(18)), (229, 239, 220),
-                   self.bold)
+        heading = f"COLOUR GRAPH  /  {title}"  # clear of the buttons
+        self._text(screen, heading, (panel.left + UI(24), panel.top + UI(18)), (229, 239, 220),
+                   UI.fitting(self.bold, heading, layout["sort"].left - panel.left - UI(36)))
         closing = "new world" if self.ended else "close"
         self._text(screen, "Every Bitzkey alive over time, in its own colour.    TAB  ring / dot / social    C  copy    "
                    f"S  save    K  catalog    G or ESC  {closing}",
                    (panel.left + UI(24), panel.top + UI(54)), (144, 170, 151), self.small)
         for name, text in (("clear", "CLEAR"), ("copy", "COPY"), ("save", "SAVE")):
             pg.draw.rect(screen, (44, 57, 52), layout[name], border_radius=UI(4))
-            label = self.font.render(text, True, (220, 229, 211))
-            screen.blit(label, label.get_rect(center=layout[name].center))
+            draw_label(screen, self.font, text, (220, 229, 211), layout[name])
         self._draw_sort_button(screen, layout["sort"])
         if note:
             message = self.small.render(note, True, (238, 183, 110))
@@ -517,11 +513,11 @@ class ColourGraph:
             if name in layout:
                 lit = name == "map"
                 pg.draw.rect(screen, (238, 183, 110) if lit else (44, 57, 52), layout[name], border_radius=UI(4))
-                label = self.font.render(text, True, (19, 26, 27) if lit else (220, 229, 211))
-                screen.blit(label, label.get_rect(center=layout[name].center))
-        self._text(screen, "Select: click, or drag a box (SHIFT adds, CTRL removes)    Time: drag the timeline, "
-                   "or right-click    Zoom: wheel    Pan: right-drag    Z: all",
-                   (panel.left + UI(24), panel.bottom - UI(28)), (144, 170, 151), self.small)
+                draw_label(screen, self.font, text, (19, 26, 27) if lit else (220, 229, 211), layout[name])
+        hint = ("Select: click, or drag a box (SHIFT adds, CTRL removes)    Time: drag the timeline, "
+                "or right-click    Zoom: wheel    Pan: right-drag    Z: all")
+        self._text(screen, hint, (panel.left + UI(24), panel.bottom - UI(28)), (144, 170, 151),
+                   UI.fitting(self.small, hint, layout["open"].left - panel.left - UI(36)))
         if self.menu_open:
             self._draw_menu(screen)
         elif hovered in self._alive and not self._press:

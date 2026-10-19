@@ -9,7 +9,7 @@ import pygame as pg
 
 from display import Window
 from display.Look import RING_WIDTH, dot_radius, draw_bitzkey
-from display.Ui import UI
+from display.Ui import UI, draw_label
 from tools.Genome import (BODY_TRAITS, GENOME, MIND_TRAITS, NEURODIVERGENCE_MAX, NEURODIVERGENCE_SHIFT, SOCIAL_SHIFT,
                           SOCIAL_TRAITS, SPECIES, TEMPERATURES, TRAIT_BITS, TRAIT_MAX, WORD, body_word, decode_body,
                           mind_word, social_word)
@@ -307,7 +307,7 @@ class Designer:
             facts.append(f"At home where it is {TEMPERATURES[home]}.{hardy}")
         for index, fact in enumerate(facts):
             self._text(fact, (preview.left, layout["codes"]["social"].bottom + UI(16 + index * 20)), (187, 199, 181),
-                       self.small)
+                       UI.fitting(self.small, fact, preview.width))
 
         # The trait rows: mind on the left, body on the right, and the social background beneath.
         first_rows = [layout["rows"][FIELDS[index]] for index in (0, COLUMN_ROWS, 2 * COLUMN_ROWS)]
@@ -319,8 +319,7 @@ class Designer:
         for name, label, filled in (("random", "RANDOM", False), ("cancel", "CANCEL", False), ("apply", "APPLY", True)):
             button = layout[name]
             pg.draw.rect(self.screen, (131, 205, 143) if filled else (44, 57, 52), button, border_radius=UI(6))
-            text = self.bold.render(label, True, (19, 26, 27) if filled else (220, 229, 211))
-            self.screen.blit(text, text.get_rect(center=button.center))
+            draw_label(self.screen, self.bold, label, (19, 26, 27) if filled else (220, 229, 211), button)
         hint = self.small.render("UP/DOWN  choose   LEFT/RIGHT  adjust (SHIFT x5)   type a value or hex code   "
                                  "ENTER  apply   ESC  cancel   F11  window", True, (130, 152, 136))
         self.screen.blit(hint, hint.get_rect(midbottom=(card.centerx, card.bottom - UI(84))))
@@ -339,8 +338,7 @@ class Designer:
                      (meter.left, meter.top, round(meter.width * value / _largest(field)), meter.height))
         for button, sign in ((minus, "-"), (plus, "+")):
             pg.draw.rect(self.screen, (44, 57, 52), button, border_radius=UI(4))
-            label = self.bold.render(sign, True, (220, 229, 211))
-            self.screen.blit(label, label.get_rect(center=button.center))
+            draw_label(self.screen, self.bold, sign, (220, 229, 211), button)
         pg.draw.rect(self.screen, (19, 26, 27), box, border_radius=UI(4))
         pg.draw.rect(self.screen, (131, 205, 143) if focused else (54, 68, 62), box, 1, border_radius=UI(4))
         if field == ("body", "species"):

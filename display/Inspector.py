@@ -10,6 +10,7 @@ import pygame as pg
 
 from display.Icons import draw_icon
 from display.Look import DOT_RADIUS_RANGE, dot_radius, draw_bitzkey
+from display.Language import as_shown, tr
 from display.Ui import UI
 from tools.Genome import (BODY_TRAITS, MIND_TRAITS, SOCIAL_TRAITS, TEMPERATURES, body_word, decode_neurodivergence,
                           mind_word, social_word)
@@ -74,27 +75,42 @@ def draw_details(screen: pg.Surface, agent: Bitzkey, x: int, at: Callable[[float
     _text(screen, f"DOT {mind_word(agent.dna):08X} RING {body_word(agent.dna):08X} SOCIAL {social_word(agent.dna):08X}",
           (x, at(26)), (211, 219, 201), mono_small)
 
-    # Temperament: the mind's traits on the left, the social background's on the right.
-    right = x + min(UI(168), width // 2 + UI(18))
+    # Temperament: the mind's traits on the left, the social background's on the right. Names are in
+    # the language shown, and the numbers stand in columns after the longest of them.
+    def widest(traits) -> int:
+        return max(mono_small.size(name)[0] for name in [*traits, "neurodiv."]) + UI(6)
+
+    digits = mono_small.size("00")[0]
+    right = x + max(min(UI(168), width // 2 + UI(18)), widest(MIND_TRAITS) + digits + mono_small.size(" 0.0")[0] + UI(10))
     for left, heading, traits in ((x, "MIND", MIND_TRAITS), (right, "SOCIAL", SOCIAL_TRAITS)):
-        _text(screen, f"{heading:<10}born" + (" now" if known else ""), (left, at(46)), (149, 170, 150), mono_small)
+        numbers = left + widest(traits)
+        _text(screen, heading, (left, at(46)), (149, 170, 150), mono_small)
+        born_at = max(numbers + digits - mono_small.size("born")[0], left + mono_small.size(heading)[0] + UI(6))
+        _text(screen, "born", (born_at, at(46)), (149, 170, 150), mono_small)
+        if known:
+            _text(screen, "now", (numbers + digits + UI(8), at(46)), (149, 170, 150), mono_small)
         for index, trait in enumerate(traits):
             born, now = agent.inborn[trait], agent.mind[trait]
-            if not known:
-                _text(screen, f"{trait:<11}{born:>2}", (left, at(62 + index * 14)), (175, 192, 172), mono_small)
-                continue
-            color = ((175, 192, 172) if abs(now - born) < 0.25
+            color = ((175, 192, 172) if not known or abs(now - born) < 0.25
                      else (131, 205, 143) if now > born else (238, 183, 110))
-            _text(screen, f"{trait:<11}{born:>2}{now:>5.1f}", (left, at(62 + index * 14)), color, mono_small)
-    _text(screen, f"{'neurodiv.':<11}{decode_neurodivergence(agent.dna):>2}",
-          (right, at(62 + len(SOCIAL_TRAITS) * 14)), (175, 192, 172), mono_small)
+            _text(screen, trait, (left, at(62 + index * 14)), color, mono_small)
+            _text(screen, f"{born:>2}", (numbers, at(62 + index * 14)), color, mono_small)
+            if known:
+                _text(screen, f"{now:>5.1f}", (numbers + digits, at(62 + index * 14)), color, mono_small)
+        if heading == "SOCIAL":
+            _text(screen, "neurodiv.", (left, at(62 + len(traits) * 14)), (175, 192, 172), mono_small)
+            _text(screen, f"{decode_neurodivergence(agent.dna):>2}", (numbers, at(62 + len(traits) * 14)), (175, 192, 172),
+                  mono_small)
 
-    # The body, three to a row.
+    # The body, three to a row: each name, and its number at the cell's right.
     _text(screen, "BODY", (x, at(206)), (149, 170, 150), mono_small)
-    cells = [f"{trait:<10}{agent.body[trait]:>2}" for trait in BODY_TRAITS[1:]] + [f"{'burn':<7}{agent.burn:>5.2f}"]
-    for index, cell in enumerate(cells):
+    cells = [(trait, f"{agent.body[trait]:>2}") for trait in BODY_TRAITS[1:]] + [("burn", f"{agent.burn:>5.2f}")]
+    for index, (name, number) in enumerate(cells):
         row, column = divmod(index, 3)
-        _text(screen, cell, (x + column * width // 3, at(222 + row * 14)), (175, 192, 172), mono_small)
+        cell = x + column * width // 3
+        _text(screen, name, (cell, at(222 + row * 14)), (175, 192, 172), mono_small)
+        _text(screen, number, (cell + width // 3 - UI(10) - mono_small.size(number)[0], at(222 + row * 14)), (175, 192, 172),
+              mono_small)
     _draw_climate(screen, agent, x, at(280), width, here if known else None)
 
     if not known:
@@ -117,8 +133,8 @@ def draw_details(screen: pg.Surface, agent: Bitzkey, x: int, at: Callable[[float
     _text(screen, state, (x, at(350)), (145, 164, 146), small)
     if agent.odds:
         odds = sorted(agent.odds.items(), key=lambda item: -item[1])[:3]
-        _text(screen, "CHANCES  " + "   ".join(f"{action} {chance:.0%}" for action, chance in odds),
-              (x, at(366)), (175, 192, 172), small)
+        line = tr("CHANCES") + "  " + "   ".join(f"{tr(action)} {chance:.0%}" for action, chance in odds)  # each in the language shown
+        _text(screen, as_shown(line), (x, at(366)), (175, 192, 172), small)
 
 
 def draw_tooltip(screen: pg.Surface, agent: Bitzkey, known: bool, mouse: tuple[int, int],

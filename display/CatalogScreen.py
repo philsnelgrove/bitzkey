@@ -12,7 +12,7 @@ from display.Designer import Designer
 from display.Dialog import Dialog
 from display.Inspector import draw_details
 from display.Look import RING_WIDTH, dot_radius, draw_bitzkey
-from display.Ui import UI
+from display.Ui import UI, draw_label, wrapped_lines
 from tools import Catalog
 from tools.Simulation import Bitzkey
 
@@ -228,10 +228,10 @@ class CatalogScreen:
         pg.draw.rect(self.screen, (22, 30, 30), listing, border_radius=UI(6))
         if not self.entries:
             self._text("The catalog is empty.", (listing.left + UI(16), listing.top + UI(16)), (157, 177, 159), self.font)
-            self._text("Add Bitzkeys from a running world: ADD TO CATALOG in the sidebar,", (listing.left + UI(16),
-                       listing.top + UI(44)), (116, 139, 124), self.small)
-            self._text("the export list or the colour graph, or press K.", (listing.left + UI(16), listing.top + UI(62)),
-                       (116, 139, 124), self.small)
+            lines = wrapped_lines(self.small, "Add Bitzkeys from a running world: ADD TO CATALOG in the sidebar, the export "
+                                  "list or the colour graph, or press K.", listing.width - UI(32))
+            for index, line in enumerate(lines):
+                self._text(line, (listing.left + UI(16), listing.top + UI(44 + 18 * index)), (116, 139, 124), self.small)
         for index in range(self.scroll, min(len(self.entries), self.scroll + self._rows_shown())):
             row = self._row(index)
             if index in self.chosen:
@@ -263,8 +263,7 @@ class CatalogScreen:
             button = layout[name]
             active = lit and bool(self.chosen)
             pg.draw.rect(self.screen, (131, 205, 143) if active else (44, 57, 52), button, border_radius=UI(6))
-            text = self.button_font.render(label, True, (19, 26, 27) if active else (220, 229, 211))
-            self.screen.blit(text, text.get_rect(center=button.center))
+            draw_label(self.screen, self.button_font, label, (19, 26, 27) if active else (220, 229, 211), button)
         hint = self.note or ("CLICK, SHIFT or CTRL+CLICK  choose    ENTER  deploy    DELETE  remove    ESC  close" if self.browsing else
                              "CLICK, SHIFT or CTRL+CLICK  choose    ENTER  add to import    DELETE  remove    ESC  close")
         label = self.small.render(hint, True, (238, 183, 110) if self.note else (116, 139, 124))

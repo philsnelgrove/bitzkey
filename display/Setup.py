@@ -13,7 +13,9 @@ from config.Globals import Config
 from display import Window
 from display.Advanced import AdvancedScreen
 from display.CatalogScreen import CatalogScreen
-from display.Ui import UI
+from display.Language import as_shown
+from display.LanguageMenu import LanguageMenu
+from display.Ui import UI, draw_label, wrapped_lines
 from display.Designer import Designer
 from display.Dialog import Dialog
 from display.WorldFiles import choose_world_file
@@ -200,6 +202,7 @@ class SetupScreen:
         self.dialog: Dialog | None = None  # the quit confirmation, while it is open
         self.last_design: int | None = None  # the designer reopens on the last design applied
         self.rules: dict[str, float] = {}  # the advanced rules changed from their defaults
+        self.language_menu = LanguageMenu()
 
     # Fonts are sized for the 1200x820 design and scaled to the screen.
 
@@ -260,6 +263,8 @@ class SetupScreen:
                     else:
                         self._key(event)
                 elif event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
+                    if self.language_menu.click(event.pos):
+                        continue
                     action = self._click(event.pos)
                     if action == "quit":
                         self._ask_to_quit()
@@ -492,8 +497,7 @@ class SetupScreen:
                    (157, 177, 159), self.font)
         advanced = layout["advanced"]
         pg.draw.rect(self.screen, (238, 183, 110) if self.rules else (44, 57, 52), advanced, border_radius=UI(4))
-        label = self.button_font.render("ADVANCED", True, (19, 26, 27) if self.rules else (220, 229, 211))
-        self.screen.blit(label, label.get_rect(center=advanced.center))
+        draw_label(self.screen, self.button_font, "ADVANCED", (19, 26, 27) if self.rules else (220, 229, 211), advanced)
         if self.rules:
             note = self.small.render(f"{len(self.rules)} rule{'s' if len(self.rules) != 1 else ''} changed", True,
                                      (238, 183, 110))
@@ -506,22 +510,21 @@ class SetupScreen:
         start = layout["start"]
         ready = self.form.can_start
         pg.draw.rect(self.screen, (131, 205, 143) if ready else (70, 88, 76), start, border_radius=UI(6))
-        label = self.bold.render("START", True, (19, 26, 27))
-        self.screen.blit(label, label.get_rect(center=start.center))
+        draw_label(self.screen, self.bold, "START", (19, 26, 27), start)
         quit = layout["quit"]
         pg.draw.rect(self.screen, (44, 57, 52), quit, border_radius=UI(6))
-        label = self.bold.render("QUIT", True, (220, 229, 211))
-        self.screen.blit(label, label.get_rect(center=quit.center))
+        draw_label(self.screen, self.bold, "QUIT", (220, 229, 211), quit)
         world = layout["world"]
         pg.draw.rect(self.screen, (44, 57, 52), world, border_radius=UI(6))
-        label = self.button_font.render("LOAD WORLD", True, (220, 229, 211))
-        self.screen.blit(label, label.get_rect(center=world.center))
+        draw_label(self.screen, self.button_font, "LOAD WORLD", (220, 229, 211), world)
         if pg.time.get_ticks() < self.note_until:
             hint = self.small.render(self.note, True, (238, 183, 110))
         else:
             hint = self.small.render("UP/DOWN  choose   LEFT/RIGHT  adjust (SHIFT x10)   CTRL+V  paste   "
                                      "ENTER  start   F11  window   ESC  quit", True, (130, 152, 136))
         self.screen.blit(hint, hint.get_rect(midbottom=(card.centerx, card.bottom - UI(14))))
+        self.language_menu.draw_button(self.screen, self.screen.get_width() - UI(24), UI(31))
+        self.language_menu.draw_list(self.screen)
         if self.dialog:
             self.dialog.draw(self.screen)
 
@@ -529,13 +532,14 @@ class SetupScreen:
         pg.draw.rect(self.screen, (36, 49, 47) if focused else (31, 42, 41), row, border_radius=UI(5))
         if focused:
             pg.draw.rect(self.screen, (131, 205, 143), row, 1, border_radius=UI(5))
-        self._text(setting.label.upper(), (row.left + UI(16), row.top + UI(3)), (232, 236, 219), self.font)
-        self._text(setting.hint, (row.left + UI(16), row.top + UI(22)), (130, 152, 136), self.small)
         minus, box, plus = self._buttons(row)
+        room = minus.left - row.left - UI(24)  # the label and hint stay clear of the buttons
+        self._text(setting.label.upper(), (row.left + UI(16), row.top + UI(3)), (232, 236, 219),
+                   UI.fitting(self.font, setting.label.upper(), room))
+        self._text(setting.hint, (row.left + UI(16), row.top + UI(22)), (130, 152, 136), UI.fitting(self.small, setting.hint, room))
         for button, sign in ((minus, "-"), (plus, "+")):
             pg.draw.rect(self.screen, (44, 57, 52), button, border_radius=UI(4))
-            label = self.bold.render(sign, True, (220, 229, 211))
-            self.screen.blit(label, label.get_rect(center=button.center))
+            draw_label(self.screen, self.bold, sign, (220, 229, 211), button)
         pg.draw.rect(self.screen, (19, 26, 27), box, border_radius=UI(4))
         pg.draw.rect(self.screen, (131, 205, 143) if focused else (54, 68, 62), box, 1, border_radius=UI(4))
         text = self.form.texts[setting.key]
@@ -548,28 +552,28 @@ class SetupScreen:
     def _draw_import(self, layout: dict) -> None:
         box = layout["box"]
         focused = self.form.on_import
-        self._text("IMPORT BITZKEYS", (box.left, layout["paste"].top + UI(5)), (232, 236, 219), self.font)
+        self._text("IMPORT BITZKEYS", (box.left, layout["paste"].top + UI(5)), (232, 236, 219),
+                   UI.fitting(self.font, "IMPORT BITZKEYS", layout["catalog"].left - box.left - UI(8)))
         for name, label in (("catalog", "FROM CATALOG"), ("design", "DESIGN"), ("paste", "PASTE"), ("load", "LOAD FILE"),
                             ("clear", "CLEAR")):
             button = layout[name]
             pg.draw.rect(self.screen, (44, 57, 52), button, border_radius=UI(4))
-            text = self.button_font.render(label, True, (220, 229, 211))
-            self.screen.blit(text, text.get_rect(center=button.center))
+            draw_label(self.screen, self.button_font, label, (220, 229, 211), button)
 
         pg.draw.rect(self.screen, (19, 26, 27), box, border_radius=UI(4))
         pg.draw.rect(self.screen, (131, 205, 143) if focused else (54, 68, 62), box, 1, border_radius=UI(4))
-        lines = self.form.import_text.split("\n")
+        lines = [as_shown(line) for line in self.form.import_text.split("\n")]  # as typed
         if not self.form.import_text and not focused:
-            lines, color = ["Paste exported genomes here (CTRL+V), drop a file onto the window,",
-                            "load one, pick one FROM CATALOG, or DESIGN your own. Imported",
-                            "Bitzkeys join the ones spawned above."], (116, 139, 124)
+            lines, color = wrapped_lines(self.mono_small, "Paste exported genomes here (CTRL+V), drop a file onto the window, "
+                                         "load one, pick one FROM CATALOG, or DESIGN your own. Imported Bitzkeys join "
+                                         "the ones spawned above.", box.width - UI(20)), (116, 139, 124)
         else:
             lines, color = lines[-self.TEXT_LINES:], (187, 199, 181)
             if focused and pg.time.get_ticks() // 500 % 2:
                 lines[-1] += "_"
         columns = (box.width - UI(20)) // max(1, self.mono_small.size("M")[0])
         for index, line in enumerate(lines):
-            shown = line if len(line) <= columns else line[:columns - 1] + "~"
+            shown = line if len(line) <= columns or color == (116, 139, 124) else as_shown(line[:columns - 1] + "~")
             self._text(shown, (box.left + UI(10), box.top + UI(7 + index * 16)), color, self.mono_small)
 
         genomes, error = self.form.imports
