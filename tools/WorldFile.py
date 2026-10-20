@@ -352,6 +352,7 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
                               None if doing < 0 else strings[doing])
             for identifier, cause, kind, turn, killer, killer_kind, doing
             in numbers.whole(deaths["at"], 7 * deaths["count"]).reshape(-1, 7).tolist()}
+    simulation._order_deaths()
     simulation.agents = [_agent_from(agent, numbers) for agent in record["agents"]]
     simulation._update_climate()
     simulation._index_cells()

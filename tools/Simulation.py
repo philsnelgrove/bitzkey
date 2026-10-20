@@ -974,6 +974,7 @@ class Simulation:
         self.lineage_first = 0
         # Each death, by the dead Bitzkey's identifier: back to the graph's start, for the graph and the death report.
         self.death_records: dict[int, Death] = {}
+        self._death_order: deque[tuple[int, int]] = deque()  # (turn, identifier) of each death, oldest first
         self.turn = 0
         self.deaths = 0
         self.death_causes: dict[str, dict[str, int]] = {}  # every death so far, by species and then cause
@@ -1032,8 +1033,8 @@ class Simulation:
         if self.turn < self.frontier:
             while self.history and self.history[-1]["turn"] > self.turn:
                 self._history_bytes -= self.history.pop()["bytes"]
-            self.death_records = {identifier: death for identifier, death in self.death_records.items()
-                                  if death.turn <= self.turn}  # deaths in the future let go
+            while self._death_order and self._death_order[-1][0] > self.turn:  # deaths in the future let go
+                self._forget_death(*self._death_order.pop())
         deployed = []
         for bitzkey in bitzkeys:
             space = 1 + int(decode_body(bitzkey.dna)["size"])
@@ -1461,13 +1462,31 @@ class Simulation:
     def _forget_before(self, start: int) -> None:
         """Forget the deaths before the graph's start, and the genomes of the Bitzkeys neither on
         the graph nor in the world."""
-        self.death_records = {identifier: death for identifier, death in self.death_records.items()
-                              if death.turn >= start}
-        first = min((*self.census.snapshots[0][1], *self.death_records, *(agent.identifier for agent in self.agents)),
+        order = self._death_order
+        while order and order[0][0] < start:  # oldest first, so only those forgotten are looked at
+            self._forget_death(*order.popleft())
+        # Any kept death before the graph's start was alive then, and in its first snapshot, unless it
+        # died that very turn; any born since has a later identifier.
+        dying_then = []
+        for turn, identifier in order:
+            if turn > start:
+                break
+            dying_then.append(identifier)
+        first = min((*self.census.snapshots[0][1], *dying_then, *(agent.identifier for agent in self.agents)),
                     default=self.next_identifier)
         for identifier in range(self.lineage_first, first):
             self.lineage.pop(identifier, None)
         self.lineage_first = max(self.lineage_first, first)
+
+    def _forget_death(self, turn: int, identifier: int) -> None:
+        """Forget a death, unless a branch taken after rewinding has since recorded another under its identifier."""
+        death = self.death_records.get(identifier)
+        if death is not None and death.turn == turn:
+            del self.death_records[identifier]
+
+    def _order_deaths(self) -> None:
+        """The deaths' order, oldest first, from the records alone, as a loaded world has them."""
+        self._death_order = deque(sorted((death.turn, identifier) for identifier, death in self.death_records.items()))
 
     # Temperament
 
@@ -1825,6 +1844,7 @@ class Simulation:
         self.death_records[agent.identifier] = Death(cause, agent.species, self.turn,
                                                      None if killer is None else killer.identifier,
                                                      None if killer is None else killer.species, activity)
+        self._death_order.append((self.turn, agent.identifier))
         if agent.brain is not None and agent.last_senses is not None:
             # A slow death (old age, starving or the cold or heat) is not its last choice's doing: the health it lost
             # on the way has taught its lessons already.
