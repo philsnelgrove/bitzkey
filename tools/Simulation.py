@@ -964,14 +964,15 @@ class Simulation:
         self.height = height
         self.random = random.Random(seed)
         self.insights = Insights()
-        # Who was alive, over the whole run, for the colour graph. It outlives the rewind
+        # Who was alive, over the last GRAPH_TURNS turns, for the colour graph. It outlives the rewind
         # history; replaying reads it, and a new turn discards any abandoned future.
         self.census = Census()
-        # The genome of every Bitzkey ever spawned, by identifier, so the graph can colour and
-        # export Bitzkeys long gone. A branch taken after rewinding reuses identifiers and
-        # overwrites them.
+        # The genome of every Bitzkey spawned from lineage_first on, by identifier, so the graph can
+        # colour and export Bitzkeys long gone; those before it are off the graph and forgotten. A
+        # branch taken after rewinding reuses identifiers and overwrites them.
         self.lineage: dict[int, int] = {}
-        # Each death, by the dead Bitzkey's identifier: back to the world's start, for the graph and the death report.
+        self.lineage_first = 0
+        # Each death, by the dead Bitzkey's identifier: back to the graph's start, for the graph and the death report.
         self.death_records: dict[int, Death] = {}
         self.turn = 0
         self.deaths = 0
@@ -1454,7 +1455,19 @@ class Simulation:
             self.grass[cell] = self.grass.get(cell, 0) + (CORPSE_FERTILITY if cell in fertile else 1)
 
     def _take_census(self) -> None:
-        self.census.record(self.turn, (agent.identifier for agent in self.living))
+        if self.census.record(self.turn, (agent.identifier for agent in self.living)):
+            self._forget_before(self.census.snapshots[0][0])
+
+    def _forget_before(self, start: int) -> None:
+        """Forget the deaths before the graph's start, and the genomes of the Bitzkeys neither on
+        the graph nor in the world."""
+        self.death_records = {identifier: death for identifier, death in self.death_records.items()
+                              if death.turn >= start}
+        first = min((*self.census.snapshots[0][1], *self.death_records, *(agent.identifier for agent in self.agents)),
+                    default=self.next_identifier)
+        for identifier in range(self.lineage_first, first):
+            self.lineage.pop(identifier, None)
+        self.lineage_first = max(self.lineage_first, first)
 
     # Temperament
 
@@ -1802,7 +1815,7 @@ class Simulation:
         return self.random.random() < steepness * (agent.age - onset)
 
     def deaths_so_far(self) -> list[Death]:
-        """Every death from the world's start to the turn it is at, rewound or not."""
+        """Every death from the graph's start to the turn it is at, rewound or not."""
         return [death for death in self.death_records.values() if death.turn <= self.turn]
 
     def _die(self, agent: Bitzkey, cause: str, killer: Bitzkey | None = None, activity: str | None = None) -> None:

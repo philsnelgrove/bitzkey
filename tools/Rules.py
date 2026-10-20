@@ -17,6 +17,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from tools import Brain as brain
+from tools import Census as census
 from tools import Simulation as world
 
 
@@ -41,7 +42,7 @@ class Rule:
 
 
 _MODULES = {"TEMPERATURE": brain, "MUTATION": brain, "TRACE_DECAY": brain, "SMART_TRACE_DECAY": brain,
-            "HEADING_RELUCTANCE": brain}
+            "HEADING_RELUCTANCE": brain, "GRAPH_TURNS": census}
 
 # (key, label, hint, minimum, maximum, step) by group. A step that is an int makes a whole-number rule.
 _TABLE: dict[str, list[tuple]] = {
@@ -58,6 +59,8 @@ _TABLE: dict[str, list[tuple]] = {
         ("HISTORY_TURNS", "History turns", "turns of the world kept whole, to rewind the map to; at the top, all",
          1, world.HISTORY_ALL, 10),
         ("HISTORY_MEMORY", "History memory", "most memory, in GB, the rewind history may take", 0.1, 64.0, 0.1),
+        ("GRAPH_TURNS", "Graph turns", "turns of the past the graph and death report cover; deaths and genomes older than that are forgotten",
+         1000, 2_000_000, 1000),
     ],
     "Bodies": [
         ("LIFESPAN_YEARS.0", "Lifespan, shortest", "years of life expected for the smallest bodies, plant or animal",

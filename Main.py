@@ -1284,6 +1284,7 @@ class BitzkeyApp:
         chosen = sorted(self.graph.selection)
         agents = {agent.identifier: agent for agent in self.simulation.agents}
         if chosen:
+            chosen = [identifier for identifier in chosen if identifier in agents or identifier in self.simulation.lineage]
             records = [bitzkey_record(agents[identifier]) if identifier in agents
                        else genome_record(self.simulation.lineage[identifier]) for identifier in chosen]
             dead = sum(identifier not in agents or not agents[identifier].alive for identifier in chosen)

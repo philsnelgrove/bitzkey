@@ -17,9 +17,10 @@ make it enormous goes in the other parts, and the JSON part names where:
   if traced, its traces, laid out the same.
 - a set of senses (its last, or a memory's) is the position of INPUT_SIZE numbers.
 - the census's snapshots are [turn, the first whole number, how many]: the identifiers alive then.
-- "lineage" {"at", "count"}: the genome of every Bitzkey that ever lived, by identifier, three whole numbers
-  each (the social background word, the ring, the dot, as unsigned words).
-- "death_records" {"at", "count"}: every death, seven whole numbers each: the dead's identifier, its cause
+- "lineage" {"at", "count", "first"}: the genome of every Bitzkey from identifier "first" on (0 if missing;
+  those before it are off the graph and forgotten), three whole numbers each (the social background word,
+  the ring, the dot, as unsigned words).
+- "death_records" {"at", "count"}: every death since the graph's start, seven whole numbers each: the dead's identifier, its cause
   (an index into "death_strings"), its species (an index into SPECIES), the turn, the killer's identifier,
   its species and what it was doing (an index into "death_strings"); the last three -1 for none.
 
@@ -221,7 +222,9 @@ def world_bytes(simulation: Simulation) -> bytes:
         return at
 
     snapshots = [[turn, whole(alive), len(alive)] for turn, alive in simulation.census.snapshots]
-    lineage = [simulation.lineage.get(identifier, 0) for identifier in range(max(simulation.lineage, default=-1) + 1)]
+    first = simulation.lineage_first
+    lineage = [simulation.lineage.get(identifier, 0)
+               for identifier in range(first, max(simulation.lineage, default=first - 1) + 1)]
     lineage_at = whole(np.array([[dna >> 64 & WORD, dna >> 32 & WORD, dna & WORD] for dna in lineage],
                                 dtype="<u4").reshape(-1, 3).view("<i4"))
     strings: dict[str, int] = {}  # the causes and doings, each once
@@ -250,7 +253,7 @@ def world_bytes(simulation: Simulation) -> bytes:
                     + [[*key, 0.0, chosen] for key, chosen in simulation.insights.chosen.items()
                        if key not in simulation.insights.offered],
         "census": {"stride": simulation.census.stride, "snapshots": snapshots},
-        "lineage": {"at": lineage_at, "count": len(lineage)},
+        "lineage": {"at": lineage_at, "count": len(lineage), "first": first},
         "death_strings": list(strings), "death_records": {"at": deaths_at, "count": len(rows)},
         "agents": [_agent_record(agent, numbers) for agent in simulation.agents],
     }
@@ -339,7 +342,9 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
                                        for turn, first, count in record["census"]["snapshots"]]
         lineage = record["lineage"]
         words = numbers.whole(lineage["at"], 3 * lineage["count"]).view("<u4").reshape(-1, 3).tolist()
-        simulation.lineage = {identifier: social << 64 | ring << 32 | dot for identifier, (social, ring, dot) in enumerate(words)}
+        simulation.lineage_first = lineage.get("first", 0)
+        simulation.lineage = {identifier: social << 64 | ring << 32 | dot
+                              for identifier, (social, ring, dot) in enumerate(words, start=simulation.lineage_first)}
         strings, deaths = record["death_strings"], record["death_records"]
         species = lambda index: None if index < 0 else SPECIES[index]  # noqa: E731
         simulation.death_records = {

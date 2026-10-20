@@ -54,6 +54,29 @@ class CensusTests(unittest.TestCase):
 
         self.assertEqual([turn for turn, _ in census.snapshots], [0, 1, 2])
 
+    def test_census_forgets_turns_older_than_the_graph_covers(self):
+        census = Census()
+        with patch("tools.Census.GRAPH_TURNS", 10):
+            forgot = [census.record(turn, [turn]) for turn in range(15)]
+
+        self.assertEqual([turn for turn, _ in census.snapshots], list(range(4, 15)))
+        self.assertEqual(forgot, [False] * 11 + [True] * 4)
+
+    def test_a_world_forgets_the_genomes_and_deaths_from_before_its_graph(self):
+        with patch("tools.Census.GRAPH_TURNS", 5):
+            simulation = Simulation(width=20, height=20, population=30, seed=4, year_length=8)  # short lives
+            for _ in range(200):
+                simulation.advance()
+
+        start = simulation.census.snapshots[0][0]
+        self.assertEqual(start, simulation.turn - 5)
+        self.assertGreater(simulation.lineage_first, 0)
+        self.assertEqual(min(simulation.lineage), simulation.lineage_first)
+        self.assertTrue(all(death.turn >= start for death in simulation.death_records.values()))
+        self.assertTrue(all(identifier in simulation.lineage
+                            for _, alive in simulation.census.snapshots for identifier in alive))
+        self.assertTrue(all(identifier in simulation.lineage for identifier in simulation.death_records))
+
     def test_simulation_records_who_lives_and_every_genome(self):
         simulation = Simulation(width=20, height=20, population=30, seed=4)
         for _ in range(5):

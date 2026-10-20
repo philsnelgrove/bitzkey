@@ -137,7 +137,7 @@ A world file is the same for the Python and C++ versions and the web daemon, so 
 loads in the others and carries on there turn for turn the same. Brains are most of a file, kept
 exactly, at about 120 KB an animal: 8 MB for a world of 60 animals, 120 MB for a thousand. The
 format is described at the top of `tools/WorldFile.py`. A long-lived world also carries its history: the
-genome of every Bitzkey that ever lived and the record of every death, 40 bytes for each, kept compact and
+genome of every Bitzkey and the record of every death over the last 250,000 turns, 40 bytes for each, kept compact and
 written straight to the file as it goes, so a world of 20 million deaths saves and loads in seconds. Worlds
 saved in the first format, before that, still load.
 
@@ -832,8 +832,9 @@ remembered by their colour alone, and sit beneath the living in each species,
 sorted by colour. Colour value is the default. A bar's height is the
 population. `Tab` steps between ring
 (body), dot (mind) and social background colours. The timeline shades each winter quarter and marks
-where each year begins, with a line up through the chart. The graph covers the whole run. It samples who was
-alive at evenly spaced turns, spacing them further apart as the run grows.
+where each year begins, with a line up through the chart. The graph covers the last 250,000 turns (the Graph turns rule, under World); older turns, and the
+genomes and deaths of the Bitzkeys only they held, are forgotten, so a long run's saves and death reports stay
+light. It samples who was alive at evenly spaced turns, spacing them further apart as the run grows.
 
 The graph is also a time scrubber. A playhead marks the present. Drag along the
 timeline beneath the bars, or right-click (without dragging) anywhere on the graph, to move the
@@ -974,8 +975,8 @@ sidebar, or drag the scroll bar on its right edge. It shows, by species:
   raised it above the inborn average and amber where it has lowered it.
 - Keenest by action: for every action, the trait group most likely to take it.
 
-DEATH REPORT, at the top of the insights panel, opens a report of every death in the world so far,
-gathered from the record of each death the graph keeps, back to the world's start:
+DEATH REPORT, at the top of the insights panel, opens a report of every death over the last 250,000 turns,
+gathered from the record of each death the graph keeps, back to the graph's start:
 - the causes: a row for each cause, the most common first, a column for each species of the dead, and the totals;
 - who killed whom: a row for each species of the dead, a column for each species of their killers;
 - what the killers were doing: a row for each activity (hunting, attacking, defending, browsing, uprooting,
