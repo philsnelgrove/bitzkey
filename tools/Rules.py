@@ -339,6 +339,8 @@ _TABLE: dict[str, list[tuple]] = {
          0.0, 1.0, 0.05),
         ("HARDINESS", "Hardiness", "share of exposure's extra hunger and damage an animal tolerant of it suffers",
          0.0, 1.0, 0.05),
+        ("FRAILTY", "Frailty", "share of exposure's extra hunger and damage an animal tolerant of the other extreme suffers",
+         1.0, 4.0, 0.05),
     ],
     "Experiences": [
         (f"EXPERIENCES.{event}.{trait}", f"{event.replace('_', ' ').capitalize()}: {trait}",

@@ -42,10 +42,13 @@ class GenomeTests(unittest.TestCase):
 
     def test_a_child_inherits_its_tolerances_together_from_one_parent(self):
         hardy = encode_dna("grazer", heat_tolerance=True, cold_tolerance=True)
-        tender = encode_dna("grazer")
+        tender = encode_dna("grazer", cold_tolerance=True)
         rng = random.Random(5)
         tolerances = {decode_climate(cross(hardy, tender, rng))[1:] for _ in range(60)}
-        self.assertEqual(tolerances, {(True, True), (False, False)})
+        self.assertEqual(tolerances, {(False, False), (False, True)})  # both flags cancel out, or only cold
+
+    def test_both_tolerance_flags_cancel_out(self):
+        self.assertEqual(decode_climate(encode_dna("grazer", heat_tolerance=True, cold_tolerance=True)), (1, False, False))
 
     def test_traits_outside_their_range_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "0 to 7"):

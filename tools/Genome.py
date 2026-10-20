@@ -110,8 +110,9 @@ def decode_body(dna: int) -> dict[str, int | str]:
 
 def decode_climate(dna: int) -> tuple[int, bool, bool]:
     """The climate genes: the home temperature (an index into TEMPERATURES), and whether it
-    tolerates heat and cold."""
-    return (dna >> TEMPERATURE_SHIFT) & 0x3, bool(dna & HEAT_TOLERANCE), bool(dna & COLD_TOLERANCE)
+    tolerates heat or cold; both flags together cancel out, tolerating neither."""
+    heat, cold = bool(dna & HEAT_TOLERANCE), bool(dna & COLD_TOLERANCE)
+    return (dna >> TEMPERATURE_SHIFT) & 0x3, heat and not cold, cold and not heat
 
 
 def encode_dna(species: str = "plant", temperature: int = V1_TEMPERATURE, heat_tolerance: bool = False,

@@ -1310,5 +1310,7 @@
 "ESC  quit": "ESC  終了",
 "PGUP/PGDN  jump": "PGUP/PGDN  移動",
 "ESC  menu": "ESC  メニュー",
-"G or ESC  new world": "G または ESC  新しい世界"
+"G or ESC  new world": "G または ESC  新しい世界",
+"FRAILTY": "脆弱さ",
+"share of exposure's extra hunger and damage an animal tolerant of the other extreme suffers": "反対の極端に耐える動物が受ける、気候による追加の空腹とダメージの割合"
 }

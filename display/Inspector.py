@@ -26,7 +26,7 @@ SHORT_TEMPERATURES = ("hot", "medium", "cold", "v. cold")
 
 def hardiness(heat: bool, cold: bool) -> str:
     """What its tolerance flags spare it, in a word or two."""
-    return "HEAT & COLD-HARDY" if heat and cold else "HEAT-HARDY" if heat else "COLD-HARDY" if cold else ""
+    return "HEAT-HARDY" if heat else "COLD-HARDY" if cold else ""
 
 
 def _draw_climate(screen: pg.Surface, agent: Bitzkey, x: int, y: int, width: int, here: float | None) -> None:

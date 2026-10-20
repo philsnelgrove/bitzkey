@@ -347,7 +347,7 @@ TEMPERAMENT_RELAPSE = 0.0005  # share of the gap back to the inborn value closed
 # is temperate, medium. Every YEAR_LENGTH turns is a year, starting mild. Through its second quarter
 # the north, from the top down to and through the equator, is a step colder; through its fourth the
 # south, from the bottom up to and through the equator, is. Every Bitzkey has a home temperature,
-# and may tolerate heat or cold, suffering HARDINESS of its penalties; plants tolerate nothing, and a plant
+# and may tolerate heat or cold, suffering HARDINESS of its penalties, and FRAILTY of the other's; plants tolerate nothing, and a plant
 # spawned at the start is at home in its zone's usual temperature.
 DEFAULT_YEAR_LENGTH = 360
 YEAR_LENGTH = DEFAULT_YEAR_LENGTH  # each world sets it from its year length setting
@@ -374,6 +374,7 @@ SEED_VIABILITY = 0.75  # years a seed that falls where it can't grow stays able 
 PLANT_GESTATION = 10  # turns a seed lies in the ground before it can sprout
 STARTING_TOLERANCE = 0.1  # the chance a random starting genome carries each tolerance flag
 HARDINESS = 0.5  # the share of exposure's extra hunger and damage an animal tolerant of it suffers
+FRAILTY = 2.0    # the share an animal tolerant of the other extreme suffers
 HOT, MEDIUM, COLD, VERY_COLD = range(len(TEMPERATURES))
 SEASONS = ("mild", "northern winter", "mild", "southern winter")  # by quarter of the year
 
@@ -672,11 +673,15 @@ class Bitzkey:
 
     def exposure_share(self, here: float) -> float:
         """The share of exposure's penalties it suffers here: HARDINESS for an animal tolerant of
-        heat where it is hotter than home, or of cold where it is colder; otherwise all of them.
-        Plants tolerate nothing."""
+        heat where it is hotter than home, or of cold where it is colder; FRAILTY for one tolerant
+        of the other; otherwise all of them. Plants tolerate nothing."""
         home, heat, cold = self.climate
-        if self.species != "plant" and ((here > home and cold) or (here < home and heat)):
+        if self.species == "plant" or here == home:
+            return 1.0
+        if (cold if here > home else heat):
             return HARDINESS
+        if (heat if here > home else cold):
+            return FRAILTY
         return 1.0
 
     @property

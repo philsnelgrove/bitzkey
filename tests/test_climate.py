@@ -97,19 +97,23 @@ class FeelingTests(unittest.TestCase):
         harsh.start()
         self.addCleanup(harsh.stop)
 
-    def test_hardiness_halves_an_animals_exposure_in_one_direction_and_plants_have_none(self):
+    def test_hardiness_halves_an_animals_exposure_one_way_and_doubles_it_the_other_and_plants_have_none(self):
         simulation = world()
         tender = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM), 1, 1)
         hardy = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM, cold_tolerance=True), 1, 1)
         warm = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM, heat_tolerance=True), 1, 1)
+        both = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM, heat_tolerance=True,
+                                                cold_tolerance=True), 1, 1)  # the flags cancel out
         plant = simulation._add_agent(encode_dna("plant", temperature=MEDIUM, cold_tolerance=True,
                                                  heat_tolerance=True), 1, 1)
         heres = (HOT, MEDIUM, COLD, VERY_COLD)
         for animal in (tender, hardy, warm, plant):  # every step is felt
             self.assertEqual([animal.climate_steps(here) for here in heres], [1, 0, 1, 2])
         self.assertEqual([tender.exposure_share(here) for here in heres], [1.0, 1.0, 1.0, 1.0])
-        self.assertEqual([hardy.exposure_share(here) for here in heres], [1.0, 1.0, 0.5, 0.5])
-        self.assertEqual([warm.exposure_share(here) for here in heres], [0.5, 1.0, 1.0, 1.0])
+        self.assertEqual([hardy.exposure_share(here) for here in heres], [2.0, 1.0, 0.5, 0.5])
+        self.assertEqual([warm.exposure_share(here) for here in heres], [0.5, 1.0, 2.0, 2.0])
+        self.assertEqual(both.climate, (MEDIUM, False, False))
+        self.assertEqual([both.exposure_share(here) for here in heres], [1.0, 1.0, 1.0, 1.0])
         self.assertEqual([plant.exposure_share(here) for here in heres], [1.0, 1.0, 1.0, 1.0])
 
     def test_a_hardy_animal_suffers_half_the_extra_hunger_and_damage(self):
@@ -122,6 +126,16 @@ class FeelingTests(unittest.TestCase):
         self.assertAlmostEqual(hardy.hunger, 1.5 * hardy.burn)
         self.assertAlmostEqual(tender.health, 0.8 * tender.max_health)
         self.assertAlmostEqual(hardy.health, 0.9 * hardy.max_health)
+
+    def test_an_animal_tolerant_of_heat_suffers_twice_the_extra_hunger_and_damage_in_the_cold(self):
+        simulation = world()  # mid-year, mild
+        tender = simulation._add_agent(encode_dna("grazer", temperature=HOT), 20, 10)  # the arctic: two steps too cold
+        frail = simulation._add_agent(encode_dna("grazer", temperature=HOT, heat_tolerance=True), 40, 10)
+        simulation._add_agent(encode_dna("predator"), 90, 90)
+        take_turn(simulation)
+        self.assertAlmostEqual(frail.hunger, 3 * frail.burn)
+        self.assertAlmostEqual(tender.health, 0.8 * tender.max_health)
+        self.assertAlmostEqual(frail.health, 0.6 * frail.max_health)
 
 
 class EffectTests(unittest.TestCase):

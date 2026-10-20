@@ -16,7 +16,7 @@ from tools.Genome import (BODY_TRAITS, GENOME, MIND_TRAITS, NEURODIVERGENCE_MAX,
 from tools.Simulation import Bitzkey, litter_size
 
 # The rows: a column each for the dot and the ring, the mind traits and then the tolerance flags (the
-# dot's top two bits, as one value: 1 heat, 2 cold, 3 both), the body traits and then the home
+# dot's top two bits, as one value: 1 heat, 2 cold; both together cancel out), the body traits and then the home
 # temperature (the ring's top two bits); beneath them both, the social background's traits and its
 # neurodivergence; then the three hex codes.
 FIELDS = (tuple(("mind", trait) for trait in MIND_TRAITS) + (("climate", "hardiness"),)
@@ -27,7 +27,7 @@ COLUMN_ROWS = len(MIND_TRAITS) + 1
 SOCIAL_ROWS = (len(SOCIAL_TRAITS) + 2) // 2  # the social section's rows, in two columns
 PARTS = ("ring", "dot", "social")
 LABELS = {"ring": "RING / BODY", "dot": "DOT / MIND", "social": "SOCIAL"}
-HARDINESS = ("none", "heat", "cold", "both")
+HARDINESS = ("none", "heat", "cold", "none")  # both flags cancel out
 CLIMATE_MAX = 3
 HEX_DIGITS = "0123456789ABCDEF"
 PREVIEW_ZOOM = 16  # the preview is the in-world look, this many times larger
@@ -48,6 +48,8 @@ def _shift(field: tuple[str, str]) -> int:
 def _largest(field: tuple[str, str]) -> int:
     if field == ("social", "neurodivergence"):
         return NEURODIVERGENCE_MAX
+    if field == ("climate", "hardiness"):
+        return len(HARDINESS) - 2
     return CLIMATE_MAX if field[0] == "climate" else TRAIT_MAX
 
 
@@ -303,7 +305,7 @@ class Designer:
         if species == "plant":
             facts.append(f"At home where it is {TEMPERATURES[home]}; elsewhere it withers.")
         else:
-            hardy = ("", "  Tolerates heat.", "  Tolerates cold.", "  Tolerates heat and cold.")[hardiness]
+            hardy = ("", "  Tolerates heat.", "  Tolerates cold.", "")[hardiness]
             facts.append(f"At home where it is {TEMPERATURES[home]}.{hardy}")
         for index, fact in enumerate(facts):
             self._text(fact, (preview.left, layout["codes"]["social"].bottom + UI(16 + index * 20)), (187, 199, 181),

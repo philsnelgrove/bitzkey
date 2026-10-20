@@ -1310,5 +1310,7 @@
 "ESC  quit": "ESC  退出",
 "PGUP/PGDN  jump": "PGUP/PGDN  跳转",
 "ESC  menu": "ESC  菜单",
-"G or ESC  new world": "G 或 ESC  新世界"
+"G or ESC  new world": "G 或 ESC  新世界",
+"FRAILTY": "脆弱性",
+"share of exposure's extra hunger and damage an animal tolerant of the other extreme suffers": "耐受另一极端的动物所承受的暴露额外饥饿与伤害的比例"
 }
