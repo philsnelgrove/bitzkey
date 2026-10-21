@@ -16,7 +16,7 @@ from functools import cache, cached_property, lru_cache
 from itertools import accumulate
 from pathlib import Path
 
-from tools.Brain import ACTIONS, SENSES, Brain, choice_odds, depth_for, gene_senses, make_senses
+from tools.Brain import ACTIONS, SENSES, Brain, choice_odds, depth_for, gene_senses, make_senses, width_for
 from tools.Genome import (GENOME, SPECIES, TEMPERAMENT, TRAIT_MAX, body_word, color_from_word, cross, dot_difference, inherit_mind,
                           ring_difference, social_difference, social_word, BODY_MUTATION_CHANCE, COLD_TOLERANCE,
                           HEAT_TOLERANCE, MIND_MUTATION_CHANCE, TEMPERATURE_SHIFT, TEMPERATURES, decode_body, decode_climate,
@@ -525,9 +525,15 @@ def birth_offsets(reach: int) -> tuple[tuple[int, int], ...]:
 
 
 def thinking_intellect(intellect: int, species: str) -> int:
-    """An inborn intellect as it counts for the brain's depth and how much it replays: a predator's
+    """An inborn intellect as it counts for the brain's shape and how much it replays: a predator's
     PREDATOR_INTELLIGENCE times over, up to the full range."""
     return min(TRAIT_MAX, int(intellect * (PREDATOR_INTELLIGENCE if species == "predator" else 1.0)))
+
+
+def brain_shape(dna: int) -> tuple[int, int]:
+    """The depth and width of a genome's brain, by its thinking intellect: deeper up to MAX_DEPTH, then wider."""
+    intellect = thinking_intellect(decode_temperament(dna)["intellect"], decode_body(dna)["species"])
+    return depth_for(intellect), width_for(intellect)
 
 
 def evolved(parent: int, child: int) -> int:
@@ -1166,8 +1172,8 @@ class Simulation:
         if mind:
             agent.mind.update({trait: mind[trait] for trait in TEMPERAMENT if trait in mind})
         if agent.species != "plant":  # plants need no brain
-            depth = depth_for(thinking_intellect(agent.inborn["intellect"], agent.species))  # twice its inborn intellect, at least two
-            agent.brain = Brain.random(self.random, depth) if brain is None else brain.resized(depth)
+            shape = brain_shape(agent.dna)
+            agent.brain = Brain.random(self.random, *shape) if brain is None else brain.resized(*shape)
         self.next_identifier += 1
         self.agents.append(agent)
         self.lineage[agent.identifier] = agent.dna
@@ -2285,13 +2291,12 @@ class Simulation:
         for _ in range(litter):
             # The child's mind starts at the average of its parents' current minds, mutated, and
             # its dot is written from that mind, so experience is inherited and shows. Its brain,
-            # a mix of its parents', is as deep as its own inborn intellect makes it.
+            # a mix of its parents', is as deep and wide as its own inborn intellect makes it.
             mind = inherit_mind(first.mind, second.mind, self.random, self.mind_mutation)
             dna = evolved(first.dna, cross(first.dna, second.dna, self.random, mind, body_chance=self.body_mutation))
             if "predator" in (first.species, second.species):
                 dna = predator_dna(dna)  # a predator's young are predators, whatever crossing over or a mutation made
-            brain = Brain.inherit(first.brain, second.brain, self.random,
-                                  depth_for(thinking_intellect(decode_temperament(dna)["intellect"], decode_body(dna)["species"])))
+            brain = Brain.inherit(first.brain, second.brain, self.random, *brain_shape(dna))
             if decode_body(dna)["species"] == "predator" and first.species != "predator":
                 # Born a predator of other parents: what they learnt of eating and uprooting it brings to
                 # hunting and feasting.

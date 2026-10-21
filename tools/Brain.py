@@ -8,7 +8,7 @@ from collections.abc import Mapping, Sequence
 
 import numpy as np
 
-from tools.Genome import BODY_TRAITS, SPECIES, TEMPERAMENT, TEMPERATURES, decode_body, decode_climate, decode_temperament, share
+from tools.Genome import BODY_TRAITS, SPECIES, TEMPERAMENT, TEMPERATURES, TRAIT_MAX, decode_body, decode_climate, decode_temperament, share
 
 ACTIONS = ("eat", "forage", "browse", "uproot", "scavenge", "feast", "rest", "court", "breed", "hunt", "attack", "defend",
            "flee", "herd", "go_north", "go_south", "go_east", "go_west", "walk_north", "walk_south", "walk_east",
@@ -64,8 +64,10 @@ SENSES = (
     "home_temperature", "heat_tolerance", "cold_tolerance",  # its climate genes: home 0 hot to 1 very cold, flags 0 or 1
 )
 INPUT_SIZE = len(SENSES)
-HIDDEN_SIZE = 34  # neurons in each hidden layer
-MIN_DEPTH = 2     # hidden layers: twice the inborn intellect, and never fewer than this
+MAX_DEPTH = 4      # hidden layers: one for each point of inborn intellect, at least one and up to this many
+BASE_WIDTH = 38    # neurons in each hidden layer, up to an intellect of MAX_DEPTH
+WIDTH_STEP = 5     # neurons more in each layer for each point of intellect beyond MAX_DEPTH
+MAX_WIDTH = BASE_WIDTH + WIDTH_STEP * (TRAIT_MAX - MAX_DEPTH)
 TEMPERATURE = 0.2
 MUTATION = 0.05
 TRACE_DECAY = 0.9  # lambda: how much of each earlier choice's credit carries on to the next, beside the discount
@@ -75,14 +77,23 @@ SMART_TRACE_DECAY = 0.97  # lambda at the highest intellect: the clever trace cr
 HEADING_RELUCTANCE = 0.5
 HEADINGS = ("go_north", "go_south", "go_east", "go_west", "walk_north", "walk_south", "walk_east", "walk_west")
 RECORD_DIGITS = 6  # decimal places kept when a brain is exported
-# A new brain's output weights are drawn within this of zero: smaller the wider its layers, so its
-# untaught values spread as they did when layers were twelve neurons wide.
-OUTPUT_SPREAD = 0.3 * math.sqrt(12 / HIDDEN_SIZE)
+
+
+def output_spread(width: int) -> float:
+    """A new brain's output weights are drawn within this of zero: smaller the wider its layers, so its
+    untaught values spread as they did when layers were twelve neurons wide."""
+    return 0.3 * math.sqrt(12 / width)
 
 
 def depth_for(intellect: int) -> int:
-    """How many hidden layers a brain has, by its owner's inborn intellect."""
-    return max(MIN_DEPTH, 2 * intellect)
+    """How many hidden layers a brain has, by its owner's inborn intellect: one a point, from one to MAX_DEPTH."""
+    return max(1, min(MAX_DEPTH, intellect))
+
+
+def width_for(intellect: int) -> int:
+    """How many neurons each of its hidden layers has: BASE_WIDTH, and WIDTH_STEP more for each point of
+    intellect beyond MAX_DEPTH."""
+    return BASE_WIDTH + WIDTH_STEP * max(0, intellect - MAX_DEPTH)
 
 
 def make_senses(**values: float) -> list[float]:
@@ -119,10 +130,19 @@ def _tanh(values: np.ndarray) -> np.ndarray:
     return np.fromiter(map(math.tanh, values), float, len(values))
 
 
-def _identity_layer() -> tuple[np.ndarray, np.ndarray]:
+def _identity_layer(width: int) -> tuple[np.ndarray, np.ndarray]:
     """A hidden layer that passes its input on, near enough: added to deepen a brain without
     changing what it has learned."""
-    return np.eye(HIDDEN_SIZE), np.zeros(HIDDEN_SIZE)
+    return np.eye(width), np.zeros(width)
+
+
+def _fitted(array: np.ndarray, shape: tuple[int, ...]) -> np.ndarray:
+    """A copy of `array` cut down or padded with zeros to `shape`: neurons, and weights from neurons, a
+    layer no longer has are dropped, and those it gains are idle until mutation moves them."""
+    fitted = np.zeros(shape)
+    common = tuple(slice(0, min(have, want)) for have, want in zip(array.shape, shape))
+    fitted[common] = array[common]
+    return fitted
 
 
 class Brain:
@@ -152,38 +172,52 @@ class Brain:
     def depth(self) -> int:
         return len(self.layers)
 
+    @property
+    def width(self) -> int:
+        """Neurons in each hidden layer."""
+        return len(self.layers[0][1])
+
     @classmethod
-    def random(cls, rng: random.Random, depth: int = MIN_DEPTH) -> Brain:
+    def random(cls, rng: random.Random, depth: int = 1, width: int = BASE_WIDTH) -> Brain:
         layers = []
         for index in range(depth):
-            reads = INPUT_SIZE if index == 0 else HIDDEN_SIZE
-            bound = math.sqrt(6 / (reads + HIDDEN_SIZE))
-            layers.append(([[rng.uniform(-bound, bound) for _ in range(reads)] for _ in range(HIDDEN_SIZE)],
-                           [0.0] * HIDDEN_SIZE))
-        return cls(layers, [[rng.uniform(-OUTPUT_SPREAD, OUTPUT_SPREAD) for _ in range(HIDDEN_SIZE)] for _ in ACTIONS],
+            reads = INPUT_SIZE if index == 0 else width
+            bound = math.sqrt(6 / (reads + width))
+            layers.append(([[rng.uniform(-bound, bound) for _ in range(reads)] for _ in range(width)], [0.0] * width))
+        spread = output_spread(width)
+        return cls(layers, [[rng.uniform(-spread, spread) for _ in range(width)] for _ in ACTIONS],
                    [rng.uniform(-0.2, 0.2) - (HEADING_RELUCTANCE if action in HEADINGS else 0.0) for action in ACTIONS])
 
     @classmethod
-    def inherit(cls, first: Brain, second: Brain, rng: random.Random, depth: int = MIN_DEPTH,
+    def inherit(cls, first: Brain, second: Brain, rng: random.Random, depth: int = 1, width: int = BASE_WIDTH,
                 mutation: float | None = None) -> Brain:
-        """A child's brain, `depth` layers deep. Where both parents have a layer, each of its
-        neurons, with its incoming weights, comes from one parent or the other; where only one
-        has it, from that one; deeper still, it starts passing its input on. Each action's output
-        comes from one parent or the other. Then it mutates (by MUTATION unless given)."""
+        """A child's brain, `depth` layers of `width` neurons. Where both parents have a layer, each of
+        its neurons, with its incoming weights, comes from one parent or the other, or from the one that
+        has it where only one does; where only one has the layer, from that one; deeper still, it starts
+        passing its input on. A parent's layers are cut down or padded to the child's width (see
+        _fitted). Each action's output comes from one parent or the other. Then it mutates (by MUTATION
+        unless given)."""
         mutation = MUTATION if mutation is None else mutation
         layers = []
         for index in range(depth):
+            shape = (width, INPUT_SIZE if index == 0 else width)
             donors = [parent for parent in (first, second) if index < parent.depth]
             if len(donors) == 2:
-                from_first = np.array([rng.random() < 0.5 for _ in range(HIDDEN_SIZE)])
-                layers.append((np.where(from_first[:, None], first.layers[index][0], second.layers[index][0]),
-                               np.where(from_first, first.layers[index][1], second.layers[index][1])))
+                from_first = np.array([rng.random() < 0.5 for _ in range(width)])
+                neuron = np.arange(width)
+                from_first = (from_first & (neuron < first.width)) | (neuron >= second.width)
+                layers.append((np.where(from_first[:, None], _fitted(first.layers[index][0], shape),
+                                        _fitted(second.layers[index][0], shape)),
+                               np.where(from_first, _fitted(first.layers[index][1], (width,)),
+                                        _fitted(second.layers[index][1], (width,)))))
             elif donors:
-                layers.append(tuple(part.copy() for part in donors[0].layers[index]))
+                layers.append((_fitted(donors[0].layers[index][0], shape), _fitted(donors[0].layers[index][1], (width,))))
             else:
-                layers.append(_identity_layer())
+                layers.append(_identity_layer(width))
         from_first = np.array([rng.random() < 0.5 for _ in ACTIONS])
-        child = cls(layers, np.where(from_first[:, None], first.output_weights, second.output_weights),
+        outputs = (len(ACTIONS), width)
+        child = cls(layers, np.where(from_first[:, None], _fitted(first.output_weights, outputs),
+                                     _fitted(second.output_weights, outputs)),
                     np.where(from_first, first.output_biases, second.output_biases))
         if mutation:
             for weights in ([weights for weights, _ in child.layers] + [child.output_weights]
@@ -191,12 +225,13 @@ class Brain:
                 weights += np.array([rng.gauss(0, mutation) for _ in range(weights.size)]).reshape(weights.shape)
         return child
 
-    def resized(self, depth: int) -> Brain:
-        """A copy `depth` layers deep: deeper with layers that pass their input on, or shallower
-        without its last layers."""
-        layers = [(weights.copy(), biases.copy()) for weights, biases in self.layers[:depth]]
-        layers += [_identity_layer() for _ in range(depth - len(layers))]
-        return Brain(layers, self.output_weights, self.output_biases)
+    def resized(self, depth: int, width: int) -> Brain:
+        """A copy `depth` layers of `width` neurons: deeper with layers that pass their input on, or
+        shallower without its last layers, and each layer cut down or padded (see _fitted)."""
+        layers = [(_fitted(weights, (width, INPUT_SIZE if index == 0 else width)), _fitted(biases, (width,)))
+                  for index, (weights, biases) in enumerate(self.layers[:depth])]
+        layers += [_identity_layer(width) for _ in range(depth - len(layers))]
+        return Brain(layers, _fitted(self.output_weights, (len(ACTIONS), width)), self.output_biases)
 
     def _activations(self, inputs: Sequence[float]) -> list[np.ndarray]:
         """The senses, then each hidden layer's output."""
@@ -304,9 +339,8 @@ class Brain:
         """Rebuild an exported brain. Weights are matched to senses and actions by name, so a
         brain saved before a sense or action was added still loads; what it never had starts
         neutral (zero) and what this version no longer has is dropped. A brain saved with a single
-        hidden layer, before brains grew deeper, loads as one layer deep, and one saved with fewer
-        neurons in each layer, before layers grew wider, is widened with idle neurons, weighted
-        zero, which change nothing. Raises ValueError."""
+        hidden layer, before brains grew deeper, loads as one layer deep. It keeps the width it was
+        saved with, and the Bitzkey given it resizes it to its own. Raises ValueError."""
         try:
             senses = [str(name) for name in record["senses"]]
             actions = [str(name) for name in record["actions"]]
@@ -324,8 +358,8 @@ class Brain:
             raise ValueError("The brain has no hidden layers.")
         width = len(layers[0][0])
         for index, (weights, biases) in enumerate(layers):
-            if len(weights) != width or len(biases) != width or not 0 < width <= HIDDEN_SIZE:
-                raise ValueError(f"The brain has {len(weights)} neurons in a layer; this version uses up to {HIDDEN_SIZE}, "
+            if len(weights) != width or len(biases) != width or not 0 < width <= MAX_WIDTH:
+                raise ValueError(f"The brain has {len(weights)} neurons in a layer; this version uses up to {MAX_WIDTH}, "
                                  "the same in every layer.")
             reads = len(senses) if index == 0 else width
             if any(len(row) != reads for row in weights):
@@ -336,18 +370,11 @@ class Brain:
 
         sense_at = {name: index for index, name in enumerate(senses)}
         action_at = {name: index for index, name in enumerate(actions)}
-        idle = HIDDEN_SIZE - width  # neurons added to each layer, weighted zero
-        widened = []
-        for index, (weights, biases) in enumerate(layers):
-            if index == 0:
-                rows = [[row[sense_at[name]] if name in sense_at else 0.0 for name in SENSES] for row in weights]
-            else:
-                rows = [row + [0.0] * idle for row in weights]
-            widened.append((rows + [[0.0] * len(rows[0])] * idle, biases + [0.0] * idle))
+        matched = [([[row[sense_at[name]] if name in sense_at else 0.0 for name in SENSES] for row in weights]
+                    if index == 0 else weights, biases) for index, (weights, biases) in enumerate(layers)]
         return cls(
-            widened,
-            [output_weights[action_at[name]] + [0.0] * idle if name in action_at else [0.0] * HIDDEN_SIZE
-             for name in ACTIONS],
+            matched,
+            [output_weights[action_at[name]] if name in action_at else [0.0] * width for name in ACTIONS],
             [output_biases[action_at[name]] if name in action_at else 0.0 for name in ACTIONS],
         )
 

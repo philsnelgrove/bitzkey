@@ -290,7 +290,7 @@ toward them only very slowly (0.05% of the gap a turn):
 | fear | dread when hunters are adjacent; a predator feels half its fear's effects, and less the hungrier it is, none as it starves | wounds, stings and ambushes raise it; kills lower it |
 | appetite | how much hunger hurts | near-starvation raises it |
 | patience | how much it values the future (its learning discount) | meals earned by foraging raise it; starving lowers it |
-| intellect | how deep its brain is (twice its intellect in hidden layers, at least two), how fast it learns (its learning rate, boosted for the bright, how many recent experiences it replays each turn, and how far back it traces an outcome), how much experience can reshape the mind, how much it learns from what it sees, and how rarely primal fear freezes it. A predator's intellect counts twice over in all of these, up to the full range, and its brain learns twice as fast again (an omnivore's half as much faster again). | kills, breeding, discoveries, successful defences and, a little, good meals raise it; so does, very slightly, every lesson learnt from a choice that turned out well |
+| intellect | how big its brain is (a hidden layer for each point up to four, then five neurons more in every layer for each point beyond), how fast it learns (its learning rate, boosted for the bright, how many recent experiences it replays each turn, and how far back it traces an outcome), how much experience can reshape the mind, how much it learns from what it sees, and how rarely primal fear freezes it. A predator's intellect counts twice over in all of these, up to the full range, and its brain learns twice as fast again (an omnivore's half as much faster again). | kills, breeding, discoveries, successful defences and, a little, good meals raise it; so does, very slightly, every lesson learnt from a choice that turned out well |
 | memory | how long it remembers where it last fed and where it was last struck: up to 100 turns at the best memory, fewer the poorer, none at 0 (Memory turns). It senses how fresh the memory of its last meal is, and how close it is to where it was struck, and while it remembers where it fed it may revisit, heading back there | fixed |
 | resilience | how quickly it gets over fright and loss. A herd-mate's failure it saw fades half as fast again for the most resilient, and half as slowly for the least, and the fear a bad experience adds is half again for the least resilient and half for the most (Resilience) | fixed |
 | moodiness | how far experience moves its temperament: half as far again for the moodiest, half as far for the steadiest (Moodiness) | fixed |
@@ -524,10 +524,11 @@ neural network, and that brain chooses everything it does. Each turn it senses:
 - its own genome: each of its dot's and social background's traits as born, each
   of its ring's traits (species among them) and its climate genes
 
-That is 88 senses in all. Its brain has hidden layers of 34 neurons, twice as
-many layers as its
-inborn intellect, and never fewer than two: from two layers for the dullest to
-fourteen for the brightest. Plants have no brain.
+That is 88 senses in all. Its brain has a hidden layer for each point of its
+inborn intellect, at least one and up to four, each of 38 neurons; beyond four,
+each point of intellect adds five neurons to every layer instead. So the dullest
+think with one layer of 38 neurons, and the brightest with four layers of 53.
+Plants have no brain.
 
 The cleverer an animal, the faster it learns, three ways, while the least
 intelligent learn just as they always have. Its learning rate rises with its
@@ -625,10 +626,12 @@ trace of how recently and how much it shaped the brain's choices, fading each
 turn by its discount (more for the patient) times nine tenths, so a death or a
 meal is credited to the run of choices before it, not just the last one. How far
 back it reaches is an advanced rule (the Mind group), as is how reluctant a new
-brain is to set off in a direction. A child's brain is as deep as its
-own inborn intellect makes it. Where both parents have a layer, the child takes
-each of its neurons whole from one parent or the other; where only one parent has
-it, from that one; deeper still, its layers start out passing their input on.
+brain is to set off in a direction. A child's brain is as deep and as wide as
+its own inborn intellect makes it. Where both parents have a layer, the child takes
+each of its neurons whole from one parent or the other, or from the one that has it
+where only one parent's layer is that wide; where only one parent has the layer,
+from that one; deeper still, its layers start out passing their input on. Neurons
+neither parent has start idle, until mutation stirs them.
 Each action's output comes from one parent or the other, all with small
 mutations. A child also inherits its parents' learned shifts in temperament, so
 learned habits and moods pass down the generations.
@@ -951,9 +954,10 @@ genome version 1 and converted, so hand-written records for this version need
 Brain weights are matched to senses and actions by name, so exports from an
 earlier version still load: senses or actions they lack start neutral, and ones
 this version no longer has are dropped. A brain saved with one hidden layer, from
-before brains grew deeper, loads too. A saved brain is fitted to the depth its
-Bitzkey's intellect calls for: deepened with layers that pass their input on, or
-cut short. Every member of an imported group starts
+before brains grew deeper, loads too. A saved brain is fitted to the depth and
+width its Bitzkey's intellect calls for: deepened with layers that pass their input
+on, or cut short, and widened with idle neurons, or narrowed. A saved world from
+before brains grew wider loads with its brains fitted the same way. Every member of an imported group starts
 with its own copy of the saved brain and the saved temperament, and their
 children inherit both as usual. Temperament is read for the known traits only,
 kept within 0 to 7; a trait it lacks starts at the gene's value. As in life, a

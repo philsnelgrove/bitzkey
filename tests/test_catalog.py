@@ -119,7 +119,7 @@ class CatalogTests(unittest.TestCase):
             self.assertEqual(agent.dna, self.animal.dna)
             self.assertLessEqual(min(abs(agent.x - 10), 30 - abs(agent.x - 10)), SPAWN_SPREAD + BIRTH_REACH)  # the nearest room to its spot
             self.assertTrue(0 <= agent.y <= 1 + SPAWN_SPREAD + BIRTH_REACH)
-            self.assertEqual(agent.brain, bitzkey.brain.resized(agent.brain.depth))  # its catalogued brain
+            self.assertEqual(agent.brain, bitzkey.brain.resized(agent.brain.depth, agent.brain.width))  # its catalogued brain
             self.assertIsNot(agent.brain, deployed[0].brain if agent is not deployed[0] else None)
             self.assertAlmostEqual(agent.mind["fear"], self.animal.mind["fear"], places=3)
         self.assertEqual(self.simulation.turn, turn)  # between turns

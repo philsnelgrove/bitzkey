@@ -5,8 +5,8 @@ from unittest.mock import patch
 
 import numpy as np
 
-from tools.Brain import (ACTIONS, HIDDEN_SIZE, INPUT_SIZE, MIN_DEPTH, SENSES, Brain, choice_odds, depth_for, gene_senses,
-                         make_senses)
+from tools.Brain import (ACTIONS, BASE_WIDTH, INPUT_SIZE, MAX_WIDTH, SENSES, Brain, choice_odds, depth_for, gene_senses,
+                         make_senses, width_for)
 from tools.Genome import BODY_TRAITS, TEMPERAMENT, encode_dna
 
 
@@ -98,12 +98,14 @@ class BrainTests(unittest.TestCase):
 
         self.assertEqual(brain, before)
 
-    def test_depth_is_twice_the_inborn_intellect_and_at_least_two(self):
-        self.assertEqual([depth_for(intellect) for intellect in range(8)], [2, 2, 4, 6, 8, 10, 12, 14])
-        brain = Brain.random(random.Random(7), 6)
-        self.assertEqual((brain.depth, brain.layers[0][0].shape, brain.layers[5][0].shape),
-                         (6, (HIDDEN_SIZE, INPUT_SIZE), (HIDDEN_SIZE, HIDDEN_SIZE)))
-        self.assertEqual(Brain.random(random.Random(7)).depth, MIN_DEPTH)
+    def test_intellect_deepens_the_brain_to_four_layers_then_widens_it(self):
+        self.assertEqual([depth_for(intellect) for intellect in range(8)], [1, 1, 2, 3, 4, 4, 4, 4])
+        self.assertEqual([width_for(intellect) for intellect in range(8)], [38, 38, 38, 38, 38, 43, 48, 53])
+        self.assertEqual((BASE_WIDTH, MAX_WIDTH), (38, 53))
+        brain = Brain.random(random.Random(7), 4, 53)
+        self.assertEqual((brain.depth, brain.width, brain.layers[0][0].shape, brain.layers[3][0].shape, brain.output_weights.shape),
+                         (4, 53, (53, INPUT_SIZE), (53, 53), (len(ACTIONS), 53)))
+        self.assertEqual((Brain.random(random.Random(7)).depth, Brain.random(random.Random(7)).width), (1, BASE_WIDTH))
 
     def test_there_is_an_input_for_each_action_and_each_ring_dot_and_social_trait(self):
         for name in ([f"inborn_{trait}" for trait in TEMPERAMENT] + list(TEMPERAMENT)
@@ -140,17 +142,44 @@ class BrainTests(unittest.TestCase):
         for layer in (2, 3):  # only the deeper parent has these
             self.assertTrue(np.array_equal(child.layers[layer][0], deep.layers[layer][0]))
         for layer in (4, 5):  # neither has these
-            self.assertTrue(np.array_equal(child.layers[layer][0], np.eye(HIDDEN_SIZE)))
+            self.assertTrue(np.array_equal(child.layers[layer][0], np.eye(BASE_WIDTH)))
             self.assertFalse(child.layers[layer][1].any())
         self.assertEqual(Brain.inherit(deep, deep, rng, 2, mutation=0).depth, 2)
 
+    def test_a_child_wider_than_a_parent_takes_the_neurons_only_the_wider_parent_has_from_it(self):
+        rng = random.Random(3)
+        narrow, wide = Brain.random(rng, 2, 38), Brain.random(rng, 2, 48)
+
+        child = Brain.inherit(narrow, wide, rng, 2, 53, mutation=0)
+
+        self.assertEqual((child.depth, child.width, child.layers[1][0].shape), (2, 53, (53, 53)))
+        for neuron in range(38, 48):  # only the wider parent has these
+            self.assertTrue(np.array_equal(child.layers[0][0][neuron], wide.layers[0][0][neuron]))
+            self.assertTrue(np.array_equal(child.layers[1][0][neuron][:48], wide.layers[1][0][neuron]))
+        for neuron in range(48, 53):  # neither has these: idle
+            self.assertFalse(child.layers[0][0][neuron].any() or child.layers[1][0][neuron].any())
+        self.assertFalse(child.output_weights[:, 48:].any())
+        narrower = Brain.inherit(wide, wide, rng, 1, 38, mutation=0)
+        self.assertEqual(narrower.output_weights.shape, (len(ACTIONS), 38))
+        self.assertTrue(np.array_equal(narrower.layers[0][0], wide.layers[0][0][:38]))
+
     def test_resizing_deepens_with_pass_through_layers_or_drops_the_last(self):
         brain = Brain.random(random.Random(7), 4)
-        deeper, shallower = brain.resized(6), brain.resized(2)
+        deeper, shallower = brain.resized(6, BASE_WIDTH), brain.resized(2, BASE_WIDTH)
         self.assertEqual((deeper.depth, shallower.depth), (6, 2))
         self.assertTrue(np.array_equal(deeper.layers[3][0], brain.layers[3][0]))
-        self.assertTrue(np.array_equal(deeper.layers[5][0], np.eye(HIDDEN_SIZE)))
+        self.assertTrue(np.array_equal(deeper.layers[5][0], np.eye(BASE_WIDTH)))
         self.assertTrue(np.array_equal(shallower.layers[1][0], brain.layers[1][0]))
+
+    def test_resizing_wider_adds_idle_neurons_that_change_nothing_and_narrower_drops_the_last(self):
+        brain = Brain.random(random.Random(7), 3)
+        wider = brain.resized(3, 53)
+        self.assertEqual((wider.width, wider.layers[2][0].shape), (53, (53, 53)))
+        senses = [0.4] * INPUT_SIZE
+        for mine, theirs in zip(wider.values(senses), brain.values(senses), strict=True):
+            self.assertAlmostEqual(mine, theirs, places=12)
+        narrower = brain.resized(3, 30)
+        self.assertTrue(np.array_equal(narrower.layers[1][0], brain.layers[1][0][:30, :30]))
 
     def test_a_new_brain_is_reluctant_to_set_off_in_any_direction(self):
         reluctant = Brain.random(random.Random(7))
@@ -181,10 +210,10 @@ class BrainTests(unittest.TestCase):
         # share; with one, it shares the blame.
         self.assertLess(changes[1], changes[0] - 0.1)
 
-    def test_hidden_layers_are_34_neurons_wide(self):
-        self.assertEqual((HIDDEN_SIZE, INPUT_SIZE), (34, 88))
+    def test_there_are_88_senses(self):
+        self.assertEqual(INPUT_SIZE, 88)
 
-    def test_a_brain_saved_with_narrower_layers_loads_widened_and_values_alike(self):
+    def test_a_brain_saved_with_narrower_layers_loads_as_saved_and_values_alike(self):
         rng = np.random.default_rng(5)
         narrow = 12
         layers = [(rng.uniform(-0.5, 0.5, (narrow, INPUT_SIZE)), rng.uniform(-0.2, 0.2, narrow)),
@@ -194,7 +223,7 @@ class BrainTests(unittest.TestCase):
                   "layers": [{"weights": weights.tolist(), "biases": biases.tolist()} for weights, biases in layers],
                   "output_weights": output_weights.tolist(), "output_biases": output_biases.tolist()}
         loaded = Brain.from_record(record)
-        self.assertEqual([weights.shape for weights, _ in loaded.layers], [(HIDDEN_SIZE, INPUT_SIZE), (HIDDEN_SIZE, HIDDEN_SIZE)])
+        self.assertEqual([weights.shape for weights, _ in loaded.layers], [(narrow, INPUT_SIZE), (narrow, narrow)])
         senses = rng.uniform(0, 1, INPUT_SIZE)
         activation = senses
         for weights, biases in layers:
@@ -259,11 +288,13 @@ class BrainTests(unittest.TestCase):
         self.assertTrue(np.allclose(loaded.layers[0][0], brain.layers[0][0], atol=1e-6))
 
     def test_malformed_brains_are_rejected(self):
-        record = Brain.random(random.Random(7)).to_record()
+        record = Brain.random(random.Random(7), 2).to_record()
         layers = record["layers"]
+        too_wide = Brain.random(random.Random(7), 1, MAX_WIDTH + 1).to_record()
         for broken in ({**record, "layers": [{**layers[0], "weights": layers[0]["weights"][:3]}, layers[1]]},
                        {**record, "layers": [{**layers[0], "biases": "lots"}, layers[1]]},
-                       {**record, "layers": [layers[0], {**layers[1], "weights": [[0.0] * 5] * HIDDEN_SIZE}]},
+                       {**record, "layers": [layers[0], {**layers[1], "weights": [[0.0] * 5] * BASE_WIDTH}]},
+                       too_wide,
                        {**record, "layers": []},
                        {key: value for key, value in record.items() if key != "actions"}):
             with self.assertRaises(ValueError):

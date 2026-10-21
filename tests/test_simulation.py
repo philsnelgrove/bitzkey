@@ -416,15 +416,15 @@ class SimulationTests(unittest.TestCase):
                           for parent in (first, second))
             self.assertLess(nearest, 0.3)  # one parent's neuron, plus small mutations
 
-    def test_a_brain_is_twice_as_deep_as_the_inborn_intellect_and_plants_have_none(self):
-        for intellect, depth in ((0, 2), (1, 2), (3, 6), (7, 14)):
+    def test_intellect_deepens_a_brain_to_four_layers_then_widens_it_and_plants_have_none(self):
+        for intellect, shape in ((0, (1, 38)), (1, (1, 38)), (3, (3, 38)), (4, (4, 38)), (5, (4, 43)), (7, (4, 53))):
             animal = self.simulation._add_agent(encode_dna("grazer", intellect=intellect), 1, 1)
-            self.assertEqual(animal.brain.depth, depth)
+            self.assertEqual((animal.brain.depth, animal.brain.width), shape)
         self.assertIsNone(self.simulation._add_agent(encode_dna("plant", intellect=7), 2, 2).brain)
-        imported = self.simulation._add_agent(encode_dna("omnivore", intellect=4), 3, 3, brain=Brain.random(random.Random(1)))
-        self.assertEqual(imported.brain.depth, 8)  # a saved brain is resized to fit
+        imported = self.simulation._add_agent(encode_dna("omnivore", intellect=6), 3, 3, brain=Brain.random(random.Random(1)))
+        self.assertEqual((imported.brain.depth, imported.brain.width), (4, 48))  # a saved brain is resized to fit
 
-    def test_a_child_brain_is_as_deep_as_its_own_inborn_intellect(self):
+    def test_a_child_brain_is_shaped_by_its_own_inborn_intellect(self):
         first = self.simulation._add_agent(encode_dna("grazer", fertility=7, intellect=1), 5, 5)
         second = self.simulation._add_agent(encode_dna("grazer", fertility=7, intellect=6), 5, 6)
         self.simulation._index_cells()
@@ -433,7 +433,8 @@ class SimulationTests(unittest.TestCase):
             first.hunger = second.hunger = 0
             deliver(self.simulation, first, second)
             child = self.simulation.agents[-1]
-            self.assertEqual(child.brain.depth, max(2, 2 * child.inborn["intellect"]))
+            intellect = child.inborn["intellect"]
+            self.assertEqual((child.brain.depth, child.brain.width), (max(1, min(4, intellect)), 38 + 5 * max(0, intellect - 4)))
 
     def test_the_brain_senses_its_own_genes_but_not_which_actions_are_open(self):
         grazer = self.simulation._add_agent(encode_dna("grazer", size=7, intellect=3), 5, 5)
@@ -1597,7 +1598,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(self.simulation._add_agent(encode_dna("predator", intellect=5), 7, 7).intelligence, 1.0)  # capped
         self.assertEqual((thinking_intellect(3, "predator"), thinking_intellect(5, "predator"), thinking_intellect(3, "grazer")),
                          (6, 7, 3))
-        self.assertEqual(predator.brain.depth, 12)  # twice its doubled intellect
+        self.assertEqual((predator.brain.depth, predator.brain.width), (4, 48))  # its doubled intellect, 6
         before = grazer.mind["intellect"]
         self.simulation._experience(grazer, "discovery")
         self.simulation._experience(grazer, "lesson")

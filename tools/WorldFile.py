@@ -11,10 +11,11 @@ The JSON part holds the world's settings, its rules, and everything in it: the r
 the grass, the seeds waiting to sprout, every Bitzkey and every field of it, and the insights. What would
 make it enormous goes in the other parts, and the JSON part names where:
 
-- a brain is {"at": its first number, "depth": hidden layers, "traced": whether learning traces follow}.
-  Its numbers are each hidden layer's weights (HIDDEN_SIZE rows, each reading the senses or the layer
-  before) and biases, then the output weights (a row of HIDDEN_SIZE for each action) and biases; then,
-  if traced, its traces, laid out the same.
+- a brain is {"at": its first number, "depth": hidden layers, "width": neurons in each, "traced": whether
+  learning traces follow}. Its numbers are each hidden layer's weights (width rows, each reading the senses
+  or the layer before) and biases, then the output weights (a row of width for each action) and biases;
+  then, if traced, its traces, laid out the same. A brain saved without a width, before brains grew wider
+  with intellect, is OLD_WIDTH wide, and loads resized to its owner's shape, without its traces.
 - a set of senses (its last, or a memory's) is the position of INPUT_SIZE numbers.
 - the census's snapshots are [turn, the first whole number, how many]: the identifiers alive then.
 - "lineage" {"at", "count", "first"}: the genome of every Bitzkey from identifier "first" on (0 if missing;
@@ -40,15 +41,16 @@ import numpy as np
 
 from tools import Rules
 from tools import Simulation as world
-from tools.Brain import ACTIONS, HIDDEN_SIZE, INPUT_SIZE, SENSES, Brain
+from tools.Brain import ACTIONS, INPUT_SIZE, MAX_WIDTH, SENSES, Brain
 from tools.Genome import TEMPERAMENT
-from tools.Simulation import SPECIES, Bitzkey, Death, Simulation
+from tools.Simulation import SPECIES, Bitzkey, Death, Simulation, brain_shape
 
 WORLD_MAGIC = b"BITZKEY WORLD 2\n"
 WORLD_MAGIC_1 = b"BITZKEY WORLD 1\n"  # format 1's, still read
 WORLD_FORMAT = 2
 WORD = 0xFFFFFFFF
 WORLD_SUFFIX = ".bzworld"
+OLD_WIDTH = 34  # neurons in each hidden layer of a brain saved without a width
 # Rules that say how this computer runs a world rather than how the world unfolds: loading keeps the user's own.
 MACHINE_RULES = ("USE_GPU", "HISTORY_TURNS", "HISTORY_MEMORY")
 
@@ -85,7 +87,7 @@ class _Numbers:
                 self.add(biases)
             self.add(output_weights)
             self.add(output_biases)
-        return {"at": at, "depth": brain.depth, "traced": brain.traces is not None}
+        return {"at": at, "depth": brain.depth, "width": brain.width, "traced": brain.traces is not None}
 
     def senses(self, senses) -> int | None:
         return None if senses is None else self.add(senses)
@@ -113,22 +115,25 @@ class _Reader:
             raise ValueError("The world file's numbers are cut short.")
         return self.numbers[at:at + count].astype(float)
 
-    def brain(self, record: Mapping | None) -> Brain | None:
+    def brain(self, record: Mapping | None, dna: int) -> Brain | None:
+        """The brain saved at `record`, resized to fit the genome `dna` if it was saved another shape."""
         if record is None:
             return None
-        at, depth = int(record["at"]), int(record["depth"])
+        at, depth, width = int(record["at"]), int(record["depth"]), int(record.get("width", OLD_WIDTH))
+        if depth < 1 or not 0 < width <= MAX_WIDTH:
+            raise ValueError("The world file holds a brain of no sensible shape.")
         sets = []
         for _ in range(2 if record["traced"] else 1):
             layers = []
             for index in range(depth):
-                reads = INPUT_SIZE if index == 0 else HIDDEN_SIZE
-                weights = self.take(at, HIDDEN_SIZE * reads).reshape(HIDDEN_SIZE, reads)
-                at += HIDDEN_SIZE * reads
-                biases = self.take(at, HIDDEN_SIZE)
-                at += HIDDEN_SIZE
+                reads = INPUT_SIZE if index == 0 else width
+                weights = self.take(at, width * reads).reshape(width, reads)
+                at += width * reads
+                biases = self.take(at, width)
+                at += width
                 layers.append((weights, biases))
-            output_weights = self.take(at, len(ACTIONS) * HIDDEN_SIZE).reshape(len(ACTIONS), HIDDEN_SIZE)
-            at += len(ACTIONS) * HIDDEN_SIZE
+            output_weights = self.take(at, len(ACTIONS) * width).reshape(len(ACTIONS), width)
+            at += len(ACTIONS) * width
             output_biases = self.take(at, len(ACTIONS))
             at += len(ACTIONS)
             sets.append((layers, output_weights, output_biases))
@@ -137,7 +142,8 @@ class _Reader:
             layers, output_weights, output_biases = sets[1]
             brain.traces = [(weights.copy(), biases.copy()) for weights, biases in layers]
             brain.traces.append((output_weights.copy(), output_biases.copy()))
-        return brain
+        shape = brain_shape(dna)
+        return brain if (brain.depth, brain.width) == shape else brain.resized(*shape)
 
     def senses(self, at: int | None) -> list[float] | None:
         return None if at is None else self.take(int(at), INPUT_SIZE).tolist()
@@ -197,11 +203,11 @@ def _agent_from(record: Mapping, numbers: _Reader) -> Bitzkey:
     for name in ("kill_alert", "food_memory", "danger_memory"):
         setattr(agent, name, None if record[name] is None else tuple(int(value) for value in record[name]))
     agent.last_action = str(record["last_action"])
-    agent.brain = numbers.brain(record["brain"])
+    agent.brain = numbers.brain(record["brain"], agent.dna)
     agent.trail = [(int(x), int(y)) for x, y in record["trail"]]
     agent.memories = [(numbers.senses(senses), int(choice), float(target), float(weight))
                       for senses, choice, target, weight in record["memories"]]
-    agent.womb = [(int(dna, 16), _mind_from(mind), numbers.brain(brain), float(energy), int(generation))
+    agent.womb = [(int(dna, 16), _mind_from(mind), numbers.brain(brain, int(dna, 16)), float(energy), int(generation))
                   for dna, mind, brain, energy, generation in record["womb"]]
     agent.last_senses = numbers.senses(record["last_senses"])
     agent.odds = {str(action): float(chance) for action, chance in record["odds"].items()}
