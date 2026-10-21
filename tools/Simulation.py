@@ -235,6 +235,8 @@ MAX_PREDATOR_SIGHT = 3
 HUNT_STEPS = 1      # and chase it this many more steps a turn
 PRIMAL_FEAR = 1.0
 PREDATOR_INTELLIGENCE = 2.0  # a predator's intellect counts this many times over in all it does, up to the full range
+BRAIN_COST = 0.15  # an animal's hunger burns this much faster at the highest inborn intellect, in proportion below
+PREDATOR_BRAIN_COST = 0.5  # the share of that brain cost a predator pays: meat affords a big brain
 PREDATOR_FEAR = 0.5  # a predator feels this share of its fear's effects: dread, panic, keeping close to its herd
 PREDATOR_LOOMS = 2   # sizing up a fight for primal fear, a predator counts as this many steps larger and stronger
 PRIMAL_FEAR_PREDATORS = 0.0  # predators are never overcome
@@ -381,20 +383,20 @@ SEASONS = ("mild", "northern winter", "mild", "southern winter")  # by quarter o
 # How experiences reshape temperament, in shares of a trait's full range before scaling by
 # plasticity.
 EXPERIENCES = {
-    "kill": {"aggression": 0.04, "fear": -0.02, "intellect": 0.002},
+    "kill": {"aggression": 0.04, "fear": -0.02, "intellect": 0.004},
     "hit": {"aggression": 0.0067},
     "stung": {"aggression": -0.0133, "fear": 0.0133},
-    "wounded": {"fear": 0.0333, "aggression": -0.0067},
+    "wounded": {"fear": 0.0333, "aggression": -0.0067, "intellect": -0.002},
     "wounded_alone": {"sociability": 0.02},
     "bred": {"libido": 0.02, "sociability": 0.0133, "intellect": 0.002},
     "bred_into_hunger": {"libido": -0.0533},
-    "starving": {"appetite": 0.0033, "patience": -0.0033},
-    "foraged_meal": {"patience": 0.0067, "intellect": 0.0003},
+    "starving": {"appetite": 0.0033, "patience": -0.0033, "intellect": -0.0005},
+    "foraged_meal": {"patience": 0.0067},
     "discovery": {"curiosity": 0.01, "intellect": 0.002},
     "ambushed": {"curiosity": -0.02, "fear": 0.0133},
     "defended": {"fear": -0.0133, "aggression": 0.0067, "intellect": 0.002},
-    "panicked": {"fear": 0.0067},
-    "lesson": {"intellect": 0.0001},  # a choice that turned out well, learnt from
+    "panicked": {"fear": 0.0067, "intellect": -0.001},
+    "lesson": {},  # a choice that turned out well, learnt from: it no longer sharpens the mind
 }
 
 # Setting off in a direction: the step in x and y, whether it is a walk of a single cell (else it goes
@@ -773,9 +775,13 @@ class Bitzkey:
     @property
     def burn(self) -> float:
         """Hunger gained each turn, as a share of its stomach: a faster metabolism, and a stronger,
-        faster, better-armed body, empty it sooner."""
-        return self.metabolism * (0.45 + 0.18 * self.physique("strength") + 0.24 * self.physique("speed")
+        faster, better-armed body, empty it sooner, and so does a cleverer animal's brain (Brain cost)."""
+        body = self.metabolism * (0.45 + 0.18 * self.physique("strength") + 0.24 * self.physique("speed")
                                   + 0.12 * (self.physique("weapons") + self.physique("armour")))
+        if self.species == "plant":
+            return body
+        cost = BRAIN_COST * (PREDATOR_BRAIN_COST if self.species == "predator" else 1.0)
+        return body * (1 + cost * self.inborn["intellect"] / TRAIT_MAX)
 
     @property
     def might(self) -> float:

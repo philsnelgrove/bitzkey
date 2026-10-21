@@ -1589,7 +1589,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(hunter.fearfulness, 0.0)
         self.assertEqual(hunter.unafraid, 0.0)  # nor will primal fear seize it
 
-    def test_predators_think_twice_as_well_and_good_experiences_sharpen_everyone(self):
+    def test_predators_think_twice_as_well_hard_won_experiences_sharpen_and_hardship_dulls(self):
         from tools.Simulation import thinking_intellect
         predator = self.simulation._add_agent(encode_dna("predator", intellect=3), 5, 5)
         grazer = self.simulation._add_agent(encode_dna("grazer", intellect=3), 6, 5)
@@ -1601,8 +1601,25 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual((predator.brain.depth, predator.brain.width), (4, 48))  # its doubled intellect, 6
         before = grazer.mind["intellect"]
         self.simulation._experience(grazer, "discovery")
-        self.simulation._experience(grazer, "lesson")
         self.assertGreater(grazer.mind["intellect"], before)
+        before = grazer.mind["intellect"]
+        for everyday in ("lesson", "foraged_meal"):  # no longer sharpen the mind
+            self.simulation._experience(grazer, everyday)
+        self.assertEqual(grazer.mind["intellect"], before)
+        for hardship in ("starving", "wounded", "panicked"):
+            self.simulation._experience(grazer, hardship)
+            self.assertLess(grazer.mind["intellect"], before)
+            before = grazer.mind["intellect"]
+
+    def test_a_cleverer_brain_burns_more_food_a_predators_half_as_much_more_and_a_plants_none(self):
+        from tools.Simulation import BRAIN_COST, PREDATOR_BRAIN_COST
+        def burn(species, intellect):
+            return self.simulation._add_agent(encode_dna(species, intellect=intellect), 5, 5).burn
+        self.assertAlmostEqual(burn("grazer", 7) / burn("grazer", 0), 1 + BRAIN_COST)
+        self.assertAlmostEqual(burn("omnivore", 7) / burn("omnivore", 0), 1 + BRAIN_COST)
+        self.assertAlmostEqual(burn("predator", 7) / burn("predator", 0), 1 + BRAIN_COST * PREDATOR_BRAIN_COST)
+        self.assertEqual(burn("plant", 7), burn("plant", 0))
+        self.assertEqual((BRAIN_COST, PREDATOR_BRAIN_COST), (0.15, 0.5))
 
     def test_weak_grazers_cannot_strike_back(self):
         weak = self.simulation._add_agent(encode_dna("grazer", strength=5), 5, 5)
