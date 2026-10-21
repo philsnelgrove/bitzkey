@@ -33,7 +33,7 @@ class BrainTests(unittest.TestCase):
             self.assertEqual(choice_learning(ACTIONS.index(action)), PLANT_FOOD_LEARNING)
         for action in ("scavenge", "rest", "flee", "walk_north"):
             self.assertEqual(choice_learning(ACTIONS.index(action)), 1.0)
-        self.assertEqual((BREED_LEARNING, COURT_LEARNING, KILL_FOOD_LEARNING, PLANT_FOOD_LEARNING), (1.0, 1.0, 5.0, 0.5))
+        self.assertEqual((BREED_LEARNING, COURT_LEARNING, KILL_FOOD_LEARNING, PLANT_FOOD_LEARNING), (1.0, 1.0, 2.0, 0.5))
 
     def test_the_clever_learn_faster_while_the_least_intelligent_learn_as_ever(self):
         from tools.Brain import SMART_TRACE_DECAY, TRACE_DECAY

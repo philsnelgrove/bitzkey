@@ -290,7 +290,7 @@ toward them only very slowly (0.05% of the gap a turn):
 | fear | dread when hunters are adjacent; a predator feels half its fear's effects, and less the hungrier it is, none as it starves | wounds, stings and ambushes raise it; kills lower it |
 | appetite | how much hunger hurts | near-starvation raises it |
 | patience | how much it values the future (its learning discount) | meals earned by foraging raise it; starving lowers it |
-| intellect | how big its brain is (a hidden layer for each point up to four, then five neurons more in every layer for each point beyond), how fast it learns (its learning rate, boosted for the bright, how many recent experiences it replays each turn, and how far back it traces an outcome), how much experience can reshape the mind, how much it learns from what it sees, and how rarely primal fear freezes it. A predator's intellect counts twice over in all of these, up to the full range, and its brain learns twice as fast again (an omnivore's half as much faster again). | kills, breeding, discoveries, successful defences and, a little, good meals raise it; so does, very slightly, every lesson learnt from a choice that turned out well |
+| intellect | how big its brain is (a hidden layer for each point up to four, then five neurons more in every layer for each point beyond), how fast it learns (its learning rate, boosted for the bright, how many recent experiences it replays each turn, and how far back it traces an outcome), how much experience can reshape the mind, how much it learns from what it sees, and how rarely primal fear freezes it. A predator's intellect counts twice over in all of these, up to the full range, and its brain learns as fast as the Predator learning rule sets (by default no faster). | kills, breeding, discoveries, successful defences and, a little, good meals raise it; so does, very slightly, every lesson learnt from a choice that turned out well |
 | memory | how long it remembers where it last fed and where it was last struck: up to 100 turns at the best memory, fewer the poorer, none at 0 (Memory turns). It senses how fresh the memory of its last meal is, and how close it is to where it was struck, and while it remembers where it fed it may revisit, heading back there | fixed |
 | resilience | how quickly it gets over fright and loss. A herd-mate's failure it saw fades half as fast again for the most resilient, and half as slowly for the least, and the fear a bad experience adds is half again for the least resilient and half for the most (Resilience) | fixed |
 | moodiness | how far experience moves its temperament: half as far again for the moodiest, half as far for the steadiest (Moodiness) | fixed |
@@ -534,9 +534,9 @@ The cleverer an animal, the faster it learns, three ways, while the least
 intelligent learn just as they always have. Its learning rate rises with its
 intellect, and then by up to as much again for the brightest (the Learning boost
 rule); at the brightest it is 0.045 a choice before that boost (doubling it made
-brains unsteady rather than quicker), and a predator learns twice as fast again (Predator learning), an omnivore
-one and a half times. Food that takes a kill is harder to learn than grass: any
-animal learns five times as much from a success choosing to hunt, attack or feast (Kill
+brains unsteady rather than quicker). A predator can be made to learn faster still (Predator learning, an omnivore
+getting half the bonus), but by default learns no faster: faster, its values ran away. Food that takes a kill is harder to learn than grass: any
+animal learns twice as much from a success choosing to hunt, attack or feast (Kill
 food learning), and half as much from a success choosing to eat, forage, browse or uproot
 (Plant food learning), whether its own choice, one it replays or one it sees. These weights,
 and those for breeding and courting, make a success more, or less, memorable: a choice that

@@ -142,13 +142,13 @@ LEARNING_RATE = 0.045  # at the highest intellect, before its boost
 # inborn intellect, so the least replay none.
 LEARNING_BOOST = 1.0
 REPLAY_PER_INTELLECT = 2
-PREDATOR_LEARNING = 2.0  # a predator's brain learns this many times as fast, from its own choices and replays;
+PREDATOR_LEARNING = 1.0  # a predator's brain learns this many times as fast, from its own choices and replays;
 # an omnivore's gets half the bonus
 # Food that takes a kill is harder to learn than grass: a choice to hunt, attack or feast is learnt from
 # KILL_FOOD_LEARNING times as much, by any animal, and one to eat, forage, browse or uproot PLANT_FOOD_LEARNING.
 # Breeding and courting may be learnt from more than other choices, BREED_LEARNING and COURT_LEARNING times as much;
 # by default no more, as learning them harder unsettles the brain for all else (their pleasures teach them instead).
-KILL_FOOD_LEARNING = 5.0
+KILL_FOOD_LEARNING = 2.0
 PLANT_FOOD_LEARNING = 0.5
 BREED_LEARNING = 1.0
 COURT_LEARNING = 1.0
