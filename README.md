@@ -544,8 +544,8 @@ turned out badly is learnt from as any other, so a fruitless chase doesn't teach
 five times over to give up hunting. Each turn it re-learns from its most recent experiences, two for each point
 of inborn intellect, so the brightest go over their last fourteen while the
 dullest replay none (Replays per intellect). And it traces an outcome further back
-through the choices that led to it: its trace decay runs from 0.9 for the dullest
-to 0.97 for the brightest (Trace decay, smartest). Replaying costs time: in a busy
+through the choices that led to it: its trace decay runs from 0.7 for the dullest
+to 0.9 for the brightest (Trace decay, smartest). Replaying costs time: in a busy
 world it can double the time each turn spends learning.
 
 It then picks one of the actions open to it: eat, forage, browse, uproot,
