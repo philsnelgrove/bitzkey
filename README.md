@@ -533,8 +533,8 @@ Plants have no brain.
 The cleverer an animal, the faster it learns, three ways, while the least
 intelligent learn just as they always have. Its learning rate rises with its
 intellect, and then by up to as much again for the brightest (the Learning boost
-rule); at the brightest it is 0.045 a choice before that boost (doubling it made
-brains unsteady rather than quicker). A predator can be made to learn faster still (Predator learning, an omnivore
+rule); at the brightest it is 0.027 a choice before that boost (doubling it made
+brains unsteady rather than quicker, and 0.045 left values overestimated, predators' most). A predator can be made to learn faster still (Predator learning, an omnivore
 getting half the bonus), but by default learns no faster: faster, its values ran away. Food that takes a kill is harder to learn than grass: any
 animal learns twice as much from a success choosing to hunt, attack or feast (Kill
 food learning), and half as much from a success choosing to eat, forage, browse or uproot

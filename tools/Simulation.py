@@ -135,7 +135,7 @@ KINSHIP_SHUN = 0.8
 MEMORY_TURNS = 100
 RESILIENCE = 0.5
 MOODINESS = 0.5
-LEARNING_RATE = 0.045  # at the highest intellect, before its boost
+LEARNING_RATE = 0.027  # at the highest intellect, before its boost
 # The clever learn faster. The learning rate rises with intellect, and on top of that by up to
 # LEARNING_BOOST times again at the highest; the least intelligent get no boost. And each turn an
 # animal re-learns from REPLAY_PER_INTELLECT of its most recent experiences for each point of its
