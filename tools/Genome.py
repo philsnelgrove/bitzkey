@@ -6,13 +6,16 @@ The high 32 bits are the social background, behind the species icon: how it trea
 The dot and ring each hold ten three-bit traits (0 to 7), from their least-significant bits, and
 their top two bits hold the climate genes: in the ring, the home temperature (hot, medium, cold
 or very cold); in the dot, the heat tolerance flag (bit 30) and the cold tolerance flag (bit 31).
-The social background holds seven three-bit traits, then the four-bit neurodivergence gene (0 to
-15), which does nothing yet; its top seven bits are spare. Like the rest, they all shade the
-colour: read as four CMYK bytes, each word sets the colour of its part of the Bitzkey.
+The ring's first trait is the species, in its lower two bits; its third bit sets no species, but a
+mutation landing there moves the terrain along its chain. The social background holds seven
+three-bit traits, then the four-bit neurodivergence gene (0 to 15), which does nothing yet, then
+the two-bit terrain gene; its top five bits are spare. Like the rest, they all shade the colour:
+read as four CMYK bytes, each word sets the colour of its part of the Bitzkey.
 
 Version 1 genomes held eight four-bit traits (0 to 15) per word, and version 2 ten three-bit
 traits in each of the dot and ring, with sociability, empathy and tolerance in the dot. Exported
-records without a version are version 1; older versions are converted when imported.
+records without a version are version 1; older versions are converted when imported. Version 3
+genomes had no terrain, its bits spare and random: they are terrestrial when converted.
 """
 
 from __future__ import annotations
@@ -22,7 +25,7 @@ import re
 from collections.abc import Mapping
 
 
-GENOME_VERSION = 3
+GENOME_VERSION = 4
 TRAIT_BITS = 3
 TRAIT_MAX = (1 << TRAIT_BITS) - 1
 SPECIES = ("plant", "grazer", "omnivore", "predator")
@@ -37,6 +40,12 @@ GENOME = (1 << 96) - 1
 SOCIAL_SHIFT = 64  # the social background: the genome's top word
 NEURODIVERGENCE_SHIFT = TRAIT_BITS * len(SOCIAL_TRAITS)  # in the social background, after its traits
 NEURODIVERGENCE_MAX = 15  # four bits
+# Terrain: where a Bitzkey can live, in the two bits after neurodivergence. The terrestrial keep to the land and the
+# aquatic to the sea; the avian and the amphibious go freely between them.
+TERRAINS = ("terrestrial", "aquatic", "avian", "amphibious")
+TERRAIN_SHIFT = SOCIAL_SHIFT + NEURODIVERGENCE_SHIFT + 4
+# A terrain mutation moves it a step along this chain, from the sea to the air.
+TERRAIN_CHAIN = ("aquatic", "amphibious", "terrestrial", "avian")
 # Default chances, per birth, of a mutation; a world can set its own.
 MIND_MUTATION_CHANCE = 0.25  # for each of MIND_MUTATION_ROLLS: one temperament trait steps one up or down
 MIND_MUTATION_ROLLS = 3     # mind mutations a birth may carry, each with the mind mutation chance
@@ -102,6 +111,28 @@ def decode_neurodivergence(dna: int) -> int:
     return (social_word(dna) >> NEURODIVERGENCE_SHIFT) & NEURODIVERGENCE_MAX
 
 
+def decode_terrain(dna: int) -> str:
+    return TERRAINS[(dna >> TERRAIN_SHIFT) & 0x3]
+
+
+def with_terrain(dna: int, terrain: str) -> int:
+    return (dna & ~(0x3 << TERRAIN_SHIFT)) | TERRAINS.index(terrain) << TERRAIN_SHIFT
+
+
+def swims(terrain: str) -> bool:
+    """Whether a Bitzkey of this terrain may be in the sea."""
+    return terrain != "terrestrial"
+
+
+def walks(terrain: str) -> bool:
+    """Whether it may be on the land."""
+    return terrain != "aquatic"
+
+
+def fits(terrain: str, sea: bool) -> bool:
+    return swims(terrain) if sea else walks(terrain)
+
+
 def decode_body(dna: int) -> dict[str, int | str]:
     body: dict[str, int | str] = dict(zip(BODY_TRAITS, _traits(body_word(dna), len(BODY_TRAITS)), strict=True))
     body["species"] = SPECIES[int(body["species"]) % len(SPECIES)]
@@ -116,9 +147,11 @@ def decode_climate(dna: int) -> tuple[int, bool, bool]:
 
 
 def encode_dna(species: str = "plant", temperature: int = V1_TEMPERATURE, heat_tolerance: bool = False,
-               cold_tolerance: bool = False, **traits: int) -> int:
-    """Build a genome from named traits, each 0 to 7 (neurodivergence 0 to 15), and climate genes;
-    unnamed traits are zero, the home temperature medium, and neither tolerance."""
+               cold_tolerance: bool = False, terrain: str = "terrestrial", **traits: int) -> int:
+    """Build a genome from named traits, each 0 to 7 (neurodivergence 0 to 15), climate genes and a
+    terrain; unnamed traits are zero, the home temperature medium, neither tolerance, and terrestrial."""
+    if terrain not in TERRAINS:
+        raise ValueError(f"Unknown terrain: {terrain}.")
     unknown = set(traits) - set(TEMPERAMENT) - set(BODY_TRAITS[1:]) - {"neurodivergence"}
     if unknown:
         raise ValueError(f"Unknown traits: {', '.join(sorted(unknown))}.")
@@ -136,7 +169,8 @@ def encode_dna(species: str = "plant", temperature: int = V1_TEMPERATURE, heat_t
         dna |= traits.get(trait, 0) << (32 + TRAIT_BITS * index)
     for index, trait in enumerate(SOCIAL_TRAITS):
         dna |= traits.get(trait, 0) << (SOCIAL_SHIFT + TRAIT_BITS * index)
-    return dna | traits.get("neurodivergence", 0) << (SOCIAL_SHIFT + NEURODIVERGENCE_SHIFT)
+    dna |= traits.get("neurodivergence", 0) << (SOCIAL_SHIFT + NEURODIVERGENCE_SHIFT)
+    return with_terrain(dna, terrain)
 
 
 def convert_v1(dna: int) -> int:
@@ -160,6 +194,11 @@ def convert_v2(dna: int) -> int:
     social = sum(traits[trait] << (TRAIT_BITS * index) for index, trait in enumerate(SOCIAL_TRAITS))
     mind = sum(traits[trait] << (TRAIT_BITS * index) for index, trait in enumerate(MIND_TRAITS))
     return social << SOCIAL_SHIFT | body_word(dna) << 32 | (mind_word(dna) & SPARE_BITS) | mind
+
+
+def convert_v3(dna: int) -> int:
+    """Re-encode a version 3 genome in this layout: terrestrial, whatever its spare bits held."""
+    return with_terrain(dna, "terrestrial")
 
 
 def color_from_word(word: int) -> tuple[int, int, int]:
@@ -243,7 +282,7 @@ def write_social(spare: int, mind: Mapping[str, float], rng: random.Random) -> i
 
 
 def cross(first: int, second: int, rng: random.Random, mind: Mapping[str, float] | None = None,
-          mind_chance: float | None = None, body_chance: float | None = None) -> int:
+          mind_chance: float | None = None, body_chance: float | None = None, terrain_mutation: bool = True) -> int:
     """Make a child's genome.
 
     The ring (body) is a single-point crossover of the parents' body words, with a
@@ -251,26 +290,34 @@ def cross(first: int, second: int, rng: random.Random, mind: Mapping[str, float]
     social background are written from the child's starting temperament: `mind` if given, which
     a living child has from its parents' current minds, or else the average of its parents'
     inborn traits, with a `mind_chance` of a mutation. The dot's two spare bits come from either
-    parent, and so, separately, do the social background's neurodivergence and spare bits.
+    parent, and so, separately, do the social background's neurodivergence, terrain and spare bits.
+    With `terrain_mutation`, a flip of the species' third bit moves the terrain a step along
+    TERRAIN_CHAIN, toward the air if the bit was set, toward the sea if cleared (no further than its ends).
     """
     body_chance = BODY_MUTATION_CHANCE if body_chance is None else body_chance
     mask = (1 << rng.randrange(1, 32)) - 1
     body = (body_word(first) & mask) | (body_word(second) & ~mask & WORD)
+    flipped = -1
     if rng.random() < body_chance:
         bit = rng.randrange(32)
         if bit < 2 and rng.random() < SPECIES_REROLL:  # the bits that set the species: often rolled afresh
             bit = rng.randrange(32)
         body ^= 1 << bit
+        flipped = bit
     if mind is None:
         mind = inherit_mind(decode_temperament(first), decode_temperament(second), rng, mind_chance)
     spare = mind_word(rng.choice((first, second)))
     social_spare = social_word(rng.choice((first, second)))
     dot = write_mind(spare, mind, rng)
-    return write_social(social_spare, mind, rng) << SOCIAL_SHIFT | (body << 32) | dot
+    child = write_social(social_spare, mind, rng) << SOCIAL_SHIFT | (body << 32) | dot
+    if flipped == 2 and terrain_mutation:  # the species' third bit: the terrain moves a step along its chain
+        place = TERRAIN_CHAIN.index(decode_terrain(child)) + (1 if body >> 2 & 1 else -1)
+        child = with_terrain(child, TERRAIN_CHAIN[max(0, min(3, place))])
+    return child
 
 
 # A genome is written as its layout version and three colour words in hex:
-# {"version": 3, "ring": "7421FF41", "dot": "637E4B01", "social": "0A1B2C3D"}.
+# {"version": 4, "ring": "7421FF41", "dot": "637E4B01", "social": "0A1B2C3D"}.
 # Versions 1 and 2 had no social background.
 
 def genome_record(dna: int) -> dict:
@@ -295,13 +342,14 @@ def genome_from_record(record: dict) -> int:
         return convert_v1(dna)
     if version == 2:
         return convert_v2(dna)
-    return words[2] << SOCIAL_SHIFT | dna
+    whole = words[2] << SOCIAL_SHIFT | dna
+    return convert_v3(whole) if version == 3 else whole
 
 
 def record_version(record: dict) -> int:
     """The genome layout a record was written in: 1 when it says nothing. Raises ValueError for
     a version this program doesn't know."""
     version = record.get("version", 1)
-    if version not in (1, 2, GENOME_VERSION):
+    if version not in (1, 2, 3, GENOME_VERSION):
         raise ValueError(f"Genome version {version} is not one this Bitzkey knows (1 to {GENOME_VERSION}).")
     return version

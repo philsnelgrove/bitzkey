@@ -20,7 +20,7 @@ from tools.Brain import ACTIONS, SENSES, Brain, choice_odds, depth_for, gene_sen
 from tools.Genome import (GENOME, SPECIES, TEMPERAMENT, TRAIT_MAX, body_word, color_from_word, cross, dot_difference, inherit_mind,
                           ring_difference, social_difference, social_word, BODY_MUTATION_CHANCE, COLD_TOLERANCE,
                           HEAT_TOLERANCE, MIND_MUTATION_CHANCE, TEMPERATURE_SHIFT, TEMPERATURES, decode_body, decode_climate,
-                          decode_temperament, make_dna, mind_word, share)
+                          decode_temperament, decode_terrain, fits, make_dna, mind_word, share, swims, walks, with_terrain)
 from tools.Census import Census
 from tools.Exchange import Imported
 from tools.Insights import Insights
@@ -35,6 +35,31 @@ CROWDING_LIMIT = 10    # litters shrink as crowding nears this; at it, an animal
 SPAWN_GROUP = (3, 5)  # Bitzkeys spawn in groups of this many sharing one genome
 MAX_IMPORTED = 120  # imported Bitzkeys, each spawning a group of its own
 MAX_GRID = 1000  # the widest and tallest a world can be, in cells
+# The sea: a new world's share of the map under it, in percent, and how broad its land and sea are, as a share of the
+# map's width (smaller, and they break into more and smaller islands and seas). East and west, the coasts wrap round.
+DEFAULT_OCEAN = 200 / 3
+CONTINENT_BREADTH = 0.25
+# Terrain. An avian animal's size, weapons and armour count AVIAN_BODY of its genes' (light enough to fly), and it burns
+# FLIGHT_HUNGER more food; the terrestrial and aquatic can hunt or attack it only while it rests. An amphibious animal
+# goes AMPHIBIOUS_SPEED of its usual steps, at home nowhere. An avian plant's seeds fly AVIAN_SEED_REACH times as far.
+AVIAN_BODY = 0.5
+FLIGHT_HUNGER = 0.25
+AMPHIBIOUS_SPEED = 0.5
+AVIAN_SEED_REACH = 2.0
+# Stamina, 0 to 100: every action but rest tires an animal, and resting restores REST_RECOVERY a turn. Any other
+# action costs ACTION_FATIGUE, each square it moves STEP_FATIGUE more (a flyer's FLIGHT_FATIGUE times that), each
+# blow it strikes STRIKE_FATIGUE and mating BREED_FATIGUE (each parent); a flyer over the sea, where it can't rest,
+# tires HOVER_FATIGUE a turn more. An animal with no stamina left can only rest, and a flyer exhausted over the sea
+# drowns. An amphibious animal tires AMPHIBIOUS_FATIGUE times as fast at everything.
+REST_RECOVERY = 20.0
+ACTION_FATIGUE = 1.0
+STEP_FATIGUE = 2.0
+FLIGHT_FATIGUE = 2.0
+STRIKE_FATIGUE = 10.0
+BREED_FATIGUE = 15.0
+HOVER_FATIGUE = 1.0
+AMPHIBIOUS_FATIGUE = 2.0
+FULL_STAMINA = 100
 SPAWN_SPREAD = 2      # a group's members appear within this many cells of each other's centre
 # A square holds CELL_SPACE spaces, and every Bitzkey, plant or animal, takes 1 + its size of them. Bitzkeys share
 # a square, and meet there as they would alongside, but none is born, moves or spawns into one without room for it.
@@ -622,6 +647,12 @@ def looks_apart(first: int, second: int) -> tuple[float, float, float]:
 SEED_OFFSETS = sum(abs(dx) + abs(dy) <= SEED_REACH for dx, dy in SIGHT_OFFSETS)  # the first offsets: those a seed reaches
 
 
+@cache
+def seed_offsets(reach: int) -> int:
+    """How many of the first sight offsets a seed reaches from this far."""
+    return sum(abs(dx) + abs(dy) <= reach for dx, dy in SIGHT_OFFSETS)
+
+
 def _metabolism(size: float) -> float:
     """Metabolic rate for a size, as a share of its range: fast in small bodies, slow in large ones."""
     fastest, slowest = METABOLISM
@@ -636,6 +667,8 @@ class Bitzkey:
     y: int
     hunger: float = 0.0
     health: float = 100.0
+    stamina: float = FULL_STAMINA  # spent by acting, restored by resting (see REST_RECOVERY)
+    wet: bool = False  # in the sea, as the world keeps it while it moves
     age: int = 0
     cooldown: int = 0
     last_action: str = "new"
@@ -707,6 +740,28 @@ class Bitzkey:
         return str(self.body["species"])
 
     @cached_property
+    def terrain(self) -> str:
+        return decode_terrain(self.dna)
+
+    def can_be(self, sea: bool) -> bool:
+        """Whether it may be in the sea, or on the land, by its terrain."""
+        return fits(self.terrain, sea)
+
+    @property
+    def exhausted(self) -> bool:
+        """With no stamina left, it can only rest."""
+        return self.species != "plant" and self.stamina <= 0
+
+    @property
+    def aloft_at_sea(self) -> bool:
+        """A flyer over the sea, where it can't rest."""
+        return self.terrain == "avian" and self.species != "plant" and self.wet
+
+    def fatigue(self, cost: float) -> float:
+        """What tiring by `cost` takes from it: an amphibious animal's AMPHIBIOUS_FATIGUE times as much."""
+        return cost * AMPHIBIOUS_FATIGUE if self.terrain == "amphibious" else cost
+
+    @cached_property
     def climate(self) -> tuple[int, bool, bool]:
         """Its home temperature, and whether it tolerates heat and cold."""
         return decode_climate(self.dna)
@@ -753,9 +808,15 @@ class Bitzkey:
         return self.age < FEEBLE_YOUTH * (PREDATOR_INFANCY if self.species == "predator" else 1.0) * self.lifespan
 
     def trait(self, name: str) -> int:
-        """A body trait as it is now: its genes' value, or FEEBLE_SHARE of it while feeble."""
+        """A body trait as it is now: its genes' value, or FEEBLE_SHARE of it while feeble; an avian animal's size,
+        weapons and armour AVIAN_BODY of that."""
         value = int(self.body[name])
-        return int(value * FEEBLE_SHARE) if name != "species" and self.feeble else value
+        if name == "species":
+            return value
+        value = int(value * FEEBLE_SHARE) if self.feeble else value
+        if self.terrain == "avian" and self.species != "plant" and name in ("size", "weapons", "armour"):
+            value = int(value * AVIAN_BODY)
+        return value
 
     def physique(self, trait: str) -> float:
         """A body trait, as it is now, as a share of its full range."""
@@ -817,7 +878,8 @@ class Bitzkey:
         if self.species == "plant":
             return body
         cost = BRAIN_COST * (PREDATOR_BRAIN_COST if self.species == "predator" else 1.0)
-        return body * (1 + cost * self.inborn["intellect"] / TRAIT_MAX)
+        burn = body * (1 + cost * self.inborn["intellect"] / TRAIT_MAX)
+        return burn * (1 + FLIGHT_HUNGER) if self.terrain == "avian" else burn  # flight is hungry work
 
     @property
     def might(self) -> float:
@@ -864,9 +926,13 @@ class Bitzkey:
 
     @property
     def steps(self) -> int:
-        """Cells moved a step: 1 to 4 by speed, and half as many again for grazers."""
+        """Cells moved a step: 1 to 4 by speed, and half as many again for grazers; AMPHIBIOUS_SPEED of that for the
+        amphibious, at least one."""
         steps = 1 + self.trait("speed") * 3 // TRAIT_MAX
-        return int(steps * GRAZER_SPEED + 0.5) if self.species == "grazer" else steps
+        steps = int(steps * GRAZER_SPEED + 0.5) if self.species == "grazer" else steps
+        if self.terrain == "amphibious" and self.species != "plant":
+            steps = max(1, int(steps * AMPHIBIOUS_SPEED + 0.5))
+        return steps
 
     @property
     def grazing(self) -> float:
@@ -990,13 +1056,15 @@ class Simulation:
                  population: int = INITIAL_POPULATION, seed: int | None = None,
                  grass_density: float = GRASS_DENSITY, imported: Sequence[Imported] = (),
                  population_cap: int | None = None, mind_mutation: float = 100 * MIND_MUTATION_CHANCE,
-                 body_mutation: float = 100 * BODY_MUTATION_CHANCE, year_length: int = DEFAULT_YEAR_LENGTH):
+                 body_mutation: float = 100 * BODY_MUTATION_CHANCE, year_length: int = DEFAULT_YEAR_LENGTH,
+                 ocean: float = 0.0):
         """Spawn `population` random Bitzkeys in groups sharing a genome, plus a group for each
         `imported` Bitzkey, whose members all start with copies of its saved brain if it has one.
         `population_cap` limits living animals; None leaves crowding alone to limit them.
         `mind_mutation` and `body_mutation` are the percent chances that a birth mutates the
         child's mind or body. `year_length` is the turns in a year, for the seasons and lifespans;
-        like the advanced rules, it holds for the whole program while the world runs."""
+        like the advanced rules, it holds for the whole program while the world runs. `ocean` is the percent of the
+        map under the sea, laid out by the seed; none unless asked for (a new world's setup offers DEFAULT_OCEAN)."""
         global YEAR_LENGTH
         if year_length < 4:
             raise ValueError("A year must be at least 4 turns.")
@@ -1009,9 +1077,15 @@ class Simulation:
             raise ValueError("Grass density must be between 0 and 100 percent.")
         if not (0 <= mind_mutation <= 100 and 0 <= body_mutation <= 100):
             raise ValueError("Mutation chances must be between 0 and 100 percent.")
+        if not 0 <= ocean <= 100:
+            raise ValueError("The sea must cover between 0 and 100 percent.")
         self.width = width
         self.height = height
         self.random = random.Random(seed)
+        self.ocean = ocean
+        self.sea_map = bytearray()  # 1 for each square under the sea, row by row; empty without sea
+        if ocean > 0:
+            self._make_sea(ocean, random.SystemRandom().getrandbits(64) if seed is None else seed)
         self.insights = Insights()
         # Who was alive, over the last GRAPH_TURNS turns, for the colour graph. It outlives the rewind
         # history; replaying reads it, and a new turn discards any abandoned future.
@@ -1075,6 +1149,55 @@ class Simulation:
         self._take_census()
         self._record()
 
+    def _make_sea(self, ocean: float, seed: int) -> None:
+        """Lay out the sea over `ocean` percent of the map, from its own stream of `seed`, so the world's own draws
+        are left as they were: value noise in octaves, each twice as fine and half as strong as the last, wrapping
+        round east and west, and the lowest of it sea."""
+        rng = random.Random(seed ^ 0x5EA5EA5EA5EA5EA5)
+        width, height = self.width, self.height
+        level = [0.0] * (width * height)
+        columns = max(2, int(1 / CONTINENT_BREADTH + 0.5))
+        rows = max(1, int(columns * height / width + 0.5))
+        strength = 1.0
+        for octave in range(4):
+            across, down = columns << octave, rows << octave
+            lattice = [rng.random() for _ in range(across * (down + 1))]
+            for y in range(height):
+                fy = (y + 0.5) / height * down
+                j = min(down - 1, int(fy))
+                t = fy - j
+                ty = t * t * (3 - 2 * t)
+                for x in range(width):
+                    fx = (x + 0.5) / width * across
+                    i = int(fx)
+                    t = fx - i
+                    tx = t * t * (3 - 2 * t)
+                    a, b = lattice[j * across + i % across], lattice[j * across + (i + 1) % across]
+                    c, d = lattice[(j + 1) * across + i % across], lattice[(j + 1) * across + (i + 1) % across]
+                    top = a + (b - a) * tx
+                    bottom = c + (d - c) * tx
+                    level[y * width + x] += strength * (top + (bottom - top) * ty)
+            strength /= 2
+        order = sorted(range(width * height), key=lambda index: (level[index], index))
+        self.sea_map = bytearray(width * height)
+        for index in order[:min(round(width * height * ocean / 100), width * height)]:
+            self.sea_map[index] = 1
+
+    def sea(self, x: int, y: int) -> bool:
+        """Whether a square lies under the sea: none off the map, nor in a world without sea."""
+        return bool(self.sea_map) and 0 <= x < self.width and 0 <= y < self.height and bool(self.sea_map[y * self.width + x])
+
+    @property
+    def has_sea(self) -> bool:
+        return bool(self.sea_map)
+
+    def suits(self, terrain: str, cell: tuple[int, int]) -> bool:
+        """Whether a Bitzkey of this terrain may be in a square, sea or land."""
+        return fits(terrain, self.sea(*cell))
+
+    def _can_enter(self, agent: Bitzkey, cell: tuple[int, int]) -> bool:
+        return fits(agent.terrain, self.sea(*cell))
+
     def deploy(self, bitzkeys: Sequence[Imported], x: int, y: int) -> list[Bitzkey]:
         """Put DEPLOY_GROUP of each of these Bitzkeys, each with its own copy of its saved brain and
         temperament, within SPAWN_SPREAD cells of a cell of the running world, between its turns. A world
@@ -1089,7 +1212,7 @@ class Simulation:
             space = 1 + int(decode_body(bitzkey.dna)["size"])
             for _ in range(DEPLOY_GROUP):
                 spot = self._spot_near((x + self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD),
-                                        y + self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD)), space)
+                                        y + self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD)), space, decode_terrain(bitzkey.dna))
                 if spot is not None:  # only where there is room
                     deployed.append(self._add_agent(bitzkey.dna, *spot, brain=bitzkey.brain.copy() if bitzkey.brain else None,
                                                     mind=bitzkey.mind))
@@ -1183,12 +1306,17 @@ class Simulation:
         SPAWN_AT_HOME, in its home zone. Each gets its own
         copy of `brain` and starts with the temperament in `mind`, if given. `native` groups have
         random starting genomes: each carries a tolerance flag only with STARTING_TOLERANCE, and
-        plants take the usual temperature of their centre's zone as their home."""
+        plants take the usual temperature of their centre's zone as their home. It spawns on land or sea as its
+        terrain allows; a world without sea starts with nothing but terrestrial Bitzkeys."""
+        if native and not self.has_sea:
+            dna = with_terrain(dna, "terrestrial")
         if rows is None and SPAWN_AT_HOME:
             rows = self._home_rows(decode_climate(dna)[0])
-        x = self.random.randrange(SPAWN_SPREAD, self.width - SPAWN_SPREAD)
-        y = (self.random.randrange(SPAWN_SPREAD, self.height - SPAWN_SPREAD) if rows is None
-             else rows[self.random.randrange(len(rows))])
+        terrain = decode_terrain(dna)
+        centre = self._group_centre(terrain, rows)
+        if centre is None:  # nowhere it could live
+            return
+        x, y = centre
         if native:  # tolerance is rare at the start
             for flag in (HEAT_TOLERANCE, COLD_TOLERANCE):
                 dna = dna | flag if self.random.random() < STARTING_TOLERANCE else dna & ~flag
@@ -1197,9 +1325,20 @@ class Simulation:
         space = 1 + int(decode_body(dna)["size"])
         for _ in range(size):
             spot = self._spot_near((x + self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD),
-                                    y + self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD)), space)
+                                    y + self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD)), space, terrain)
             if spot is not None:  # only where there is room
                 self._add_agent(dna, *spot, brain=brain.copy() if brain else None, mind=mind)
+
+    def _group_centre(self, terrain: str, rows: Sequence[int] | None) -> tuple[int, int] | None:
+        """A square for a group's centre of this terrain, in one of `rows` if given, drawn until one suits it; None if
+        none does."""
+        for _ in range(1000):
+            x = self.random.randrange(SPAWN_SPREAD, self.width - SPAWN_SPREAD)
+            y = (self.random.randrange(SPAWN_SPREAD, self.height - SPAWN_SPREAD) if rows is None
+                 else rows[self.random.randrange(len(rows))])
+            if self.suits(terrain, (x, y)):
+                return x, y
+        return None
 
     def _home_rows(self, home: int) -> list[int]:
         """The rows a group's centre may fall in whose usual temperature is `home`, or nearest it:
@@ -1212,6 +1351,7 @@ class Simulation:
                    mind: Mapping[str, float] | None = None) -> Bitzkey:
         agent = Bitzkey(self.next_identifier, dna & GENOME, x, y)
         agent.health = agent.max_health
+        agent.wet = self.sea(x, y)
         if mind:
             agent.mind.update({trait: mind[trait] for trait in TEMPERAMENT if trait in mind})
         if agent.species != "plant":  # plants need no brain
@@ -1409,13 +1549,17 @@ class Simulation:
         shade = sum(other.species == "plant" for other in self._nearby(plant, LIGHT_RADIUS))
         if roll >= chance * max(0.0, 1 - shade / LIGHT_LIMIT):
             return
-        dx, dy = SIGHT_OFFSETS[self.random.randrange(SEED_OFFSETS)]
+        reach = min(MAX_SIGHT, int(SEED_REACH * AVIAN_SEED_REACH)) if plant.terrain == "avian" else SEED_REACH
+        dx, dy = SIGHT_OFFSETS[self.random.randrange(seed_offsets(reach))]
         if not 0 <= plant.y + dy < self.height:  # off the top or bottom of the map: the seed is lost
             return
         cell = ((plant.x + dx) % self.width, plant.y + dy)
         if not self._room_for_seedling(cell):
             return
-        dna = evolved(plant.dna, cross(plant.dna, plant.dna, self.random, None, self.mind_mutation, self.body_mutation))
+        dna = evolved(plant.dna, cross(plant.dna, plant.dna, self.random, None, self.mind_mutation, self.body_mutation,
+                                       self.has_sea))
+        if not self.suits(decode_terrain(dna), cell):  # fallen in the sea, or on the land, where it can't grow
+            return
         plant.hunger += SEED_COST
         plant.children += 1
         plant.last_action = "seeded"
@@ -1447,6 +1591,7 @@ class Simulation:
         temperature there. It sprouts as any seed does, once it has lain PLANT_GESTATION turns and there is room."""
         dna = make_dna(SPECIES.index("plant"), self.random)
         dna = dna & ~(0x3 << TEMPERATURE_SHIFT) | zone_temperature(corpse.y, self.height) << TEMPERATURE_SHIFT
+        dna = with_terrain(dna, "aquatic" if self.sea(corpse.x, corpse.y) else "terrestrial")  # in its sea, or on its land
         self.seeds.append((corpse.x, corpse.y, dna, 0, self.turn))
 
     def _wither_grass(self) -> None:
@@ -1483,7 +1628,8 @@ class Simulation:
             x, y, dna, generation, sown = seed
             if self.turn - sown >= viable:
                 continue
-            if self.turn - sown >= PLANT_GESTATION and abs(self._climate[y] - decode_climate(dna)[0]) < 0.5 and self._room_for_seedling((x, y)):
+            if (self.turn - sown >= PLANT_GESTATION and abs(self._climate[y] - decode_climate(dna)[0]) < 0.5
+                    and self.suits(decode_terrain(dna), (x, y)) and self._room_for_seedling((x, y))):
                 self._sprout(dna, (x, y), generation)
             else:
                 waiting.append(seed)
@@ -1606,6 +1752,9 @@ class Simulation:
                 situation["hunter"] = situation["assailant"]
                 situation["panic"] = True
                 options = [ACTIONS.index("flee")]
+            if agent.exhausted:  # spent: it can do nothing but rest, whatever it fears
+                situation["panic"] = situation["frozen"] = False
+                options = [ACTIONS.index("rest")]
             if agent.species == "predator":  # the instinct to hunt, on top of what its brain has learnt
                 urge = HUNTING_INSTINCT * min(1.0, agent.hunger / 100)
                 valued = [value + urge if action in (HUNT, ATTACK) else value for action, value in enumerate(valued)]
@@ -1711,7 +1860,19 @@ class Simulation:
             if kill is None:
                 kill = alerted_kill
 
-        available = {"rest", "go_east", "go_west", "walk_east", "walk_west"}
+        available = {"go_east", "go_west", "walk_east", "walk_west"}
+        if not agent.aloft_at_sea:  # a flyer can't rest over the sea
+            available.add("rest")
+        shores = [0.0] * 4  # north, south, east and west: the nearest shore it can't cross
+        if self.has_sea and agent.terrain not in ("avian", "amphibious"):
+            for heading, (dx, dy) in enumerate(((0, -1), (0, 1), (1, 0), (-1, 0))):
+                for cells in range(1, sight + 1):
+                    y = agent.y + dy * cells
+                    if not 0 <= y < self.height:
+                        break
+                    if not self._can_enter(agent, ((agent.x + dx * cells) % self.width, y)):
+                        shores[heading] = 1 - (cells - 1) / sight
+                        break
         if grass_here:
             available.add("eat")
         if grass:
@@ -1812,6 +1973,9 @@ class Simulation:
             home_direction=0.0 if home is None else (1.0 if home[1] > agent.y else -1.0),
             home_distance=home_distance,
             young_near=min(3, young) / 3,
+            sea_here=float(agent.wet),
+            shore_north=shores[0], shore_south=shores[1], shore_east=shores[2], shore_west=shores[3],
+            stamina=agent.stamina / FULL_STAMINA,
             **{trait: agent.feeling(trait) for trait in TEMPERAMENT},
             **agent.genes,
         )
@@ -1949,9 +2113,26 @@ class Simulation:
     # Actions
 
     def _act(self, agent: Bitzkey, action: str, situation: dict) -> None:
+        """Act, remember where it fed, and tire (see REST_RECOVERY)."""
+        passed = len(agent.trail)
         self._do(agent, action, situation)
         if agent.last_action in FED:
             agent.food_memory = (agent.x, agent.y, self.turn)
+        if not agent.alive:
+            return
+        if agent.last_action == "rested":
+            agent.stamina = min(FULL_STAMINA, agent.stamina + REST_RECOVERY)
+            return
+        # Tired by what it did: each square it went (flying, the more so), each blow struck, and keeping aloft over the sea.
+        cost = ACTION_FATIGUE + (len(agent.trail) - passed) * STEP_FATIGUE * (FLIGHT_FATIGUE if agent.terrain == "avian" else 1.0)
+        if agent.last_action in ("attacked", "pounced", "defended"):
+            cost += STRIKE_FATIGUE
+        if agent.aloft_at_sea:
+            cost += HOVER_FATIGUE
+        agent.stamina = max(0.0, agent.stamina - agent.fatigue(cost))
+        if agent.aloft_at_sea and agent.exhausted:
+            agent.health = 0
+            self._die(agent, "drowned")  # too tired to stay aloft, with nowhere to land
 
     def _do(self, agent: Bitzkey, action: str, situation: dict) -> None:
         if action == "eat":
@@ -2033,7 +2214,7 @@ class Simulation:
             moved = 0  # as far as it goes before the map's edge (north and south) or a full square
             for step in range(1, cells + 1):
                 x, y = (agent.x + dx * step) % self.width, agent.y + dy * step
-                if not 0 <= y < self.height or self._room_in((x, y), agent) < agent.space:
+                if not 0 <= y < self.height or not self._can_enter(agent, (x, y)) or self._room_in((x, y), agent) < agent.space:
                     break
                 moved = step
             if moved:
@@ -2360,7 +2541,8 @@ class Simulation:
             # its dot is written from that mind, so experience is inherited and shows. Its brain,
             # a mix of its parents', is as deep and wide as its own inborn intellect makes it.
             mind = inherit_mind(first.mind, second.mind, self.random, self.mind_mutation)
-            dna = evolved(first.dna, cross(first.dna, second.dna, self.random, mind, body_chance=self.body_mutation))
+            dna = evolved(first.dna, cross(first.dna, second.dna, self.random, mind, body_chance=self.body_mutation,
+                                           terrain_mutation=self.has_sea))
             if "predator" in (first.species, second.species):
                 dna = predator_dna(dna)  # a predator's young are predators, whatever crossing over or a mutation made
             brain = Brain.inherit(first.brain, second.brain, self.random, *brain_shape(dna))
@@ -2377,6 +2559,7 @@ class Simulation:
             rest = PREDATOR_BREED_COOLDOWN if parent.species == "predator" else BREED_COOLDOWN
             parent.cooldown = round((20 - 15 * parent.physique("fertility")) * rest)
             parent.children += litter
+            parent.stamina = max(0.0, parent.stamina - parent.fatigue(BREED_FATIGUE))
             parent.reward += mating_joy(parent, BREED_JOY)
             if not parent.alive:
                 self._die(parent, "bred to death")
@@ -2409,6 +2592,7 @@ class Simulation:
         grazers, prey, predators = [0] * len(plants), [0] * len(plants), [0] * len(plants)
         omnivores, omnivore_prey = [0] * len(plants), [0] * len(plants)
         for agent in self.agents:
+            agent.wet = self.sea(agent.x, agent.y)
             if agent.alive:
                 self._cells.setdefault((agent.x, agent.y), []).append(agent)
                 if agent.species == "plant":
@@ -2586,8 +2770,8 @@ class Simulation:
         for dna, mind, brain, energy, generation, father in mother.womb:
             if born >= self._room():
                 break
-            space = 1 + int(decode_body(dna)["size"])
-            cell = next((cell for cell in self._squares_near(mother) if self._room_in(cell) >= space), None)
+            space, terrain = 1 + int(decode_body(dna)["size"]), decode_terrain(dna)  # where it may live, of land or sea
+            cell = next((cell for cell in self._squares_near(mother) if self.suits(terrain, cell) and self._room_in(cell) >= space), None)
             if cell is None:  # no room left near it
                 continue
             child = self._add_agent(dna, *cell, brain=brain)
@@ -2610,18 +2794,19 @@ class Simulation:
     def _free_cells_near(self, agent: Bitzkey) -> list[tuple[int, int]]:
         """The squares around an animal, its own among them, up to BIRTH_REACH away and nearest first, with any
         room for young to be born."""
-        return [cell for cell in self._squares_near(agent) if self._room_in(cell) > 0]
+        return [cell for cell in self._squares_near(agent) if self._can_enter(agent, cell) and self._room_in(cell) > 0]
 
     def _room_in(self, cell: tuple[int, int], leaving: Bitzkey | None = None) -> int:
         """The spaces of a square that are free, as though `leaving` were not there."""
         return CELL_SPACE - sum(other.space for other in self._cells.get(cell, ()) if other.alive and other is not leaving)
 
-    def _spot_near(self, cell: tuple[int, int], space: int) -> tuple[int, int] | None:
-        """A square with room for a Bitzkey taking `space`: this one, or else the nearest within BIRTH_REACH;
-        None if there is none."""
+    def _spot_near(self, cell: tuple[int, int], space: int, terrain: str = "terrestrial") -> tuple[int, int] | None:
+        """A square with room for a Bitzkey taking `space`, of a terrain it may be in: this one, or else the nearest
+        within BIRTH_REACH; None if there is none."""
         x, y = cell[0] % self.width, self._within(cell[1])
         for dx, dy in ((0, 0), *birth_offsets(BIRTH_REACH)):
-            if 0 <= y + dy < self.height and self._room_in(((x + dx) % self.width, y + dy)) >= space:
+            spot = ((x + dx) % self.width, y + dy)
+            if 0 <= y + dy < self.height and self.suits(terrain, spot) and self._room_in(spot) >= space:
                 return (x + dx) % self.width, y + dy
         return None
 
@@ -2631,7 +2816,7 @@ class Simulation:
         worst = agent.climate_steps(climate[y])
         for dx, dy in SIGHT_WITHIN[sight]:
             cell = (x + dx, y + dy)
-            if grass.get(cell, 0) > 0 and agent.climate_steps(climate[y + dy]) <= worst:
+            if grass.get(cell, 0) > 0 and self._can_enter(agent, cell) and agent.climate_steps(climate[y + dy]) <= worst:
                 return cell
         return None
 
@@ -2646,7 +2831,7 @@ class Simulation:
         carrion, x, y = self._carrion, agent.x, agent.y
         for dx, dy in SEEN_WITHIN[sight]:
             for corpse in carrion.get((x + dx, y + dy), ()):
-                if corpse.meat > 0:
+                if corpse.meat > 0 and agent.can_be(corpse.wet):
                     return corpse
         return None
 
@@ -2657,7 +2842,7 @@ class Simulation:
         kills, x, y = self._kills, agent.x, agent.y
         for dx, dy in SEEN_WITHIN[sight]:
             for corpse in kills.get((x + dx, y + dy), ()):
-                if self._feeds_on(agent, corpse):
+                if self._feeds_on(agent, corpse) and agent.can_be(corpse.wet):
                     return corpse
         return None
 
@@ -2686,7 +2871,7 @@ class Simulation:
                     continue
                 elif hunter is None and self._is_prey(other, agent):
                     hunter = other
-                elif browses and flora is None and other.species == "plant" and not other.cooldown:
+                elif browses and flora is None and other.species == "plant" and not other.cooldown and agent.can_be(other.wet):
                     flora = other
                 elif courts and suitor is None and other.can_breed and self._compatible(agent, other):
                     suitor = other
@@ -2717,12 +2902,13 @@ class Simulation:
                            for step in range(cells))
         self._cells[(agent.x, agent.y)].remove(agent)
         agent.x, agent.y = x, y
+        agent.wet = self.sea(x, y)
         self._cells.setdefault((x, y), []).append(agent)
 
     def _step(self, agent: Bitzkey, x: int, y: int) -> bool:
         """A step into a square, if it has room for it; whether it took it."""
-        if (x, y) != (agent.x, agent.y) and self._room_in((x, y), agent) < agent.space:
-            return False  # full: it stops short
+        if (x, y) != (agent.x, agent.y) and (not self._can_enter(agent, (x, y)) or self._room_in((x, y), agent) < agent.space):
+            return False  # full, or sea (or land) it can't go into: it stops short
         self._move(agent, x, y)
         return True
 
@@ -2853,7 +3039,7 @@ class Simulation:
             cells = 0.0
             tufts = 0
             for dx, dy in nearby_offsets(FORAGE_RADIUS):
-                if 0 <= x + dx < self.width and 0 <= y + dy < self.height:
+                if 0 <= x + dx < self.width and 0 <= y + dy < self.height and self._can_enter(agent, (x + dx, y + dy)):
                     cells += growth[y + dy]
                     tufts += grass.get((x + dx, y + dy), 0)
             growing = self.width * self._grass_reach[-1] if self._grass_rows else 0.0
@@ -2862,7 +3048,8 @@ class Simulation:
         mouths = 1.0
         for other in self._nearby(agent, FORAGE_RADIUS):
             if other.species == "plant":
-                food += PLANT_MEALS * agent.browsing * self._plant_yield(other)
+                if agent.can_be(other.wet):
+                    food += PLANT_MEALS * agent.browsing * self._plant_yield(other)
             elif self._feeds_on(agent, other):
                 food += PREY_MEALS
             else:
@@ -2966,7 +3153,8 @@ class Simulation:
         """The food an omnivore has besides predators within FORAGE_RADIUS: grazers, plants and grassy cells."""
         food = sum(other.species in ("grazer", "plant") for other in self._nearby(omnivore, FORAGE_RADIUS))
         grass, x, y = self.grass, omnivore.x, omnivore.y
-        return food + sum(grass.get((x + dx, y + dy), 0) > 0 for dx, dy in nearby_offsets(FORAGE_RADIUS))
+        return food + sum(grass.get((x + dx, y + dy), 0) > 0 and self._can_enter(omnivore, (x + dx, y + dy))
+                          for dx, dy in nearby_offsets(FORAGE_RADIUS))
 
     @classmethod
     def would_win(cls, agent: Bitzkey, opponent: Bitzkey) -> bool:
@@ -2975,9 +3163,20 @@ class Simulation:
         return (cls._damage(agent, opponent) / max(1.0, opponent.health)
                 >= cls._damage(opponent, agent) / max(1.0, agent.health))
 
+    @staticmethod
+    def within_reach(hunter: Bitzkey, other: Bitzkey) -> bool:
+        """Whether a hunter could hunt or attack another, wherever they stand: it may go where the other is, sea or
+        land, and the other is no flyer out of its reach, avian and not resting, while it is terrestrial or aquatic."""
+        if not hunter.can_be(other.wet):
+            return False
+        grounded = hunter.terrain in ("terrestrial", "aquatic")
+        return not (grounded and other.terrain == "avian" and other.species != "plant" and other.last_action != "rested")
+
     @classmethod
     def _is_prey(cls, hunter: Bitzkey, other: Bitzkey) -> bool:
         if other.guarded:  # a predator's infant, guarded by a grown one of its kind
+            return False
+        if not cls.within_reach(hunter, other):
             return False
         if hunter.species == "omnivore":
             # Grazers while they are common enough to switch to, and other omnivores only in an

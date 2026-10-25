@@ -6,7 +6,7 @@ from tools.Genome import (BODY_TRAITS, MIND_MUTATION_CHANCE, MIND_MUTATION_ROLLS
                           TEMPERAMENT, TEMPERATURES, TRAIT_MAX, body_word, color_from_word, convert_v1, convert_v2, cross,
                           decode_body, decode_climate, decode_mind, decode_neurodivergence, decode_social,
                           decode_temperament, encode_dna, genome_from_record, genome_record, inherit_mind, make_dna,
-                          mind_word, social_difference, social_word)
+                          mind_word, social_difference, social_word, with_terrain)
 
 
 class GenomeTests(unittest.TestCase):
@@ -162,7 +162,7 @@ class GenomeTests(unittest.TestCase):
         parent = make_dna(1, rng)
         for chance, expected in ((0.0, 0), (1.0, 1)):
             for _ in range(30):
-                child = cross(parent, parent, rng, body_chance=chance, mind_chance=0.0)
+                child = cross(parent, parent, rng, body_chance=chance, mind_chance=0.0, terrain_mutation=False)
                 self.assertEqual((body_word(child) ^ body_word(parent)).bit_count(), expected)
                 self.assertEqual((mind_word(child), social_word(child)), (mind_word(parent), social_word(parent)))
 
@@ -185,8 +185,10 @@ class GenomeTests(unittest.TestCase):
     def test_genome_is_recorded_as_its_version_and_three_hex_colour_words(self):
         dna = (0x0A1B2C3D << 64) | (0x7421FF41 << 32) | 0x637E4B01
 
-        self.assertEqual(genome_record(dna), {"version": 3, "ring": "7421FF41", "dot": "637E4B01", "social": "0A1B2C3D"})
+        self.assertEqual(genome_record(dna), {"version": 4, "ring": "7421FF41", "dot": "637E4B01", "social": "0A1B2C3D"})
         self.assertEqual(genome_from_record(genome_record(dna)), dna)
+        # Version 3 had no terrain, its bits spare: it is terrestrial.
+        self.assertEqual(genome_from_record({**genome_record(dna), "version": 3}), with_terrain(dna, "terrestrial"))
         self.assertEqual(genome_from_record({"version": 3, "ring": "#00000001", "dot": "abcdef01", "social": "00000002"}),
                          (2 << 64) | (1 << 32) | 0xABCDEF01)
         with self.assertRaisesRegex(ValueError, 'needs "social"'):
@@ -218,8 +220,8 @@ class GenomeTests(unittest.TestCase):
                           decode_mind(dna)["memory"]), (5, 3, 0, 3))
 
     def test_unknown_genome_versions_are_rejected(self):
-        with self.assertRaisesRegex(ValueError, "version 4"):
-            genome_from_record({"version": 4, "ring": "00000001", "dot": "00000000", "social": "00000000"})
+        with self.assertRaisesRegex(ValueError, "version 5"):
+            genome_from_record({"version": 5, "ring": "00000001", "dot": "00000000", "social": "00000000"})
 
     def test_bad_hex_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "eight hex digits"):

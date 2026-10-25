@@ -8,7 +8,8 @@ from collections.abc import Mapping, Sequence
 
 import numpy as np
 
-from tools.Genome import BODY_TRAITS, SPECIES, TEMPERAMENT, TEMPERATURES, TRAIT_MAX, decode_body, decode_climate, decode_temperament, share
+from tools.Genome import (BODY_TRAITS, SPECIES, TEMPERAMENT, TEMPERATURES, TRAIT_MAX, decode_body, decode_climate, decode_temperament,
+                          decode_terrain, share, swims, walks)
 
 ACTIONS = ("eat", "forage", "browse", "uproot", "scavenge", "feast", "rest", "court", "breed", "hunt", "attack", "defend",
            "flee", "herd", "go_north", "go_south", "go_east", "go_west", "walk_north", "walk_south", "walk_east",
@@ -62,10 +63,16 @@ SENSES = (
     "home_direction",     # -1 to the north, 1 to the south, 0 at home or with no such row
     "home_distance",      # 0 at home, rising to 1 half the map's height away or with no such row
     "young_near",         # its own young, still infants, within its sight, 0..3 scaled to 0..1
+    "sea_here",           # 1 when it stands in the sea
+    # A shore it can't cross, sea for a land animal or land for a sea animal: 1 when the next square that way is beyond
+    # it, falling to 0 at the edge of its sight, and 0 with none in sight (and always, for the avian and amphibious):
+    "shore_north", "shore_south", "shore_east", "shore_west",
+    "stamina",            # 1 fresh, falling to 0 exhausted, when it can only rest
 ) + TEMPERAMENT + (    # then its current temperament, mind and social traits, each 0..7 scaled to 0..1
     *(f"inborn_{trait}" for trait in TEMPERAMENT),        # its dot's and social background's traits, as born, 0..1
     *BODY_TRAITS,                                         # its ring's traits, 0..1 (species 0 plant to 1 predator)
     "home_temperature", "heat_tolerance", "cold_tolerance",  # its climate genes: home 0 hot to 1 very cold, flags 0 or 1
+    "swims", "walks", "flies",  # its terrain: whether it may go into the sea and onto the land, 0 or 1, and whether it flies
 )
 INPUT_SIZE = len(SENSES)
 MAX_DEPTH = 4      # hidden layers: one for each point of inborn intellect, at least one and up to this many
@@ -109,7 +116,7 @@ def make_senses(**values: float) -> list[float]:
 
 
 def gene_senses(dna: int) -> dict[str, float]:
-    """The inputs for a genome's traits, ring, dot and social background, and its climate genes."""
+    """The inputs for a genome's traits, ring, dot and social background, its climate genes and its terrain."""
     inborn, body = decode_temperament(dna), decode_body(dna)
     temperature, heat, cold = decode_climate(dna)
     values = {f"inborn_{trait}": share(inborn[trait]) for trait in TEMPERAMENT}
@@ -117,6 +124,8 @@ def gene_senses(dna: int) -> dict[str, float]:
     values.update({trait: share(int(body[trait])) for trait in BODY_TRAITS[1:]})
     values.update(home_temperature=temperature / (len(TEMPERATURES) - 1), heat_tolerance=float(heat),
                   cold_tolerance=float(cold))
+    terrain = decode_terrain(dna)
+    values.update(swims=float(swims(terrain)), walks=float(walks(terrain)), flies=float(terrain == "avian"))
     return values
 
 

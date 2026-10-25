@@ -19,6 +19,7 @@ class Config(object):
     GRID_HEIGHT = 100
     INITIAL_POPULATION = 90
     GRASS_DENSITY = 50
+    OCEAN = 67  # percent of a new world's map under the sea
     MIND_MUTATION = 50  # percent chance a birth mutates the child's mind
     BODY_MUTATION = 50  # and its body
     YEAR_LENGTH = 360  # turns in a year

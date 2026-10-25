@@ -42,7 +42,7 @@ import numpy as np
 from tools import Rules
 from tools import Simulation as world
 from tools.Brain import ACTIONS, INPUT_SIZE, MAX_WIDTH, SENSES, Brain
-from tools.Genome import TEMPERAMENT
+from tools.Genome import GENOME_VERSION, TEMPERAMENT, convert_v3
 from tools.Simulation import SPECIES, Bitzkey, Death, Simulation, brain_shape
 
 WORLD_MAGIC = b"BITZKEY WORLD 2\n"
@@ -177,7 +177,8 @@ def _mind_from(values) -> dict[str, float]:
 def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
     return {
         "identifier": agent.identifier, "dna": _genome(agent.dna), "x": agent.x, "y": agent.y,
-        "hunger": float(agent.hunger), "health": float(agent.health), "age": agent.age, "cooldown": agent.cooldown,
+        "hunger": float(agent.hunger), "health": float(agent.health), "stamina": float(agent.stamina), "age": agent.age,
+        "cooldown": agent.cooldown,
         "last_action": agent.last_action, "brain": numbers.brain(agent.brain), "generation": agent.generation,
         "children": agent.children, "mother": agent.mother, "father": agent.father, "died_turn": agent.died_turn, "assailant": agent.assailant,
         "panicked": agent.panicked, "primal_fear": agent.primal_fear, "rivalry": float(agent.rivalry),
@@ -201,9 +202,12 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
     }
 
 
-def _agent_from(record: Mapping, numbers: _Reader) -> Bitzkey:
-    agent = Bitzkey(int(record["identifier"]), int(record["dna"], 16), int(record["x"]), int(record["y"]),
+def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False) -> Bitzkey:
+    """A Bitzkey as saved; one saved before the terrain gene is terrestrial, as are the young it carries."""
+    genome = (lambda text: convert_v3(int(text, 16))) if before_terrain else (lambda text: int(text, 16))  # noqa: E731
+    agent = Bitzkey(int(record["identifier"]), genome(record["dna"]), int(record["x"]), int(record["y"]),
                     mind=_mind_from(record["mind"]))
+    agent.stamina = float(record.get("stamina", world.FULL_STAMINA))  # fresh, in a world saved before stamina
     for name in ("hunger", "health", "rivalry", "own_rivalry", "seen_success", "seen_failure", "meat", "meat_fill",
                  "cost_share", "glut", "rot", "last_wellbeing", "reward", "last_comfort"):
         setattr(agent, name, float(record[name]))
@@ -220,7 +224,7 @@ def _agent_from(record: Mapping, numbers: _Reader) -> Bitzkey:
     agent.trail = [(int(x), int(y)) for x, y in record["trail"]]
     agent.memories = [(numbers.senses(senses), int(choice), float(target), float(weight))
                       for senses, choice, target, weight in record["memories"]]
-    agent.womb = [(int(young[0], 16), _mind_from(young[1]), numbers.brain(young[2], int(young[0], 16)), float(young[3]),
+    agent.womb = [(genome(young[0]), _mind_from(young[1]), numbers.brain(young[2], genome(young[0])), float(young[3]),
                    int(young[4]), int(young[5]) if len(young) > 5 else -1)
                   for young in record["womb"]]
     agent.mother = int(record.get("mother", -1))  # unknown in a world saved before parents were kept
@@ -258,12 +262,23 @@ def world_bytes(simulation: Simulation) -> bytes:
              -1 if death.activity is None else code(death.activity)] for identifier, death in deaths]
     deaths_at = whole(np.array(rows, dtype="<i4").reshape(-1, 7))
     version, internal, gauss_next = simulation.random.getstate()
+    sea: list[int] = []  # the sea's runs, row by row: land, then sea, then land, and so on
+    if simulation.has_sea:
+        under, run = 0, 0
+        for square in simulation.sea_map:
+            if square != under:
+                sea.append(run)
+                under, run = square, 0
+            run += 1
+        sea.append(run)
     record = {
-        "format": WORLD_FORMAT, "senses": list(SENSES), "actions": list(ACTIONS), "temperament": list(TEMPERAMENT),
+        "format": WORLD_FORMAT, "genome_version": GENOME_VERSION, "senses": list(SENSES), "actions": list(ACTIONS),
+        "temperament": list(TEMPERAMENT),
         "settings": {"width": simulation.width, "height": simulation.height,
                      "population_cap": simulation.population_cap, "mind_mutation": simulation.mind_mutation,
                      "body_mutation": simulation.body_mutation, "year_length": simulation.year_length,
-                     "initial_grass": simulation._initial_grass},
+                     "initial_grass": simulation._initial_grass, "ocean": simulation.ocean},
+        "sea": sea,
         "rules": Rules.current(),
         "turn": simulation.turn, "deaths": simulation.deaths, "next_identifier": simulation.next_identifier,
         "death_causes": {species: dict(causes) for species, causes in simulation.death_causes.items()},
@@ -343,6 +358,16 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
     simulation.mind_mutation, simulation.body_mutation = settings["mind_mutation"], settings["body_mutation"]
     simulation._initial_grass = settings["initial_grass"]
     simulation.grass_regrowth = simulation._initial_grass * world.GRASS_REGROWTH
+    simulation.ocean = settings.get("ocean", 0.0)  # none in a world saved before the sea
+    if record.get("sea"):
+        squares = bytearray()
+        for index, run in enumerate(record["sea"]):
+            squares.extend((index % 2,) * run)
+        if len(squares) != simulation.width * simulation.height:
+            raise ValueError("The world file's sea doesn't fit its map.")
+        simulation.sea_map = squares
+    # Genomes saved before the terrain gene had nothing but spare bits there: they are terrestrial.
+    before_terrain = record.get("genome_version", 3) < 4
     simulation.turn = record["turn"]
     simulation.deaths = record["deaths"]
     simulation.next_identifier = record["next_identifier"]
@@ -351,7 +376,8 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
     simulation.random.setstate((3, (*state["mt"], state["index"]), state["gauss_next"]))
     width = simulation.width
     simulation.grass = {(index % width, index // width): tufts for index, tufts in enumerate(record["grass"]) if tufts}
-    simulation.seeds = [(x, y, int(dna, 16), generation, sown) for x, y, dna, generation, sown in record["seeds"]]
+    simulation.seeds = [(x, y, convert_v3(int(dna, 16)) if before_terrain else int(dna, 16), generation, sown)
+                        for x, y, dna, generation, sown in record["seeds"]]
     simulation.insights.offered = {}
     simulation.insights.chosen = {}
     for species, trait, level, action, offered, chosen in record["insights"]:
@@ -380,8 +406,10 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
                               None if doing < 0 else strings[doing])
             for identifier, cause, kind, turn, killer, killer_kind, doing
             in numbers.whole(deaths["at"], 7 * deaths["count"]).reshape(-1, 7).tolist()}
+    if before_terrain:
+        simulation.lineage = {identifier: convert_v3(dna) for identifier, dna in simulation.lineage.items()}
     simulation._order_deaths()
-    simulation.agents = [_agent_from(agent, numbers) for agent in record["agents"]]
+    simulation.agents = [_agent_from(agent, numbers, before_terrain) for agent in record["agents"]]
     simulation._update_climate()
     simulation._index_cells()
     # What each knew as of its turn's start, which indexing the cells afresh would count again as things now stand.

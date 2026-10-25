@@ -47,6 +47,7 @@ SETTINGS = (
     Setting("population", "Bitzkeys", "spawned at the start, a random mix of species", 0, MAX_POPULATION, 10),
     Setting("grass_density", "Grass density", "percent of cells with grass at the start; regrowth scales too",
             0, 100, 1),
+    Setting("ocean", "Sea", "percent of the map under the sea, laid out by the seed; 0 for land alone", 0, 100, 1),
     Setting("seed", "Random seed", "the same seed replays the same world; blank for a new one",
             0, 999_999_999, 1, optional=True, blank="random"),
     Setting("population_cap", "Population cap", "most animals alive at once; blank lets crowding alone decide",

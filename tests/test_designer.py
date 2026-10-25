@@ -15,7 +15,7 @@ class DesignerFormTests(unittest.TestCase):
     def test_every_trait_is_exposed_once(self):
         self.assertEqual([name for kind, name in FIELDS if kind == "mind"], list(MIND_TRAITS))
         self.assertEqual([name for kind, name in FIELDS if kind == "body"], list(BODY_TRAITS))
-        self.assertEqual([name for kind, name in FIELDS if kind == "social"], [*SOCIAL_TRAITS, "neurodivergence"])
+        self.assertEqual([name for kind, name in FIELDS if kind == "social"], [*SOCIAL_TRAITS, "neurodivergence", "terrain"])
         self.assertEqual([name for kind, name in FIELDS if kind == "hex"], ["ring", "dot", "social"])
         self.assertEqual([name for kind, name in FIELDS if kind == "climate"], ["hardiness", "temperature"])
 

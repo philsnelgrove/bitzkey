@@ -23,7 +23,7 @@ def exported(*dnas: int) -> str:
     return export_bitzkeys(Bitzkey(0, dna, 0, 0) for dna in dnas)
 
 
-DEFAULTS = {"width": 100, "height": 100, "population": 90, "grass_density": 5, "seed": None,
+DEFAULTS = {"width": 100, "height": 100, "population": 90, "grass_density": 5, "ocean": 67, "seed": None,
             "population_cap": None, "mind_mutation": 25, "body_mutation": 25, "year_length": 360}
 SEED = [setting.key for setting in SETTINGS].index("seed")
 

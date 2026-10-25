@@ -28,7 +28,7 @@ class ExchangeTests(unittest.TestCase):
         dna = (0x0A1B2C3D << 64) | (0x7421FF40 << 32) | 0x637E4B01
 
         self.assertEqual(export_bitzkeys([bitzkey(dna)]),
-                         '{"version": 3, "ring": "7421FF40", "dot": "637E4B01", "social": "0A1B2C3D"}')
+                         '{"version": 4, "ring": "7421FF40", "dot": "637E4B01", "social": "0A1B2C3D"}')
 
     def test_an_animal_exports_its_current_temperament(self):
         animal = bitzkey(encode_dna("grazer", fear=4))

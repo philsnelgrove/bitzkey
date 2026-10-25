@@ -71,7 +71,7 @@ def draw_details(screen: pg.Surface, agent: Bitzkey, x: int, at: Callable[[float
     draw_bitzkey(screen, agent.dna, (x + UI(10), at(11)), dot_radius(int(agent.body["size"]), UI(DOT_RADIUS_RANGE[1])),
                  alive=agent.alive or not known)
     draw_icon(screen, agent.species, (x + width - UI(12), at(11)), UI(9), (220, 229, 211))
-    _text(screen, f"#{agent.identifier:03d}  {agent.species.upper()}", (x + UI(28), at(0)), (238, 238, 220), font)
+    _text(screen, f"#{agent.identifier:03d}  {agent.species.upper()}  {agent.terrain.upper()}", (x + UI(28), at(0)), (238, 238, 220), font)
     _text(screen, f"DOT {mind_word(agent.dna):08X} RING {body_word(agent.dna):08X} SOCIAL {social_word(agent.dna):08X}",
           (x, at(26)), (211, 219, 201), mono_small)
 
@@ -118,13 +118,16 @@ def draw_details(screen: pg.Surface, agent: Bitzkey, x: int, at: Callable[[float
         _text(screen, note or "Not in the world at this turn: only its genome is known.", (x, at(318)),
               (116, 139, 124), small)
         return
-    half = (width - UI(12)) // 2
-    _text(screen, f"HUNGER {min(100.0, agent.hunger):5.1f}%", (x, at(302)), (224, 177, 118), mono_small)
-    _bar(screen, x, at(320), half, agent.hunger / 100, (224, 150, 94))
-    health = x + width - half
-    _text(screen, f"HEALTH {max(0.0, agent.health):5.1f}/{agent.max_health:.0f}", (health, at(302)), (161, 207, 162),
+    third = (width - UI(24)) // 3  # hunger, stamina and health side by side
+    _text(screen, f"HUNGER {min(100.0, agent.hunger):.0f}%", (x, at(302)), (224, 177, 118), mono_small)
+    _bar(screen, x, at(320), third, agent.hunger / 100, (224, 150, 94))
+    stamina = x + third + UI(12)
+    _text(screen, f"STAMINA {agent.stamina:.0f}", (stamina, at(302)), (150, 190, 230), mono_small)
+    _bar(screen, stamina, at(320), third, agent.stamina / 100, (110, 160, 220))
+    health = x + width - third
+    _text(screen, f"HEALTH {max(0.0, agent.health):.0f}/{agent.max_health:.0f}", (health, at(302)), (161, 207, 162),
           mono_small)
-    _bar(screen, health, at(320), half, agent.health / agent.max_health, (124, 190, 131))
+    _bar(screen, health, at(320), third, agent.health / agent.max_health, (124, 190, 131))
     _text(screen, f"AGE {agent.age} / ~{agent.lifespan:.0f}{' FEEBLE' if agent.feeble else ''}    GENERATION {agent.generation}    "
           f"CHILDREN {agent.children}", (x, at(334)), (145, 164, 146), small)
     state = f"LAST ACTION: {agent.last_action.upper()}"

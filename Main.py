@@ -14,8 +14,8 @@ from display import Window
 from display.Dialog import Dialog
 from display.Report import Report
 from display.Inspector import draw_details
-from display.Look import (DOT_RADIUS_RANGE, EXPORTING, GRASS, GRID, RING_WIDTH, bitzkey_layer, dot_radius, draw_reticle, map_dot_radii,
-                          draw_bitzkey, zone_colour)
+from display.Look import (DOT_RADIUS_RANGE, EXPORTING, GRASS, GRID, RING_WIDTH, SEA_GRASS, bitzkey_layer, dot_radius, draw_reticle,
+                          map_dot_radii, draw_bitzkey, sea_colour, zone_colour)
 from display.Setup import EXPORT_DIR, SetupScreen
 from display.Language import start_language
 from display.LanguageMenu import LanguageMenu
@@ -119,7 +119,7 @@ MENU_ROW, MENU_COLUMN = 20, 200  # an exemplar menu's rows and columns, in desig
 
 
 class BitzkeyApp:
-    def __init__(self, width: int, height: int, population: int, grass_density: int, seed: int | None,
+    def __init__(self, width: int, height: int, population: int, grass_density: int, ocean: float, seed: int | None,
                  population_cap: int | None = None, mind_mutation: int = Config.MIND_MUTATION,
                  body_mutation: int = Config.BODY_MUTATION, year_length: int = Config.YEAR_LENGTH,
                  imported: Sequence[Imported] = (), simulation: Simulation | None = None):
@@ -131,6 +131,7 @@ class BitzkeyApp:
         self.height = height
         self.population = population
         self.grass_density = grass_density
+        self.ocean = ocean
         self.population_cap = population_cap
         self.mind_mutation = mind_mutation
         self.body_mutation = body_mutation
@@ -896,12 +897,26 @@ class BitzkeyApp:
             top, bottom = round(board.top + y * cell_height), round(board.top + (y + 1) * cell_height)
             pg.draw.rect(self.screen, zone_colour(self.simulation.temperature(y)),
                          (board.left, top, board.width, bottom - top))
+            if not self.simulation.has_sea:
+                continue
+            sea, x = sea_colour(self.simulation.temperature(y)), 0
+            while x < self.width:  # each stretch of sea along the row at once
+                if not self.simulation.sea(x, y):
+                    x += 1
+                    continue
+                end = x
+                while end < self.width and self.simulation.sea(end, y):
+                    end += 1
+                left, right = round(board.left + x * cell_width), round(board.left + end * cell_width)
+                pg.draw.rect(self.screen, sea, (left, top, right - left, bottom - top))
+                x = end
         for x, y in self.simulation.grass:
             point = (round(board.left + (x + 0.5) * cell_width),
                      round(board.top + (y + 0.5) * cell_height))
             if not reach.collidepoint(point):
                 continue
-            pg.draw.circle(self.screen, GRASS, point, max(1, round(min(cell_width, cell_height) * 0.18)))
+            pg.draw.circle(self.screen, SEA_GRASS if self.simulation.sea(x, y) else GRASS, point,
+                           max(1, round(min(cell_width, cell_height) * 0.18)))
         smallest, largest = map_dot_radii(min(cell_width, cell_height))  # zoomed with the map
         for agent in self.simulation.agents:  # the way each came this turn, faint, beneath them all
             layer = None
@@ -1256,7 +1271,7 @@ class BitzkeyApp:
 
     def _new_world(self) -> Simulation:
         return Simulation(self.width, self.height, self.population, self.seed, self.grass_density, self.imported,
-                          self.population_cap, self.mind_mutation, self.body_mutation, self.year_length)
+                          self.population_cap, self.mind_mutation, self.body_mutation, self.year_length, self.ocean)
 
     def _say(self, message: str) -> None:
         self.message = message
@@ -1397,6 +1412,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--population", type=int, default=Config.INITIAL_POPULATION)
     parser.add_argument("--grass-density", type=int, default=Config.GRASS_DENSITY,
                         help="percent of cells with grass at the start (default: 5)")
+    parser.add_argument("--ocean", type=int, default=Config.OCEAN,
+                        help="percent of the map under the sea, laid out by the seed (default: 67)")
     parser.add_argument("--seed", type=int, default=None, help="seed the world for repeatable experiments")
     parser.add_argument("--population-cap", type=int, default=None,
                         help="most animals alive at once (default: no limit; crowding decides)")

@@ -11,20 +11,20 @@ from display import Window
 from display.Look import RING_WIDTH, dot_radius, draw_bitzkey
 from display.Ui import UI, draw_label
 from tools.Genome import (BODY_TRAITS, GENOME, MIND_TRAITS, NEURODIVERGENCE_MAX, NEURODIVERGENCE_SHIFT, SOCIAL_SHIFT,
-                          SOCIAL_TRAITS, SPECIES, TEMPERATURES, TRAIT_BITS, TRAIT_MAX, WORD, body_word, decode_body,
-                          mind_word, social_word)
+                          SOCIAL_TRAITS, SPECIES, TEMPERATURES, TERRAIN_SHIFT, TERRAINS, TRAIT_BITS, TRAIT_MAX, WORD, body_word,
+                          decode_body, mind_word, social_word)
 from tools.Simulation import Bitzkey, litter_size
 
 # The rows: a column each for the dot and the ring, the mind traits and then the tolerance flags (the
 # dot's top two bits, as one value: 1 heat, 2 cold; both together cancel out), the body traits and then the home
 # temperature (the ring's top two bits); beneath them both, the social background's traits and its
-# neurodivergence; then the three hex codes.
+# neurodivergence and terrain; then the three hex codes.
 FIELDS = (tuple(("mind", trait) for trait in MIND_TRAITS) + (("climate", "hardiness"),)
           + tuple(("body", trait) for trait in BODY_TRAITS) + (("climate", "temperature"),)
-          + tuple(("social", trait) for trait in SOCIAL_TRAITS) + (("social", "neurodivergence"),)
+          + tuple(("social", trait) for trait in SOCIAL_TRAITS) + (("social", "neurodivergence"), ("social", "terrain"))
           + (("hex", "ring"), ("hex", "dot"), ("hex", "social")))
 COLUMN_ROWS = len(MIND_TRAITS) + 1
-SOCIAL_ROWS = (len(SOCIAL_TRAITS) + 2) // 2  # the social section's rows, in two columns
+SOCIAL_ROWS = (len(SOCIAL_TRAITS) + 3) // 2  # the social section's rows, in two columns
 PARTS = ("ring", "dot", "social")
 LABELS = {"ring": "RING / BODY", "dot": "DOT / MIND", "social": "SOCIAL"}
 HARDINESS = ("none", "heat", "cold", "none")  # both flags cancel out
@@ -39,6 +39,8 @@ def _shift(field: tuple[str, str]) -> int:
         return 30 if name == "hardiness" else 62
     if field == ("social", "neurodivergence"):
         return SOCIAL_SHIFT + NEURODIVERGENCE_SHIFT
+    if field == ("social", "terrain"):
+        return TERRAIN_SHIFT
     if kind == "social":
         return SOCIAL_SHIFT + TRAIT_BITS * SOCIAL_TRAITS.index(name)
     index = MIND_TRAITS.index(name) if kind == "mind" else BODY_TRAITS.index(name)
@@ -48,6 +50,8 @@ def _shift(field: tuple[str, str]) -> int:
 def _largest(field: tuple[str, str]) -> int:
     if field == ("social", "neurodivergence"):
         return NEURODIVERGENCE_MAX
+    if field == ("social", "terrain"):
+        return len(TERRAINS) - 1
     if field == ("climate", "hardiness"):
         return len(HARDINESS) - 2
     return CLIMATE_MAX if field[0] == "climate" else TRAIT_MAX
@@ -200,7 +204,7 @@ class Designer:
     def _layout(self) -> dict:
         UI.fit(self.screen.get_size())
         width, height = self.screen.get_size()
-        card = pg.Rect(0, 0, UI(1040), UI(800))
+        card = pg.Rect(0, 0, UI(1040), UI(850))
         card.center = (width // 2, height // 2)
         preview = pg.Rect(card.left + UI(24), card.top + UI(92), UI(320), UI(270))
         codes = {part: pg.Rect(preview.right - UI(160), preview.bottom + UI(16 + 44 * index), UI(160), UI(34))
@@ -349,6 +353,8 @@ class Designer:
             shown = TEMPERATURES[value]
         elif field == ("climate", "hardiness"):
             shown = HARDINESS[value]
+        elif field == ("social", "terrain"):
+            shown = TERRAINS[value]
         else:
             shown = str(value)
         text = self.font.render(shown, True, (238, 238, 220))

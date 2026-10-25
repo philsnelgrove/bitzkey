@@ -21,6 +21,11 @@ WORLD_GREY = (196, 198, 196)
 ZONE_TINTS = ((150, 85, 55), (110, 170, 90), (255, 255, 255), (170, 210, 250))
 ZONE_TINT = 0.45  # how far toward its tint a zone's grey goes
 GRASS = (62, 122, 52)
+# The sea: its row's temperature tint drawn this far toward deep blue, so the climate's bands show through, and its
+# grass, sea grass, in kelp green.
+SEA = (38, 84, 140)
+SEA_TINT = 0.6
+SEA_GRASS = (58, 150, 120)
 GRID = (140, 146, 142)
 SELECTED = (25, 32, 32)    # the ring round the selected Bitzkey and those picked on the colour graph
 EXPORTING = (205, 120, 30)  # the ring round Bitzkeys on the export list
@@ -33,6 +38,11 @@ def zone_colour(temperature: float) -> tuple[int, int, int]:
     turned = temperature - lower
     tints = (low + (high - low) * turned for low, high in zip(ZONE_TINTS[lower], ZONE_TINTS[upper]))
     return tuple(round(grey + (tint - grey) * ZONE_TINT) for grey, tint in zip(WORLD_GREY, tints))
+
+
+def sea_colour(temperature: float) -> tuple[int, int, int]:
+    """The same under the sea."""
+    return tuple(round(value + (sea - value) * SEA_TINT) for value, sea in zip(zone_colour(temperature), SEA))
 
 
 def dot_radius(size: int, largest: int = DOT_RADIUS_RANGE[1], smallest: int = DOT_RADIUS_RANGE[0]) -> int:

@@ -34,7 +34,7 @@ class DialogTests(unittest.TestCase):
 
 class SimulationFlowTests(unittest.TestCase):
     def setUp(self):
-        self.app = BitzkeyApp(30, 30, 30, 5, 3)
+        self.app = BitzkeyApp(30, 30, 30, 5, 0, 3)
         pg.event.clear()
         for _ in range(5):
             self.app.simulation.advance()
@@ -370,7 +370,7 @@ class CatalogFlowTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.addCleanup(self.folder.cleanup)
-        self.app = BitzkeyApp(30, 30, 30, 5, 4)
+        self.app = BitzkeyApp(30, 30, 30, 5, 0, 4)
         pg.event.clear()
         for _ in range(5):
             self.app.simulation.advance()
