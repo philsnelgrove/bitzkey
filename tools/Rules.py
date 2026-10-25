@@ -72,7 +72,8 @@ _TABLE: dict[str, list[tuple]] = {
         ("MEAT_DIGESTION", "Meat digestion", "the share of its fullness that is meat empties at this share of the usual rate "
          "(1/7: meat lasts a week to plants' day)", 0.01, 1.0, 0.001),
         ("AGEING", "Ageing", "from this share of its lifespan, an animal may die of old age, and is feeble", 0.0, 0.95, 0.05),
-        ("FEEBLE_YOUTH", "Feeble youth", "an animal is feeble, an infant, for this share of its lifespan", 0.0, 0.5, 0.05),
+        ("FEEBLE_YOUTH", "Feeble youth", "an animal is feeble, an infant, for this share of its lifespan (1/30: 36 turns for the "
+         "smallest)", 0.0, 0.5, 0.001),
         ("PREDATOR_INFANCY", "Predator infancy", "a predator is an infant this share as long as other animals", 0.0, 1.0, 0.05),
         ("FEEBLE_SHARE", "Feeble share", "a feeble animal's body traits and health are at this share of its own",
          0.1, 1.0, 0.05),
