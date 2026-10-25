@@ -25,7 +25,7 @@ class WorldFileTests(unittest.TestCase):
 
     def test_a_world_that_has_forgotten_its_oldest_genomes_saves_and_loads_them_from_where_they_start(self):
         with patch("tools.Census.GRAPH_TURNS", 5):
-            world = Simulation(20, 20, population=30, seed=2, year_length=8)  # short lives
+            world = Simulation(20, 20, population=30, seed=3, year_length=8)  # short lives
             for _ in range(200):
                 world.advance()
         data = world_bytes(world)

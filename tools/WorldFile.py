@@ -179,7 +179,7 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "identifier": agent.identifier, "dna": _genome(agent.dna), "x": agent.x, "y": agent.y,
         "hunger": float(agent.hunger), "health": float(agent.health), "age": agent.age, "cooldown": agent.cooldown,
         "last_action": agent.last_action, "brain": numbers.brain(agent.brain), "generation": agent.generation,
-        "children": agent.children, "died_turn": agent.died_turn, "assailant": agent.assailant,
+        "children": agent.children, "mother": agent.mother, "father": agent.father, "died_turn": agent.died_turn, "assailant": agent.assailant,
         "panicked": agent.panicked, "primal_fear": agent.primal_fear, "rivalry": float(agent.rivalry),
         "own_rivalry": float(agent.own_rivalry), "hunts_grazers": agent.hunts_grazers,
         "hunts_omnivores": agent.hunts_omnivores, "hunts_predators": agent.hunts_predators, "guarded": agent.guarded,
@@ -192,8 +192,8 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "trail": [list(cell) for cell in agent.trail],
         "memories": [[numbers.senses(senses), int(choice), float(target), float(weight)]
                      for senses, choice, target, weight in agent.memories],
-        "womb": [[_genome(dna), _mind(mind), numbers.brain(brain), float(energy), int(generation)]
-                 for dna, mind, brain, energy, generation in agent.womb],
+        "womb": [[_genome(dna), _mind(mind), numbers.brain(brain), float(energy), int(generation), int(father)]
+                 for dna, mind, brain, energy, generation, father in agent.womb],
         "due_turn": agent.due_turn, "mind": _mind(agent.mind), "last_senses": numbers.senses(agent.last_senses),
         "last_choice": int(agent.last_choice), "last_wellbeing": float(agent.last_wellbeing),
         "reward": float(agent.reward), "last_comfort": float(agent.last_comfort),
@@ -220,8 +220,11 @@ def _agent_from(record: Mapping, numbers: _Reader) -> Bitzkey:
     agent.trail = [(int(x), int(y)) for x, y in record["trail"]]
     agent.memories = [(numbers.senses(senses), int(choice), float(target), float(weight))
                       for senses, choice, target, weight in record["memories"]]
-    agent.womb = [(int(dna, 16), _mind_from(mind), numbers.brain(brain, int(dna, 16)), float(energy), int(generation))
-                  for dna, mind, brain, energy, generation in record["womb"]]
+    agent.womb = [(int(young[0], 16), _mind_from(young[1]), numbers.brain(young[2], int(young[0], 16)), float(young[3]),
+                   int(young[4]), int(young[5]) if len(young) > 5 else -1)
+                  for young in record["womb"]]
+    agent.mother = int(record.get("mother", -1))  # unknown in a world saved before parents were kept
+    agent.father = int(record.get("father", -1))
     agent.last_senses = numbers.senses(record["last_senses"])
     agent.odds = {str(action): float(chance) for action, chance in record["odds"].items()}
     return agent

@@ -140,6 +140,10 @@ _TABLE: dict[str, list[tuple]] = {
         ("UNEASE", "Unease", "how much an intolerant animal minds other species close by", 0.0, 5.0, 0.05),
         ("CLIMATE_UNEASE", "Climate unease", "discomfort two steps from home, half that one step; less if hardy",
          0.0, 5.0, 0.05),
+        ("PARENT_JOY", "Parent joy", "how glad a parent is of three or more of its own infants within its sight; "
+         "more if empathetic", 0.0, 5.0, 0.05),
+        ("PARENT_GRIEF", "Parent grief", "how much a parent grieves when one of its infants dies, wherever; more if "
+         "empathetic", 0.0, 10.0, 0.1),
         ("HOMEWARD_UNEASE", "Homeward unease", "more discomfort the further home lies, this much half the map away; "
          "each step home eases it", 0.0, 5.0, 0.05),
         ("EMPATHY_PAIN", "Empathy pain", "how much an empathetic animal feels another's wound", 0.0, 5.0, 0.05),

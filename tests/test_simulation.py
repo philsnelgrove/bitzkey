@@ -7,7 +7,7 @@ import tools.Simulation as simulation_module
 from tools.Brain import ACTIONS, SENSES, Brain
 from tools.Exchange import Imported
 from tools.Genome import decode_body, encode_dna
-from tools.Simulation import (Death, DEATH_PENALTY, AGENT_BYTES, ATTACK_JOY, FEAST_JOY, FRESH_KILL_MEALS, KILL_MEAL, KILL_MEAL_FOR_SIZE, BIRTH_REACH, PLANT_GESTATION, Bitzkey, gestation, CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, PLANT_MEAL, PLANT_MEAL_FOR_SIZE, SEED_OFFSETS,
+from tools.Simulation import (Death, DEATH_PENALTY, PARENT_GRIEF, PARENT_JOY, AGENT_BYTES, ATTACK_JOY, FEAST_JOY, FRESH_KILL_MEALS, KILL_MEAL, KILL_MEAL_FOR_SIZE, BIRTH_REACH, PLANT_GESTATION, Bitzkey, gestation, CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, PLANT_MEAL, PLANT_MEAL_FOR_SIZE, SEED_OFFSETS,
                               SIGHT_OFFSETS, SPAWN_SPREAD, UPROOT_BITE, UPROOT_MEALS, Simulation, litter_size,
                               nearby_offsets)
 
@@ -198,7 +198,7 @@ class SimulationTests(unittest.TestCase):
         self.assertIn(breed, self.simulation._sense(agent)[1])  # room still: each takes 8 of a square's 10
         with patch("tools.Simulation.BIRTH_REACH", 1), patch("tools.Simulation.CELL_SPACE", 8):
             self.assertNotIn(breed, self.simulation._sense(agent)[1])  # every square near full
-        agent.womb = [(dna, {}, None, 0.0, 1)]
+        agent.womb = [(dna, {}, None, 0.0, 1, -1)]
         self.assertNotIn(breed, self.simulation._sense(agent)[1])  # already carrying young
 
     def test_animals_shun_mates_whose_ring_or_dot_differ_too_far_from_their_own(self):
@@ -901,8 +901,9 @@ class NewTraitTests(unittest.TestCase):
         self.simulation._attack(brute, brave)
         self.assertFalse(brave.panicked)
 
-        timid.health = 1  # all but dead, and fully fearful: certain to break
-        self.simulation._struck(timid, bully)
+        timid.health = 1  # all but dead, and fully fearful: certain to break, whatever the roll
+        with patch.object(self.simulation.random, "random", return_value=0.0):
+            self.simulation._struck(timid, bully)
         self.assertTrue(timid.panicked)
         senses, options, situation = self.simulation._sense(timid)
         self.assertIn(ACTIONS.index("defend"), options)  # it could have fought, but fear decides
@@ -1757,7 +1758,7 @@ class NewTraitTests(unittest.TestCase):
         prey = self.simulation._add_agent(encode_dna("grazer"), 2, 5)
         self.simulation._index_cells()
         self.assertEqual(self.simulation._sense(hunter)[0][SENSES.index("prey_pregnant")], 0.0)
-        prey.womb = [(prey.dna, None, None, 0.0, 1)]  # carrying young
+        prey.womb = [(prey.dna, None, None, 0.0, 1, -1)]  # carrying young
         self.assertEqual(self.simulation._sense(hunter)[0][SENSES.index("prey_pregnant")], 1.0)
 
     def test_a_predator_takes_an_omnivore_for_prey_only_if_it_would_win(self):
@@ -2571,6 +2572,39 @@ class SquareTests(unittest.TestCase):
         self.simulation._spawn_group(encode_dna("grazer", size=7), 3, rows=[1])
         for square in {(agent.x, agent.y) for agent in self.simulation.living}:
             self.assertGreaterEqual(self.simulation._room_in(square), 0)  # none overfilled
+
+    @patch("tools.Simulation.FEEBLE_YOUTH", 0.1)  # young are infants for a tenth of their lives, as in a world
+    @patch("tools.Simulation.NEWBORN_FOOD", 0.0)
+    @patch("tools.Simulation.PLANTS_PER_GRAZER", 0.0)
+    def test_a_parent_is_glad_of_its_infants_close_by_grieves_for_one_that_dies_and_its_young_know_their_parents(self):
+        dna = encode_dna("grazer", fertility=7, litter=7, sight=2)
+        mother = self.simulation._add_agent(dna, 5, 5)
+        father = self.simulation._add_agent(dna, 5, 6)
+        self.simulation._index_cells()
+        self.assertEqual(self.simulation._sense(mother)[0][SENSES.index("young_near")], 0.0)
+        deliver(self.simulation, mother, father, litter=3)
+        infant, grown = self.simulation.agents[2], self.simulation.agents[3]
+        self.assertEqual((infant.mother, infant.father, infant.infant), (mother.identifier, father.identifier, True))
+        self.assertIs(self.simulation.find_agent(infant.identifier), infant)
+        self.assertIsNone(self.simulation.find_agent(9999))
+
+        self.simulation._index_cells()
+        senses, _, situation = self.simulation._sense(mother)
+        young = min(3, situation["young_near"])
+        self.assertGreaterEqual(young, 1)
+        self.assertAlmostEqual(senses[SENSES.index("young_near")], young / 3)
+        without = dict(situation, young_near=0)
+        self.assertAlmostEqual(self.simulation._comfort(mother, situation) - self.simulation._comfort(mother, without),
+                               PARENT_JOY * (0.5 + mother.feeling("empathy")) * young / 3)
+
+        mother.reward = father.reward = 0.0
+        self.simulation._die(infant, "killed")
+        self.assertAlmostEqual(mother.reward, -PARENT_GRIEF * (0.5 + mother.feeling("empathy")))
+        self.assertAlmostEqual(father.reward, -PARENT_GRIEF * (0.5 + father.feeling("empathy")))
+        grown.age = int(grown.lifespan / 2)  # no longer an infant
+        mother.reward = 0.0
+        self.simulation._die(grown, "killed")
+        self.assertEqual(mother.reward, 0.0)  # a parent grieves for its infants only
 
     @patch("tools.Simulation.SMALL_LITTERS", 1.0)
     @patch("tools.Simulation.NEWBORN_FOOD", 0.0)

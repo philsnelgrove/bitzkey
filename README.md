@@ -529,11 +529,12 @@ neural network, and that brain chooses everything it does. Each turn it senses:
 - how fresh its memory of where it last fed is, and how close it is to where it
   was last struck, while it remembers
 - how well fed its home band is: plants per grazer, prey per predator, or both, half each, for an omnivore
+- how many of its own young, still infants, are within its sight
 - its current temperament, mind and social traits
 - its own genome: each of its dot's and social background's traits as born, each
   of its ring's traits (species among them) and its climate genes
 
-That is 90 senses in all. Its brain has a hidden layer for each point of its
+That is 91 senses in all. Its brain has a hidden layer for each point of its
 inborn intellect, at least one and up to four, each of 38 neurons; beyond four,
 each point of intellect adds five neurons to every layer instead. So the dullest
 think with one layer of 38 neurons, and the brightest with four layers of 53.
@@ -747,6 +748,8 @@ gather and herd together without unease.
 Territorial fights, between omnivores or between predators, go on regardless. Zero health is fatal, and so, in
 time, is age. Hunger stops at 100%: an animal (or plant) that full hunger reaches is starving, and loses 10% of its
 full health each turn until it eats or dies of it (Starving damage, in the Bodies group).
+
+Parents are attached to their young. Every animal knows its mother and father. A parent is glad of its own infants within its sight, up to 0.3 with three or more (Parent joy), and grieves 2 when one of them dies, wherever it is (Parent grief), as much as its own death costs it; both run from half to one and a half times as much with its empathy, and both parents grieve. Neither tells a parent what to do: keeping close, defending its young, or breeding where and when they will live, is for its brain to learn.
 
 Infants are cared for. Each turn, every grown animal that isn't starving (below 80% hunger: Nursing limit) feeds the hungriest infant of its own kind within two cells (Nursing reach) a turn's worth of its food, from its own stomach, so the infant grows no hungrier while it is cared for. Infants keep close to their kind: they value herding more (Infant herding) and herd once they are more than a cell from their herd's middle, and even a solitary omnivore's infant herds with other omnivores until it grows up. An animal is feeble in its infancy, the first 10% of its lifespan (a predator only the first 5%: Predator infancy), and in its old age, from 70% of it,
 when it may begin to die of age (Feeble youth and Ageing, in the Bodies group). While feeble, every body

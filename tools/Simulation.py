@@ -108,6 +108,12 @@ CLIMATE_UNEASE = 2.0   # discomfort two or more steps from home, half that one s
 PATIENT_DISCOUNT = 0.99  # gamma at the highest patience: how far ahead the patient look; the least patient keep 0.7
 HOMEWARD_UNEASE = 1.0  # more discomfort away from home, rising with the distance to home to this at half the map's height
 EMPATHY_PAIN = 0.15    # how much an empathetic animal feels another's wound; twice that for a death
+# Parental attachment: a parent is glad of its own young, still infants, within its sight, up to PARENT_JOY with
+# three or more, and grieves PARENT_GRIEF when one of them dies, wherever it is; both by half again and up to one
+# and a half times as much with its empathy. Neither tells it what to do: what keeps its young alive is for its
+# brain to learn.
+PARENT_JOY = 0.3
+PARENT_GRIEF = 2.0
 # Society: an animal sees what happens to its herd-mates (its pack, for a predator) within its sight. A
 # herd-mate's kill is a success, its death (but of old age) a failure; the witness learns from it as
 # if it had made the herd-mate's last choice itself, and feels it, by its empathy times its intellect.
@@ -623,6 +629,8 @@ class Bitzkey:
     brain: Brain | None = None
     generation: int = 0
     children: int = 0
+    mother: int = -1  # its parents' identifiers; -1 for one spawned, imported or deployed
+    father: int = -1
     died_turn: int | None = None
     assailant: int | None = None  # the animal that struck it since it last acted, which it may defend against
     panicked: bool = False  # failed a morale check when struck, so it will flee its assailant
@@ -921,8 +929,8 @@ class Bitzkey:
     def copy(self) -> Bitzkey:
         return replace(self, brain=self.brain.copy() if self.brain else None, mind=self.mind.copy(),
                        trail=list(self.trail), memories=list(self.memories),
-                       womb=[(dna, dict(mind), brain.copy() if brain else None, energy, generation)
-                             for dna, mind, brain, energy, generation in self.womb])
+                       womb=[(dna, dict(mind), brain.copy() if brain else None, energy, generation, father)
+                             for dna, mind, brain, energy, generation, father in self.womb])
 
 
 def litter_size(parents: Sequence[tuple[int, int]]) -> int:
@@ -1663,6 +1671,9 @@ class Simulation:
         herd_assailant = next((other for other in neighbors if other.identifier == agent.herd_assailant), None)
         defend_target = assailant or herd_assailant
         herd, herd_near, herd_middle = self._herd(agent)
+        young = 0 if not agent.children else sum(  # its own young, still infants, within its sight
+            1 for other in self._nearby(agent, sight)
+            if agent.identifier in (other.mother, other.father) and other.infant)
         here = self._climate[agent.y]
         discomfort = agent.climate_steps(here)
         # The nearest row it would feel at home in, however far, and the same only if within sight.
@@ -1784,10 +1795,11 @@ class Simulation:
             home_food=self._home_food_sense(agent),
             home_direction=0.0 if home is None else (1.0 if home[1] > agent.y else -1.0),
             home_distance=home_distance,
+            young_near=min(3, young) / 3,
             **{trait: agent.feeling(trait) for trait in TEMPERAMENT},
             **agent.genes,
         )
-        situation = {"mate": mate, "nurseries": nurseries, "prey": target, "threat": threat,
+        situation = {"mate": mate, "nurseries": nurseries, "young_near": young, "prey": target, "threat": threat,
                      "threats": len(threats), "quarry": quarry, "hunter": hunter, "suitor": suitor,
                      "grass": grass, "grass_here": grass_here, "carrion": carrion, "kill": kill, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
                      "others": others, "defend_target": defend_target, "for_herd": assailant is None,
@@ -1826,7 +1838,9 @@ class Simulation:
         herding *= 0.5 + agent.fearfulness  # the fearful feel their herd, and its absence, most
         # and more the further home lies, so every step toward it is felt, not only the last.
         exposed = CLIMATE_UNEASE * situation.get("exposure", 0.0) + HOMEWARD_UNEASE * situation.get("home_distance", 0.0)
-        return company - dread - unease - crowded + herding - exposed
+        # A parent is glad of its own young close by, the more so the more empathetic.
+        parental = PARENT_JOY * (0.5 + agent.feeling("empathy")) * min(3, situation.get("young_near", 0)) / 3
+        return company - dread - unease - crowded + herding - exposed + parental
 
     @staticmethod
     def _discount(agent: Bitzkey) -> float:
@@ -1879,6 +1893,11 @@ class Simulation:
                                                      None if killer is None else killer.identifier,
                                                      None if killer is None else killer.species, activity)
         self._death_order.append((self.turn, agent.identifier))
+        if agent.infant:  # its parents grieve, wherever they are, and learn from it what came before
+            for identifier in (agent.mother, agent.father):
+                parent = self.find_agent(identifier) if identifier >= 0 else None
+                if parent is not None and parent.alive and parent.brain is not None:
+                    parent.reward -= PARENT_GRIEF * (0.5 + parent.feeling("empathy"))
         if agent.brain is not None and agent.last_senses is not None:
             # A slow death (old age, starving or the cold or heat) is not its last choice's doing: the health it lost
             # on the way has taught its lessons already.
@@ -2331,7 +2350,7 @@ class Simulation:
                 for learnt, now in ((EAT, HUNT), (UPROOT, FEAST)):
                     brain.output_weights[now] = brain.output_weights[learnt].copy()
                     brain.output_biases[now] = brain.output_biases[learnt]
-            first.womb.append((dna, mind, brain, given / litter, generation))
+            first.womb.append((dna, mind, brain, given / litter, generation, second.identifier))
         first.due_turn = self.turn + gestation(first.trait("size"))
         for parent, cost in zip((first, second), costs, strict=True):
             parent.hunger += cost
@@ -2497,6 +2516,12 @@ class Simulation:
         it (FULL_LITTER_FOOD unless given)."""
         return min(1.0, food / ((FULL_LITTER_FOOD if full is None else full) * needed)) if needed else 1.0
 
+    def find_agent(self, identifier: int) -> Bitzkey | None:
+        """The Bitzkey of this identifier, living or dead, while the world still holds it: the agents stay in the
+        order they were made, so it is found by halving."""
+        at = bisect.bisect_left(self.agents, identifier, key=lambda agent: agent.identifier)
+        return self.agents[at] if at < len(self.agents) and self.agents[at].identifier == identifier else None
+
     def _nearby(self, agent: Bitzkey, radius: int) -> list[Bitzkey]:
         found = []
         cells, x, y = self._cells, agent.x, agent.y
@@ -2521,7 +2546,7 @@ class Simulation:
         to a square while there is room, as many as the population cap allows; the rest are lost. Each starts
         with its share of the energy its parents gave."""
         born = 0
-        for dna, mind, brain, energy, generation in mother.womb:
+        for dna, mind, brain, energy, generation, father in mother.womb:
             if born >= self._room():
                 break
             space = 1 + int(decode_body(dna)["size"])
@@ -2529,6 +2554,7 @@ class Simulation:
             if cell is None:  # no room left near it
                 continue
             child = self._add_agent(dna, *cell, brain=brain)
+            child.mother, child.father = mother.identifier, father
             child.mind = mind
             child.hunger = max(0.0, 100 - energy / child.stomach)
             child.generation = generation

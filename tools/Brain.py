@@ -61,6 +61,7 @@ SENSES = (
     # Where the nearest row it would feel at home in lies, however far beyond sight:
     "home_direction",     # -1 to the north, 1 to the south, 0 at home or with no such row
     "home_distance",      # 0 at home, rising to 1 half the map's height away or with no such row
+    "young_near",         # its own young, still infants, within its sight, 0..3 scaled to 0..1
 ) + TEMPERAMENT + (    # then its current temperament, mind and social traits, each 0..7 scaled to 0..1
     *(f"inborn_{trait}" for trait in TEMPERAMENT),        # its dot's and social background's traits, as born, 0..1
     *BODY_TRAITS,                                         # its ring's traits, 0..1 (species 0 plant to 1 predator)
