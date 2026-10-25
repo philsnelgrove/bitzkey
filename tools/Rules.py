@@ -69,8 +69,8 @@ _TABLE: dict[str, list[tuple]] = {
         ("LIFESPAN_YEARS.2", "Lifespan, longest", "years of life expected for the largest bodies", 0.5, 30.0, 0.5),
         ("STARVING_DAMAGE", "Starving damage", "share of its full health a Bitzkey at full hunger loses each turn",
          0.0, 1.0, 0.01),
-        ("MEAT_DIGESTION", "Meat digestion", "the share of its fullness that is meat empties at this share of the usual rate",
-         0.05, 1.0, 0.05),
+        ("MEAT_DIGESTION", "Meat digestion", "the share of its fullness that is meat empties at this share of the usual rate "
+         "(1/7: meat lasts a week to plants' day)", 0.01, 1.0, 0.001),
         ("AGEING", "Ageing", "from this share of its lifespan, an animal may die of old age, and is feeble", 0.0, 0.95, 0.05),
         ("FEEBLE_YOUTH", "Feeble youth", "an animal is feeble, an infant, for this share of its lifespan", 0.0, 0.5, 0.05),
         ("PREDATOR_INFANCY", "Predator infancy", "a predator is an infant this share as long as other animals", 0.0, 1.0, 0.05),

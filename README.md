@@ -768,9 +768,11 @@ infancy or into old age, but that is no lesson: the brain learns only from the t
 health shrinks to its feeble full health. Plants are never feeble. The inspector marks a feeble Bitzkey
 FEEBLE beside its age, and the designer shows a grown one.
 
-Meat lasts twice as long as plant food. Each Bitzkey keeps track of how much of its fullness is meat, from
-hunting, attacking, feasting and scavenging, and that share is digested at half the speed of the rest
-(Meat digestion), so a predator fed on meat grows hungry half as fast as one fed on plants.
+Meat lasts seven times as long as plant food: an animal full of meat can go a week before it is half full
+and must eat again, where one full of plants can go a day. Each Bitzkey keeps track of how much of its
+fullness is meat, from hunting, attacking, feasting and scavenging, and that share is digested at a seventh
+of the speed of the rest (Meat digestion), so an omnivore with both grows hungry at a pace between the two,
+by how much of each it holds. Bodies still set the pace around that: small, strong, fast ones burn faster.
 
 A map square holds 10 spaces (Square space, in the World group). Every Bitzkey, plant or animal, takes
 one space plus its size (0 to 7), so up to ten of the smallest share a square, and one of the largest

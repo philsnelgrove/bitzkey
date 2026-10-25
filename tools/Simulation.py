@@ -42,7 +42,9 @@ CELL_SPACE = 10
 # Full hunger doesn't kill at once: a starving Bitzkey loses this share of its full health each turn.
 STARVING_DAMAGE = 0.1
 # Meat lasts: the share of its fullness that is meat empties at this share of the usual rate.
-MEAT_DIGESTION = 0.5
+# Meat lasts seven times as long as plant food: a meal of meat a week to a meal of plants a day. An omnivore's mixed
+# fullness empties at the mix of the two rates.
+MEAT_DIGESTION = 1 / 7
 # Feeble: an animal in its infancy (the first FEEBLE_YOUTH of its lifespan) or its old age (past AGEING of it)
 # has every body trait, and its health, at FEEBLE_SHARE of its own.
 FEEBLE_YOUTH = 0.1

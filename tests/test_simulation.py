@@ -2650,11 +2650,11 @@ class SquareTests(unittest.TestCase):
         hunter.nourish(40 * hunter.stomach, meat=True)
         grazer.nourish(40 * grazer.stomach)
         self.assertEqual((hunter.hunger, hunter.meat_fill, grazer.meat_fill), (10, 40, 0))
-        self.assertAlmostEqual(hunter.digest(10), 10 * (1 - 40 / 90 * (1 - MEAT_DIGESTION)))  # its meat share at half the rate
+        self.assertAlmostEqual(hunter.digest(10), 10 * (1 - 40 / 90 * (1 - MEAT_DIGESTION)))  # its meat share at a seventh the rate
         self.assertAlmostEqual(grazer.digest(10), 10)
-        self.assertEqual(MEAT_DIGESTION, 0.5)
-        hunter.meat_fill, hunter.hunger = 90, 10  # all its fullness meat: half the hunger a turn
-        self.assertAlmostEqual(hunter.digest(10), 5)
+        self.assertAlmostEqual(MEAT_DIGESTION, 1 / 7)
+        hunter.meat_fill, hunter.hunger = 90, 10  # all its fullness meat: a seventh of the hunger a turn, so meat lasts seven times as long
+        self.assertAlmostEqual(hunter.digest(10), 10 / 7)
 
     def test_full_hunger_wears_a_tenth_of_its_health_away_each_turn(self):
         from tools.Simulation import STARVING_DAMAGE
