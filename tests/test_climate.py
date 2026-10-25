@@ -502,12 +502,14 @@ class SocietyTests(unittest.TestCase):
         far = self.simulation._add_agent(bright, 50, 59)  # out of sight
         stranger = self.simulation._add_agent(encode_dna("omnivore", empathy=7, intellect=7, sight=1), 49, 50)
         self.simulation._index_cells()
-        with patch.object(witness.brain, "learn") as learns:
-            dying.health = 0
-            self.simulation._die(dying, "exhausted")  # a sudden death, its last choice's doing
-            learns.assert_not_called()  # what the herd saw is learnt at the turn's end, with the rest
-            self.simulation._learn_witnessed()
-        learns.assert_called_once_with(dying.last_senses, dying.last_choice, -DEATH_PENALTY, LEARNING_RATE)
+        before = witness.brain.copy()
+        dying.health = 0
+        self.simulation._die(dying, "exhausted")  # a sudden death, its last choice's doing
+        self.assertEqual(witness.brain, before)  # what the herd saw is learnt at the turn's end, with the rest
+        self.assertEqual([(observer, choice, outcome, rate) for observer, _, choice, outcome, rate in self.simulation._witnessed
+                          if observer is witness], [(witness, dying.last_choice, -DEATH_PENALTY, LEARNING_RATE)])
+        self.simulation._learn_witnessed()
+        self.assertNotEqual(witness.brain, before)
         self.assertEqual((witness.reward, witness.seen_failure), (SOCIAL_MOOD * -DEATH_PENALTY, 1.0))
         self.assertEqual(dull.reward, 0.0)  # with no intellect, it sees it but takes nothing in
         for unmoved in (far, stranger):  # out of sight, not of its herd
@@ -548,12 +550,14 @@ class SocietyTests(unittest.TestCase):
         prey = self.simulation._add_agent(encode_dna("grazer"), 50, 51)
         prey.health = 0.1
         self.simulation._index_cells()
-        with patch.object(mate.brain, "learn") as learns:
-            self.simulation._attack(hunter, prey)
-            self.simulation._learn_witnessed()  # at the turn's end
+        before = mate.brain.copy()
+        self.simulation._attack(hunter, prey)
         self.assertFalse(prey.alive)
         gained = (KILL_MEAL + KILL_MEAL_FOR_SIZE * prey.physique("size")) / hunter.stomach / 100
-        learns.assert_called_once_with(hunter.last_senses, hunter.last_choice, gained, LEARNING_RATE)
+        self.assertEqual([(observer, choice, outcome, rate) for observer, _, choice, outcome, rate in self.simulation._witnessed],
+                         [(mate, hunter.last_choice, gained, LEARNING_RATE)])
+        self.simulation._learn_witnessed()  # at the turn's end
+        self.assertNotEqual(mate.brain, before)
         self.assertEqual(mate.seen_success, 1.0)
         self.assertGreater(mate.reward, SOCIAL_MOOD * gained - 2 * 0.15 * 0.4 - 1e-9)  # less its pity for the prey
 

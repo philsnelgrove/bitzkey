@@ -477,3 +477,107 @@ class Brain:
                         for mine, theirs in zip(self.layers, other.layers))
                 and np.array_equal(self.output_weights, other.output_weights)
                 and np.array_equal(self.output_biases, other.output_biases))
+
+
+class BrainBatch:
+    """Brains of one shape worked as one: their weights stacked, so a turn's valuing and learning are a few large
+    array operations rather than many small ones, each slow for Python however little it computes. Each brain's
+    lessons still come one after another, in its own order; a batch learns every brain's first lesson at once, then
+    every brain's second, and so on. Write the weights back to the brains before anything else reads them."""
+
+    def __init__(self, brains: Sequence[Brain]):
+        self.brains = list(brains)
+        depth = brains[0].depth
+        self.weights = [np.stack([brain.layers[index][0] for brain in brains]) for index in range(depth)]
+        self.biases = [np.stack([brain.layers[index][1] for brain in brains]) for index in range(depth)]
+        self.output_weights = np.stack([brain.output_weights for brain in brains])
+        self.output_biases = np.stack([brain.output_biases for brain in brains])
+        self.rows = np.arange(len(brains))
+        self.traces: list[np.ndarray] | None = None  # stacked as the weights, then the output layer's, once any learns traced
+        self.traced = np.array([brain.traces is not None for brain in brains])
+
+    def _activations(self, inputs: np.ndarray) -> list[np.ndarray]:
+        activations = [inputs]
+        for weights, biases in zip(self.weights, self.biases):
+            activations.append(np.tanh(np.matmul(weights, activations[-1][:, :, None])[:, :, 0] + biases))
+        return activations
+
+    def values(self, inputs: np.ndarray) -> np.ndarray:
+        """Every brain's value of every action, a row a brain, for its row of senses."""
+        top = self._activations(inputs)[-1]
+        return np.matmul(self.output_weights, top[:, :, None])[:, :, 0] + self.output_biases
+
+    def _backward(self, activations: list[np.ndarray], gradient: np.ndarray):
+        """Each hidden layer's delta, from the top down, for a gradient at the top, worked out from the weights as
+        they stand: (layer, delta) pairs."""
+        for index in range(len(self.weights) - 1, -1, -1):
+            delta = gradient * (1 - activations[index + 1] * activations[index + 1])
+            if index:
+                gradient = np.matmul(delta[:, None, :], self.weights[index])[:, 0, :]
+            yield index, delta
+
+    def learn(self, inputs: np.ndarray, actions: np.ndarray, targets: np.ndarray, rates: np.ndarray) -> None:
+        """Brain.learn for every brain at once; a brain with no lesson this round has a rate of 0."""
+        activations = self._activations(inputs)
+        top = activations[-1]
+        chosen = self.output_weights[self.rows, actions]
+        errors = np.clip(np.einsum("bi,bi->b", chosen, top) + self.output_biases[self.rows, actions] - targets, -1.0, 1.0)
+        gradient = errors[:, None] * chosen
+        self.output_weights[self.rows, actions] -= (rates * errors)[:, None] * top
+        for index, delta in self._backward(activations, gradient):
+            self.biases[index] -= rates[:, None] * delta
+            self.weights[index] -= rates[:, None, None] * delta[:, :, None] * activations[index][:, None, :]
+        self.output_biases[self.rows, actions] -= rates * errors
+
+    def learn_traced(self, inputs: np.ndarray, actions: np.ndarray, targets: np.ndarray, rates: np.ndarray,
+                     decays: np.ndarray, taking: np.ndarray) -> None:
+        """Brain.learn_traced for the brains `taking` a lesson (by the decay its owner's discount and intellect give);
+        the rest, traces and all, are left as they were."""
+        if self.traces is None:
+            self.traces = [np.stack([brain.traces[index][0] if brain.traces is not None else np.zeros_like(brain.layers[index][0])
+                                     for brain in self.brains]) for index in range(len(self.weights))]
+            self.traces += [np.stack([brain.traces[index][1] if brain.traces is not None else np.zeros_like(brain.layers[index][1])
+                                      for brain in self.brains]) for index in range(len(self.weights))]
+            depth = len(self.weights)
+            self.traces += [np.stack([brain.traces[depth][0] if brain.traces is not None else np.zeros_like(brain.output_weights)
+                                      for brain in self.brains]),
+                            np.stack([brain.traces[depth][1] if brain.traces is not None else np.zeros_like(brain.output_biases)
+                                      for brain in self.brains])]
+        depth = len(self.weights)
+        weight_traces, bias_traces = self.traces[:depth], self.traces[depth:2 * depth]
+        output_weights, output_biases = self.traces[2 * depth], self.traces[2 * depth + 1]
+        decay = np.where(taking, decays, 1.0)
+        adding = taking.astype(float)
+        activations = self._activations(inputs)
+        top = activations[-1]
+        chosen = self.output_weights[self.rows, actions]
+        errors = np.clip(np.einsum("bi,bi->b", chosen, top) + self.output_biases[self.rows, actions] - targets, -1.0, 1.0)
+        output_weights *= decay[:, None, None]
+        output_weights[self.rows, actions] += adding[:, None] * top
+        output_biases *= decay[:, None]
+        output_biases[self.rows, actions] += adding
+        for index, delta in self._backward(activations, chosen.copy()):
+            weight_traces[index] *= decay[:, None, None]
+            weight_traces[index] += adding[:, None, None] * delta[:, :, None] * activations[index][:, None, :]
+            bias_traces[index] *= decay[:, None]
+            bias_traces[index] += adding[:, None] * delta
+        steps = np.where(taking, rates * errors, 0.0)
+        for index in range(depth):
+            self.weights[index] -= steps[:, None, None] * weight_traces[index]
+            self.biases[index] -= steps[:, None] * bias_traces[index]
+        self.output_weights -= steps[:, None, None] * output_weights
+        self.output_biases -= steps[:, None] * output_biases
+        self.traced |= taking
+
+    def write_back(self) -> None:
+        """Every brain's weights, and traces, as the batch has left them."""
+        depth = len(self.weights)
+        for row, brain in enumerate(self.brains):
+            for index in range(depth):
+                brain.layers[index][0][...] = self.weights[index][row]
+                brain.layers[index][1][...] = self.biases[index][row]
+            brain.output_weights[...] = self.output_weights[row]
+            brain.output_biases[...] = self.output_biases[row]
+            if self.traces is not None and self.traced[row]:
+                brain.traces = ([(self.traces[index][row].copy(), self.traces[depth + index][row].copy()) for index in range(depth)]
+                                + [(self.traces[2 * depth][row].copy(), self.traces[2 * depth + 1][row].copy())])

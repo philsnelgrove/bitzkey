@@ -16,7 +16,10 @@ from functools import cache, cached_property, lru_cache
 from itertools import accumulate
 from pathlib import Path
 
-from tools.Brain import ACTIONS, SENSES, Brain, choice_odds, depth_for, gene_senses, make_senses, width_for
+import numpy as np
+
+import tools.Brain as brain_rules  # its rules, as they now stand
+from tools.Brain import ACTIONS, SENSES, Brain, BrainBatch, choice_odds, depth_for, gene_senses, make_senses, width_for
 from tools.Genome import (GENOME, SPECIES, TEMPERAMENT, TRAIT_MAX, body_word, color_from_word, cross, dot_difference, inherit_mind,
                           ring_difference, social_difference, social_word, BODY_MUTATION_CHANCE, COLD_TOLERANCE,
                           HEAT_TOLERANCE, MIND_MUTATION_CHANCE, TEMPERATURE_SHIFT, TEMPERATURES, decode_body, decode_climate,
@@ -1784,18 +1787,30 @@ class Simulation:
                 elif (situation["grass"] or situation["grass_here"]) and not agent.last_senses[GRASS_SEEN]:
                     self._experience(agent, "discovery")
             plans.append((agent, senses, options, situation))
-        values = [agent.brain.values(senses) for agent, senses, _, _ in plans]  # one batch of brains
+        # Brains of a shape are worked as one batch: valued together, then taught together.
+        groups: dict[tuple[int, int], list[int]] = {}
+        for index, (agent, *_) in enumerate(plans):
+            groups.setdefault((agent.brain.depth, agent.brain.width), []).append(index)
+        batches = []
+        values: list[list[float]] = [[] for _ in plans]
+        for members in groups.values():
+            batch = BrainBatch([plans[index][0].brain for index in members])
+            for row, valued in zip(members, batch.values(np.array([plans[index][1] for index in members])).tolist()):
+                values[row] = valued
+            batches.append((batch, members))
         comforts = [self._comfort(agent, situation) for agent, _, _, situation in plans]
-        for (agent, _, options, _), valued, comfort in zip(plans, values, comforts):
+        lessons: dict[int, tuple] = {}  # by plan: what came of its last choice, to learn from
+        for index, ((agent, _, options, _), valued, comfort) in enumerate(zip(plans, values, comforts)):
             if agent.last_senses is not None:
                 # What came of its last choice: whatever raised its health (fullness counting with it) or
                 # its mood was a success, whatever lowered them a failure, by how much; both may happen.
                 reward = (agent.reward + self._wellbeing(agent) - agent.last_wellbeing
                           + comfort - agent.last_comfort)
-                self._learn(agent, reward + self._discount(agent) * max(valued[option] for option in options), reward,
-                            replay=True)
+                lessons[index] = (reward + self._discount(agent) * max(valued[option] for option in options), reward)
                 if reward > 0:  # a lesson learnt from a choice that turned out well
                     self._experience(agent, "lesson")
+        for batch, members in batches:
+            self._learn_batch(batch, [(plans[index][0], *lessons[index]) if index in lessons else None for index in members])
         actions = []
         for (agent, senses, options, situation), valued, comfort in zip(plans, values, comforts):
             if self._primal_fear(agent, situation["hunter"]):
@@ -2110,6 +2125,40 @@ class Simulation:
         if count:
             agent.memories.append((agent.last_senses, agent.last_choice, target, weight))
             del agent.memories[:-count]
+
+    def _learn_batch(self, batch: BrainBatch, lessons: list[tuple | None]) -> None:
+        """_learn, with replays, for every brain of a batch at once, each (agent, target, outcome) or None for a brain
+        with nothing to learn this turn; then the weights go back to the brains."""
+        size = len(lessons)
+        senses = np.zeros((size, len(SENSES)))
+        actions, targets = np.zeros(size, dtype=int), np.zeros(size)
+        rates, decays, taking = np.zeros(size), np.zeros(size), np.zeros(size, dtype=bool)
+        replays: list[list[tuple]] = [[] for _ in range(size)]
+        for row, lesson in enumerate(lessons):
+            if lesson is None:
+                continue
+            agent, target, outcome = lesson
+            rate = self._learning_rate(agent)
+            weight = lesson_weight(agent.last_choice, outcome)
+            senses[row], actions[row], targets[row] = agent.last_senses, agent.last_choice, target
+            rates[row] = rate * weight
+            decays[row] = self._discount(agent) * (brain_rules.TRACE_DECAY + (brain_rules.SMART_TRACE_DECAY - brain_rules.TRACE_DECAY) * agent.intelligence)
+            taking[row] = rates[row] > 0
+            count = REPLAY_PER_INTELLECT * thinking_intellect(agent.inborn["intellect"], agent.species)
+            if count:
+                replays[row] = [(remembered_senses, choice, remembered, rate * counted)
+                                for remembered_senses, choice, remembered, counted in agent.memories[-count:]]
+                agent.memories.append((agent.last_senses, agent.last_choice, target, weight))
+                del agent.memories[:-count]
+        if taking.any():
+            batch.learn_traced(senses, actions, targets, rates, decays, taking)
+        for turn in range(max(map(len, replays), default=0)):  # every brain's first replay, then its second, and so on
+            senses, rates = np.zeros((size, len(SENSES))), np.zeros(size)
+            for row, replayed in enumerate(replays):
+                if turn < len(replayed):
+                    senses[row], actions[row], targets[row], rates[row] = replayed[turn]
+            batch.learn(senses, actions, targets, rates)
+        batch.write_back()
 
     def _dies_of_age(self, agent: Bitzkey) -> bool:
         """Past AGEING of its lifespan, the chance of dying each turn grows with age, so that about
@@ -3147,10 +3196,27 @@ class Simulation:
 
     def _learn_witnessed(self) -> None:
         """Herd-mates learn from what they saw this turn, each brain in the order it saw it."""
+        seen: dict[int, list[tuple]] = {}  # by brain, in the order it saw them
+        brains: dict[int, Brain] = {}
         for observer, senses, choice, outcome, rate in self._witnessed:
             if observer.brain is not None:  # not since dead
-                observer.brain.learn(senses, choice, outcome, rate)
+                seen.setdefault(id(observer.brain), []).append((senses, choice, outcome, rate))
+                brains[id(observer.brain)] = observer.brain
         self._witnessed = []
+        groups: dict[tuple[int, int], list[int]] = {}
+        for key, brain in brains.items():
+            groups.setdefault((brain.depth, brain.width), []).append(key)
+        for keys in groups.values():  # a batch of a shape: every brain's first lesson, then its second, and so on
+            batch = BrainBatch([brains[key] for key in keys])
+            lessons = [seen[key] for key in keys]
+            for turn in range(max(map(len, lessons))):
+                senses, actions = np.zeros((len(keys), len(SENSES))), np.zeros(len(keys), dtype=int)
+                targets, rates = np.zeros(len(keys)), np.zeros(len(keys))
+                for row, learnt in enumerate(lessons):
+                    if turn < len(learnt):
+                        senses[row], actions[row], targets[row], rates[row] = learnt[turn]
+                batch.learn(senses, actions, targets, rates)
+            batch.write_back()
 
     @staticmethod
     def _beside(agent: Bitzkey, other: Bitzkey) -> bool:

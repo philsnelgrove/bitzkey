@@ -510,12 +510,14 @@ class SimulationTests(unittest.TestCase):
         grazer = self.simulation._add_agent(encode_dna("grazer"), 5, 5)
         self.simulation._index_cells()
         with patch.object(Simulation, "_comfort", return_value=0.4), \
-                patch.object(Simulation, "_act"), patch.object(Simulation, "_learn") as learn:
+                patch.object(Simulation, "_act"), patch.object(Simulation, "_learn_batch") as learn:
             self.simulation._think(grazer)  # its first decision: nothing to learn from yet
+            self.assertEqual(learn.call_args.args[1], [None])
             self.assertEqual(grazer.last_comfort, 0.4)
             grazer.last_wellbeing = self.simulation._wellbeing(grazer)
             self.simulation._think(grazer)  # just as comfortable: no success or failure in that
-        target = learn.call_args.args[1]
+        (agent, target, outcome), = learn.call_args.args[1]  # the batch's one lesson: (agent, target, outcome)
+        self.assertIs(agent, grazer)
         values = grazer.brain.values(self.simulation._sense(grazer)[0])
         best = max(values[option] for option in self.simulation._sense(grazer)[1])
         self.assertAlmostEqual(target, Simulation._discount(grazer) * best)
