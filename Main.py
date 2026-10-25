@@ -35,6 +35,11 @@ from tools.Simulation import DEPLOY_GROUP, SEASONS, SPECIES, Bitzkey, Simulation
 from tools.WorldFile import WORLD_SUFFIX, save_world
 
 REPORT_DIR = Config.APP_DIR / "reports"
+
+
+def about() -> str:
+    """What every screen shows at its top: the version running, and the processor cores it thinks on."""
+    return f"v{Config.VERSION}  /  {Config.CORES} CORE{'' if Config.CORES == 1 else 'S'}"
 INSIGHTS_TOP = 290  # the insights panel's top, in design pixels: just below the population counts
 MAP_ZOOM_STEP = 1.25  # each wheel notch zooms the map in (or out) by this much
 MAP_ZOOM_MAX = 12.0   # the closest the map zooms in, times its whole-map size
@@ -880,8 +885,10 @@ class BitzkeyApp:
         pg.draw.rect(self.screen, (27, 37, 37), (0, 0, self.screen.get_width(), UI(62)))
         title = self.bold.render("BITZKEY", True, (229, 239, 220))
         self.screen.blit(title, (UI(24), UI(11)))
-        self._text("ARTIFICIAL ECOLOGY  /  RESEARCH BUILD", (UI(48) + title.get_width(), UI(20)),
-                   (144, 170, 151), self.small)
+        subtitle = self.small.render("ARTIFICIAL ECOLOGY  /  RESEARCH BUILD", True, (144, 170, 151))
+        self.screen.blit(subtitle, (UI(48) + title.get_width(), UI(20)))
+        self._text(f"/  {about()}", (UI(56) + title.get_width() + subtitle.get_width(), UI(20)), (144, 170, 151),
+                   self.small)  # the version, and the cores
         status = "RUNNING" if self.playing else "ENDED" if self.simulation.ended else "PAUSED"
         status_color = (131, 205, 143) if self.playing else (238, 183, 110)
         menu_left = self.language_menu.draw_button(self.screen, self.screen.get_width() - UI(24), UI(31))

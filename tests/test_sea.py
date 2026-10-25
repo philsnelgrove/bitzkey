@@ -69,7 +69,9 @@ class SeaTests(unittest.TestCase):
         walker = simulation._add_agent(encode_dna("grazer", speed=7), x, y)
         frog = simulation._add_agent(encode_dna("grazer", speed=7, terrain="amphibious"), x, y)
         walker.age = frog.age = int(walker.lifespan / 2)
-        self.assertEqual(frog.steps, int(walker.steps * AMPHIBIOUS_SPEED + 0.5))
+        self.assertEqual(frog.steps, int(walker.steps * AMPHIBIOUS_SPEED + 0.5))  # on land, slow
+        frog.wet = True
+        self.assertEqual(frog.steps, walker.steps)  # in the water, as fast as any
 
     def test_an_exhausted_animal_only_rests_and_a_flyer_exhausted_at_sea_drowns(self):
         simulation = seaside()

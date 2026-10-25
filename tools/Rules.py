@@ -89,8 +89,10 @@ _TABLE: dict[str, list[tuple]] = {
         ("GRAZER_SPEED", "Grazer speed", "grazers move this many times as far a step, rounded half up", 0.5, 4.0, 0.25),
         ("AVIAN_BODY", "Avian body", "an avian animal's size, weapons and armour count this share of its genes'", 0.1, 1.0, 0.05),
         ("FLIGHT_HUNGER", "Flight hunger", "an avian animal burns this share more food", 0.0, 2.0, 0.05),
-        ("AMPHIBIOUS_SPEED", "Amphibious speed", "an amphibious animal goes this share of its usual steps, rounded half up, "
+        ("AMPHIBIOUS_SPEED", "Amphibious speed", "an amphibious animal goes this share of its usual steps on land, rounded half up, "
          "at least one", 0.1, 1.0, 0.05),
+        ("AMPHIBIOUS_COOLDOWN", "Amphibious cooldown", "an amphibious animal rests this many times as long after breeding",
+         1.0, 5.0, 0.25),
         ("REST_RECOVERY", "Rest recovery", "stamina, of 100, a turn's rest restores", 1.0, 100.0, 1.0),
         ("ACTION_FATIGUE", "Action fatigue", "stamina any action but rest costs", 0.0, 20.0, 0.5),
         ("STEP_FATIGUE", "Step fatigue", "stamina each square moved costs, more", 0.0, 20.0, 0.5),

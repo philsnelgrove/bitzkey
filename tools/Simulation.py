@@ -41,10 +41,12 @@ DEFAULT_OCEAN = 200 / 3
 CONTINENT_BREADTH = 0.25
 # Terrain. An avian animal's size, weapons and armour count AVIAN_BODY of its genes' (light enough to fly), and it burns
 # FLIGHT_HUNGER more food; the terrestrial and aquatic can hunt or attack it only while it rests. An amphibious animal
-# goes AMPHIBIOUS_SPEED of its usual steps, at home nowhere. An avian plant's seeds fly AVIAN_SEED_REACH times as far.
+# goes AMPHIBIOUS_SPEED of its usual steps on land, and rests AMPHIBIOUS_COOLDOWN times as long after breeding. An avian
+# plant's seeds fly AVIAN_SEED_REACH times as far.
 AVIAN_BODY = 0.5
 FLIGHT_HUNGER = 0.25
 AMPHIBIOUS_SPEED = 0.5
+AMPHIBIOUS_COOLDOWN = 2.0
 AVIAN_SEED_REACH = 2.0
 # Stamina, 0 to 100: every action but rest tires an animal, and resting restores REST_RECOVERY a turn. Any other
 # action costs ACTION_FATIGUE, each square it moves STEP_FATIGUE more (a flyer's FLIGHT_FATIGUE times that), each
@@ -932,11 +934,11 @@ class Bitzkey:
 
     @property
     def steps(self) -> int:
-        """Cells moved a step: 1 to 4 by speed, and half as many again for grazers; AMPHIBIOUS_SPEED of that for the
-        amphibious, at least one."""
+        """Cells moved a step from where it stands: 1 to 4 by speed, and half as many again for grazers; for the
+        amphibious on land, AMPHIBIOUS_SPEED of that, at least one."""
         steps = 1 + self.trait("speed") * 3 // TRAIT_MAX
         steps = int(steps * GRAZER_SPEED + 0.5) if self.species == "grazer" else steps
-        if self.terrain == "amphibious" and self.species != "plant":
+        if self.terrain == "amphibious" and self.species != "plant" and not self.wet:
             steps = max(1, int(steps * AMPHIBIOUS_SPEED + 0.5))
         return steps
 
@@ -2614,7 +2616,8 @@ class Simulation:
         for parent, cost in zip((first, second), costs, strict=True):
             parent.hunger += cost
             rest = PREDATOR_BREED_COOLDOWN if parent.species == "predator" else BREED_COOLDOWN
-            parent.cooldown = round((20 - 15 * parent.physique("fertility")) * rest)
+            parent.cooldown = round((20 - 15 * parent.physique("fertility")) * rest
+                                    * (AMPHIBIOUS_COOLDOWN if parent.terrain == "amphibious" else 1.0))
             parent.children += litter
             parent.stamina = max(0.0, parent.stamina - parent.fatigue(BREED_FATIGUE))
             parent.reward += mating_joy(parent, BREED_JOY)

@@ -492,8 +492,11 @@ class SetupScreen:
         pg.draw.rect(self.screen, (80, 99, 85), card, 1, border_radius=UI(8))
         title = self.bold.render("BITZKEY", True, (229, 239, 220))
         self.screen.blit(title, (card.left + UI(28), card.top + UI(24)))
-        self._text("NEW WORLD  /  CONFIGURATION", (card.left + UI(52) + title.get_width(), card.top + UI(33)),
-                   (144, 170, 151), self.small)
+        subtitle = self.small.render("NEW WORLD  /  CONFIGURATION", True, (144, 170, 151))
+        self.screen.blit(subtitle, (card.left + UI(52) + title.get_width(), card.top + UI(33)))
+        cores = f"{Config.CORES} CORE{'' if Config.CORES == 1 else 'S'}"
+        self._text(f"/  v{Config.VERSION}  /  {cores}", (card.left + UI(60) + title.get_width() + subtitle.get_width(),
+                                                         card.top + UI(33)), (144, 170, 151), self.small)
         self._text("Set up the world, then start the simulation.", (card.left + UI(28), card.top + UI(66)),
                    (157, 177, 159), self.font)
         advanced = layout["advanced"]
