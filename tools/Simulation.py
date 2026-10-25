@@ -61,6 +61,12 @@ HOVER_FATIGUE = 1.0
 AMPHIBIOUS_FATIGUE = 2.0
 FULL_STAMINA = 100
 SPAWN_SPREAD = 2      # a group's members appear within this many cells of each other's centre
+# Biomes: each stretch of land or sea within one climate zone, joined square to square (east and west wrapping round),
+# of BIOME_SIZE squares or more. A world started with any Bitzkeys has BIOME_GROUPS more groups in every biome, on
+# top of its population, each at home there: the zone's usual temperature its home, and a terrain that suits it, the
+# first the surface's own (terrestrial on land, aquatic at sea) and the rest any that may live there.
+BIOME_GROUPS = 2
+BIOME_SIZE = 25
 # A square holds CELL_SPACE spaces, and every Bitzkey, plant or animal, takes 1 + its size of them. Bitzkeys share
 # a square, and meet there as they would alongside, but none is born, moves or spawns into one without room for it.
 CELL_SPACE = 10
@@ -1138,6 +1144,8 @@ class Simulation:
         homes = self._plant_homes(species)
         for group, size in enumerate(sizes):
             self._spawn_group(make_dna(species[group], self.random), size, native=True, rows=homes.get(group))
+        if population > 0:
+            self._spawn_biomes()
         for bitzkey in imported:
             self._spawn_group(bitzkey.dna, self.random.randint(*SPAWN_GROUP), bitzkey.brain, bitzkey.mind)
         # The world at every turn kept, oldest first, each a whole copy.
@@ -1300,20 +1308,21 @@ class Simulation:
 
     def _spawn_group(self, dna: int, size: int, brain: Brain | None = None,
                      mind: Mapping[str, float] | None = None, native: bool = False,
-                     rows: Sequence[int] | None = None) -> None:
+                     rows: Sequence[int] | None = None, biome: Sequence[tuple[int, int]] | None = None) -> None:
         """Place `size` Bitzkeys of one genome around a random centre, kept clear of the edges
         so the group is never split across them, and in one of `rows` if given; otherwise, with
         SPAWN_AT_HOME, in its home zone. Each gets its own
         copy of `brain` and starts with the temperament in `mind`, if given. `native` groups have
         random starting genomes: each carries a tolerance flag only with STARTING_TOLERANCE, and
         plants take the usual temperature of their centre's zone as their home. It spawns on land or sea as its
-        terrain allows; a world without sea starts with nothing but terrestrial Bitzkeys."""
+        terrain allows; a world without sea starts with nothing but terrestrial Bitzkeys. Given a biome, it is centred
+        on one of its squares, and each member that would fall outside it at the centre."""
         if native and not self.has_sea:
             dna = with_terrain(dna, "terrestrial")
         if rows is None and SPAWN_AT_HOME:
             rows = self._home_rows(decode_climate(dna)[0])
         terrain = decode_terrain(dna)
-        centre = self._group_centre(terrain, rows)
+        centre = biome[self.random.randrange(len(biome))] if biome is not None else self._group_centre(terrain, rows)
         if centre is None:  # nowhere it could live
             return
         x, y = centre
@@ -1323,9 +1332,13 @@ class Simulation:
         if native and decode_body(dna)["species"] == "plant":
             dna = dna & ~(0x3 << TEMPERATURE_SHIFT) | zone_temperature(y, self.height) << TEMPERATURE_SHIFT
         space = 1 + int(decode_body(dna)["size"])
+        squares = set(biome) if biome is not None else None
         for _ in range(size):
-            spot = self._spot_near((x + self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD),
-                                    y + self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD)), space, terrain)
+            dx, dy = self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD), self.random.randint(-SPAWN_SPREAD, SPAWN_SPREAD)
+            aim = ((x + dx) % self.width, y + dy)
+            if squares is not None and aim not in squares:
+                aim = (x, y)  # kept in its biome
+            spot = self._spot_near(aim, space, terrain)
             if spot is not None:  # only where there is room
                 self._add_agent(dna, *spot, brain=brain.copy() if brain else None, mind=mind)
 
@@ -1339,6 +1352,50 @@ class Simulation:
             if self.suits(terrain, (x, y)):
                 return x, y
         return None
+
+    def biomes(self) -> list[list[tuple[int, int]]]:
+        """The biomes, each its squares, in the order they are first met row by row (see BIOME_GROUPS); those smaller
+        than BIOME_SIZE left out."""
+        band = [0] * self.height
+        for index, rows in enumerate(self._zones()):
+            for y in rows:
+                band[y] = index
+        width, height = self.width, self.height
+        seen = bytearray(width * height)
+        found = []
+        for y in range(height):
+            for x in range(width):
+                if seen[y * width + x]:
+                    continue
+                seen[y * width + x] = 1
+                key = (band[y], self.sea(x, y))
+                biome = [(x, y)]  # gathered breadth first, from its first square
+                next_ = 0
+                while next_ < len(biome):
+                    here_x, here_y = biome[next_]
+                    next_ += 1
+                    for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0)):
+                        nx, ny = (here_x + dx) % width, here_y + dy
+                        if not 0 <= ny < height or seen[ny * width + nx] or (band[ny], self.sea(nx, ny)) != key:
+                            continue
+                        seen[ny * width + nx] = 1
+                        biome.append((nx, ny))
+                if len(biome) >= BIOME_SIZE:
+                    found.append(biome)
+        return found
+
+    def _spawn_biomes(self) -> None:
+        """BIOME_GROUPS starting groups at home in every biome."""
+        for biome in self.biomes():
+            wet = self.sea(*biome[0])
+            home = zone_temperature(biome[0][1], self.height)
+            fitting = ("aquatic", "avian", "amphibious") if wet else ("terrestrial", "avian", "amphibious")
+            for group in range(BIOME_GROUPS):
+                dna = make_dna(self.random.randrange(len(SPECIES)), self.random)
+                dna = dna & ~(0x3 << TEMPERATURE_SHIFT) | home << TEMPERATURE_SHIFT
+                # The first the surface's own; the rest any terrain that may live there.
+                dna = with_terrain(dna, fitting[0] if group == 0 else fitting[self.random.randrange(3)])
+                self._spawn_group(dna, self.random.randint(*SPAWN_GROUP), native=True, biome=biome)
 
     def _home_rows(self, home: int) -> list[int]:
         """The rows a group's centre may fall in whose usual temperature is `home`, or nearest it:

@@ -68,6 +68,7 @@ class SimulationTests(unittest.TestCase):
                 lush._take_turn()
         self.assertAlmostEqual(sum(lush.grass.values()), 200 + 100 * lush.grass_regrowth, delta=8)
 
+    @patch("tools.Simulation.BIOME_GROUPS", 0)  # the population alone, without the biomes' groups
     def test_random_population_spawns_in_clustered_groups_of_three_to_five(self):
         for population in (3, 7, 90, 101):
             simulation = Simulation(width=50, height=50, population=population, seed=population)
@@ -81,12 +82,14 @@ class SimulationTests(unittest.TestCase):
                 self.assertLessEqual(max(agent.x for agent in members) - min(agent.x for agent in members), 4)
                 self.assertLessEqual(max(agent.y for agent in members) - min(agent.y for agent in members), 4)
 
+    @patch("tools.Simulation.BIOME_GROUPS", 0)  # the population alone, without the biomes' groups
     def test_a_population_too_small_for_a_group_spawns_together(self):
         simulation = Simulation(width=20, height=20, population=2, seed=1)
 
         self.assertEqual(len({agent.dna for agent in simulation.agents}), 1)
         self.assertEqual(len(simulation.agents), 2)
 
+    @patch("tools.Simulation.BIOME_GROUPS", 0)  # the population alone, without the biomes' groups
     def test_each_imported_genome_spawns_as_a_clustered_group(self):
         genomes = [encode_dna("predator", size=4), encode_dna("grazer", fear=4)]
 

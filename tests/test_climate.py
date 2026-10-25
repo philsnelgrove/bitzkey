@@ -237,7 +237,7 @@ class EffectTests(unittest.TestCase):
         for plant in plants:  # the group's centre is within two rows
             self.assertIn(plant.climate[0], {zone_temperature(plant.y + dy, 60) for dy in range(-2, 3)
                                              if 0 <= plant.y + dy < 60})
-        self.assertEqual(len({plant.climate[0] for plant in plants}), 3)  # hot, medium and cold zones
+        self.assertEqual(len({plant.climate[0] for plant in plants}), 4)  # hot, medium and cold zones, and the polar caps' biomes very cold
         from tools.Exchange import Imported
         dna = encode_dna("plant", temperature=VERY_COLD)
         imported = Simulation(width=30, height=30, population=0, seed=4, imported=[Imported(dna)])
