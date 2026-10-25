@@ -63,8 +63,9 @@ class CensusTests(unittest.TestCase):
         self.assertEqual(forgot, [False] * 11 + [True] * 4)
 
     def test_a_world_forgets_the_genomes_and_deaths_from_before_its_graph(self):
-        with patch("tools.Census.GRAPH_TURNS", 5):
-            simulation = Simulation(width=20, height=20, population=30, seed=4, year_length=8)  # short lives
+        # Short lives, eight turns a year: breeding free of rest and of heat, which would last years of them.
+        with patch("tools.Census.GRAPH_TURNS", 5), patch("tools.Simulation.BREED_COOLDOWN", 0.0), patch("tools.Simulation.HEAT_FORESIGHT", 0.0),              patch.dict("tools.Simulation.HEAT_CLOSEST", {"grazer": 0.0, "omnivore": 0.0, "predator": 0.0}),              patch.dict("tools.Simulation.HEAT_LENGTH", {"grazer": 0.75, "omnivore": 0.75, "predator": 0.75}):
+            simulation = Simulation(width=20, height=20, population=30, seed=4, year_length=8)
             for _ in range(200):
                 simulation.advance()
 

@@ -76,6 +76,13 @@ SMALL_LITTERS = 2.0  # the smallest bodies' litters are this many times the usua
 # Turns an animal carries its young, from mating to birth: from the first for the smallest body to the
 # second for the largest, evenly between, rounded half up.
 GESTATION = (10, 50)
+# Heat: an animal is fertile only while in heat, a stretch of the turns before its next winter, the winter of the row
+# it stands in. Heat ends HEAT_CLOSEST of a year before that winter, and HEAT_FORESIGHT more for the most patient, who
+# breed further from it; it begins HEAT_LENGTH of a year before it ends. No animal is in heat through its own winter,
+# and one where no winter comes, at the polar caps or the equator's heart, always is. By species.
+HEAT_CLOSEST = {"grazer": 0.1, "omnivore": 0.1, "predator": 0.1}
+HEAT_LENGTH = {"grazer": 0.5, "omnivore": 0.5, "predator": 0.5}
+HEAT_FORESIGHT = 0.15
 BIRTH_REACH = 2  # young are born on the free cells nearest their mother, up to this many cells away
 # Years a Bitzkey, plant or animal, is expected to live: the smallest bodies, with the fastest
 # metabolisms; middling ones; and the largest, with the slowest. Between them, lifespan rises steadily
@@ -114,6 +121,9 @@ EMPATHY_PAIN = 0.15    # how much an empathetic animal feels another's wound; tw
 # brain to learn.
 PARENT_JOY = 0.3
 PARENT_GRIEF = 2.0
+# A hunter that kills a mother carrying young feels remorse, by half again and up to one and a half times as much
+# with its empathy: a lesson, not a law.
+PREGNANT_REMORSE = 1.0
 # Society: an animal sees what happens to its herd-mates (its pack, for a predator) within its sight. A
 # herd-mate's kill is a success, its death (but of old age) a failure; the witness learns from it as
 # if it had made the herd-mate's last choice itself, and feels it, by its empathy times its intellect.
@@ -290,7 +300,7 @@ KIND_DIFFERENCE = 0.25
 FORAGE_RADIUS = 6
 FOOD_NEEDED = 0.0  # 0: no limit, and litters don't follow food
 UPROOT_FOOD = 3.0  # a starving grazer uproots a plant only with fewer meals a mouth than this about it
-BREED_COOLDOWN = 0.0  # share of the usual rest after breeding, 20 turns for the least fertile to 5 for the most
+BREED_COOLDOWN = 1.0  # grazers' and omnivores' share of the usual rest after breeding, 20 turns for the least fertile to 5 for the most
 PREDATOR_BREED_COOLDOWN = 0.5  # the same for predators: a short rest
 PREDATOR_FOOD_NEEDED = 0.0  # the same for predators: none, so the food about them never stops them breeding
 # Plants each grazer needs in its home band, the climate band of its home temperature nearest it, shared
@@ -629,6 +639,7 @@ class Bitzkey:
     brain: Brain | None = None
     generation: int = 0
     children: int = 0
+    in_heat: bool = True  # in heat now, and so fertile: kept turn by turn (see Simulation.heat)
     mother: int = -1  # its parents' identifiers; -1 for one spawned, imported or deployed
     father: int = -1
     died_turn: int | None = None
@@ -896,8 +907,9 @@ class Bitzkey:
 
     @property
     def can_breed(self) -> bool:
-        """Ready, not carrying young, and able to pay for breeding with energy to spare."""
-        return self.cooldown == 0 and not self.womb and self.hunger + self.breeding_cost <= 100 - BREED_RESERVE
+        """In heat, rested, not carrying young, and able to pay for breeding with energy to spare."""
+        return (self.in_heat and self.cooldown == 0 and not self.womb
+                and self.hunger + self.breeding_cost <= 100 - BREED_RESERVE)
 
     @property
     def digestion(self) -> float:
@@ -1352,6 +1364,7 @@ class Simulation:
                 agent.last_action = "photosynthesized"
                 self._seed(agent)
                 continue
+            agent.in_heat = self.heat(agent)
             if agent.due_turn is not None and agent.due_turn <= self.turn:
                 self._give_birth(agent)
             agent.seen_success *= SOCIAL_MEMORY
@@ -1757,7 +1770,7 @@ class Simulation:
             grass_closeness=self._closeness(agent, grass, sight),
             mate_near=float(mate is not None),
             mate_closeness=self._closeness(agent, suitor and (suitor.x, suitor.y), sight),
-            ready_to_breed=float(agent.cooldown == 0),
+            ready_to_breed=float(agent.cooldown == 0 and agent.in_heat),  # rested, and in heat
             prey_near=min(4, len(prey)) / 4,
             prey_frailty=0.0 if target is None else min(1.0, self._damage(agent, target) / target.health),
             prey_closeness=self._closeness(agent, quarry and (quarry.x, quarry.y), prey_sight),
@@ -1893,6 +1906,10 @@ class Simulation:
                                                      None if killer is None else killer.identifier,
                                                      None if killer is None else killer.species, activity)
         self._death_order.append((self.turn, agent.identifier))
+        if killer is not None and agent.womb and killer.species in ("predator", "omnivore"):
+            # A hunter that killed a mother carrying young feels remorse for it.
+            if killer.alive and killer.brain is not None:
+                killer.reward -= PREGNANT_REMORSE * (0.5 + killer.feeling("empathy"))
         if agent.infant:  # its parents grieve, wherever they are, and learn from it what came before
             for identifier in (agent.mother, agent.father):
                 parent = self.find_agent(identifier) if identifier >= 0 else None
@@ -2515,6 +2532,23 @@ class Simulation:
         """The share of a full litter `food` a mouth feeds where `needed` is the least to breed: full at `full` times
         it (FULL_LITTER_FOOD unless given)."""
         return min(1.0, food / ((FULL_LITTER_FOOD if full is None else full) * needed)) if needed else 1.0
+
+    def heat(self, agent: Bitzkey) -> bool:
+        """Whether an animal is in heat now, where it stands (see HEAT_CLOSEST)."""
+        if agent.species == "plant" or not 0 <= agent.y < self.height:
+            return True
+        # Turns until the next winter where it stands: of its hemisphere, or the nearer of the two on the equator.
+        day = self.turn % YEAR_LENGTH
+        until = None
+        for quarter in (1, 3):
+            if in_winter(agent.y, self.height, quarter):
+                turns = (quarter * YEAR_LENGTH // 4 - day) % YEAR_LENGTH
+                until = turns if until is None else min(until, turns)
+        if until is None:  # no winter ever comes here
+            return True
+        end = HEAT_CLOSEST[agent.species] + HEAT_FORESIGHT * agent.feeling("patience")
+        begin = min(end + HEAT_LENGTH[agent.species], 0.75)  # never through its own winter, a quarter of the year
+        return end * YEAR_LENGTH < until <= begin * YEAR_LENGTH
 
     def find_agent(self, identifier: int) -> Bitzkey | None:
         """The Bitzkey of this identifier, living or dead, while the world still holds it: the agents stay in the

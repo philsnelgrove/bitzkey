@@ -567,6 +567,23 @@ class SocietyTests(unittest.TestCase):
         self.assertAlmostEqual(grazer.seen_failure, SOCIAL_MEMORY)
 
 
+class HeatTests(unittest.TestCase):
+    def test_an_animal_is_in_heat_only_before_its_winter_the_patient_further_from_it_and_never_through_it(self):
+        def in_heat(simulation, y, patience):
+            grazer = simulation._add_agent(encode_dna("grazer"), 50, y)
+            grazer.mind["patience"] = patience
+            return simulation.heat(grazer)
+        # The north's winter comes at day 90. The least patient are in heat from 216 turns before it to 36 (days 234
+        # to 53), the most patient from 270 turns before it to 90 (days 180 to 359), further from it.
+        late, early, both, winter = world(turn=20), world(turn=200), world(turn=300), world(turn=120)
+        self.assertTrue(in_heat(late, 30, 0) and not in_heat(late, 30, 7))
+        self.assertTrue(not in_heat(early, 30, 0) and in_heat(early, 30, 7))
+        self.assertTrue(in_heat(both, 30, 0) and in_heat(both, 30, 7))
+        self.assertFalse(in_heat(winter, 30, 0) or in_heat(winter, 30, 7))  # never through its own winter
+        self.assertTrue(in_heat(winter, 70, 0))  # the south's winter is half a year off
+        self.assertTrue(in_heat(winter, 0, 0))   # the polar cap knows no winter
+
+
 class SeedTests(unittest.TestCase):
     def test_a_seed_that_falls_where_it_cant_grow_waits_for_its_temperature(self):
         simulation = world(turn=240)

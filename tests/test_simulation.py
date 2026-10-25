@@ -7,7 +7,7 @@ import tools.Simulation as simulation_module
 from tools.Brain import ACTIONS, SENSES, Brain
 from tools.Exchange import Imported
 from tools.Genome import decode_body, encode_dna
-from tools.Simulation import (Death, DEATH_PENALTY, PARENT_GRIEF, PARENT_JOY, AGENT_BYTES, ATTACK_JOY, FEAST_JOY, FRESH_KILL_MEALS, KILL_MEAL, KILL_MEAL_FOR_SIZE, BIRTH_REACH, PLANT_GESTATION, Bitzkey, gestation, CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, PLANT_MEAL, PLANT_MEAL_FOR_SIZE, SEED_OFFSETS,
+from tools.Simulation import (Death, DEATH_PENALTY, PARENT_GRIEF, PARENT_JOY, BREED_COOLDOWN, PREGNANT_REMORSE, AGENT_BYTES, ATTACK_JOY, FEAST_JOY, FRESH_KILL_MEALS, KILL_MEAL, KILL_MEAL_FOR_SIZE, BIRTH_REACH, PLANT_GESTATION, Bitzkey, gestation, CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, PLANT_MEAL, PLANT_MEAL_FOR_SIZE, SEED_OFFSETS,
                               SIGHT_OFFSETS, SPAWN_SPREAD, UPROOT_BITE, UPROOT_MEALS, Simulation, litter_size,
                               nearby_offsets)
 
@@ -2544,6 +2544,26 @@ class SocialBackgroundTests(unittest.TestCase):
             self.simulation._experience(animal, "kill")
         self.assertAlmostEqual(moody.mind["aggression"], 3 * steady.mind["aggression"])
 
+
+
+class RestAndRemorseTests(unittest.TestCase):
+    def test_grazers_rest_after_breeding_and_a_hunter_regrets_killing_a_mother_carrying_young(self):
+        simulation = Simulation(width=12, height=12, population=0, seed=3)
+        simulation.grass.clear()
+        dna = encode_dna("grazer", fertility=0)
+        first, second = simulation._add_agent(dna, 5, 5), simulation._add_agent(dna, 5, 6)
+        simulation._index_cells()
+        simulation._breed(first, second)
+        self.assertEqual((first.cooldown, second.cooldown), (round(20 * BREED_COOLDOWN), round(20 * BREED_COOLDOWN)))
+        self.assertFalse(first.can_breed)
+        hunter = simulation._add_agent(encode_dna("predator"), 6, 5)
+        hunter.reward = 0.0
+        self.assertTrue(first.womb)
+        simulation._die(first, "killed", hunter, "hunting")
+        self.assertAlmostEqual(hunter.reward, -PREGNANT_REMORSE * (0.5 + hunter.feeling("empathy")))
+        hunter.reward = 0.0
+        simulation._die(second, "killed", hunter, "hunting")  # the father carried none
+        self.assertEqual(hunter.reward, 0.0)
 
 
 class SquareTests(unittest.TestCase):

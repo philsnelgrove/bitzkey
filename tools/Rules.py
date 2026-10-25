@@ -107,8 +107,19 @@ _TABLE: dict[str, list[tuple]] = {
          0.0, 20.0, 0.5),
         ("UPROOT_FOOD", "Uproot food", "a starving grazer uproots a plant only with fewer meals a mouth than this about it",
          0.0, 20.0, 0.5),
-        ("BREED_COOLDOWN", "Breeding cooldown", "share of the usual rest after breeding (5 to 20 turns by fertility); 0: none",
-         0.0, 2.0, 0.05),
+        ("BREED_COOLDOWN", "Breeding cooldown", "grazers' and omnivores' share of the usual rest after breeding (5 to 20 turns "
+         "by fertility); 0: none", 0.0, 2.0, 0.05),
+        ("HEAT_CLOSEST.grazer", "Heat ends, grazers", "share of a year before its next winter a grazer's heat ends; more for "
+         "the patient", 0.0, 0.75, 0.01),
+        ("HEAT_CLOSEST.omnivore", "Heat ends, omnivores", "share of a year before its next winter an omnivore's heat ends; more "
+         "for the patient", 0.0, 0.75, 0.01),
+        ("HEAT_CLOSEST.predator", "Heat ends, predators", "share of a year before its next winter a predator's heat ends; more "
+         "for the patient", 0.0, 0.75, 0.01),
+        ("HEAT_LENGTH.grazer", "Heat, grazers", "share of a year a grazer is in heat, before its heat ends; 0.75: always but in "
+         "its winter", 0.0, 0.75, 0.01),
+        ("HEAT_LENGTH.omnivore", "Heat, omnivores", "share of a year an omnivore is in heat, before its heat ends", 0.0, 0.75, 0.01),
+        ("HEAT_LENGTH.predator", "Heat, predators", "share of a year a predator is in heat, before its heat ends", 0.0, 0.75, 0.01),
+        ("HEAT_FORESIGHT", "Heat foresight", "share of a year further from winter the most patient end their heat", 0.0, 0.75, 0.01),
         ("PREDATOR_BREED_COOLDOWN", "Breeding cooldown, predators", "share of the usual rest after breeding for predators; 0: none",
          0.0, 2.0, 0.05),
         ("PREDATOR_FOOD_NEEDED", "Food needed, predators", "meals each mouth needs nearby for a predator to breed; 0: no limit",
@@ -142,6 +153,8 @@ _TABLE: dict[str, list[tuple]] = {
          0.0, 5.0, 0.05),
         ("PARENT_JOY", "Parent joy", "how glad a parent is of three or more of its own infants within its sight; "
          "more if empathetic", 0.0, 5.0, 0.05),
+        ("PREGNANT_REMORSE", "Pregnant remorse", "how much a hunter regrets killing a mother carrying young; more if "
+         "empathetic", 0.0, 10.0, 0.1),
         ("PARENT_GRIEF", "Parent grief", "how much a parent grieves when one of its infants dies, wherever; more if "
          "empathetic", 0.0, 10.0, 0.1),
         ("HOMEWARD_UNEASE", "Homeward unease", "more discomfort the further home lies, this much half the map away; "

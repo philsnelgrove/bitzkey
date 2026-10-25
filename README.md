@@ -680,9 +680,16 @@ times as many of them, over 40 seeds, with no more worlds dying out.
 
 Each parent pays 10 to 25% of its stomach to breed, less the more fertile it is, and every animal pays half of that: grazers (Breeding cost, grazers) as hunters do, so 5 to 12.5%. A species grown scarce breeds more cheaply still: below 100 living (Scarce population), its breeding cost falls evenly, to a third of the usual at 10 or fewer (Rare population, Rare breeding cost), counted at the start of each turn. Grazers, the prey everything else lives on, get three times the help: theirs falls from 300 living (Grazer scarce population) to a ninth of the cost at 10 or fewer (Grazer rare breeding cost). Animals
 only breed, or court, when both partners can afford it (the Breeding reserve rule can make
-them keep hunger to spare as well; none by default). There is no rest between litters by default
-(the Breeding cooldown rule restores the old 5 to 20 turns, by fertility), but for predators, which
-rest half that, 3 to 10 turns (Breeding cooldown, predators). The litter
+them keep hunger to spare as well; none by default). After breeding, grazers and omnivores rest 5 to
+20 turns, by fertility (Breeding cooldown), and predators half that, 3 to 10 turns (Breeding cooldown,
+predators). An animal is only fertile in heat: a stretch of the turns before its next winter, the winter
+of the row it stands in. The least patient are in heat from 0.6 of a year before that winter until 0.1
+before it; the most patient, with more foresight, from three quarters of a year before it until a quarter
+before, so their young are grown before the cold comes. No animal is in heat through its own winter, and at
+the polar caps and the equator's heart, where no winter comes, an animal always is. Each species has its own
+heat (Heat ends, Heat, by species, and Heat foresight). Its sense of being ready to breed means rested and in
+heat. A hunter that kills a mother carrying young feels remorse (Pregnant remorse), the more so the more
+empathetic it is. The litter
 shares exactly the energy its parents gave, so a large parent gives more food
 than a small one, and the same food fills a small newborn more. Breeding starts a
 gestation: the parent that chose to breed conceives the litter at once, and

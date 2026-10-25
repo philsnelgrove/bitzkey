@@ -107,7 +107,7 @@ class TimeTravelTests(unittest.TestCase):
         mild = unittest.mock.patch("tools.Simulation.CLIMATE_DAMAGE", 0)  # a world that lasts the hundred turns
         mild.start()
         self.addCleanup(mild.stop)
-        self.simulation = Simulation(width=30, height=30, population=30, seed=6)
+        self.simulation = Simulation(width=30, height=30, population=30, seed=7)
         for _ in range(100):
             self.simulation.advance()
         self.graph = ColourGraph()
