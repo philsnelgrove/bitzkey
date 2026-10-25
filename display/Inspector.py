@@ -71,7 +71,8 @@ def draw_details(screen: pg.Surface, agent: Bitzkey, x: int, at: Callable[[float
     draw_bitzkey(screen, agent.dna, (x + UI(10), at(11)), dot_radius(int(agent.body["size"]), UI(DOT_RADIUS_RANGE[1])),
                  alive=agent.alive or not known)
     draw_icon(screen, agent.species, (x + width - UI(12), at(11)), UI(9), (220, 229, 211))
-    _text(screen, f"#{agent.identifier:03d}  {agent.species.upper()}  {agent.terrain.upper()}", (x + UI(28), at(0)), (238, 238, 220), font)
+    _text(screen, f"#{agent.identifier:03d}  {agent.species.upper()}  {agent.terrain.upper()}  {'NOCTURNAL' if agent.nocturnal else 'DIURNAL'}",
+          (x + UI(28), at(0)), (238, 238, 220), font)
     _text(screen, f"DOT {mind_word(agent.dna):08X} RING {body_word(agent.dna):08X} SOCIAL {social_word(agent.dna):08X}",
           (x, at(26)), (211, 219, 201), mono_small)
 

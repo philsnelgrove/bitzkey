@@ -14,7 +14,7 @@ from display import Window
 from display.Dialog import Dialog
 from display.Report import Report
 from display.Inspector import draw_details
-from display.Look import (DOT_RADIUS_RANGE, EXPORTING, GRASS, GRID, RING_WIDTH, SEA_GRASS, bitzkey_layer, dot_radius, draw_reticle,
+from display.Look import (DOT_RADIUS_RANGE, EXPORTING, GRASS, GRID, NIGHT, RING_WIDTH, SEA_GRASS, bitzkey_layer, dot_radius, draw_reticle,
                           map_dot_radii, draw_bitzkey, sea_colour, zone_colour)
 from display.Setup import EXPORT_DIR, SetupScreen
 from display.Language import start_language
@@ -924,6 +924,10 @@ class BitzkeyApp:
                 continue
             pg.draw.circle(self.screen, SEA_GRASS if self.simulation.sea(x, y) else GRASS, point,
                            max(1, round(min(cell_width, cell_height) * 0.18)))
+        night = pg.Surface((max(1, round(self.simulation.width // 2 * cell_width)), max(1, round(board.height))), pg.SRCALPHA)
+        night.fill(NIGHT)  # the night, a shadow over half the map's columns, wrapping round east to west
+        for start in (self.simulation.night_start(), self.simulation.night_start() - self.simulation.width):
+            self.screen.blit(night, (round(board.left + start * cell_width), board.top))
         smallest, largest = map_dot_radii(min(cell_width, cell_height))  # zoomed with the map
         for agent in self.simulation.agents:  # the way each came this turn, faint, beneath them all
             layer = None

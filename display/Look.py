@@ -26,6 +26,7 @@ GRASS = (62, 122, 52)
 SEA = (38, 84, 140)
 SEA_TINT = 0.6
 SEA_GRASS = (58, 150, 120)
+NIGHT = (10, 16, 40, 90)  # the shadow over the night's half of the map
 GRID = (140, 146, 142)
 SELECTED = (25, 32, 32)    # the ring round the selected Bitzkey and those picked on the colour graph
 EXPORTING = (205, 120, 30)  # the ring round Bitzkeys on the export list

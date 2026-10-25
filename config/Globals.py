@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 class Config(object):
-    VERSION = "1.13.0"  # shown at the top of every screen
+    VERSION = "1.14.0"  # shown at the top of every screen
     CORES = 1  # the processor cores the simulation thinks on: Python runs it on one
     VALUE_LIMIT = 10000000
     ITERATION_LIMIT = 10
@@ -24,7 +24,7 @@ class Config(object):
     OCEAN = 67  # percent of a new world's map under the sea
     MIND_MUTATION = 50  # percent chance a birth mutates the child's mind
     BODY_MUTATION = 50  # and its body
-    YEAR_LENGTH = 360  # turns in a year
+    YEAR_LENGTH = 2880  # turns in a year: 360 days of 8 turns
     FULLSCREEN = True  # start fullscreen; F11 or --windowed for a window of the size below
     WINDOW_WIDTH = 1200
     WINDOW_HEIGHT = 820

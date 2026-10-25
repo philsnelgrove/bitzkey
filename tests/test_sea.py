@@ -40,11 +40,10 @@ class SeaTests(unittest.TestCase):
         self.assertEqual(decode_terrain(avian), "avian")
         self.assertEqual(TERRAINS.index(decode_terrain(with_terrain(avian, "amphibious"))), 3)
         rng = random.Random(12)
-        parent = encode_dna("grazer", terrain="amphibious")  # its third species bit clear: setting it, toward the air
-        for _ in range(200):
-            child = cross(parent, parent, rng, None, 0.0, 1.0)
-            flipped = ((child ^ parent) >> 34) & 1
-            self.assertEqual(decode_terrain(child), "terrestrial" if flipped else "amphibious")
+        parent = encode_dna("grazer", terrain="amphibious")
+        found = {decode_terrain(cross(parent, parent, rng, None, 0.0, 1.0)) for _ in range(4000)}
+        self.assertEqual(found, {"aquatic", "amphibious", "terrestrial"})  # a step either way, never two
+        self.assertEqual({decode_terrain(cross(parent, parent, rng, None, 0.0, 1.0, False)) for _ in range(400)}, {"amphibious"})
 
     def test_the_terrestrial_keep_to_the_land_and_the_aquatic_to_the_sea(self):
         simulation = seaside()

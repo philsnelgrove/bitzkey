@@ -6,8 +6,8 @@ The high 32 bits are the social background, behind the species icon: how it trea
 The dot and ring each hold ten three-bit traits (0 to 7), from their least-significant bits, and
 their top two bits hold the climate genes: in the ring, the home temperature (hot, medium, cold
 or very cold); in the dot, the heat tolerance flag (bit 30) and the cold tolerance flag (bit 31).
-The ring's first trait is the species, in its lower two bits; its third bit sets no species, but a
-mutation landing there moves the terrain along its chain. The social background holds seven
+The ring's first trait is the species, in its lower two bits; its third bit is the activity gene, nocturnal (set)
+or diurnal. The social background holds seven
 three-bit traits, then the four-bit neurodivergence gene (0 to 15), which does nothing yet, then
 the two-bit terrain gene; its top five bits are spare. Like the rest, they all shade the colour:
 read as four CMYK bytes, each word sets the colour of its part of the Bitzkey.
@@ -51,6 +51,8 @@ MIND_MUTATION_CHANCE = 0.25  # for each of MIND_MUTATION_ROLLS: one temperament 
 MIND_MUTATION_ROLLS = 3     # mind mutations a birth may carry, each with the mind mutation chance
 BODY_MUTATION_CHANCE = 0.25  # one bit of the ring flips
 SPECIES_REROLL = 0.5  # a body mutation landing on the species is moved to another bit, rolled afresh, this often
+TERRAIN_MUTATION_SHARE = 1 / 32  # a birth's chance of its terrain moving a step, as a share of its body mutation chance
+NOCTURNAL = 1 << 34  # the species trait's third bit: active by night
 SPARE_BITS = 0xC0000000  # the dot's two bits that hold no mind trait: the tolerance flags
 SOCIAL_SPARE = WORD & ~((1 << NEURODIVERGENCE_SHIFT) - 1)  # the social background's bits that hold no trait
 TEMPERATURES = ("hot", "medium", "cold", "very cold")  # home temperatures, from hottest to coldest
@@ -109,6 +111,10 @@ def decode_temperament(dna: int) -> dict[str, int]:
 
 def decode_neurodivergence(dna: int) -> int:
     return (social_word(dna) >> NEURODIVERGENCE_SHIFT) & NEURODIVERGENCE_MAX
+
+
+def decode_nocturnal(dna: int) -> bool:
+    return bool(dna & NOCTURNAL)
 
 
 def decode_terrain(dna: int) -> str:
@@ -291,27 +297,25 @@ def cross(first: int, second: int, rng: random.Random, mind: Mapping[str, float]
     a living child has from its parents' current minds, or else the average of its parents'
     inborn traits, with a `mind_chance` of a mutation. The dot's two spare bits come from either
     parent, and so, separately, do the social background's neurodivergence, terrain and spare bits.
-    With `terrain_mutation`, a flip of the species' third bit moves the terrain a step along
-    TERRAIN_CHAIN, toward the air if the bit was set, toward the sea if cleared (no further than its ends).
+    With `terrain_mutation`, a birth has TERRAIN_MUTATION_SHARE of the body mutation chance of moving its terrain a
+    step along TERRAIN_CHAIN, toward the sea or the air as likely (no further than its ends).
     """
     body_chance = BODY_MUTATION_CHANCE if body_chance is None else body_chance
     mask = (1 << rng.randrange(1, 32)) - 1
     body = (body_word(first) & mask) | (body_word(second) & ~mask & WORD)
-    flipped = -1
     if rng.random() < body_chance:
         bit = rng.randrange(32)
         if bit < 2 and rng.random() < SPECIES_REROLL:  # the bits that set the species: often rolled afresh
             bit = rng.randrange(32)
         body ^= 1 << bit
-        flipped = bit
     if mind is None:
         mind = inherit_mind(decode_temperament(first), decode_temperament(second), rng, mind_chance)
     spare = mind_word(rng.choice((first, second)))
     social_spare = social_word(rng.choice((first, second)))
     dot = write_mind(spare, mind, rng)
     child = write_social(social_spare, mind, rng) << SOCIAL_SHIFT | (body << 32) | dot
-    if flipped == 2 and terrain_mutation:  # the species' third bit: the terrain moves a step along its chain
-        place = TERRAIN_CHAIN.index(decode_terrain(child)) + (1 if body >> 2 & 1 else -1)
+    if terrain_mutation and rng.random() < body_chance * TERRAIN_MUTATION_SHARE:  # a step along its chain
+        place = TERRAIN_CHAIN.index(decode_terrain(child)) + (1 if rng.random() < 0.5 else -1)
         child = with_terrain(child, TERRAIN_CHAIN[max(0, min(3, place))])
     return child
 

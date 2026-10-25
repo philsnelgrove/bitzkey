@@ -20,7 +20,8 @@ import numpy as np
 
 import tools.Brain as brain_rules  # its rules, as they now stand
 from tools.Brain import ACTIONS, SENSES, Brain, BrainBatch, choice_odds, depth_for, gene_senses, make_senses, width_for
-from tools.Genome import (GENOME, SPECIES, TEMPERAMENT, TRAIT_MAX, body_word, color_from_word, cross, dot_difference, inherit_mind,
+from tools.Genome import (GENOME, SPECIES, TEMPERAMENT, TRAIT_MAX, body_word, color_from_word, cross, decode_nocturnal, dot_difference,
+                          inherit_mind,
                           ring_difference, social_difference, social_word, BODY_MUTATION_CHANCE, COLD_TOLERANCE,
                           HEAT_TOLERANCE, MIND_MUTATION_CHANCE, TEMPERATURE_SHIFT, TEMPERATURES, decode_body, decode_climate,
                           decode_temperament, decode_terrain, fits, make_dna, mind_word, share, swims, walks, with_terrain)
@@ -51,18 +52,19 @@ FLIGHT_HUNGER = 0.25
 AMPHIBIOUS_SPEED = 0.5
 AMPHIBIOUS_COOLDOWN = 2.0
 AVIAN_SEED_REACH = 2.0
-# Stamina, 0 to 100: every action but rest tires an animal, and resting restores REST_RECOVERY a turn. Any other
+# Stamina, 0 to 100: every action but rest tires an animal, and resting restores REST_RECOVERY a turn: on the whole,
+# an animal spends it in five turns of acting and gets it back in three of rest, a day of eight turns. Any other
 # action costs ACTION_FATIGUE, each square it moves STEP_FATIGUE more (a flyer's FLIGHT_FATIGUE times that), each
 # blow it strikes STRIKE_FATIGUE and mating BREED_FATIGUE (each parent); a flyer over the sea, where it can't rest,
 # tires HOVER_FATIGUE a turn more. An animal with no stamina left can only rest, and a flyer exhausted over the sea
 # drowns. An amphibious animal tires AMPHIBIOUS_FATIGUE times as fast at everything.
-REST_RECOVERY = 20.0
-ACTION_FATIGUE = 1.0
-STEP_FATIGUE = 2.0
+REST_RECOVERY = 34.0
+ACTION_FATIGUE = 10.0
+STEP_FATIGUE = 5.0
 FLIGHT_FATIGUE = 2.0
-STRIKE_FATIGUE = 10.0
-BREED_FATIGUE = 15.0
-HOVER_FATIGUE = 1.0
+STRIKE_FATIGUE = 50.0
+BREED_FATIGUE = 75.0
+HOVER_FATIGUE = 5.0
 AMPHIBIOUS_FATIGUE = 2.0
 FULL_STAMINA = 100
 SPAWN_SPREAD = 2      # a group's members appear within this many cells of each other's centre
@@ -412,7 +414,14 @@ TEMPERAMENT_RELAPSE = 0.0005  # share of the gap back to the inborn value closed
 # winters. Every Bitzkey has a home temperature,
 # and may tolerate heat or cold, suffering HARDINESS of its penalties, and FRAILTY of the other's; plants tolerate nothing, and a plant
 # spawned at the start is at home in its zone's usual temperature.
-DEFAULT_YEAR_LENGTH = 360
+# Days: every DAY_LENGTH turns is a day, and a new world's year is 360 of them. Night covers half the map, its
+# columns from the top to the bottom, and moves west round it once a day. With SLEEP, an animal rests through its
+# night, the dark for the diurnal and the light for the nocturnal (see the activity gene): it may only rest, but for
+# fleeing a hunter or striking back at what struck it, startled awake, and a flyer over the sea, which can't rest.
+DAY_LENGTH = 8
+SLEEP = 1
+DAYS_IN_YEAR = 360
+DEFAULT_YEAR_LENGTH = 8 * DAYS_IN_YEAR  # a new world's, unless its settings say otherwise
 YEAR_LENGTH = DEFAULT_YEAR_LENGTH  # each world sets it from its year length setting
 ARCTIC_SHARE = 0.2
 EQUATOR_SHARE = 0.2
@@ -754,6 +763,11 @@ class Bitzkey:
     def terrain(self) -> str:
         return decode_terrain(self.dna)
 
+    @cached_property
+    def nocturnal(self) -> bool:
+        """Active by night, resting by day; else the other way round."""
+        return decode_nocturnal(self.dna)
+
     def can_be(self, sea: bool) -> bool:
         """Whether it may be in the sea, or on the land, by its terrain."""
         return fits(self.terrain, sea)
@@ -1067,7 +1081,7 @@ class Simulation:
                  population: int = INITIAL_POPULATION, seed: int | None = None,
                  grass_density: float = GRASS_DENSITY, imported: Sequence[Imported] = (),
                  population_cap: int | None = None, mind_mutation: float = 100 * MIND_MUTATION_CHANCE,
-                 body_mutation: float = 100 * BODY_MUTATION_CHANCE, year_length: int = DEFAULT_YEAR_LENGTH,
+                 body_mutation: float = 100 * BODY_MUTATION_CHANCE, year_length: int | None = None,
                  ocean: float = 0.0):
         """Spawn `population` random Bitzkeys in groups sharing a genome, plus a group for each
         `imported` Bitzkey, whose members all start with copies of its saved brain if it has one.
@@ -1077,6 +1091,7 @@ class Simulation:
         like the advanced rules, it holds for the whole program while the world runs. `ocean` is the percent of the
         map under the sea, laid out by the seed; none unless asked for (a new world's setup offers DEFAULT_OCEAN)."""
         global YEAR_LENGTH
+        year_length = DEFAULT_YEAR_LENGTH if year_length is None else year_length
         if year_length < 4:
             raise ValueError("A year must be at least 4 turns.")
         YEAR_LENGTH = self.year_length = year_length
@@ -1195,6 +1210,18 @@ class Simulation:
         self.sea_map = bytearray(width * height)
         for index in order[:min(round(width * height * ocean / 100), width * height)]:
             self.sea_map[index] = 1
+
+    def night_start(self) -> int:
+        """The westernmost column of the night, which runs east half the map's width from it."""
+        return int(-(self.turn % DAY_LENGTH) * self.width / DAY_LENGTH) % self.width  # as the C++ version divides
+
+    def night(self, x: int) -> bool:
+        """Whether a column lies in the night now: half the map, moving west a whole turn round each day."""
+        return (x - self.night_start()) % self.width < self.width // 2
+
+    def resting_time(self, agent: Bitzkey) -> bool:
+        """Whether an animal is in its night where it stands: dark for the diurnal, light for the nocturnal."""
+        return agent.nocturnal != self.night(agent.x)
 
     def sea(self, x: int, y: int) -> bool:
         """Whether a square lies under the sea: none off the map, nor in a world without sea."""
@@ -1829,6 +1856,9 @@ class Simulation:
             if agent.exhausted:  # spent: it can do nothing but rest, whatever it fears
                 situation["panic"] = situation["frozen"] = False
                 options = [ACTIONS.index("rest")]
+            elif (SLEEP and self.resting_time(agent) and not agent.aloft_at_sea and not situation.get("panic")
+                  and not situation.get("frozen")):  # its night: it rests, unless startled awake by a hunter or a blow
+                options = [ACTIONS.index("rest")] + [option for option in options if ACTIONS[option] in ("defend", "flee")]
             if agent.species == "predator":  # the instinct to hunt, on top of what its brain has learnt
                 urge = HUNTING_INSTINCT * min(1.0, agent.hunger / 100)
                 valued = [value + urge if action in (HUNT, ATTACK) else value for action, value in enumerate(valued)]
@@ -2050,6 +2080,7 @@ class Simulation:
             sea_here=float(agent.wet),
             shore_north=shores[0], shore_south=shores[1], shore_east=shores[2], shore_west=shores[3],
             stamina=agent.stamina / FULL_STAMINA,
+            night=float(self.night(agent.x)),
             **{trait: agent.feeling(trait) for trait in TEMPERAMENT},
             **agent.genes,
         )

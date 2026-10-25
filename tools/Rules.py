@@ -55,6 +55,9 @@ _TABLE: dict[str, list[tuple]] = {
          "into a square without room", 1, 80, 1),
         ("SPAWN_SPREAD", "Spawn spread", "a starting group appears within this many cells of its centre", 0, 4, 1),
         ("USE_GPU", "Think on the GPU", "C++ only: 1 thinks and learns on every GPU found, in floats, with no rewinding; 0 on the CPU, exactly", 0, 1, 1),
+        ("DAY_LENGTH", "Day length", "turns in a day; night covers half the map and moves round it once a day", 2, 100, 1),
+        ("SLEEP", "Sleep", "1: an animal rests through its night (the dark if diurnal, the light if nocturnal) unless startled "
+         "awake; 0: never forced to", 0, 1, 1),
         ("BIOME_GROUPS", "Biome groups", "a world started with any Bitzkeys has this many more groups at home in every "
          "biome, each stretch of land or sea in a climate zone; 0: none", 0, 10, 1),
         ("BIOME_SIZE", "Biome size", "the fewest squares a stretch of land or sea in a climate zone needs to count as a biome",
@@ -94,13 +97,13 @@ _TABLE: dict[str, list[tuple]] = {
         ("AMPHIBIOUS_COOLDOWN", "Amphibious cooldown", "an amphibious animal rests this many times as long after breeding",
          1.0, 5.0, 0.25),
         ("REST_RECOVERY", "Rest recovery", "stamina, of 100, a turn's rest restores", 1.0, 100.0, 1.0),
-        ("ACTION_FATIGUE", "Action fatigue", "stamina any action but rest costs", 0.0, 20.0, 0.5),
-        ("STEP_FATIGUE", "Step fatigue", "stamina each square moved costs, more", 0.0, 20.0, 0.5),
+        ("ACTION_FATIGUE", "Action fatigue", "stamina any action but rest costs", 0.0, 50.0, 0.5),
+        ("STEP_FATIGUE", "Step fatigue", "stamina each square moved costs, more", 0.0, 50.0, 0.5),
         ("FLIGHT_FATIGUE", "Flight fatigue", "a flyer's squares tire it this many times as much", 1.0, 5.0, 0.25),
-        ("STRIKE_FATIGUE", "Strike fatigue", "stamina each blow struck costs, more", 0.0, 50.0, 1.0),
-        ("BREED_FATIGUE", "Breed fatigue", "stamina mating costs each parent", 0.0, 50.0, 1.0),
+        ("STRIKE_FATIGUE", "Strike fatigue", "stamina each blow struck costs, more", 0.0, 100.0, 1.0),
+        ("BREED_FATIGUE", "Breed fatigue", "stamina mating costs each parent", 0.0, 100.0, 1.0),
         ("HOVER_FATIGUE", "Hover fatigue", "stamina a flyer over the sea, unable to rest, loses a turn more; exhausted there, "
-         "it drowns", 0.0, 20.0, 0.5),
+         "it drowns", 0.0, 50.0, 0.5),
         ("AMPHIBIOUS_FATIGUE", "Amphibious fatigue", "an amphibious animal tires this many times as fast at everything",
          1.0, 5.0, 0.25),
         ("WALK_REST", "Walk rest", "share of the turn's burn a one-cell walk saves, as resting does", 0.0, 1.0, 0.05),

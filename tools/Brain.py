@@ -9,7 +9,7 @@ from collections.abc import Mapping, Sequence
 import numpy as np
 
 from tools.Genome import (BODY_TRAITS, SPECIES, TEMPERAMENT, TEMPERATURES, TRAIT_MAX, decode_body, decode_climate, decode_temperament,
-                          decode_terrain, share, swims, walks)
+                          decode_nocturnal, decode_terrain, share, swims, walks)
 
 ACTIONS = ("eat", "forage", "browse", "uproot", "scavenge", "feast", "rest", "court", "breed", "hunt", "attack", "defend",
            "flee", "herd", "go_north", "go_south", "go_east", "go_west", "walk_north", "walk_south", "walk_east",
@@ -68,11 +68,13 @@ SENSES = (
     # it, falling to 0 at the edge of its sight, and 0 with none in sight (and always, for the avian and amphibious):
     "shore_north", "shore_south", "shore_east", "shore_west",
     "stamina",            # 1 fresh, falling to 0 exhausted, when it can only rest
+    "night",              # 1 when it is night where it stands
 ) + TEMPERAMENT + (    # then its current temperament, mind and social traits, each 0..7 scaled to 0..1
     *(f"inborn_{trait}" for trait in TEMPERAMENT),        # its dot's and social background's traits, as born, 0..1
     *BODY_TRAITS,                                         # its ring's traits, 0..1 (species 0 plant to 1 predator)
     "home_temperature", "heat_tolerance", "cold_tolerance",  # its climate genes: home 0 hot to 1 very cold, flags 0 or 1
     "swims", "walks", "flies",  # its terrain: whether it may go into the sea and onto the land, 0 or 1, and whether it flies
+    "nocturnal",  # its activity gene: 1 nocturnal, 0 diurnal
 )
 INPUT_SIZE = len(SENSES)
 MAX_DEPTH = 4      # hidden layers: one for each point of inborn intellect, at least one and up to this many
@@ -125,7 +127,8 @@ def gene_senses(dna: int) -> dict[str, float]:
     values.update(home_temperature=temperature / (len(TEMPERATURES) - 1), heat_tolerance=float(heat),
                   cold_tolerance=float(cold))
     terrain = decode_terrain(dna)
-    values.update(swims=float(swims(terrain)), walks=float(walks(terrain)), flies=float(terrain == "avian"))
+    values.update(swims=float(swims(terrain)), walks=float(walks(terrain)), flies=float(terrain == "avian"),
+                  nocturnal=float(decode_nocturnal(dna)))
     return values
 
 

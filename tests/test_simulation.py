@@ -7,14 +7,14 @@ import tools.Simulation as simulation_module
 from tools.Brain import ACTIONS, SENSES, Brain
 from tools.Exchange import Imported
 from tools.Genome import decode_body, encode_dna
-from tools.Simulation import (Death, DEATH_PENALTY, PARENT_GRIEF, PARENT_JOY, BREED_COOLDOWN, PREGNANT_REMORSE, AGENT_BYTES, ATTACK_JOY, FEAST_JOY, FRESH_KILL_MEALS, KILL_MEAL, KILL_MEAL_FOR_SIZE, BIRTH_REACH, PLANT_GESTATION, Bitzkey, gestation, CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, PLANT_MEAL, PLANT_MEAL_FOR_SIZE, SEED_OFFSETS,
+from tools.Simulation import (Death, FULL_STAMINA, SPAWN_SPREAD, DEATH_PENALTY, PARENT_GRIEF, PARENT_JOY, BREED_COOLDOWN, PREGNANT_REMORSE, AGENT_BYTES, ATTACK_JOY, FEAST_JOY, FRESH_KILL_MEALS, KILL_MEAL, KILL_MEAL_FOR_SIZE, BIRTH_REACH, PLANT_GESTATION, Bitzkey, gestation, CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, PLANT_MEAL, PLANT_MEAL_FOR_SIZE, SEED_OFFSETS,
                               SIGHT_OFFSETS, SPAWN_SPREAD, UPROOT_BITE, UPROOT_MEALS, Simulation, litter_size,
                               nearby_offsets)
 
 
 def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, unless a test says so
     global _grown, _common, _grazers, _plenty
-    _grown = patch("tools.Simulation.FEEBLE_YOUTH", 0.0)
+    _grown = patch.multiple("tools.Simulation", FEEBLE_YOUTH=0.0, DEFAULT_YEAR_LENGTH=360, SLEEP=0)  # and 360-turn years, no sleeping
     _grown.start()
     _common = patch("tools.Simulation.RARE_BREEDING_COST", 1.0)  # the few Bitzkeys of a test breed at the usual cost
     _common.start()
@@ -79,8 +79,10 @@ class SimulationTests(unittest.TestCase):
             self.assertEqual(len(simulation.agents), population)
             for members in groups.values():
                 self.assertIn(len(members), (3, 4, 5))
-                self.assertLessEqual(max(agent.x for agent in members) - min(agent.x for agent in members), 4)
-                self.assertLessEqual(max(agent.y for agent in members) - min(agent.y for agent in members), 4)
+                # Within SPAWN_SPREAD of the centre, or BIRTH_REACH further where a square is full.
+                spread = 2 * (SPAWN_SPREAD + BIRTH_REACH)
+                self.assertLessEqual(max(agent.x for agent in members) - min(agent.x for agent in members), spread)
+                self.assertLessEqual(max(agent.y for agent in members) - min(agent.y for agent in members), spread)
 
     @patch("tools.Simulation.BIOME_GROUPS", 0)  # the population alone, without the biomes' groups
     def test_a_population_too_small_for_a_group_spawns_together(self):
@@ -1520,6 +1522,7 @@ class NewTraitTests(unittest.TestCase):
         for seed in range(40):
             self.simulation.random.seed(seed)
             predator.x, predator.y = 2, 2
+            predator.stamina = FULL_STAMINA  # fresh each time, not worn out by the last
             self.simulation._index_cells()
             with patch.object(simulation_module, "HUNTING_INSTINCT", 5.0):
                 self.simulation._think_all([predator])
