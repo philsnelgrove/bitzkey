@@ -336,7 +336,9 @@ through shows in their young. Its neurodivergence comes whole from either parent
 
 There is no metabolism gene: size sets it. The smallest bodies run at 1.6 and
 the largest at 0.6. A faster metabolism empties the stomach sooner, heals
-faster, and makes for a shorter life. Size also sets the stomach, from 0.5
+faster, and makes for a shorter life: the smallest bodies live about 3 years, middling ones 15 and the
+largest 30 (the Lifespan rules), so even the smallest see their winter come round more than once.
+Size also sets the stomach, from 0.5
 (smallest) to 2.0 (largest). Hunger is how empty the stomach is, so the same
 meal fills a small animal four times as much as a large one, and a large
 animal needs more food in all. Its slower metabolism offsets part of that: a
@@ -634,8 +636,8 @@ and the pain of others; what counts is how much better or worse it feels, not
 how good it feels. Death is heavily punished. What comes of a choice also reaches
 back to the choices that led to it (TD(lambda) learning): each weight keeps a
 trace of how recently and how much it shaped the brain's choices, fading each
-turn by its discount (0.7 for the least patient, up to 0.99 for the most: Discount, most
-patient) times its trace decay, so a death or a
+turn by its discount (0.9 for the least patient, so even they look some ten turns ahead, up to 0.99 for
+the most: Discount, least and most patient) times its trace decay, so a death or a
 meal is credited to the run of choices before it, not just the last one. How far
 back it reaches is an advanced rule (the Mind group), as is how reluctant a new
 brain is to set off in a direction. A child's brain is as deep and as wide as

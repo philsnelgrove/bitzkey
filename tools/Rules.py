@@ -177,8 +177,10 @@ _TABLE: dict[str, list[tuple]] = {
     ],
     "Mind": [
         ("LEARNING_RATE", "Learning rate", "how fast a brain learns, at the highest intellect", 0.0, 0.5, 0.005),
-        ("PATIENT_DISCOUNT", "Discount, most patient", "how much the most patient value what comes later (gamma); "
-         "the least patient keep 0.7", 0.7, 0.999, 0.001),
+        ("PATIENT_DISCOUNT", "Discount, most patient", "how much the most patient value what comes later (gamma)", 0.5, 0.999,
+         0.001),
+        ("IMPATIENT_DISCOUNT", "Discount, least patient", "how much the least patient value what comes later (gamma): their "
+         "foresight, at the least", 0.5, 0.999, 0.001),
         ("TRACE_DECAY", "Trace decay", "how far back a choice's outcome reaches earlier choices (lambda)",
          0.0, 1.0, 0.05),
         ("SMART_TRACE_DECAY", "Trace decay, smartest", "trace decay at the highest intellect; the lowest keeps the one above",
@@ -404,7 +406,7 @@ RULES = tuple(Rule(key, group, label, hint, minimum, maximum, step)
 BY_KEY = {rule.key: rule for rule in RULES}
 # Pairs that must stay in order, smaller first, and pairs that must differ (lifespan divides by the gap).
 ORDERED = (("LITTER_RANGE.0", "LITTER_RANGE.1"), ("GESTATION.0", "GESTATION.1"), ("LIFESPAN_YEARS.0", "LIFESPAN_YEARS.1"),
-           ("LIFESPAN_YEARS.1", "LIFESPAN_YEARS.2"))
+           ("LIFESPAN_YEARS.1", "LIFESPAN_YEARS.2"), ("IMPATIENT_DISCOUNT", "PATIENT_DISCOUNT"))
 DISTINCT = (("METABOLISM.0", "METABOLISM.1"),)
 _PARTS = {"fewest": (0, 0), "most": (0, 1), "strength": (1,)}
 

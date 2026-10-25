@@ -79,7 +79,8 @@ class CensusTests(unittest.TestCase):
         self.assertTrue(all(identifier in simulation.lineage for identifier in simulation.death_records))
         self.assertEqual(sorted(simulation._death_order),  # the deaths' order holds just those kept, oldest first
                          sorted((death.turn, identifier) for identifier, death in simulation.death_records.items()))
-        self.assertEqual(list(simulation._death_order), sorted(simulation._death_order))
+        turns = [turn for turn, _ in simulation._death_order]
+        self.assertEqual(turns, sorted(turns))  # oldest first; a turn's deaths in the order they came
 
     def test_simulation_records_who_lives_and_every_genome(self):
         simulation = Simulation(width=20, height=20, population=30, seed=4)

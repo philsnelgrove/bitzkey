@@ -26,7 +26,7 @@ class WorldFileTests(unittest.TestCase):
     def test_a_world_that_has_forgotten_its_oldest_genomes_saves_and_loads_them_from_where_they_start(self):
         # Short lives, eight turns a year: breeding free of rest and of heat, which would last years of them.
         with patch("tools.Census.GRAPH_TURNS", 5), patch("tools.Simulation.BREED_COOLDOWN", 0.0), patch("tools.Simulation.HEAT_FORESIGHT", 0.0),              patch.dict("tools.Simulation.HEAT_CLOSEST", {"grazer": 0.0, "omnivore": 0.0, "predator": 0.0}),              patch.dict("tools.Simulation.HEAT_LENGTH", {"grazer": 0.75, "omnivore": 0.75, "predator": 0.75}):
-            world = Simulation(20, 20, population=30, seed=6, year_length=8)
+            world = Simulation(20, 20, population=30, seed=1, year_length=8)
             for _ in range(200):
                 world.advance()
         data = world_bytes(world)

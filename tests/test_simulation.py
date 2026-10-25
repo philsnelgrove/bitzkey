@@ -515,7 +515,7 @@ class SimulationTests(unittest.TestCase):
         target = learn.call_args.args[1]
         values = grazer.brain.values(self.simulation._sense(grazer)[0])
         best = max(values[option] for option in self.simulation._sense(grazer)[1])
-        self.assertAlmostEqual(target, (0.7 + 0.27 * grazer.feeling("patience")) * best)
+        self.assertAlmostEqual(target, Simulation._discount(grazer) * best)
 
     def test_child_inherits_what_experience_taught_its_parents(self):
         dna = encode_dna("grazer", fertility=7, fear=2, curiosity=5, libido=6)
@@ -1967,11 +1967,11 @@ class NewTraitTests(unittest.TestCase):
 
         self.assertEqual([plant.lifespan for plant in plants], [small.lifespan, large.lifespan])
         self.assertGreater(large.lifespan, small.lifespan)
-        self.assertEqual((large.lifespan, small.lifespan), (3600, 360))  # ten years and one
+        self.assertEqual((large.lifespan, small.lifespan), (30 * 360, 3 * 360))  # thirty years and three
         # five years halfway between the smallest and largest bodies, rising steadily either side
         below, above = (self.simulation._add_agent(encode_dna("grazer", size=size), 2, 2) for size in (3, 4))
-        self.assertAlmostEqual(below.lifespan, (1 + 4 * 6 / 7) * 360)
-        self.assertAlmostEqual(above.lifespan, (5 + 5 * 1 / 7) * 360)
+        self.assertAlmostEqual(below.lifespan, (3 + 12 * 6 / 7) * 360)
+        self.assertAlmostEqual(above.lifespan, (15 + 15 * 1 / 7) * 360)
 
     def test_small_bodies_run_fast_and_short_lives_large_ones_slow_and_long(self):
         small = self.simulation._add_agent(encode_dna("grazer", size=0), 1, 1)
@@ -2047,7 +2047,7 @@ class NewTraitTests(unittest.TestCase):
             self.assertFalse(self.simulation._dies_of_age(animal))
             animal.age += 1
             self.assertTrue(self.simulation._dies_of_age(animal))
-        with patch.object(self.simulation.random, "random", return_value=0.02):  # the chance each turn rises with age
+        with patch.object(self.simulation.random, "random", return_value=0.01):  # the chance each turn rises with age
             animal.age = int(animal.lifespan)
             self.assertFalse(self.simulation._dies_of_age(animal))
             animal.age = int(1.6 * animal.lifespan)

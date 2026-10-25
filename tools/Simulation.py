@@ -89,7 +89,7 @@ BIRTH_REACH = 2  # young are born on the free cells nearest their mother, up to 
 # Years a Bitzkey, plant or animal, is expected to live: the smallest bodies, with the fastest
 # metabolisms; middling ones; and the largest, with the slowest. Between them, lifespan rises steadily
 # with the metabolism slowing.
-LIFESPAN_YEARS = (1.0, 5.0, 10.0)
+LIFESPAN_YEARS = (3.0, 15.0, 30.0)  # long enough for even the smallest to see its winter come round again
 METABOLISM = (1.6, 0.6)  # metabolic rate of the smallest and the largest bodies
 STOMACH = (0.5, 2.0)     # food a body holds, relative to the middle, from the smallest to the largest;
                          # hunger is how empty it is, so a meal fills a small stomach more
@@ -114,7 +114,8 @@ GO_EFFORT = 0.25
 FEAR_DREAD = 0.3
 UNEASE = 0.1           # how much an intolerant animal minds other species close by
 CLIMATE_UNEASE = 2.0   # discomfort two or more steps from home, half that one step; less for the hardy
-PATIENT_DISCOUNT = 0.99  # gamma at the highest patience: how far ahead the patient look; the least patient keep 0.7
+PATIENT_DISCOUNT = 0.99  # gamma at the highest patience: how far ahead the patient look
+IMPATIENT_DISCOUNT = 0.9  # and at the lowest: even the least patient look some ten turns ahead
 HOMEWARD_UNEASE = 1.0  # more discomfort away from home, rising with the distance to home to this at half the map's height
 EMPATHY_PAIN = 0.15    # how much an empathetic animal feels another's wound; twice that for a death
 # Parental attachment: a parent is glad of its own young, still infants, within its sight, up to PARENT_JOY with
@@ -1860,7 +1861,7 @@ class Simulation:
     @staticmethod
     def _discount(agent: Bitzkey) -> float:
         """How much the future counts against the present: more for the patient."""
-        return 0.7 + (PATIENT_DISCOUNT - 0.7) * agent.feeling("patience")
+        return IMPATIENT_DISCOUNT + (PATIENT_DISCOUNT - IMPATIENT_DISCOUNT) * agent.feeling("patience")
 
     @staticmethod
     def _learning_rate(agent: Bitzkey) -> float:

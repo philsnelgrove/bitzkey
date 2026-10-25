@@ -50,7 +50,7 @@ class ZoneTests(unittest.TestCase):
         short = Simulation(width=20, height=20, population=0, seed=1, year_length=100)
         self.assertEqual((short.year_length, season(25), season(50), year(100)), (100, 1, 2, 2))
         animal = short._add_agent(encode_dna("grazer", size=0), 1, 1)
-        self.assertEqual(animal.lifespan, 100)  # the smallest live a year
+        self.assertEqual(animal.lifespan, 300)  # the smallest live three years
         with self.assertRaisesRegex(ValueError, "at least 4"):
             Simulation(width=20, height=20, population=0, seed=1, year_length=3)
         Simulation(width=20, height=20, population=0, seed=1)
