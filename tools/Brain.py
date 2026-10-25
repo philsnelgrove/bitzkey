@@ -58,6 +58,9 @@ SENSES = (
     "food_remembered",    # 1 just after it fed somewhere, fading as its memory lets the place go; 0 when forgotten
     "danger_remembered",  # 1 at the place it was last struck, while it remembers it, falling to 0 beyond sight
     "home_food",          # how well fed its home band is: plants per grazer, prey per predator, 1 at twice what breeding needs; 0 for omnivores
+    # Where the nearest row it would feel at home in lies, however far beyond sight:
+    "home_direction",     # -1 to the north, 1 to the south, 0 at home or with no such row
+    "home_distance",      # 0 at home, rising to 1 half the map's height away or with no such row
 ) + TEMPERAMENT + (    # then its current temperament, mind and social traits, each 0..7 scaled to 0..1
     *(f"inborn_{trait}" for trait in TEMPERAMENT),        # its dot's and social background's traits, as born, 0..1
     *BODY_TRAITS,                                         # its ring's traits, 0..1 (species 0 plant to 1 predator)
@@ -71,7 +74,7 @@ MAX_WIDTH = BASE_WIDTH + WIDTH_STEP * (TRAIT_MAX - MAX_DEPTH)
 TEMPERATURE = 0.2
 MUTATION = 0.05
 TRACE_DECAY = 0.7  # lambda: how much of each earlier choice's credit carries on to the next, beside the discount
-SMART_TRACE_DECAY = 0.9  # lambda at the highest intellect: the clever trace credit further back; the least, TRACE_DECAY
+SMART_TRACE_DECAY = 0.95  # lambda at the highest intellect: the clever trace credit further back; the least, TRACE_DECAY
 # A new brain values setting off in a direction this much below its other actions, so an untaught
 # brain doesn't march straight away from its range, its herd and its food before it has learned where to go.
 HEADING_RELUCTANCE = 0.5
@@ -145,6 +148,83 @@ def _fitted(array: np.ndarray, shape: tuple[int, ...]) -> np.ndarray:
     return fitted
 
 
+_MASK = (1 << 64) - 1
+
+
+def _ziggurat() -> tuple[list[int], list[float], list[float]]:
+    """Marsaglia and Tsang's ziggurat for the normal distribution, 128 layers, as the C++ version builds it."""
+    k, w, f = [0] * 128, [0.0] * 128, [0.0] * 128
+    m1, vn = 2147483648.0, 9.91256303526217e-3
+    dn = tn = 3.442619855899
+    q = vn / math.exp(-0.5 * dn * dn)
+    k[0] = int((dn / q) * m1)
+    k[1] = 0
+    w[0], w[127] = q / m1, dn / m1
+    f[0], f[127] = 1.0, math.exp(-0.5 * dn * dn)
+    for i in range(126, 0, -1):
+        dn = math.sqrt(-2.0 * math.log(vn / dn + math.exp(-0.5 * dn * dn)))
+        k[i + 1] = int((dn / tn) * m1)
+        tn = dn
+        f[i] = math.exp(-0.5 * dn * dn)
+        w[i] = dn / m1
+    return k, w, f
+
+
+_ZIGGURAT = _ziggurat()
+
+
+class _Stream:
+    """A fast stream of random numbers of a child's own: xoshiro256+, seeded by splitmix64, with normal draws by the
+    ziggurat. It draws exactly what the C++ version's does from the same seed."""
+
+    def __init__(self, seed: int) -> None:
+        self.state = []
+        for _ in range(4):
+            seed = (seed + 0x9E3779B97F4A7C15) & _MASK
+            z = seed
+            z = ((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9) & _MASK
+            z = ((z ^ (z >> 27)) * 0x94D049BB133111EB) & _MASK
+            self.state.append(z ^ (z >> 31))
+
+    def next(self) -> int:
+        s = self.state
+        result = (s[0] + s[3]) & _MASK
+        shifted = (s[1] << 17) & _MASK
+        s[2] ^= s[0]
+        s[3] ^= s[1]
+        s[1] ^= s[2]
+        s[0] ^= s[3]
+        s[2] ^= shifted
+        s[3] = ((s[3] << 45) & _MASK) | (s[3] >> 19)
+        return result
+
+    def random(self) -> float:
+        """In [0, 1), from the top 53 bits."""
+        return (self.next() >> 11) * (1.0 / 9007199254740992.0)
+
+    def normal(self) -> float:
+        """Of mean 0 and spread 1."""
+        k, w, f = _ZIGGURAT
+        tail = 3.442620
+        while True:
+            hz = self.next() >> 32
+            if hz >= 1 << 31:
+                hz -= 1 << 32
+            iz = hz & 127
+            x = hz * w[iz]
+            if abs(hz) < k[iz]:
+                return x
+            if iz == 0:  # beyond the base: the tail, by Marsaglia's method
+                while True:
+                    tx = -math.log(1.0 - self.random()) / tail
+                    ty = -math.log(1.0 - self.random())
+                    if not ty + ty < tx * tx:
+                        break
+                return tail + tx if hz > 0 else -tail - tx
+            if f[iz] + self.random() * (f[iz - 1] - f[iz]) < math.exp(-0.5 * x * x):
+                return x
+
+
 class Brain:
     """A tanh network of hidden layers estimating the long-run value of each action.
 
@@ -198,12 +278,15 @@ class Brain:
         _fitted). Each action's output comes from one parent or the other. Then it mutates (by MUTATION
         unless given)."""
         mutation = MUTATION if mutation is None else mutation
+        # Thousands of draws a brain, so they come from a stream of the child's own, seeded from the world's: one
+        # draw of the world's a child, as in the C++ version, which makes the same child from the same seed.
+        stream = _Stream(rng.getrandbits(64))
         layers = []
         for index in range(depth):
             shape = (width, INPUT_SIZE if index == 0 else width)
             donors = [parent for parent in (first, second) if index < parent.depth]
             if len(donors) == 2:
-                from_first = np.array([rng.random() < 0.5 for _ in range(width)])
+                from_first = np.array([stream.random() < 0.5 for _ in range(width)])
                 neuron = np.arange(width)
                 from_first = (from_first & (neuron < first.width)) | (neuron >= second.width)
                 layers.append((np.where(from_first[:, None], _fitted(first.layers[index][0], shape),
@@ -214,7 +297,7 @@ class Brain:
                 layers.append((_fitted(donors[0].layers[index][0], shape), _fitted(donors[0].layers[index][1], (width,))))
             else:
                 layers.append(_identity_layer(width))
-        from_first = np.array([rng.random() < 0.5 for _ in ACTIONS])
+        from_first = np.array([stream.random() < 0.5 for _ in ACTIONS])
         outputs = (len(ACTIONS), width)
         child = cls(layers, np.where(from_first[:, None], _fitted(first.output_weights, outputs),
                                      _fitted(second.output_weights, outputs)),
@@ -222,7 +305,7 @@ class Brain:
         if mutation:
             for weights in ([weights for weights, _ in child.layers] + [child.output_weights]
                             + [biases for _, biases in child.layers] + [child.output_biases]):
-                weights += np.array([rng.gauss(0, mutation) for _ in range(weights.size)]).reshape(weights.shape)
+                weights += mutation * np.array([stream.normal() for _ in range(weights.size)]).reshape(weights.shape)
         return child
 
     def resized(self, depth: int, width: int) -> Brain:

@@ -104,7 +104,9 @@ WALK_REST = 0.5
 GO_EFFORT = 0.25
 FEAR_DREAD = 0.3
 UNEASE = 0.1           # how much an intolerant animal minds other species close by
-CLIMATE_UNEASE = 1.5   # discomfort two or more steps from home, half that one step; less for the hardy
+CLIMATE_UNEASE = 2.0   # discomfort two or more steps from home, half that one step; less for the hardy
+PATIENT_DISCOUNT = 0.99  # gamma at the highest patience: how far ahead the patient look; the least patient keep 0.7
+HOMEWARD_UNEASE = 1.0  # more discomfort away from home, rising with the distance to home to this at half the map's height
 EMPATHY_PAIN = 0.15    # how much an empathetic animal feels another's wound; twice that for a death
 # Society: an animal sees what happens to its herd-mates (its pack, for a predator) within its sight. A
 # herd-mate's kill is a success, its death (but of old age) a failure; the witness learns from it as
@@ -325,8 +327,10 @@ HERD_VIGILANCE = 0.5   # how far three herd-mates close by, at full herd instinc
 GRASS_OUTLOOK = 150    # judging grass before breeding, an animal counts what will regrow in this many turns
 STANDING_GRASS = 0.25  # and this share of the grass standing now
 GRASS_MEAL = 18        # hunger a tuft of grass sates: about a tenth of a middle-sized kill
-PLANT_MEAL = 37         # hunger a bite of a plant sates, plus up to PLANT_MEAL_FOR_SIZE for the largest:
-PLANT_MEAL_FOR_SIZE = 66  # a fifth of a kill of the same size
+# A plant is eaten in portions, a bite each: every bite sates PLANT_MEAL hunger (and PLANT_MEAL_FOR_SIZE more for the
+# largest, none by default) and takes PLANT_BITE of its health, so a plant's food is in proportion to its size.
+PLANT_MEAL = 70
+PLANT_MEAL_FOR_SIZE = 0
 PLANT_BITE = 15        # health a plant loses to each bite
 PLANT_REGROWTH = 0.02  # share of its health pool a plant regrows each turn
 PLANT_RECOVERY = 8     # turns after a bite before a plant can be bitten again
@@ -348,15 +352,19 @@ TEMPERAMENT_RELAPSE = 0.0005  # share of the gap back to the inborn value closed
 # bottom is arctic, cold; a strip of EQUATOR_SHARE across the middle is the equator, hot; the rest
 # is temperate, medium. Every YEAR_LENGTH turns is a year, starting mild. Through its second quarter
 # the north, from the top down to and through the equator, is a step colder; through its fourth the
-# south, from the bottom up to and through the equator, is. Every Bitzkey has a home temperature,
+# south, from the bottom up to and through the equator, is; but the arctic's outermost POLAR_SHARE, the polar caps,
+# is very cold all year, and a strip of WINTER_EQUATOR_SHARE across the equator's middle stays hot through both
+# winters. Every Bitzkey has a home temperature,
 # and may tolerate heat or cold, suffering HARDINESS of its penalties, and FRAILTY of the other's; plants tolerate nothing, and a plant
 # spawned at the start is at home in its zone's usual temperature.
 DEFAULT_YEAR_LENGTH = 360
 YEAR_LENGTH = DEFAULT_YEAR_LENGTH  # each world sets it from its year length setting
 ARCTIC_SHARE = 0.2
 EQUATOR_SHARE = 0.2
+POLAR_SHARE = 0.025  # at the top and again at the bottom: 5% of the map in all
+WINTER_EQUATOR_SHARE = 0.05
 CLIMATE_HUNGER = 2.0   # an animal a step or more from home, or a plant too hot, needs this many times the food
-CLIMATE_DAMAGE = 0.01  # for each step from home, a Bitzkey loses this share of its full health a turn; plants from two
+CLIMATE_DAMAGE = 0.025  # for each step from home, a Bitzkey loses this share of its full health a turn; plants from two
 PLANT_CLIMATE_YIELD = 0.0  # a plant out of its temperature gives this share of its food
 GRASS_DIEBACK = 20     # where it isn't medium, a cell's grass loses a tuft every this many turns
 # The weather turns in waves, one in each climate zone, all setting off together as the season turns,
@@ -364,7 +372,7 @@ GRASS_DIEBACK = 20     # where it isn't medium, a cell's grass loses a tuft ever
 # toward the equator, and as it ends ebbs back the way it came, over this share of each season. The wave moves in bands of
 # WAVE_BAND rows; at its front, WAVE_FRONT bands stand part way between the old weather and the new,
 # in even steps, so the change comes as a staircase. The climate's effects move with it.
-SEASON_TURNING = 0.5
+SEASON_TURNING = 0.1
 WAVE_BAND = 2
 WAVE_FRONT = 4
 # A dead animal is a fresh kill, not yet carrion, through the turn it died and FRESH_KILL_TURNS more;
@@ -441,6 +449,8 @@ def zone_temperature(y: int, height: int) -> int:
     """A row's temperature outside the winters: cold in the arctic, hot on the equator, medium
     between."""
     place = (y + 0.5) / height
+    if place < POLAR_SHARE or place > 1 - POLAR_SHARE:
+        return VERY_COLD
     if place < ARCTIC_SHARE or place > 1 - ARCTIC_SHARE:
         return COLD
     return HOT if abs(place - 0.5) < EQUATOR_SHARE / 2 else MEDIUM
@@ -450,7 +460,11 @@ def in_winter(y: int, height: int, quarter: int) -> bool:
     """Whether a row is in winter in a quarter of the year: the north and the equator in the second,
     the south and the equator in the fourth."""
     place = (y + 0.5) / height
+    if place < POLAR_SHARE or place > 1 - POLAR_SHARE:
+        return False  # the polar caps are very cold all year
     equator = abs(place - 0.5) < EQUATOR_SHARE / 2
+    if equator and abs(place - 0.5) < WINTER_EQUATOR_SHARE / 2:
+        return False  # the equator's heart stays hot
     return (quarter == 1 and (place < 0.5 or equator)) or (quarter == 3 and (place > 0.5 or equator))
 
 
@@ -1651,7 +1665,11 @@ class Simulation:
         herd, herd_near, herd_middle = self._herd(agent)
         here = self._climate[agent.y]
         discomfort = agent.climate_steps(here)
-        comfort = self._comfort_row(agent, sight) if discomfort else None
+        # The nearest row it would feel at home in, however far, and the same only if within sight.
+        home = self._comfort_row(agent, self.height) if discomfort else None
+        comfort = home if home is not None and abs(home[1] - agent.y) <= sight else None
+        home_distance = (0.0 if not discomfort else 1.0 if home is None
+                         else min(1.0, abs(home[1] - agent.y) / (0.5 * self.height)))
         seen_hunter = hunter  # what it sees itself, to alert its herd to
         alarm_source = None
         if agent.alarm is not None:
@@ -1764,6 +1782,8 @@ class Simulation:
             danger_remembered=(self._remembered(agent, agent.danger_memory)
                                * max(0.0, self._closeness(agent, agent.danger_memory and agent.danger_memory[:2], sight))),
             home_food=self._home_food_sense(agent),
+            home_direction=0.0 if home is None else (1.0 if home[1] > agent.y else -1.0),
+            home_distance=home_distance,
             **{trait: agent.feeling(trait) for trait in TEMPERAMENT},
             **agent.genes,
         )
@@ -1773,6 +1793,7 @@ class Simulation:
                      "others": others, "defend_target": defend_target, "for_herd": assailant is None,
                      "herd": herd, "herd_near": herd_near, "herd_middle": herd_middle,
                      "exposure": min(2, discomfort) / 2 * agent.exposure_share(here), "uprootable": uprootable,
+                     "home_distance": home_distance * agent.exposure_share(here),
                      "alert_to": alert_to, "revisit": agent.food_memory and agent.food_memory[:2]}
         return senses, [ACTIONS.index(action) for action in ACTIONS if action in available], situation
 
@@ -1803,13 +1824,14 @@ class Simulation:
         if not situation.get("herd", True) and not solitary(agent.species):  # a loner misses no herd
             herding -= HERD_LONELINESS * instinct
         herding *= 0.5 + agent.fearfulness  # the fearful feel their herd, and its absence, most
-        exposed = CLIMATE_UNEASE * situation.get("exposure", 0.0)
+        # and more the further home lies, so every step toward it is felt, not only the last.
+        exposed = CLIMATE_UNEASE * situation.get("exposure", 0.0) + HOMEWARD_UNEASE * situation.get("home_distance", 0.0)
         return company - dread - unease - crowded + herding - exposed
 
     @staticmethod
     def _discount(agent: Bitzkey) -> float:
         """How much the future counts against the present: more for the patient."""
-        return 0.7 + 0.27 * agent.feeling("patience")
+        return 0.7 + (PATIENT_DISCOUNT - 0.7) * agent.feeling("patience")
 
     @staticmethod
     def _learning_rate(agent: Bitzkey) -> float:

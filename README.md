@@ -387,8 +387,9 @@ gave each option, and for a corpse, the meat left on it.
 ## Seasons and Climate
 
 The map is banded into climate zones across its height. The top and bottom 20%
-are arctic, cold; a strip of 20% across the middle is the equator, hot; the two
-bands between are temperate, medium. The top and bottom edges of the map are
+are arctic, cold, and their outermost 2.5% are polar caps, very cold all year
+round whatever the season (Polar caps); a strip of 20% across the middle is the
+equator, hot; the two bands between are temperate, medium. The top and bottom edges of the map are
 barriers: nothing walks, flees or is born across them, and seeds that would fall
 beyond them are lost. East and west still wrap round. The world is light grey, each row tinted
 by its temperature now: reddish brown where hot, green where medium, white where
@@ -398,9 +399,10 @@ turns.
 A year is 360 turns by default (the year length setting), in four quarters,
 starting mild. Through the second quarter (the northern winter) everything from
 the top of the map down to and through the equator is a step colder: the arctic
-very cold, the temperate zone cold, the equator medium. The third quarter is
+very cold, the temperate zone cold, the equator medium but for a strip of 5% across
+its middle, which stays hot through both winters (Winter equator). The third quarter is
 mild again. Through the fourth quarter (the southern winter) the same happens
-from the bottom up to and through the equator. The sidebar shows the year and season.
+from the bottom up to and through the equator. The polar caps never change. The sidebar shows the year and season.
 
 The weather doesn't change all at once: it comes in waves, one in each climate
 zone, all setting off together as the season turns, so no zone waits on another
@@ -408,7 +410,9 @@ and an animal can always see where the weather is headed. In each zone a winter
 washes in from the side toward its hemisphere's edge (the top of the map for the
 north, the bottom for the south) across to the side toward the equator, and as it
 ends ebbs back the way it came. Each wave crosses its zone in bands of two rows
-over the first half of each season (45 turns of a 360-turn year). At its front four bands stand part way
+over the first tenth of each season (9 turns of a 360-turn year), faster than an animal can
+flee it, so only those that set off before it arrives escape it (the Season turning rule; it was
+half a season, slow enough to outrun). At its front four bands stand part way
 between the old weather and the new, each a quarter step further on than the
 band ahead of it, so the change comes as a staircase an animal can see within
 its sight: winter behind the front, the old season ahead of it. Each band turns
@@ -418,13 +422,14 @@ extra food and loses half a step's health, and grass grows in a row, and dies
 back in it, by how medium the row is. The world's first season starts settled.
 
 Every Bitzkey has a home temperature. An animal a step or more from home needs
-twice the food, and loses 1% of its full health a turn for each step it is from home:
-1% one step away, 2% two and 3% three (the Climate damage rule; it was once 10% a step,
+twice the food, and loses 2.5% of its full health a turn for each step it is from home:
+2.5% one step away, 5% two and 7.5% three (the Climate damage rule; it was 1% until harsher
+seasons were wanted to make leaving early worth learning, and once 10% a step,
 which killed most animals a season's turn caught away from home before they could move). It may freeze or overheat to death. An animal that starves while out of its
 temperature has died of exposure too: it froze or overheated. Heat tolerance
 halves the penalties of heat, and cold tolerance those of cold: a cold-tolerant
 animal two steps too cold needs half again as much food rather than double, and
-loses 1% of its health a turn rather than 2%. Tolerance
+loses 2.5% of its health a turn rather than 5%. Tolerance
 is rare at the start: each random starting genome carries each flag only one
 time in ten, so hardiness has to spread by breeding. Plants ignore the tolerance
 flags. Nearer another temperature than its own, a plant neither regrows nor
@@ -448,6 +453,8 @@ where they stand and at the edge of their sight to the north and to the south.
 These read the zones' colours, so they change gradually as the weather turns,
 and an animal can feel a winter setting in before it bites. Being out of their temperature makes them uneasy, strongly so, and the more so the further from
 home (half as much for the hardy), so a step back toward home is felt at once and their brains soon learn to keep to it.
+Away from home they are uneasier still the further the nearest row they would feel at home in lies, however far beyond
+their sight (Homeward unease), so every step toward it is felt, not only the last.
 They can head north or south, but there is no action that seeks home out for
 them; any migration emerges from what their brains learn to do with those senses
 and the time of year. Foraging never leads further from home: an animal ignores
@@ -515,6 +522,8 @@ neural network, and that brain chooses everything it does. Each turn it senses:
   learn the seasons' rhythm and what each brings
 - how far the temperature is from home, and how close home weather is (see
   Seasons and Climate)
+- which way, north or south, the nearest row where it would feel at home lies,
+  and how far, however far beyond its sight
 - how far north or south it is, and how much warmer or colder than home it is
   here and at the edge of its sight to the north and to the south
 - how fresh its memory of where it last fed is, and how close it is to where it
@@ -524,7 +533,7 @@ neural network, and that brain chooses everything it does. Each turn it senses:
 - its own genome: each of its dot's and social background's traits as born, each
   of its ring's traits (species among them) and its climate genes
 
-That is 88 senses in all. Its brain has a hidden layer for each point of its
+That is 90 senses in all. Its brain has a hidden layer for each point of its
 inborn intellect, at least one and up to four, each of 38 neurons; beyond four,
 each point of intellect adds five neurons to every layer instead. So the dullest
 think with one layer of 38 neurons, and the brightest with four layers of 53.
@@ -545,7 +554,7 @@ five times over to give up hunting. Each turn it re-learns from its most recent 
 of inborn intellect, so the brightest go over their last fourteen while the
 dullest replay none (Replays per intellect). And it traces an outcome further back
 through the choices that led to it: its trace decay runs from 0.7 for the dullest
-to 0.9 for the brightest (Trace decay, smartest). Replaying costs time: in a busy
+to 0.95 for the brightest (Trace decay, smartest). Replaying costs time: in a busy
 world it can double the time each turn spends learning.
 
 It then picks one of the actions open to it: eat, forage, browse, uproot,
@@ -574,8 +583,9 @@ untaught animal doesn't march away from its range, its herd and its food before
 it has learned where to go. What a walk saves and what going far costs are
 advanced rules (the Bodies group). Foraging walks toward the
 nearest grass in sight; a tuft sates 18 hunger, about a tenth of a kill. Grazers get 1.25 times the food in grass and plants; omnivores half of grass and three quarters of plants. Browsing walks to the nearest
-plant in sight and, once alongside, takes a bite: 37 hunger, up to 103 from the
-largest plants, a fifth of a kill of the same size and far more than grass. Each bite costs the plant 15 health, and
+plant in sight and, once alongside, takes a bite: 70 hunger whatever the plant's size, far
+more than grass. Each bite costs the plant 15 health, so a plant is eaten in portions in
+proportion to its size, 4 bites from the smallest and 10 from the largest, and
 plants regrow 2% of their health each turn. A bitten plant can't be bitten again
 for 8 turns, so browsers move on, but enough bites in time kill one, and a dead
 plant leaves no meat. A desperate grazer may uproot a plant beside it instead:
@@ -623,7 +633,8 @@ and the pain of others; what counts is how much better or worse it feels, not
 how good it feels. Death is heavily punished. What comes of a choice also reaches
 back to the choices that led to it (TD(lambda) learning): each weight keeps a
 trace of how recently and how much it shaped the brain's choices, fading each
-turn by its discount (more for the patient) times nine tenths, so a death or a
+turn by its discount (0.7 for the least patient, up to 0.99 for the most: Discount, most
+patient) times its trace decay, so a death or a
 meal is credited to the run of choices before it, not just the last one. How far
 back it reaches is an advanced rule (the Mind group), as is how reluctant a new
 brain is to set off in a direction. A child's brain is as deep and as wide as

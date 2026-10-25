@@ -401,7 +401,8 @@ class BitzkeyApp:
         elif self._advanced_button.collidepoint(position):
             self._edit_rules()
         elif self._save_button.collidepoint(position):
-            self._save_world()
+            if self._save_world() and not self.simulation.ended:
+                self.playing = True  # saved: it plays on
         elif picked := [identifier for card, identifier in self._exemplar_cards if card.collidepoint(position)]:
             self._select(picked[0])
         elif self._map_view()[0].collidepoint(position):  # a click on the map, pressed and let go at once

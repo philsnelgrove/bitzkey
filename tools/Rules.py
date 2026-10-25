@@ -140,6 +140,8 @@ _TABLE: dict[str, list[tuple]] = {
         ("UNEASE", "Unease", "how much an intolerant animal minds other species close by", 0.0, 5.0, 0.05),
         ("CLIMATE_UNEASE", "Climate unease", "discomfort two steps from home, half that one step; less if hardy",
          0.0, 5.0, 0.05),
+        ("HOMEWARD_UNEASE", "Homeward unease", "more discomfort the further home lies, this much half the map away; "
+         "each step home eases it", 0.0, 5.0, 0.05),
         ("EMPATHY_PAIN", "Empathy pain", "how much an empathetic animal feels another's wound", 0.0, 5.0, 0.05),
         ("OTHER_KIND", "Other kind", "how much of that pain reaches it for another species", 0.0, 1.0, 0.05),
     ],
@@ -158,6 +160,8 @@ _TABLE: dict[str, list[tuple]] = {
     ],
     "Mind": [
         ("LEARNING_RATE", "Learning rate", "how fast a brain learns, at the highest intellect", 0.0, 0.5, 0.005),
+        ("PATIENT_DISCOUNT", "Discount, most patient", "how much the most patient value what comes later (gamma); "
+         "the least patient keep 0.7", 0.7, 0.999, 0.001),
         ("TRACE_DECAY", "Trace decay", "how far back a choice's outcome reaches earlier choices (lambda)",
          0.0, 1.0, 0.05),
         ("SMART_TRACE_DECAY", "Trace decay, smartest", "trace decay at the highest intellect; the lowest keeps the one above",
@@ -297,8 +301,9 @@ _TABLE: dict[str, list[tuple]] = {
     ],
     "Food": [
         ("GRASS_MEAL", "Grass meal", "hunger a tuft of grass sates", 0, 200, 1),
-        ("PLANT_MEAL", "Plant meal", "hunger a bite of a plant sates", 0, 200, 1),
-        ("PLANT_MEAL_FOR_SIZE", "Plant meal for size", "more hunger sated, up to this for the largest plants",
+        ("PLANT_MEAL", "Plant meal", "hunger a bite of a plant sates; a plant has a bite for every 15 of its health, "
+         "more the larger", 0, 200, 1),
+        ("PLANT_MEAL_FOR_SIZE", "Plant meal for size", "more hunger a bite sates, up to this for the largest plants",
          0, 200, 1),
         ("PLANT_BITE", "Plant bite", "health a plant loses to each bite", 0, 200, 1),
         ("PLANT_REGROWTH", "Plant regrowth", "share of its health a plant regrows each turn", 0.0, 1.0, 0.005),
@@ -328,6 +333,10 @@ _TABLE: dict[str, list[tuple]] = {
         ("ARCTIC_SHARE", "Arctic", "share of the map's height that is arctic, at the top and again at the bottom",
          0.0, 0.5, 0.05),
         ("EQUATOR_SHARE", "Equator", "share of the map's height across its middle that is the equator", 0.0, 1.0, 0.05),
+        ("POLAR_SHARE", "Polar caps", "share of the map's height at the top and again at the bottom that is very cold all year",
+         0.0, 0.5, 0.005),
+        ("WINTER_EQUATOR_SHARE", "Winter equator", "share of the map's height across the equator's middle that stays hot "
+         "through both winters", 0.0, 1.0, 0.01),
         ("CLIMATE_HUNGER", "Climate hunger", "times the food needed a step or more from home (a plant, only too hot)",
          1.0, 5.0, 0.1),
         ("CLIMATE_DAMAGE", "Climate damage", "share of full health lost a turn for each step from home (plants from two)",

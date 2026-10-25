@@ -104,6 +104,9 @@ class _Reader:
             raise ValueError("The world file's numbers are cut short.")
         self.numbers = np.frombuffer(data, dtype="<f8")
         self.ints = np.frombuffer(ints, dtype="<i4")
+        # For a world saved with other senses: how many it saved, and where each sensed now lies among them, or -1.
+        self.saved_inputs = INPUT_SIZE
+        self.sense_from: list[int] | None = None
 
     def whole(self, at: int, count: int) -> np.ndarray:
         if at < 0 or at + count > self.ints.size:
@@ -126,9 +129,13 @@ class _Reader:
         for _ in range(2 if record["traced"] else 1):
             layers = []
             for index in range(depth):
-                reads = INPUT_SIZE if index == 0 else width
-                weights = self.take(at, width * reads).reshape(width, reads)
-                at += width * reads
+                if index == 0:  # a row of senses for each neuron
+                    weights = np.array([self._as_senses(self.take(at + neuron * self.saved_inputs, self.saved_inputs))
+                                        for neuron in range(width)])
+                    at += width * self.saved_inputs
+                else:
+                    weights = self.take(at, width * width).reshape(width, width)
+                    at += width * width
                 biases = self.take(at, width)
                 at += width
                 layers.append((weights, biases))
@@ -146,7 +153,13 @@ class _Reader:
         return brain if (brain.depth, brain.width) == shape else brain.resized(*shape)
 
     def senses(self, at: int | None) -> list[float] | None:
-        return None if at is None else self.take(int(at), INPUT_SIZE).tolist()
+        return None if at is None else self._as_senses(self.take(int(at), self.saved_inputs)).tolist()
+
+    def _as_senses(self, saved: np.ndarray) -> np.ndarray:
+        """One set of saved senses, or one neuron's weights from them, as this version's senses."""
+        if self.sense_from is None:
+            return saved
+        return np.array([0.0 if index < 0 else saved[index] for index in self.sense_from])
 
 
 def _genome(dna: int) -> str:
@@ -309,8 +322,14 @@ def world_from_bytes(data: bytes) -> Simulation:
 def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
     if record.get("format") != format_:
         raise ValueError(f"This world file is format {record.get('format')}; this version reads format {WORLD_FORMAT}.")
-    if (record["senses"], record["actions"], record["temperament"]) != (list(SENSES), list(ACTIONS), list(TEMPERAMENT)):
+    if (record["actions"], record["temperament"]) != (list(ACTIONS), list(TEMPERAMENT)):
         raise ValueError("This world was saved by a version of Bitzkey whose brains sense or act differently.")
+    # Brains saved with other senses are read by name: a sense they lacked starts with no weight, and one no longer
+    # sensed is let go.
+    if record["senses"] != list(SENSES):
+        saved_at = {name: index for index, name in enumerate(record["senses"])}
+        numbers.saved_inputs = len(record["senses"])
+        numbers.sense_from = [saved_at.get(name, -1) for name in SENSES]
     rules = {key: value for key, value in record["rules"].items() if key in Rules.BY_KEY}
     rules.update({key: Rules.get(key) for key in MACHINE_RULES})
     Rules.apply(rules)

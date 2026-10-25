@@ -2576,6 +2576,7 @@ class SquareTests(unittest.TestCase):
     @patch("tools.Simulation.NEWBORN_FOOD", 0.0)
     @patch("tools.Simulation.PLANTS_PER_GRAZER", 0.0)
     def test_several_young_are_born_into_one_square_while_it_has_room(self):
+        self.simulation.body_mutation = 0  # the young as large as their parents
         dna = encode_dna("grazer", fertility=7, litter=7, size=1)  # two spaces each: six young
         first = self.simulation._add_agent(dna, 5, 5)
         second = self.simulation._add_agent(dna, 5, 6)
