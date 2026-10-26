@@ -76,7 +76,7 @@ EXEMPLAR_STATS = (
     ("HEALTHIEST", "state", "health", False), ("MOST WOUNDED", "state", "health", True),
     ("LONGEST LIFESPAN", "state", "lifespan", False), ("SHORTEST LIFESPAN", "state", "lifespan", True),
     ("FASTEST METABOLISM", "state", "burn", False), ("SLOWEST METABOLISM", "state", "burn", True),
-    ("BIGGEST STOMACH", "state", "stomach", False), ("DEEPEST BRAIN", "state", "depth", False),
+    ("BIGGEST STOMACH", "state", "stomach", False), ("MOST NEURONS", "state", "neurons", False),
     ("MOST HERD-MINDED", "state", "herd", False), ("MOST CHANGED BY EXPERIENCE", "state", "changed", False),
 )
 # The statistic each card shows, left column then right, top to bottom; changed from a card's title,
@@ -97,8 +97,8 @@ def exemplar_value(agent: Bitzkey, kind: str, name: str) -> float:
         return int(decode_climate(agent.dna)[0])
     if name == "health":
         return agent.health / agent.max_health
-    if name == "depth":
-        return agent.brain.depth if agent.brain else 0
+    if name == "neurons":  # in its hidden layers
+        return agent.brain.depth * agent.brain.width if agent.brain else 0
     if name == "herd":
         return agent.herd_instinct
     if name == "changed":  # how far experience has moved its temperament from what it was born with
@@ -117,7 +117,7 @@ def exemplar_text(agent: Bitzkey, kind: str, name: str) -> str:
             "generation": lambda: f"generation {int(value)}", "hunger": lambda: f"hunger {int(value)}%",
             "health": lambda: f"health {int(value * 100)}%", "lifespan": lambda: f"lifespan {int(value)} turns",
             "burn": lambda: f"burn {value:.2f}", "stomach": lambda: f"stomach {value:.2f}",
-            "depth": lambda: f"brain {int(value)} deep", "herd": lambda: f"herd instinct {value:.2f}",
+            "neurons": lambda: f"{int(value)} neurons", "herd": lambda: f"herd instinct {value:.2f}",
             "changed": lambda: f"changed {value:.1f}"}[name]()
 
 
@@ -998,7 +998,7 @@ class BitzkeyApp:
         total = self.simulation.deaths
         self.report = Report("Death report", f"Every death in this world up to turn {self.simulation.turn}: {total} in all, "
                              "by cause and species, who killed whom and what the killers were doing, and the deadliest "
-                             "killers.", death_report_lines(self.simulation.deaths_so_far(), tr))
+                             "killers.", death_report_lines(self.simulation.death_tally, tr))
 
     def _inspect_brains(self) -> None:
         """Pause, and show the selected Bitzkey's chance of choosing each action in each standard situation."""

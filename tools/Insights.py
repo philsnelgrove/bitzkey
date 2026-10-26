@@ -273,14 +273,56 @@ SITUATION = 42  # characters to the situations' column
 DEADLIEST = 10  # the killers the death report names
 
 
-def death_report_lines(deaths: Iterable[Death], word=None) -> list[str]:
+class DeathTally:
+    """Every death since the world began, counted as it happens rather than kept one by one: by cause and the
+    species of the dead; who killed whom; what the killers were doing; and each killer's kills, for the living and
+    for the DEADLIEST of those gone (the rest let go, see let_go). As the C++ version's."""
+
+    def __init__(self) -> None:
+        self.causes: dict[str, dict[str, int]] = {}      # by cause, by the species of the dead
+        self.whom: dict[str, dict[str, int]] = {}        # by the species of the dead, by their killers'
+        self.activities: dict[str, dict[str, int]] = {}  # by what the killers were doing, by the killers' species
+        self.killers = 0                                 # how many Bitzkeys have ever killed
+        self.by_killer: dict[int, list] = {}             # by identifier: [species, kills, {doing: kills}]
+
+    def add(self, death: Death) -> None:
+        counts = self.causes.setdefault(death.cause, {})
+        counts[death.species] = counts.get(death.species, 0) + 1
+        if death.killer is None:
+            return
+        counts = self.whom.setdefault(death.species, {})
+        counts[death.killer_species] = counts.get(death.killer_species, 0) + 1
+        counts = self.activities.setdefault(death.activity, {})
+        counts[death.killer_species] = counts.get(death.killer_species, 0) + 1
+        if death.killer not in self.by_killer:  # a killer let go of can kill no more, so none is counted twice
+            self.by_killer[death.killer] = [death.killer_species, 0, {}]
+            self.killers += 1
+        killer = self.by_killer[death.killer]
+        killer[1] += 1
+        killer[2][death.activity] = killer[2].get(death.activity, 0) + 1
+
+    def let_go(self, alive) -> None:
+        """Forget the killers no longer `alive` but the DEADLIEST of them, so the tally doesn't grow with the run."""
+        gone = sorted((identifier for identifier in self.by_killer if not alive(identifier)),
+                      key=lambda identifier: -self.by_killer[identifier][1])
+        for identifier in gone[DEADLIEST:]:
+            del self.by_killer[identifier]
+
+
+def death_report_lines(deaths, word=None) -> list[str]:
     """Every death so far, back to the world's start: a table of causes by the species of the dead, the most
     common first; who killed whom, by the species of the dead and of their killers; what the killers were doing,
-    by the killers' species; and the deadliest killers, each with its kills by what it was doing.
+    by the killers' species; and the deadliest killers, each with its kills by what it was doing. `deaths` is a
+    DeathTally, or the deaths themselves, to tally.
 
     Given `word`, a translation for each piece of text, the tables' cells are parted by tabs instead of padded,
     for the app to line them up in columns in any script."""
-    deaths = list(deaths)
+    if not isinstance(deaths, DeathTally):
+        tally = DeathTally()
+        for death in deaths:
+            tally.add(death)
+        deaths = tally
+    tally = deaths
     tabs = word is not None
     word = word or (lambda text: text)
 
@@ -297,47 +339,34 @@ def death_report_lines(deaths: Iterable[Death], word=None) -> list[str]:
                          + f"{sum(counts.values()):>10}")
         return lines
 
-    def tally(key, column) -> list[tuple[str, dict[str, int]]]:
-        """Rows by `key`, the most common first, each counting its deaths by `column`'s species."""
-        rows: dict[str, dict[str, int]] = {}
-        for death in deaths:
-            label = key(death)
-            if label is not None:
-                counts = rows.setdefault(label, {})
-                counts[column(death)] = counts.get(column(death), 0) + 1
-        return sorted(rows.items(), key=lambda item: (-sum(item[1].values()), item[0]))
+    def ranked(rows: dict[str, dict[str, int]]) -> list[tuple[str, dict[str, int]]]:
+        """The rows, the most common first."""
+        return sorted(((label, counts) for label, counts in rows.items() if sum(counts.values())),
+                      key=lambda item: (-sum(item[1].values()), item[0]))
 
     by_species: dict[str, int] = {}
-    for death in deaths:
-        by_species[death.species] = by_species.get(death.species, 0) + 1
-    total = ([word("ALL"), *(str(by_species.get(species, 0)) for species in SPECIES_ORDER), str(len(deaths))] if tabs else
-             [f"{'ALL':<18}" + "".join(f"{by_species.get(species, 0):>10}" for species in SPECIES_ORDER) + f"{len(deaths):>10}"])
-    lines = table("CAUSE", tally(lambda death: death.cause, lambda death: death.species)) + ["\t".join(total)]
-    kills = [death for death in deaths if death.killer is not None]
+    for counts in tally.causes.values():
+        for species, count in counts.items():
+            by_species[species] = by_species.get(species, 0) + count
+    everyone = sum(by_species.values())
+    total = ([word("ALL"), *(str(by_species.get(species, 0)) for species in SPECIES_ORDER), str(everyone)] if tabs else
+             [f"{'ALL':<18}" + "".join(f"{by_species.get(species, 0):>10}" for species in SPECIES_ORDER) + f"{everyone:>10}"])
+    lines = table("CAUSE", ranked(tally.causes)) + ["\t".join(total)]
+    kills = sum(sum(counts.values()) for counts in tally.whom.values())
     if not kills:
         return lines + ["", word("Nothing has killed anything yet.")]
-    lines += ["", word(f"WHO KILLED WHOM: {len(kills)} killed, by the species of the dead (rows) and of their killers (columns)")]
-    rows: dict[str, dict[str, int]] = {species: {} for species in SPECIES_ORDER}
-    for death in kills:
-        rows[death.species][death.killer_species] = rows[death.species].get(death.killer_species, 0) + 1
-    lines += table("THE DEAD", [(species, counts) for species, counts in rows.items() if counts])
+    lines += ["", word(f"WHO KILLED WHOM: {kills} killed, by the species of the dead (rows) and of their killers (columns)")]
+    lines += table("THE DEAD", [(species, tally.whom[species]) for species in SPECIES_ORDER if tally.whom.get(species)])
     lines += ["", word("WHAT THE KILLERS WERE DOING, by the killers' species")]
-    lines += table("ACTIVITY", tally(lambda death: death.activity if death.killer is not None else None,
-                                     lambda death: death.killer_species))
-    killers: dict[int, list[Death]] = {}
-    for death in kills:
-        killers.setdefault(death.killer, []).append(death)
-    deadliest = sorted(killers.items(), key=lambda item: (-len(item[1]), item[0]))[:DEADLIEST]
-    lines += ["", word(f"THE DEADLIEST KILLERS, {len(deadliest)} of {len(killers)}")]
-    for killer, theirs in deadliest:
-        doing: dict[str, int] = {}
-        for death in theirs:
-            doing[death.activity] = doing.get(death.activity, 0) + 1
-        what = ", ".join(f"{word(activity)} {count}" for activity, count in sorted(doing.items(), key=lambda item: (-item[1], item[0])))
+    lines += table("ACTIVITY", ranked(tally.activities))
+    deadliest = sorted(tally.by_killer.items(), key=lambda item: (-item[1][1], item[0]))[:DEADLIEST]
+    lines += ["", word(f"THE DEADLIEST KILLERS, {len(deadliest)} of {tally.killers}")]
+    for killer, (kind, count, doing) in deadliest:
+        what = ", ".join(f"{word(activity)} {done}" for activity, done in sorted(doing.items(), key=lambda item: (-item[1], item[0])))
         if tabs:
-            lines.append("\t".join([f"#{killer:03d}", word(theirs[0].killer_species), str(len(theirs)), word("killed"), what]))
+            lines.append("\t".join([f"#{killer:03d}", word(kind), str(count), word("killed"), what]))
         else:
-            lines.append(f"#{killer:03d} {theirs[0].killer_species:<10}{len(theirs):>4} killed   {what}")
+            lines.append(f"#{killer:03d} {kind:<10}{count:>4} killed   {what}")
     return lines
 
 

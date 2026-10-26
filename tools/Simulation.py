@@ -27,7 +27,7 @@ from tools.Genome import (GENOME, SPECIES, TEMPERAMENT, TRAIT_MAX, body_word, co
                           decode_temperament, decode_terrain, fits, make_dna, mind_word, share, swims, walks, with_terrain)
 from tools.Census import Census
 from tools.Exchange import Imported
-from tools.Insights import Insights
+from tools.Insights import DeathTally, Insights
 
 
 GRID_SIZE = 100
@@ -73,6 +73,11 @@ SPAWN_SPREAD = 2      # a group's members appear within this many cells of each 
 # top of its population, each at home there: the zone's usual temperature its home, and a terrain that suits it, the
 # first the surface's own (terrestrial on land, aquatic at sea) and the rest any that may live there.
 BIOME_GROUPS = 2
+# Each death is kept whole, for the graph's tooltips, for this many turns; the death report counts every death since
+# the world began as it happens (see DeathTally), and the tally lets go of the killers gone, but the deadliest, every
+# KILLERS_LET_GO turns.
+RECENT_DEATH_TURNS = 1000
+KILLERS_LET_GO = 100
 BIOME_SIZE = 25
 # A square holds CELL_SPACE spaces, and every Bitzkey, plant or animal, takes 1 + its size of them. Bitzkeys share
 # a square, and meet there as they would alongside, but none is born, moves or spawns into one without room for it.
@@ -1117,7 +1122,8 @@ class Simulation:
         self.lineage: dict[int, int] = {}
         self.lineage_first = 0
         # Each death, by the dead Bitzkey's identifier: back to the graph's start, for the graph and the death report.
-        self.death_records: dict[int, Death] = {}
+        self.death_records: dict[int, Death] = {}  # each death of the last RECENT_DEATH_TURNS turns
+        self.death_tally = DeathTally()  # every death since the world began, counted
         self._death_order: deque[tuple[int, int]] = deque()  # (turn, identifier) of each death, oldest first
         self.turn = 0
         self.deaths = 0
@@ -1691,6 +1697,20 @@ class Simulation:
     def _take_census(self) -> None:
         if self.census.record(self.turn, (agent.identifier for agent in self.living)):
             self._forget_before(self.census.snapshots[0][0])
+        self._forget_old_deaths()
+
+    def _forget_old_deaths(self) -> None:
+        """Forget the deaths kept whole from before the last RECENT_DEATH_TURNS turns, and now and then the killers
+        gone."""
+        order, start = self._death_order, self.turn - RECENT_DEATH_TURNS
+        while order and order[0][0] < start:  # oldest first, so only those forgotten are looked at
+            self._forget_death(*order.popleft())
+        if self.turn % KILLERS_LET_GO == 0:
+            self.death_tally.let_go(self._alive)
+
+    def _alive(self, identifier: int) -> bool:
+        agent = self.find_agent(identifier)
+        return agent is not None and agent.alive
 
     def _forget_before(self, start: int) -> None:
         """Forget the deaths before the graph's start, and the genomes of the Bitzkeys neither on
@@ -2151,8 +2171,8 @@ class Simulation:
         return self.random.random() < steepness * (agent.age - onset)
 
     def deaths_so_far(self) -> list[Death]:
-        """Every death from the graph's start to the turn it is at, rewound or not."""
-        return [death for death in self.death_records.values() if death.turn <= self.turn]
+        """Every death of the last RECENT_DEATH_TURNS turns."""
+        return list(self.death_records.values())
 
     def _die(self, agent: Bitzkey, cause: str, killer: Bitzkey | None = None, activity: str | None = None) -> None:
         """Record a death, with what killed it and what the killer was doing. The body becomes carrion holding
@@ -2162,6 +2182,7 @@ class Simulation:
                                                      None if killer is None else killer.identifier,
                                                      None if killer is None else killer.species, activity)
         self._death_order.append((self.turn, agent.identifier))
+        self.death_tally.add(self.death_records[agent.identifier])
         if killer is not None and agent.womb and killer.species in ("predator", "omnivore"):
             # A hunter that killed a mother carrying young feels remorse for it.
             if killer.alive and killer.brain is not None:

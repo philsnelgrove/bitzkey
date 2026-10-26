@@ -1440,7 +1440,7 @@ class NewTraitTests(unittest.TestCase):
             hunts += predator.last_action in ("hunted", "pounced")
         self.assertGreater(hunts, 30)  # an untrained brain, overwhelmingly drawn to the hunt
 
-    def test_deaths_are_counted_by_species_and_cause_and_rewound(self):
+    def test_deaths_are_counted_by_species_and_cause(self):
         from tools.Insights import death_report_lines
         world = Simulation(width=30, height=30, population=60, seed=4)
         for _ in range(60):
@@ -1459,6 +1459,29 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(sum(int(line.split()[-1]) for line in doing[1:doing.index("")]), killings)
         self.assertEqual(sum(sum(causes.values()) for causes in world.death_causes.values()), world.deaths)
         self.assertEqual(len(world.deaths_so_far()), world.deaths)
+        self.assertEqual(death_report_lines(world.death_tally), lines)  # counted as they happened, the same as from them all
+
+    def test_deaths_are_kept_whole_only_for_the_latest_turns_and_the_tally_keeps_only_the_deadliest_killers_gone(self):
+        from tools.Insights import DEADLIEST, DeathTally, death_report_lines
+        from tools.Simulation import Death, RECENT_DEATH_TURNS
+        tally = DeathTally()
+        for killer in range(DEADLIEST + 5):
+            for _ in range(killer + 1):
+                tally.add(Death("killed", "grazer", 1, killer, "predator", "hunting"))
+        tally.add(Death("starved", "grazer", 1))
+        self.assertEqual((tally.killers, tally.whom["grazer"]["predator"]), (DEADLIEST + 5, (DEADLIEST + 5) * (DEADLIEST + 6) // 2))
+        tally.let_go(lambda identifier: identifier == 0)  # the least deadly still alive
+        self.assertEqual(len(tally.by_killer), DEADLIEST + 1)
+        self.assertTrue(0 in tally.by_killer and 1 not in tally.by_killer and DEADLIEST + 4 in tally.by_killer)
+        self.assertEqual(tally.killers, DEADLIEST + 5)  # still counted
+        with patch("tools.Simulation.CLIMATE_DAMAGE", 0):  # a world that lasts
+            world = Simulation(width=20, height=20, population=40, seed=3)
+            for _ in range(RECENT_DEATH_TURNS + 50):
+                world.advance()
+        self.assertGreater(world.turn, RECENT_DEATH_TURNS)
+        self.assertTrue(all(death.turn >= world.turn - RECENT_DEATH_TURNS for death in world.deaths_so_far()))
+        total = next(line for line in death_report_lines(world.death_tally) if line.startswith("ALL "))
+        self.assertTrue(total.endswith(f"{world.deaths:>10}"))  # yet every death counted
 
     def test_a_brain_matrix_shows_each_situation_its_species_meets(self):
         from tools.Insights import SCENARIOS, brain_matrix, brain_matrix_lines

@@ -21,7 +21,11 @@ make it enormous goes in the other parts, and the JSON part names where:
 - "lineage" {"at", "count", "first"}: the genome of every Bitzkey from identifier "first" on (0 if missing;
   those before it are off the graph and forgotten), three whole numbers each (the social background word,
   the ring, the dot, as unsigned words).
-- "death_records" {"at", "count"}: every death since the graph's start, seven whole numbers each: the dead's identifier, its cause
+- "death_tally": every death since the world began, counted: "causes" and "activities" {label: four counts, by species},
+  "whom" (four rows of four counts: the dead's species, by the killers'), "killers" (how many ever killed), and
+  "by_killer" [[identifier, species, kills, {doing: kills}]...], the killers kept. Missing, as from versions before it,
+  it is tallied from the deaths the file keeps whole.
+- "death_records" {"at", "count"}: every death of the last RECENT_DEATH_TURNS turns, seven whole numbers each: the dead's identifier, its cause
   (an index into "death_strings"), its species (an index into SPECIES), the turn, the killer's identifier,
   its species and what it was doing (an index into "death_strings"); the last three -1 for none.
 
@@ -43,6 +47,7 @@ from tools import Rules
 from tools import Simulation as world
 from tools.Brain import ACTIONS, INPUT_SIZE, MAX_WIDTH, SENSES, Brain
 from tools.Genome import GENOME_VERSION, TEMPERAMENT, convert_v3
+from tools.Insights import DeathTally
 from tools.Simulation import SPECIES, Bitzkey, Death, Simulation, brain_shape
 
 WORLD_MAGIC = b"BITZKEY WORLD 2\n"
@@ -283,6 +288,7 @@ def world_bytes(simulation: Simulation) -> bytes:
         "rules": Rules.current(),
         "turn": simulation.turn, "deaths": simulation.deaths, "next_identifier": simulation.next_identifier,
         "death_causes": {species: dict(causes) for species, causes in simulation.death_causes.items()},
+        "death_tally": _tally_record(simulation.death_tally),
         "random": {"mt": list(internal[:624]), "index": internal[624], "gauss_next": gauss_next},
         "grass": [simulation.grass.get((x, y), 0) for y in range(simulation.height) for x in range(simulation.width)],
         "seeds": [[x, y, _genome(dna), generation, sown] for x, y, dna, generation, sown in simulation.seeds],
@@ -410,6 +416,13 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
     if before_terrain:
         simulation.lineage = {identifier: convert_v3(dna) for identifier, dna in simulation.lineage.items()}
     simulation._order_deaths()
+    untallied = "death_tally" not in record  # saved before deaths were tallied
+    if untallied:  # tallied from those it kept whole
+        simulation.death_tally = DeathTally()
+        for _, identifier in simulation._death_order:
+            simulation.death_tally.add(simulation.death_records[identifier])
+    else:
+        simulation.death_tally = _tally_from(record["death_tally"])
     simulation.agents = [_agent_from(agent, numbers, before_terrain) for agent in record["agents"]]
     simulation._update_climate()
     simulation._index_cells()
@@ -417,7 +430,30 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
     for agent, saved in zip(simulation.agents, record["agents"]):
         agent.population, agent.cost_share = int(saved["population"]), float(saved["cost_share"])
         agent.glut, agent.guarded = float(saved["glut"]), bool(saved["guarded"])
+    if untallied:  # and then, as now, only the latest deaths kept whole, and only the killers still alive and the deadliest
+        simulation._forget_old_deaths()
+        simulation.death_tally.let_go(simulation._alive)
     return simulation
+
+
+def _tally_record(tally: DeathTally) -> dict:
+    counts = lambda rows: {label: [row.get(species, 0) for species in SPECIES] for label, row in sorted(rows.items())}  # noqa: E731
+    return {"causes": counts(tally.causes), "whom": [[tally.whom.get(dead, {}).get(killer, 0) for killer in SPECIES] for dead in SPECIES],
+            "activities": counts(tally.activities), "killers": tally.killers,
+            "by_killer": [[identifier, SPECIES.index(kind), kills, dict(sorted(doing.items()))]
+                          for identifier, (kind, kills, doing) in sorted(tally.by_killer.items())]}
+
+
+def _tally_from(record: Mapping) -> DeathTally:
+    tally = DeathTally()
+    rows = lambda table: {label: {species: count for species, count in zip(SPECIES, counts) if count}  # noqa: E731
+                          for label, counts in table.items()}
+    tally.causes, tally.activities = rows(record["causes"]), rows(record["activities"])
+    tally.whom = {dead: {killer: count for killer, count in zip(SPECIES, counts) if count}
+                  for dead, counts in zip(SPECIES, record["whom"]) if any(counts)}
+    tally.killers = int(record["killers"])
+    tally.by_killer = {identifier: [SPECIES[kind], kills, dict(doing)] for identifier, kind, kills, doing in record["by_killer"]}
+    return tally
 
 
 def save_world(simulation: Simulation, path: str | Path) -> None:
