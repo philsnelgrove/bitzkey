@@ -84,6 +84,15 @@ BIOME_SIZE = 25
 CELL_SPACE = 10
 # Full hunger doesn't kill at once: a starving Bitzkey loses this share of its full health each turn.
 STARVING_DAMAGE = 0.1
+# What a large body costs, against all it gains, so that size isn't simply better: it burns 1 + SIZE_HUNGER times its
+# size squared as much (a share of the size range: twice as much at the largest, by default); it wastes away
+# 1 + SIZE_STARVING times its size as fast starving; a hunter's blow misses a small animal outright with a chance of
+# SMALL_HIDING times its smallness squared (40% at the smallest, none at the largest); and the smallest are infants
+# SMALL_MATURITY as long as their lifespans would make them, rising to the whole of it at the largest.
+SIZE_HUNGER = 1.0
+SIZE_STARVING = 1.0
+SMALL_HIDING = 0.4
+SMALL_MATURITY = 0.5
 # Meat lasts: the share of its fullness that is meat empties at this share of the usual rate.
 # Meat lasts seven times as long as plant food: a meal of meat a week to a meal of plants a day. An omnivore's mixed
 # fullness empties at the mix of the two rates.
@@ -822,9 +831,14 @@ class Bitzkey:
         is feeble: its body traits and health are at FEEBLE_SHARE. Plants never are."""
         if self.species == "plant":
             return False
-        lifespan = self.lifespan
-        infancy = FEEBLE_YOUTH * (PREDATOR_INFANCY if self.species == "predator" else 1.0)  # a predator's is shorter
-        return self.age < infancy * lifespan or self.age > AGEING * lifespan
+        return self.age < self.infancy or self.age > AGEING * self.lifespan
+
+    @property
+    def infancy(self) -> float:
+        """How long its infancy lasts, in turns: FEEBLE_YOUTH of its lifespan (a predator's PREDATOR_INFANCY as long),
+        the smallest SMALL_MATURITY of that, the larger more of it."""
+        maturity = SMALL_MATURITY + (1 - SMALL_MATURITY) * share(int(self.body["size"]))
+        return FEEBLE_YOUTH * (PREDATOR_INFANCY if self.species == "predator" else 1.0) * maturity * self.lifespan
 
     @property
     def infant(self) -> bool:
@@ -832,7 +846,7 @@ class Bitzkey:
         as long."""
         if self.species == "plant":
             return False
-        return self.age < FEEBLE_YOUTH * (PREDATOR_INFANCY if self.species == "predator" else 1.0) * self.lifespan
+        return self.age < self.infancy
 
     def trait(self, name: str) -> int:
         """A body trait as it is now: its genes' value, or FEEBLE_SHARE of it while feeble; an avian animal's size,
@@ -904,6 +918,7 @@ class Bitzkey:
                                   + 0.12 * (self.physique("weapons") + self.physique("armour")))
         if self.species == "plant":
             return body
+        body *= 1 + SIZE_HUNGER * self.physique("size") ** 2  # a large body is hungry work (Size hunger)
         cost = BRAIN_COST * (PREDATOR_BRAIN_COST if self.species == "predator" else 1.0)
         burn = body * (1 + cost * self.inborn["intellect"] / TRAIT_MAX)
         return burn * (1 + FLIGHT_HUNGER) if self.terrain == "avian" else burn  # flight is hungry work
@@ -1533,8 +1548,8 @@ class Simulation:
             if felt > 0:
                 agent.health -= CLIMATE_DAMAGE * felt * share * agent.max_health
             starving = agent.hunger >= 100
-            if starving:  # it wastes away
-                agent.health -= STARVING_DAMAGE * agent.max_health
+            if starving:  # it wastes away, the larger the faster
+                agent.health -= STARVING_DAMAGE * (1 + SIZE_STARVING * agent.physique("size")) * agent.max_health
             if agent.health <= 0:  # starving, and hungrier out of its temperature, it died of exposure
                 self._die(agent, "starved" if starving and not hungrier else self._exposure(agent, here))
                 continue
@@ -2461,7 +2476,13 @@ class Simulation:
 
     def _attack(self, agent: Bitzkey, victim: Bitzkey, activity: str = "attacking") -> None:
         """A blow, struck hunting or attacking (`activity`). The intolerant enjoy fighting other species most; the empathetic feel their
-        victim's pain, and so does any empathetic animal watching, most for its own kind."""
+        victim's pain, and so does any empathetic animal watching, most for its own kind. A small animal may slip away."""
+        if victim.species != "plant" and SMALL_HIDING > 0 and int(victim.body["size"]) < TRAIT_MAX:
+            smallness = 1 - victim.physique("size")
+            if self.random.random() < SMALL_HIDING * smallness * smallness:
+                agent.last_action = "missed"
+                self._exhausted(agent)
+                return
         empathy = agent.feeling("empathy")
         joy = FIGHT_JOY * agent.feeling("aggression") * (1 - 0.6 * empathy) * (1 - 0.75 * agent.feeling("tolerance"))
         damage = self._damage(agent, victim)

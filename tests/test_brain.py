@@ -12,7 +12,7 @@ from tools.Genome import BODY_TRAITS, TEMPERAMENT, encode_dna
 
 def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, unless a test says so
     global _grown
-    _grown = patch.multiple("tools.Simulation", FEEBLE_YOUTH=0.0, DEFAULT_YEAR_LENGTH=360, SLEEP=0)  # and 360-turn years, no sleeping
+    _grown = patch.multiple("tools.Simulation", FEEBLE_YOUTH=0.0, SMALL_HIDING=0.0, DEFAULT_YEAR_LENGTH=360, SLEEP=0)  # and 360-turn years, no sleeping
     _grown.start()
 
 

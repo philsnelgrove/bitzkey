@@ -14,7 +14,7 @@ from tools.Simulation import (Death, FULL_STAMINA, SPAWN_SPREAD, DEATH_PENALTY, 
 
 def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, unless a test says so
     global _grown, _common, _grazers, _plenty
-    _grown = patch.multiple("tools.Simulation", FEEBLE_YOUTH=0.0, DEFAULT_YEAR_LENGTH=360, SLEEP=0)  # and 360-turn years, no sleeping
+    _grown = patch.multiple("tools.Simulation", FEEBLE_YOUTH=0.0, SMALL_HIDING=0.0, DEFAULT_YEAR_LENGTH=360, SLEEP=0)  # and 360-turn years, no sleeping
     _grown.start()
     _common = patch("tools.Simulation.RARE_BREEDING_COST", 1.0)  # the few Bitzkeys of a test breed at the usual cost
     _common.start()
@@ -1913,7 +1913,8 @@ class NewTraitTests(unittest.TestCase):
         self.assertAlmostEqual(small.metabolism, 1.6)
         self.assertAlmostEqual(large.metabolism, 0.6)
         self.assertGreater(small.burn / small.metabolism, 0)
-        self.assertAlmostEqual(small.burn / large.burn, 1.6 / 0.6)  # same build, hungrier sooner
+        from tools.Simulation import SIZE_HUNGER
+        self.assertAlmostEqual(small.burn / large.burn, 1.6 / (0.6 * (1 + SIZE_HUNGER)))  # same build: the faster metabolism, against the larger body's hunger
         self.assertLess(small.lifespan, large.lifespan)
 
     def test_food_needs_grow_with_size_offset_by_metabolism(self):
@@ -2602,6 +2603,32 @@ class SquareTests(unittest.TestCase):
             for _ in range(9):
                 self.simulation._take_turn()
         self.assertEqual((grazer.alive, grazer.last_action), (False, "starved"))  # ten turns at full hunger
+
+
+
+class SizeCostTests(unittest.TestCase):
+    def test_a_large_body_is_hungrier_matures_later_and_cant_hide_from_a_hunter(self):
+        from tools.Simulation import TRAIT_MAX
+        small_dna, large_dna = encode_dna("grazer", size=0), encode_dna("grazer", size=7)
+        with patch("tools.Simulation.SIZE_HUNGER", 0.0):
+            small_plain, large_plain = Bitzkey(1, small_dna, 0, 0).burn, Bitzkey(2, large_dna, 0, 0).burn
+        with patch("tools.Simulation.SIZE_HUNGER", 1.0):
+            self.assertAlmostEqual(Bitzkey(3, small_dna, 0, 0).burn, small_plain)  # size 0: no more than it was
+            self.assertAlmostEqual(Bitzkey(4, large_dna, 0, 0).burn, 2 * large_plain)  # size 7: twice as hungry
+        with patch("tools.Simulation.FEEBLE_YOUTH", 0.1), patch("tools.Simulation.SMALL_MATURITY", 0.5):
+            young_small, young_large = Bitzkey(5, small_dna, 0, 0), Bitzkey(6, large_dna, 0, 0)
+            self.assertAlmostEqual(young_small.infancy, 0.1 * 0.5 * young_small.lifespan)
+            self.assertAlmostEqual(young_large.infancy, 0.1 * young_large.lifespan)
+        with patch("tools.Simulation.SMALL_HIDING", 1.0):  # at the smallest a blow always misses; at the largest, never
+            simulation = Simulation(width=12, height=12, population=0, seed=3)
+            hunter = simulation._add_agent(encode_dna("predator", strength=7, weapons=7), 5, 5)
+            tiny, huge = simulation._add_agent(small_dna, 5, 6), simulation._add_agent(large_dna, 6, 5)
+            simulation._index_cells()
+            tiny_health, huge_health = tiny.health, huge.health
+            simulation._attack(hunter, tiny)
+            self.assertEqual((tiny.health, hunter.last_action), (tiny_health, "missed"))
+            simulation._attack(hunter, huge)
+            self.assertLess(huge.health, huge_health)
 
 
 if __name__ == "__main__":
