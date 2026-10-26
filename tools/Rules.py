@@ -219,6 +219,8 @@ _TABLE: dict[str, list[tuple]] = {
          0.0, 10.0, 0.1),
         ("PLANT_FOOD_LEARNING", "Plant food learning", "times as much any animal learns from eating, foraging, browsing and uprooting",
          0.0, 10.0, 0.1),
+        ("FORCED_LESSONS", "Forced lessons", "1: an animal learns from every turn, even one it had no choice in (asleep, exhausted, panicking or frozen); 0: only from the turns it chose",
+         0, 1, 1),
         ("PREDATOR_LEARNING", "Predator learning", "times as fast a predator's brain learns from its own choices; an omnivore gets half the bonus",
          1.0, 5.0, 0.1),
         ("TEMPERATURE", "Choice temperature", "how loosely a brain picks among its options", 0.01, 5.0, 0.05),

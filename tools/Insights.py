@@ -181,6 +181,12 @@ class Insights:
         self.offered, self.chosen = state[0].copy(), state[1].copy()
 
 
+def awake(animal: Bitzkey) -> dict[str, float]:
+    """Every situation asks about an animal rested and awake, standing where it stands now: an exhausted or sleeping
+    one can only rest, so its brain has learnt nothing else there, and asking it so would show nothing but resting."""
+    return {"stamina": 1.0, "night": float(animal.nocturnal), "sea_here": float(animal.wet)}
+
+
 def brain_report(turn: int, animals: Iterable[Bitzkey], insights: Insights) -> str:
     """Probe every living brain with standard situations and summarise who prefers what."""
     thinkers = [animal for animal in animals if animal.brain is not None]
@@ -196,7 +202,7 @@ def brain_report(turn: int, animals: Iterable[Bitzkey], insights: Insights) -> s
         for animal in thinkers:
             if animal.species not in species_list:
                 continue
-            senses = make_senses(**situation, **{trait: animal.feeling(trait) for trait in TEMPERAMENT},
+            senses = make_senses(**situation, **awake(animal), **{trait: animal.feeling(trait) for trait in TEMPERAMENT},
                                  **animal.genes)
             odds = choice_odds(animal.brain.values(senses), options)
             named = {ACTIONS[option]: chance for option, chance in odds.items()}
@@ -342,7 +348,7 @@ def brain_matrix(animal: Bitzkey) -> list[tuple[str, dict[str, float]]]:
     for title, situation, actions, species_list in SCENARIOS:
         if animal.species not in species_list:
             continue
-        senses = make_senses(**situation, **{trait: animal.feeling(trait) for trait in TEMPERAMENT}, **animal.genes)
+        senses = make_senses(**situation, **awake(animal), **{trait: animal.feeling(trait) for trait in TEMPERAMENT}, **animal.genes)
         odds = choice_odds(animal.brain.values(senses), [ACTIONS.index(action) for action in actions])
         rows.append((title, {ACTIONS[option]: chance for option, chance in odds.items()}))
     return rows

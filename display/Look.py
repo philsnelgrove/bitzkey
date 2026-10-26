@@ -88,7 +88,10 @@ def draw_reticle(surface: pg.Surface, point: tuple[int, int], radius: int) -> No
 
 CHIP_EDGE = 0.32  # a chip's coloured edge, as a share of its radius (at least the ring's width)
 CHIP_INSERTS = 6  # the lighter inserts round its edge
-CHIPS_KEPT = 20000  # looks drawn and kept, then drawn afresh
+# Each look drawn is kept, up to LOOKS_KEPT, the least recently drawn let go first: a look is its colours to within
+# LOOK_SHADES of each channel, its species, size and whether it lives, so the nearly alike share one.
+LOOKS_KEPT = 20000
+LOOK_SHADES = 8
 TEXTURE_FROM = 6  # squares this many pixels across or more are textured, and their grass drawn as tufts
 GROUND_VARIANTS = 4
 GROUNDS = ("sand", "meadow", "snow", "ice")  # by the temperature now, hot to very cold; "sea" at sea
@@ -168,16 +171,19 @@ def bitzkey_layer(dna: int, radius: int, ring_width: int = RING_WIDTH, alive: bo
 
 def draw_bitzkey(surface: pg.Surface, dna: int, point: tuple[int, int], radius: int,
                  ring_width: int = RING_WIDTH, alive: bool = True, opacity: float = 1.0) -> None:
-    """A Bitzkey as a poker chip (see bitzkey_layer), each look drawn once and kept: a world has far fewer genomes
-    than Bitzkeys. With `opacity` below 1, it is drawn that faint, as a decaying corpse fades away."""
+    """A Bitzkey as a poker chip (see bitzkey_layer), each look drawn once and kept (see LOOKS_KEPT). With `opacity`
+    below 1, it is drawn that faint, as a decaying corpse fades away."""
     if opacity <= 0:
         return
-    key = (dna, radius, ring_width, alive)
-    layer = _chips.get(key)
+    shades = tuple(channel // LOOK_SHADES for word in (mind_word(dna), body_word(dna), social_word(dna))
+                   for channel in color_from_word(word)[:3])
+    key = (decode_body(dna)["species"], shades, radius, ring_width, alive)
+    layer = _chips.pop(key, None)  # taken out and put back, so the dict runs from least to most recently drawn
     if layer is None:
-        if len(_chips) > CHIPS_KEPT:
-            _chips.clear()
-        layer = _chips[key] = bitzkey_layer(dna, radius, ring_width, alive)
+        if len(_chips) >= LOOKS_KEPT:
+            del _chips[next(iter(_chips))]
+        layer = bitzkey_layer(dna, radius, ring_width, alive)
+    _chips[key] = layer
     reach = layer.get_width() // 2
     if opacity < 1:
         layer = layer.copy()

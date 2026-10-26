@@ -211,6 +211,9 @@ KILL_FOOD_LEARNING = 2.0
 PLANT_FOOD_LEARNING = 0.5
 BREED_LEARNING = 1.0
 COURT_LEARNING = 1.0
+# Forced lessons: 1 learns from every turn, even one with no choice in it (resting through its night or exhausted,
+# panicking or frozen); 0 learns only from the turns it chose what to do.
+FORCED_LESSONS = 1
 KILL_FOOD = frozenset(ACTIONS.index(action) for action in ("hunt", "attack", "feast"))
 PLANT_FOOD = frozenset(ACTIONS.index(action) for action in ("eat", "forage", "browse", "uproot"))
 
@@ -735,6 +738,7 @@ class Bitzkey:
     # The last decision, kept until the next one so the brain can learn from how it turned out.
     last_senses: list[float] | None = None
     last_choice: int = 0
+    last_forced: bool = False  # whether it had no choice but last_choice
     last_wellbeing: float = 0.0
     reward: float = 0.0
     last_comfort: float = 0.0  # how comfortable it felt at its last decision
@@ -1855,7 +1859,7 @@ class Simulation:
         comforts = [self._comfort(agent, situation) for agent, _, _, situation in plans]
         lessons: dict[int, tuple] = {}  # by plan: what came of its last choice, to learn from
         for index, ((agent, _, options, _), valued, comfort) in enumerate(zip(plans, values, comforts)):
-            if agent.last_senses is not None:
+            if agent.last_senses is not None and (FORCED_LESSONS or not agent.last_forced):
                 # What came of its last choice: whatever raised its health (fullness counting with it) or
                 # its mood was a success, whatever lowered them a failure, by how much; both may happen.
                 reward = (agent.reward + self._wellbeing(agent) - agent.last_wellbeing
@@ -1914,6 +1918,7 @@ class Simulation:
             agent.odds = {ACTIONS[option]: chance for option, chance in odds.items()}
             agent.last_senses = senses
             agent.last_choice = choice
+            agent.last_forced = len(options) == 1
             agent.last_wellbeing = self._wellbeing(agent)
             agent.last_comfort = comfort
             agent.reward = 0.0
