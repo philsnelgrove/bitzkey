@@ -162,6 +162,7 @@ class BitzkeyApp:
         self.map_zoom = 1.0
         # The globe: shown rather than the map, turned about its axis and tipped, and zoomed; H hides the rest.
         self.globe = False
+        self.blind = False  # neither map nor globe drawn, to spare the time
         self.hud_hidden = False
         self.globe_yaw, self.globe_tilt, self.globe_zoom = 0.0, 0.35, 1.0
         self._turn_from: tuple | None = None  # a drag on the globe: where it began, and its turn then
@@ -335,9 +336,11 @@ class BitzkeyApp:
                     if self.language_menu.click(event.pos):
                         pass  # the language menu opened, closed or chose
                     elif not self.hud_hidden and self._view_buttons.get("map", pg.Rect(0, 0, 0, 0)).collidepoint(event.pos):
-                        self.globe = False
+                        self.globe = self.blind = False
                     elif not self.hud_hidden and self._view_buttons.get("globe", pg.Rect(0, 0, 0, 0)).collidepoint(event.pos):
-                        self.globe = True
+                        self.globe, self.blind = True, False
+                    elif not self.hud_hidden and self._view_buttons.get("blind", pg.Rect(0, 0, 0, 0)).collidepoint(event.pos):
+                        self.blind = True
                     elif self.globe and self._map_view()[0].collidepoint(event.pos):
                         self._pick_on_globe(event.pos)  # a click picks the Bitzkey there; the right button turns it
                     elif self._exemplar_menu is None and self._map_view()[0].collidepoint(event.pos):
@@ -894,7 +897,8 @@ class BitzkeyApp:
         view = self._map_view()[0]
         font = UI.font("segoeui", 12, bold=True)
         left = view.left
-        for key, label, on in (("map", "MAP", not self.globe), ("globe", "GLOBE", self.globe)):
+        for key, label, on in (("map", "MAP", not self.globe and not self.blind), ("globe", "GLOBE", self.globe and not self.blind),
+                               ("blind", "BLIND", self.blind)):
             button = pg.Rect(left, view.top - UI(21), UI(56 if key == "map" else 64), UI(18))
             pg.draw.rect(self.screen, (131, 205, 143) if on else (44, 57, 52), button, border_radius=UI(4))
             draw_label(self.screen, font, label, (19, 26, 27) if on else (220, 229, 211), button)
@@ -1085,6 +1089,11 @@ class BitzkeyApp:
             surface.blit(night, (round(board.left + start * cell_width), board.top))
 
     def _draw_world(self) -> None:
+        if self.blind:  # neither map nor globe drawn, to spare the time it takes
+            view = self._map_view()[0]
+            text = self.small.render("BLIND: the map isn't drawn", True, (116, 139, 124))
+            self.screen.blit(text, text.get_rect(center=view.center))
+            return
         if self.globe:
             self._draw_globe()
             return
