@@ -1318,5 +1318,6 @@
 "Search settings": "חיפוש הגדרות",
 "{#} found": "נמצאו {#}",
 "No settings match \"{*}\".": "אין הגדרות התואמות ל-\"{*}\".",
-"Search settings  (CTRL+F)": "חיפוש הגדרות  (CTRL+F)"
+"Search settings  (CTRL+F)": "חיפוש הגדרות  (CTRL+F)",
+"Zoomed out too far to see anybody": "רחוק מדי כדי לראות מישהו"
 }

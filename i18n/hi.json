@@ -1318,5 +1318,6 @@
 "Search settings": "सेटिंग खोजें",
 "{#} found": "{#} मिले",
 "No settings match \"{*}\".": "\"{*}\" से कोई सेटिंग मेल नहीं खाती।",
-"Search settings  (CTRL+F)": "सेटिंग खोजें  (CTRL+F)"
+"Search settings  (CTRL+F)": "सेटिंग खोजें  (CTRL+F)",
+"Zoomed out too far to see anybody": "बहुत दूर ज़ूम आउट है, कोई दिखाई नहीं देता"
 }

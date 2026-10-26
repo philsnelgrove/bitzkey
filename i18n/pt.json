@@ -1318,5 +1318,6 @@
 "Search settings": "Procurar definições",
 "{#} found": "{#} encontradas",
 "No settings match \"{*}\".": "Nenhuma definição corresponde a \"{*}\".",
-"Search settings  (CTRL+F)": "Procurar definições  (CTRL+F)"
+"Search settings  (CTRL+F)": "Procurar definições  (CTRL+F)",
+"Zoomed out too far to see anybody": "Demasiado afastado para ver alguém"
 }

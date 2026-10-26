@@ -1318,5 +1318,6 @@
 "Search settings": "設定を検索",
 "{#} found": "{#} 件",
 "No settings match \"{*}\".": "「{*}」に一致する設定はありません。",
-"Search settings  (CTRL+F)": "設定を検索  (CTRL+F)"
+"Search settings  (CTRL+F)": "設定を検索  (CTRL+F)",
+"Zoomed out too far to see anybody": "離れすぎて誰も見えません"
 }

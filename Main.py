@@ -29,7 +29,7 @@ from display.ColourGraph import ColourGraph
 from display.WorldFiles import choose_save_path
 from tools.Exchange import Imported, bitzkey_record, export_bitzkeys, format_records
 from tools.Genome import genome_record
-from tools.Genome import TEMPERAMENT, decode_climate
+from tools.Genome import TEMPERAMENT, TRAIT_MAX, decode_climate
 from tools.Insights import ANIMALS, brain_matrix_lines, brain_report, death_report_lines
 from tools import Catalog, Rules
 from tools import Simulation as world
@@ -130,6 +130,17 @@ GLOBE_SHARE = 0.46
 GLOBE_ZOOM_MAX = 8.0
 GLOBE_TEXTURE = 1600
 STACK_SPACING = 0.7
+# The level of detail: zoomed out all the way, only the largest Bitzkeys (size 7) are drawn, and each step in shows
+# the next size down, until from ALL_SIZES_AT of the way in (on the wheel's scale) every size shows. The one chosen,
+# those picked and those to export are drawn whatever their size.
+ALL_SIZES_AT = 0.85
+TOO_FAR = "Zoomed out too far to see anybody"
+
+
+def smallest_shown(zoom: float, least: float, most: float) -> int:
+    """The smallest size drawn at `zoom`, between `least` (all the way out) and `most` (all the way in)."""
+    inward = math.log(zoom / least) / math.log(most / least)  # 0 all the way out, 1 all the way in
+    return max(0, min(TRAIT_MAX, math.ceil(TRAIT_MAX * (1 - inward / ALL_SIZES_AT) - 1e-9)))
 
 
 class BitzkeyApp:
@@ -940,10 +951,13 @@ class BitzkeyApp:
         stacks.sort(key=lambda stack: stack[0])
         self._globe_hits = []
         smallest, largest = map_dot_radii(math.pi * radius / height)
+        least, drawn, hidden = smallest_shown(self.globe_zoom, 0.5, GLOBE_ZOOM_MAX), 0, 0
         for depth, sx, sy, members in stacks:
             shrink = 0.55 + 0.45 * depth  # foreshortened toward the edge
             lift = 0
-            for agent in sorted(members, key=lambda agent: -int(agent.body["size"])):
+            shown = [agent for agent in members if int(agent.body["size"]) >= least or self._marked(agent)]
+            drawn, hidden = drawn + len(shown), hidden + len(members) - len(shown)  # the rest too small to see from this far out
+            for agent in sorted(shown, key=lambda agent: -int(agent.body["size"])):
                 dot = max(2, round(dot_radius(int(agent.body["size"]), largest, smallest) * shrink))
                 point = (round(sx), round(sy - lift))
                 draw_bitzkey(self.screen, agent.dna, point, dot, alive=agent.alive, opacity=self._corpse_opacity(agent))
@@ -952,7 +966,23 @@ class BitzkeyApp:
                 if agent.identifier == self.selected_id:
                     draw_reticle(self.screen, point, round((dot + RING_WIDTH + UI(3)) * reticle_pulse()))
                 lift += max(2, round((dot + RING_WIDTH) * STACK_SPACING))  # the next above, its face clear
+        if not drawn and hidden:
+            self._say_too_far(view)
         self.screen.set_clip(None)
+
+    def _marked(self, agent: Bitzkey) -> bool:
+        """Whether a Bitzkey is drawn whatever its size: the one chosen, one picked, or one to export."""
+        return agent.identifier == self.selected_id or agent.identifier in self.graph.selection or agent.identifier in self.export_list
+
+    def _say_too_far(self, view: pg.Rect) -> None:
+        """Every Bitzkey in view too small to draw from this far out: say so, in the middle of the view."""
+        font = UI.font("segoeui", 15)
+        label = font.render(TOO_FAR, True, (238, 183, 110))
+        box = label.get_rect(center=view.center).inflate(UI(28), UI(14))
+        veil = pg.Surface(box.size, pg.SRCALPHA)
+        veil.fill((19, 26, 27, 220))
+        self.screen.blit(veil, box.topleft)
+        self.screen.blit(label, label.get_rect(center=box.center))
 
     def _forget_the_dead(self) -> None:
         """Let go of any Bitzkey selected or picked that has died, so the sidebar returns to its
@@ -1087,18 +1117,27 @@ class BitzkeyApp:
         reach = view.inflate(2 * cell_width + UI(20), 2 * cell_height + UI(20))  # what may show, near enough
         self._draw_ground(self.screen, board, cell_width, cell_height, view)
         smallest, largest = map_dot_radii(min(cell_width, cell_height))  # zoomed with the map
+        least = smallest_shown(self.map_zoom, 1.0, MAP_ZOOM_MAX)
+        shown = lambda agent: int(agent.body["size"]) >= least or self._marked(agent)  # noqa: E731
         for agent in self.simulation.agents:  # the way each came this turn, faint, beneath them all
+            if not shown(agent):
+                continue
             for x, y in agent.trail:
                 point = (round(board.left + (x + 0.5) * cell_width), round(board.top + (y + 0.5) * cell_height))
                 if (x, y) == (agent.x, agent.y) or not reach.collidepoint(point):
                     continue
                 draw_bitzkey(self.screen, agent.dna, point, self._dot_radius(agent, largest, smallest), alive=agent.alive,
                              opacity=TRAIL_OPACITY)
+        drawn = hidden = 0
         for agent in self.simulation.agents:
             point = (round(board.left + (agent.x + 0.5) * cell_width),
                      round(board.top + (agent.y + 0.5) * cell_height))
             if not reach.collidepoint(point):
                 continue
+            if not shown(agent):  # too small to see from this far out
+                hidden += 1
+                continue
+            drawn += 1
             radius = self._dot_radius(agent, largest, smallest)
             self._draw_bitzkey(agent, point, radius, self._corpse_opacity(agent))
             if agent.identifier == self.selected_id or (agent.alive and agent.identifier in self.graph.selection):
@@ -1121,6 +1160,8 @@ class BitzkeyApp:
             py = round(board.top + y * cell_height)
             pg.draw.line(self.screen, GRID, (board.left, py), (board.right, py), 1)
         pg.draw.rect(self.screen, (80, 99, 85), board, 1)
+        if not drawn and hidden:
+            self._say_too_far(view)
         self.screen.set_clip(None)
 
     def _draw_exemplars(self) -> None:

@@ -1318,5 +1318,6 @@
 "Search settings": "Rechercher des réglages",
 "{#} found": "{#} trouvé(s)",
 "No settings match \"{*}\".": "Aucun réglage ne correspond à « {*} ».",
-"Search settings  (CTRL+F)": "Rechercher des réglages  (CTRL+F)"
+"Search settings  (CTRL+F)": "Rechercher des réglages  (CTRL+F)",
+"Zoomed out too far to see anybody": "Trop dézoomé pour voir qui que ce soit"
 }
