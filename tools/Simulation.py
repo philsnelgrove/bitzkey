@@ -91,14 +91,6 @@ FEEBLE_SHARE = 0.5
 DEPLOY_GROUP = 5      # Bitzkeys deployed from the catalog onto a running world, of each chosen, a click
 USE_GPU = 0  # the C++ version's: 1 thinks on the GPUs; the Python version always thinks on the CPU
 SPAWN_AT_HOME = 1     # 1: a group appears in rows whose usual temperature is its home (the nearest, if none); 0: anywhere
-# The history is kept in memory: the world at each of the latest HISTORY_TURNS turns, whole, so the map
-# can be rewound to any of them at once, with nothing to replay. When a crowded world's brains make them
-# large, fewer are kept, so they fit HISTORY_MEMORY gigabytes; the newest turn is always kept. Older turns live on
-# only in the colour graph.
-HISTORY_TURNS = 100
-HISTORY_ALL = 5000  # at this many history turns or more, every turn is kept, so far as the memory allows
-HISTORY_MEMORY = 1.0  # GB, near enough
-AGENT_BYTES = 1000  # what a Bitzkey takes in the history, besides its brain, near enough
 # Earlier versions kept the history on disk, in folders among the temporary files.
 HISTORY_PREFIX = "bitzkey-history-"  # their names start so
 STALE_HISTORY_HOURS = 24  # one left this long by a run that never closed it is cleared away
@@ -1118,12 +1110,10 @@ class Simulation:
         if ocean > 0:
             self._make_sea(ocean, random.SystemRandom().getrandbits(64) if seed is None else seed)
         self.insights = Insights()
-        # Who was alive, over the last GRAPH_TURNS turns, for the colour graph. It outlives the rewind
-        # history; replaying reads it, and a new turn discards any abandoned future.
+        # Who was alive, over the last GRAPH_TURNS turns, for the colour graph.
         self.census = Census()
         # The genome of every Bitzkey spawned from lineage_first on, by identifier, so the graph can
-        # colour and export Bitzkeys long gone; those before it are off the graph and forgotten. A
-        # branch taken after rewinding reuses identifiers and overwrites them.
+        # colour and export Bitzkeys long gone; those before it are off the graph and forgotten.
         self.lineage: dict[int, int] = {}
         self.lineage_first = 0
         # Each death, by the dead Bitzkey's identifier: back to the graph's start, for the graph and the death report.
@@ -1173,14 +1163,9 @@ class Simulation:
             self._spawn_biomes()
         for bitzkey in imported:
             self._spawn_group(bitzkey.dna, self.random.randint(*SPAWN_GROUP), bitzkey.brain, bitzkey.mind)
-        # The world at every turn kept, oldest first, each a whole copy.
-        self.history: deque[dict] = deque()  # each {"turn": the turn, "state": the world, "bytes": its size}
-        self._history_bytes = 0  # the size of them all, near enough
-        self.frontier = 0  # the latest turn simulated; seeking never goes past it
         # What herd-mates saw this turn, to learn from at its end: (observer, senses, choice, outcome, rate).
         self._witnessed: list[tuple] = []
         self._take_census()
-        self._record()
 
     def _make_sea(self, ocean: float, seed: int) -> None:
         """Lay out the sea over `ocean` percent of the map, from its own stream of `seed`, so the world's own draws
@@ -1271,13 +1256,8 @@ class Simulation:
 
     def deploy(self, bitzkeys: Sequence[Imported], x: int, y: int) -> list[Bitzkey]:
         """Put DEPLOY_GROUP of each of these Bitzkeys, each with its own copy of its saved brain and
-        temperament, within SPAWN_SPREAD cells of a cell of the running world, between its turns. A world
-        rewound lets the future it had go, as a turn played afresh would. Returns those deployed."""
-        if self.turn < self.frontier:
-            while self.history and self.history[-1]["turn"] > self.turn:
-                self._history_bytes -= self.history.pop()["bytes"]
-            while self._death_order and self._death_order[-1][0] > self.turn:  # deaths in the future let go
-                self._forget_death(*self._death_order.pop())
+        temperament, within SPAWN_SPREAD cells of a cell of the running world, between its turns. Returns those
+        deployed."""
         deployed = []
         for bitzkey in bitzkeys:
             space = 1 + int(decode_body(bitzkey.dna)["size"])
@@ -1289,7 +1269,6 @@ class Simulation:
                                                     mind=bitzkey.mind))
         self.census.forget_from(self.turn)  # this turn again, as it now is
         self._take_census()
-        self._record()
         return deployed
 
     def rules_changed(self) -> None:
@@ -1483,73 +1462,11 @@ class Simulation:
         self._cells.setdefault((x, y), []).append(agent)
         return agent
 
-    def close(self) -> None:
-        """Let the history go. The world can't be rewound after; it is closed when left."""
-        self.history = deque()
-        self._history_bytes = 0
-
-    @property
-    def earliest(self) -> int:
-        """The oldest turn the history still keeps."""
-        return self.history[0]["turn"] if self.history else self.turn
-
-    def _record(self) -> None:
-        """Keep a copy of the newest turn, then let the oldest go while the history holds more than
-        HISTORY_TURNS turns or HISTORY_MEMORY gigabytes."""
-        self.frontier = self.turn
-        if self.history and self.history[-1]["turn"] == self.turn:  # recorded again, as it now is
-            self._history_bytes -= self.history.pop()["bytes"]
-        agents = [agent.copy() for agent in self.agents]
-        size = sum(AGENT_BYTES + agent.brain_bytes for agent in agents)
-        self.history.append({"turn": self.turn, "bytes": size, "state": {
-            "turn": self.turn, "deaths": self.deaths, "next_identifier": self.next_identifier, "agents": agents,
-            "death_causes": {species: dict(causes) for species, causes in self.death_causes.items()},
-            "grass": self.grass.copy(), "seeds": list(self.seeds), "random_state": self.random.getstate(),
-            "insights": self.insights.snapshot()}})
-        self._history_bytes += size
-        most = HISTORY_MEMORY * (1 << 30)
-        turns = float("inf") if HISTORY_TURNS >= HISTORY_ALL else HISTORY_TURNS
-        while len(self.history) > 1 and (len(self.history) > turns or self._history_bytes > most):
-            self._history_bytes -= self.history.popleft()["bytes"]
-
-    def _restore(self, entry: dict) -> None:
-        """Bring back a turn the history keeps, as a copy, so the history's stays as it was."""
-        snapshot = entry["state"]
-        self.turn = snapshot["turn"]
-        self.deaths = snapshot["deaths"]
-        self.death_causes = {species: dict(causes) for species, causes in snapshot["death_causes"].items()}
-        self.next_identifier = snapshot["next_identifier"]
-        self.agents = [agent.copy() for agent in snapshot["agents"]]
-        self.grass = snapshot["grass"].copy()
-        self.seeds = list(snapshot["seeds"])
-        self.random.setstate(snapshot["random_state"])
-        self.insights.restore(snapshot["insights"])
-        self._update_climate()
-        self._index_cells()
-
-    def seek(self, target: int) -> None:
-        """Move the world to any turn the history keeps, from the earliest to the latest simulated,
-        by bringing back its copy."""
-        target = max(self.earliest, min(self.frontier, target))
-        if target != self.turn:
-            self._restore(self.history[target - self.earliest])
-
-    def rewind(self) -> bool:
-        if self.turn <= self.earliest:
-            return False
-        self.seek(self.turn - 1)
-        return True
-
     def advance(self) -> None:
-        """Step one turn: replaying the recorded run, or simulating a new turn, unless the
-        simulation has ended."""
-        if self.turn < self.frontier:
-            self.seek(self.turn + 1)
-            return
+        """Step one turn, simulating it, unless the simulation has ended."""
         if self.end_reason:
             return
         self._take_turn()
-        self._record()
 
     @property
     def end_reason(self) -> str | None:
@@ -1563,8 +1480,8 @@ class Simulation:
 
     @property
     def ended(self) -> bool:
-        """At the end of the run: the latest turn, with an end reason."""
-        return self.turn == self.frontier and self.end_reason is not None
+        """At the end of the run: with an end reason."""
+        return self.end_reason is not None
 
     def _take_turn(self) -> None:
         """One turn. Every Bitzkey first lives through it, in a shuffled order: it ages, hungers,
@@ -1795,7 +1712,7 @@ class Simulation:
         self.lineage_first = max(self.lineage_first, first)
 
     def _forget_death(self, turn: int, identifier: int) -> None:
-        """Forget a death, unless a branch taken after rewinding has since recorded another under its identifier."""
+        """Forget a death, unless another has since been recorded under its identifier."""
         death = self.death_records.get(identifier)
         if death is not None and death.turn == turn:
             del self.death_records[identifier]

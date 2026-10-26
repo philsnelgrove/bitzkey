@@ -7,8 +7,7 @@ the same rules with the same keys, limits and steps (`bitzkey_cli --rules`). Rul
 `apply` sets them all, and a world plays by whatever was set when it runs. Settings the
 configuration panel already covers (world size, population, grass density, the population cap and
 mutation rates) are not repeated here, nor are numbers that fix the genome's or the brain's layout,
-or how starting groups are sized. How much rewind history is kept is a rule, with a warning about the
-memory it takes.
+or how starting groups are sized.
 """
 
 from __future__ import annotations
@@ -54,7 +53,7 @@ _TABLE: dict[str, list[tuple]] = {
         ("CELL_SPACE", "Square space", "spaces in a square; a Bitzkey takes 1 + its size, and none is born, moves or spawns "
          "into a square without room", 1, 80, 1),
         ("SPAWN_SPREAD", "Spawn spread", "a starting group appears within this many cells of its centre", 0, 4, 1),
-        ("USE_GPU", "Think on the GPU", "C++ only: 1 thinks and learns on every GPU found, in floats, with no rewinding; 0 on the CPU, exactly", 0, 1, 1),
+        ("USE_GPU", "Think on the GPU", "C++ only: 1 thinks and learns on every GPU found, in floats; 0 on the CPU, exactly", 0, 1, 1),
         ("DAY_LENGTH", "Day length", "turns in a day; night covers half the map and moves round it once a day", 2, 100, 1),
         ("SLEEP", "Sleep", "1: an animal rests through its night (the dark if diurnal, the light if nocturnal) unless startled "
          "awake; 0: never forced to", 0, 1, 1),
@@ -63,9 +62,6 @@ _TABLE: dict[str, list[tuple]] = {
         ("BIOME_SIZE", "Biome size", "the fewest squares a stretch of land or sea in a climate zone needs to count as a biome",
          1, 1000, 5),
         ("SPAWN_AT_HOME", "Spawn at home", "1: starting and imported groups appear where their home temperature is usual; 0: anywhere", 0, 1, 1),
-        ("HISTORY_TURNS", "History turns", "turns of the world kept whole, to rewind the map to; at the top, all",
-         1, world.HISTORY_ALL, 10),
-        ("HISTORY_MEMORY", "History memory", "most memory, in GB, the rewind history may take", 0.1, 64.0, 0.1),
         ("GRAPH_TURNS", "Graph turns", "turns of the past the graph and death report cover; deaths and genomes older than that are forgotten",
          1000, 2_000_000, 1000),
     ],
@@ -409,8 +405,6 @@ _TABLE: dict[str, list[tuple]] = {
     ],
 }
 
-# Rules whose top value means "all": history turns there keep every turn, so far as the memory allows.
-ALL_AT_TOP = {"HISTORY_TURNS"}
 # Rules that can't be changed here, and why: the Python version has no GPU to think on.
 LOCKED: dict[str, str] = {
     "USE_GPU": "The Python version always thinks on the CPU; the C++ version thinks on a GPU where there is one.",
@@ -424,8 +418,6 @@ WORLD_LOCKED: dict[str, str] = {
 
 # Warnings shown with a rule, in full when it is chosen: costs it runs up beyond the simulation itself.
 WARNINGS: dict[str, str] = {
-    "HISTORY_TURNS": "MEMORY: each turn kept holds the whole world, about 200 KB a brain (some 20 MB a turn with 100 animals), up to the history memory limit",
-    "HISTORY_MEMORY": "MEMORY: keep this well below your computer's free memory, or Bitzkey will slow to a crawl or crash",
 }
 
 RULES = tuple(Rule(key, group, label, hint, minimum, maximum, step)
@@ -503,8 +495,5 @@ def changed(values: Mapping[str, float]) -> dict[str, float]:
 
 
 def shown(rule: Rule, value: float) -> str:
-    """A value as the panel shows it: up to six significant digits, no trailing zeros; a rule whose top
-    means "all" says so there."""
-    if rule.key in ALL_AT_TOP and value >= rule.maximum:
-        return "ALL"
+    """A value as the panel shows it: up to six significant digits, no trailing zeros."""
     return str(int(value)) if rule.integer else f"{value:.6g}"

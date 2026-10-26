@@ -618,16 +618,5 @@ class SeedTests(unittest.TestCase):
             simulation._germinate()
             self.assertEqual(simulation.seeds, waiting)
 
-    def test_waiting_seeds_rewind_and_replay_with_the_world(self):
-        simulation = Simulation(width=40, height=40, population=60, seed=4)
-        while not simulation.seeds and simulation.turn < 300 and not simulation.ended:  # until some seeds wait
-            simulation.advance()
-        seeds, turn = list(simulation.seeds), simulation.turn
-        self.assertTrue(seeds)
-        simulation.seek(turn // 2)
-        simulation.seek(turn)
-        self.assertEqual(simulation.seeds, seeds)
-
-
 if __name__ == "__main__":
     unittest.main()

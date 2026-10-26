@@ -17,7 +17,7 @@ class WorldFileTests(unittest.TestCase):
         data = world_bytes(world)
         loaded = world_from_bytes(data)
         self.assertEqual(world_bytes(loaded), data)  # every Bitzkey, brain, seed and tuft as it was
-        self.assertEqual((loaded.turn, loaded.frontier, loaded.earliest), (world.turn, world.turn, world.turn))
+        self.assertEqual(loaded.turn, world.turn)
         for _ in range(30):
             world.advance()
             loaded.advance()
@@ -37,11 +37,11 @@ class WorldFileTests(unittest.TestCase):
         self.assertEqual(world_bytes(loaded), data)
 
     def test_a_world_brings_its_rules_but_not_how_this_computer_runs_it(self):
-        Rules.apply({"CORPSE_TURNS": 60, "HISTORY_TURNS": 50})
+        Rules.apply({"CORPSE_TURNS": 60, "USE_GPU": 0})
         data = world_bytes(Simulation(20, 20, population=10, seed=2))
-        Rules.apply({"HISTORY_TURNS": 80})
+        Rules.apply({"USE_GPU": 1})
         world_from_bytes(data)
-        self.assertEqual((Rules.get("CORPSE_TURNS"), Rules.get("HISTORY_TURNS")), (60, 80))
+        self.assertEqual((Rules.get("CORPSE_TURNS"), Rules.get("USE_GPU")), (60, 1))
 
     def test_what_isnt_a_world_says_so(self):
         with self.assertRaisesRegex(ValueError, "isn't a Bitzkey world"):

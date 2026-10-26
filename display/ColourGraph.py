@@ -100,7 +100,7 @@ def build_bars(simulation: Simulation, part: str, chart: pg.Rect, first: int = 0
     Zoomed into the height, the chart shows `1 / height_zoom` of it, from `floor` (a share of the
     top) up; slices beyond it lie outside the chart. Returns the bars and the population the
     chart tops at, unzoomed."""
-    last = simulation.frontier if last is None else last
+    last = simulation.turn if last is None else last
     turns = last - first + 1
     count = max(1, min(chart.width // BAR_PIXELS, turns))
     now = simulation.turn
@@ -202,14 +202,11 @@ class ColourGraph:
         self.height_zoom = 1.0  # how far zoomed into the height
         self.floor = 0.0  # the share of the chart's full height at its bottom, zoomed in
         self.ended = False                        # whether the run is over, when last drawn
-        self.seek_turn = 0                        # where a "seek" asks the world to go
         self._selection_version = 0
         self._size = (0, 0)
         self._mouse = (0, 0)
         self._now = 0
-        self._frontier = 0
         self._press: tuple[tuple[int, int], int] | None = None  # where a press began, and its modifiers
-        self._scrub: int | None = None  # the turn under the playhead while it is dragged
         # A pan with the right or middle button: where it began, the button, the view and floor then, and
         # whether it has moved far enough to be a pan rather than a right-click.
         self._pan: tuple[tuple[int, int], int, tuple[int, int], float, bool] | None = None
@@ -254,12 +251,12 @@ class ColourGraph:
     def window(self) -> tuple[int, int]:
         """The first and last turn shown."""
         if self.view is None:
-            return 0, self._frontier
-        if self.pinned and self.view[1] != self._frontier:  # kept at the latest turn, the living in view
+            return 0, self._now
+        if self.pinned and self.view[1] != self._now:  # kept at the latest turn, the living in view
             span = self.view[1] - self.view[0]
-            self.view = (max(0, self._frontier - span), self._frontier)
+            self.view = (max(0, self._now - span), self._now)
         first, last = self.view
-        return max(0, first), min(self._frontier, last)
+        return max(0, first), min(self._now, last)
 
     def turn_at(self, x: int) -> int:
         chart = self.layout()["chart"]
@@ -277,7 +274,7 @@ class ColourGraph:
         latest turn, keeping it there; zooming out to the whole run returns to it."""
         first, last = self.window()
         span = last - first + 1
-        whole = self._frontier + 1
+        whole = self._now + 1
         new_span = max(MIN_VIEW, round(span * ZOOM_STEP ** notches))
         if new_span >= whole:
             self.view = None
@@ -289,7 +286,7 @@ class ColourGraph:
         new_first = round(centre - (centre - first) * new_span / span)
         new_first = max(0, min(whole - new_span, new_first))
         self.view = (new_first, new_first + new_span - 1)
-        self.pinned = self.view[1] >= self._frontier
+        self.pinned = self.view[1] >= self._now
 
     def zoom_height(self, notches: int, y: int) -> None:
         """Zoom into the height (positive notches) or out, as the map zooms, the population under `y`
@@ -311,9 +308,9 @@ class ColourGraph:
             first, last = view
             span = last - first + 1
             shift = round((to[0] - start[0]) * span / max(1, chart.width))
-            new_first = max(0, min(self._frontier + 1 - span, first - shift))
+            new_first = max(0, min(self._now + 1 - span, first - shift))
             self.view = (new_first, new_first + span - 1)
-            self.pinned = self.view[1] >= self._frontier
+            self.pinned = self.view[1] >= self._now
         self._set_floor(floor + (to[1] - start[1]) / max(1, chart.height) / self.height_zoom)
 
     def pan(self, notches: int) -> None:
@@ -322,9 +319,9 @@ class ColourGraph:
             return
         first, last = self.window()
         span = last - first + 1
-        new_first = max(0, min(self._frontier + 1 - span, first + notches * max(1, span // 10)))
+        new_first = max(0, min(self._now + 1 - span, first + notches * max(1, span // 10)))
         self.view = (new_first, new_first + span - 1)
-        self.pinned = self.view[1] >= self._frontier
+        self.pinned = self.view[1] >= self._now
 
     # Input
 
@@ -366,7 +363,7 @@ class ColourGraph:
 
     def handle(self, event: pg.event.Event) -> str | None:
         """Handle a mouse event. Returns "copy" or "save" when a button asks for an export, "catalog"
-        when it asks to catalog the Bitzkeys picked, "seek" when the world should move to `seek_turn`,
+        when it asks to catalog the Bitzkeys picked,
         and "map" when the run is over and the map is wanted."""
         layout = self.layout()
         chart, timeline = layout["chart"], layout["timeline"]
@@ -377,8 +374,6 @@ class ColourGraph:
             return None
         if event.type == pg.MOUSEMOTION:
             self._mouse = event.pos
-            if self._scrub is not None:
-                self._scrub = self.turn_at(event.pos[0])
             if self._pan is not None:
                 start, button, view, floor, moved = self._pan
                 if moved or max(abs(event.pos[0] - start[0]), abs(event.pos[1] - start[1])) >= UI(DRAG_THRESHOLD):
@@ -398,10 +393,7 @@ class ColourGraph:
             if chart.collidepoint(event.pos) or timeline.collidepoint(event.pos):
                 self._pan = (event.pos, event.button, self.window(), self.floor, False)
         elif event.type == pg.MOUSEBUTTONUP and event.button in (2, 3) and self._pan is not None:
-            (start, button, _, _, moved), self._pan = self._pan, None
-            if button == 3 and not moved:  # a right-click, not a pan
-                self.seek_turn = self.turn_at(start[0])
-                return "seek"
+            self._pan = None
         elif event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
             for action in ("copy", "save", "map", "catalog", "renew", "open"):
                 if action in layout and layout[action].collidepoint(event.pos):
@@ -410,14 +402,9 @@ class ColourGraph:
                 self.menu_open = True
             elif layout["clear"].collidepoint(event.pos):
                 self.select(set())
-            elif timeline.collidepoint(event.pos):
-                self._scrub = self.turn_at(event.pos[0])
             elif chart.collidepoint(event.pos):
                 self._press = (event.pos, pg.key.get_mods())
         elif event.type == pg.MOUSEBUTTONUP and event.button == 1:
-            if self._scrub is not None:
-                self.seek_turn, self._scrub = self.turn_at(event.pos[0]), None
-                return "seek"
             if self._press:
                 (start, modifiers), self._press = self._press, None
                 shift, ctrl = modifiers & pg.KMOD_SHIFT, modifiers & pg.KMOD_CTRL
@@ -443,7 +430,7 @@ class ColourGraph:
         self._alive = {agent.identifier for agent in simulation.living}
         if self.selection - self._alive:  # the dead are forgotten but for their colour
             self.select(self.selection & self._alive)
-        self._now, self._frontier = simulation.turn, simulation.frontier
+        self._now = simulation.turn
         self.ended = simulation.ended
         layout = self.layout()
         panel, chart, timeline = layout["panel"], layout["chart"], layout["timeline"]
@@ -469,7 +456,7 @@ class ColourGraph:
             screen.blit(message, message.get_rect(topright=(panel.right - UI(24), panel.top + UI(58))))
 
         first, last = self.window()
-        key = (simulation.turn, simulation.frontier, len(simulation.census.snapshots), len(simulation.agents),
+        key = (simulation.turn, len(simulation.census.snapshots), len(simulation.agents),
                simulation.deaths, self.part, chart.size, chart.topleft, self._selection_version, first, last,
                id(simulation), self.sort, self.height_zoom, self.floor)
         if key != self._key:
@@ -583,7 +570,7 @@ class ColourGraph:
         if self.view is None:
             middle = f"TURN {(first + last) // 2}"
         else:
-            middle = f"TURNS {first} - {last}  (ZOOM x{(self._frontier + 1) / (last - first + 1):.1f})"
+            middle = f"TURNS {first} - {last}  (ZOOM x{(self._now + 1) / (last - first + 1):.1f})"
         if self.height_zoom > 1:
             middle += f"  (HEIGHT x{self.height_zoom:.1f})"
         for text, x, align in ((f"TURN {first}", timeline.left + UI(8), 0), (middle, timeline.centerx, 0.5),
@@ -591,7 +578,7 @@ class ColourGraph:
             label = self.small.render(text, True, (149, 170, 150))
             screen.blit(label, (x - round(label.get_width() * align), timeline.centery - label.get_height() // 2))
 
-        for turn, colour in ((self._now, (245, 238, 206)), (self._scrub, (238, 183, 110))):
+        for turn, colour in ((self._now, (245, 238, 206)),):
             if turn is None or not first <= turn <= last:
                 continue
             x = self.x_of(turn)
@@ -632,9 +619,7 @@ class ColourGraph:
         chosen = f"{len(self.selection)} selected" if self.selection else "Nothing selected"
         if self.sort != "colour":
             chosen = f"The living sorted by {self.sort}, lowest at the bottom.     " + chosen
-        if simulation.turn < simulation.frontier:
-            chosen = f"Rewound to turn {simulation.turn} of {simulation.frontier}.     " + chosen
-        elif simulation.end_reason:
+        if simulation.end_reason:
             cause = "every animal died" if simulation.end_reason == "extinct" else "the world filled up"
             chosen = f"Ended at turn {simulation.turn}: {cause}.     " + chosen
         if hovered is None:

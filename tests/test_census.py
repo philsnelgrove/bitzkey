@@ -45,7 +45,7 @@ class CensusTests(unittest.TestCase):
         self.assertTrue(all(turn % census.stride == 0 for turn in turns[:-1]))
         self.assertEqual(census.at(17), (16,))
 
-    def test_rewinding_forgets_the_abandoned_future(self):
+    def test_forgetting_from_a_turn_drops_it_and_those_after(self):
         census = Census()
         for turn in range(6):
             census.record(turn, [turn])
@@ -91,19 +91,6 @@ class CensusTests(unittest.TestCase):
         self.assertEqual(simulation.census.at(simulation.turn),
                          tuple(agent.identifier for agent in simulation.living))
         self.assertTrue(all(simulation.lineage[agent.identifier] == agent.dna for agent in simulation.agents))
-
-    def test_seeking_back_and_forth_leaves_the_census_as_recorded(self):
-        simulation = Simulation(width=20, height=20, population=30, seed=4)
-        for _ in range(12):
-            simulation.advance()
-        recorded = list(simulation.census.snapshots)
-
-        simulation.seek(3)
-        simulation.seek(9)
-        for _ in range(3):
-            simulation.advance()
-
-        self.assertEqual(simulation.census.snapshots, recorded)
 
 if __name__ == "__main__":
     unittest.main()

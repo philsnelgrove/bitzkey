@@ -52,7 +52,7 @@ WORD = 0xFFFFFFFF
 WORLD_SUFFIX = ".bzworld"
 OLD_WIDTH = 34  # neurons in each hidden layer of a brain saved without a width
 # Rules that say how this computer runs a world rather than how the world unfolds: loading keeps the user's own.
-MACHINE_RULES = ("USE_GPU", "HISTORY_TURNS", "HISTORY_MEMORY")
+MACHINE_RULES = ("USE_GPU",)
 
 
 def _optional_list(value) -> list | None:
@@ -417,9 +417,6 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
     for agent, saved in zip(simulation.agents, record["agents"]):
         agent.population, agent.cost_share = int(saved["population"]), float(saved["cost_share"])
         agent.glut, agent.guarded = float(saved["glut"]), bool(saved["guarded"])
-    simulation.history.clear()
-    simulation._history_bytes = 0
-    simulation._record()
     return simulation
 
 

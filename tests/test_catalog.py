@@ -123,17 +123,11 @@ class CatalogTests(unittest.TestCase):
             self.assertIsNot(agent.brain, deployed[0].brain if agent is not deployed[0] else None)
             self.assertAlmostEqual(agent.mind["fear"], self.animal.mind["fear"], places=3)
         self.assertEqual(self.simulation.turn, turn)  # between turns
-        self.assertEqual(self.simulation.history[-1]["turn"], turn)  # this turn, recorded again, as it now is
         living = set(self.simulation.census.at(turn))
         self.assertTrue({agent.identifier for agent in deployed} <= living)
 
-        for _ in range(3):
-            self.simulation.advance()
-        self.simulation.seek(turn + 1)  # rewound: deploying lets the future go
-        self.simulation.deploy([bitzkey], 20, 20)
-        self.assertEqual((self.simulation.frontier, self.simulation.history[-1]["turn"]), (turn + 1, turn + 1))
         self.simulation.advance()
-        self.assertEqual(self.simulation.turn, turn + 2)
+        self.assertEqual(self.simulation.turn, turn + 1)
 
     def test_several_are_chosen_as_in_windows_with_ctrl_and_shift(self):
         from unittest.mock import patch

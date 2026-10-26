@@ -50,7 +50,7 @@ class Census:
         return old > 0
 
     def forget_from(self, turn: int) -> None:
-        """Drop snapshots of turns from `turn` on: a future abandoned by rewinding."""
+        """Drop snapshots of turns from `turn` on: that turn again, as it now is."""
         while self.snapshots and self.snapshots[-1][0] >= turn:
             self.snapshots.pop()
 

@@ -1,6 +1,7 @@
 """The advanced panel: every tunable rule of the simulation, by group, opened from the
 configuration panel, where applying it sets the rules the next world plays by, or from the map,
-where it sets the rules of the world running there."""
+where it sets the rules of the world running there. A search box at its top narrows the list, as it is typed
+into, to the rules whose name, description, group or key holds what is typed, in English or as shown."""
 
 from __future__ import annotations
 
@@ -9,11 +10,20 @@ from collections.abc import Mapping
 import pygame as pg
 
 from display import Window
+from display.Language import as_shown, tr
 from display.Ui import UI, fit_text, draw_label, wrapped_lines
 from tools import Rules
 from tools.Rules import RULES, Rule
 
 MAX_CHARACTERS = 12
+
+
+def rule_matches(rule: Rule, search: str) -> bool:
+    """Whether a rule answers a search: every word of it in the rule's name, description, group or key, in English
+    or in the language shown, whatever their case. An empty search finds every rule."""
+    seen = "\n".join(text.lower() for each in (rule.label, rule.hint, rule.group) for text in (each, tr(each)))
+    seen += "\n" + rule.key.lower()
+    return all(word in seen for word in search.lower().split())
 
 
 class AdvancedForm:
@@ -116,14 +126,41 @@ class AdvancedScreen:
         self.note_until = 0
         # Each line of the list: a group heading, or the index of a rule, with its top in the list.
         self.lines: list[tuple[str | int, int]] = []
-        top = 0
+        self.list_height = 0
+        self.search = ""
+        self.searching = False  # typing goes into the search box rather than the focused rule's value
+        self._find()
+
+    def _find(self) -> None:
+        """The list again, of the rules answering the search, the focus kept on one of them."""
+        self.lines, top, group = [], 0, None
         for index, rule in enumerate(RULES):
-            if index == 0 or rule.group != RULES[index - 1].group:
+            if not rule_matches(rule, self.search):
+                continue
+            if rule.group != group:  # each group's heading over the first of its rules found
+                group = rule.group
                 self.lines.append((rule.group, top))
                 top += self.HEADING_HEIGHT
             self.lines.append((index, top))
             top += self.ROW_HEIGHT
         self.list_height = top
+        found = self._listed()
+        if found and self.form.focus not in found:
+            self.form.select(found[0])
+        self.scroll = 0
+        if found:
+            self._show_focus()
+
+    def _listed(self) -> list[int]:
+        """The rules listed, in order."""
+        return [item for item, _ in self.lines if isinstance(item, int)]
+
+    def _step(self, offset: int) -> None:
+        """The focus that many rules on among those listed, round from the end to the start."""
+        found = self._listed()
+        if found:
+            position = found.index(self.form.focus) if self.form.focus in found else 0
+            self.form.select(found[(position + offset) % len(found)])
 
     @property
     def font(self) -> pg.font.Font:
@@ -155,9 +192,15 @@ class AdvancedScreen:
                 if event.type == pg.VIDEORESIZE:
                     self.screen = Window.resize(event)
                 elif event.type == pg.KEYDOWN:
+                    if event.key == pg.K_ESCAPE and self.search:  # the search cleared first, then the panel closed
+                        self.search, self.searching = "", False
+                        self._find()
+                        continue
                     if event.key == pg.K_ESCAPE:
                         return "cancel", None
-                    if event.key == pg.K_F11:
+                    if event.key == pg.K_f and event.mod & pg.KMOD_CTRL:
+                        self.searching = True
+                    elif event.key == pg.K_F11:
                         self.screen = Window.toggle_fullscreen()
                     elif event.key in (pg.K_RETURN, pg.K_KP_ENTER):
                         if self._ready():
@@ -189,14 +232,26 @@ class AdvancedScreen:
     def _key(self, event: pg.event.Event) -> None:
         form = self.form
         steps = 10 if event.mod & pg.KMOD_SHIFT else 1
+        if self.searching and event.key == pg.K_BACKSPACE:
+            self.search = self.search[:-1]
+            self._find()
+            return
+        if self.searching and event.unicode and event.unicode.isprintable():
+            self.search += event.unicode
+            self._find()  # narrowed as it is typed
+            return
+        found = self._listed()
+        if not found:  # nothing found to choose or change
+            return
+        position = found.index(form.focus) if form.focus in found else 0
         if event.key == pg.K_UP or (event.key == pg.K_TAB and event.mod & pg.KMOD_SHIFT):
-            form.move(-1)
+            self._step(-1)
         elif event.key in (pg.K_DOWN, pg.K_TAB):
-            form.move(1)
+            self._step(1)
         elif event.key == pg.K_PAGEUP:
-            form.select(max(0, form.focus - 10))
+            self._step(-min(10, position))
         elif event.key == pg.K_PAGEDOWN:
-            form.select(min(len(RULES) - 1, form.focus + 10))
+            self._step(min(10, len(found) - 1 - position))
         elif event.key == pg.K_RIGHT:
             form.adjust(steps)
         elif event.key == pg.K_LEFT:
@@ -215,6 +270,8 @@ class AdvancedScreen:
         card = pg.Rect(0, 0, UI(760), min(height - UI(24), UI(800)))
         card.center = (width // 2, height // 2)
         top = UI(100) + len(self._law_lines(card.width - UI(56))) * UI(self.LAW_LINE)  # beneath the word on natural law
+        search = pg.Rect(card.left + UI(20), card.top + top, card.width - UI(54), UI(32))
+        top += UI(42)  # the list beneath the search box
         view = pg.Rect(card.left + UI(20), card.top + top, card.width - UI(40), card.height - top - UI(118))
         apply = pg.Rect(0, 0, UI(180), UI(44))
         apply.bottomleft = (card.centerx + UI(6), card.bottom - UI(42))
@@ -224,7 +281,8 @@ class AdvancedScreen:
         reset_all.topright = (card.right - UI(20), card.top + UI(28))
         reset = pg.Rect(0, 0, UI(70), UI(28))
         reset.topright = (reset_all.left - UI(8), reset_all.top)
-        return {"card": card, "view": view, "apply": apply, "cancel": cancel, "reset": reset, "reset_all": reset_all}
+        return {"card": card, "search": search, "view": view, "apply": apply, "cancel": cancel, "reset": reset,
+                "reset_all": reset_all}
 
     LAW_LINE = 20  # design pixels between the lines of the word on natural law
 
@@ -273,6 +331,9 @@ class AdvancedScreen:
         for name in ("apply", "cancel"):
             if layout[name].collidepoint(position):
                 return name
+        self.searching = layout["search"].collidepoint(position)  # a click elsewhere leaves the search as it is
+        if self.searching:
+            return None
         if layout["reset"].collidepoint(position):
             self.form.reset()
         elif layout["reset_all"].collidepoint(position):
@@ -313,8 +374,23 @@ class AdvancedScreen:
             pg.draw.rect(self.screen, (44, 57, 52), button, border_radius=UI(4))
             draw_label(self.screen, self.button_font, label, (220, 229, 211), button)
 
+        search = layout["search"]
+        pg.draw.rect(self.screen, (19, 26, 27), search, border_radius=UI(4))
+        pg.draw.rect(self.screen, (131, 205, 143) if self.searching else (54, 68, 62), search, 1, border_radius=UI(4))
+        if not self.search and not self.searching:
+            self._text("Search settings  (CTRL+F)", (search.left + UI(12), search.top + UI(6)), (96, 110, 100), self.font)
+        else:
+            typed = self.search + ("_" if self.searching and pg.time.get_ticks() // 500 % 2 else "")
+            self._text(as_shown(typed), (search.left + UI(12), search.top + UI(6)), (238, 238, 220), self.font)
+        if self.search:
+            count = self.small.render(f"{len(self._listed())} found", True, (144, 170, 151))
+            self.screen.blit(count, count.get_rect(midright=(search.right - UI(12), search.centery)))
+
         view = layout["view"]
         self.scroll = min(self.scroll, self._max_scroll(view))
+        if not self.lines:
+            missing = self.font.render(f'No settings match "{self.search}".', True, (157, 177, 159))
+            self.screen.blit(missing, missing.get_rect(midtop=(view.centerx, view.top + UI(24))))
         self.screen.set_clip(view)
         for item, row in self._rows(view):
             if isinstance(item, str):
@@ -335,7 +411,7 @@ class AdvancedScreen:
         elif warning:  # the chosen rule's warning, in full
             hint = self.small.render(self._fit(warning, card.width - UI(48)), True, (238, 183, 110))
         else:
-            hint = self.small.render("UP/DOWN  choose   LEFT/RIGHT  adjust (SHIFT x10)   PGUP/PGDN  jump   "
+            hint = self.small.render("CTRL+F  search   UP/DOWN  choose   LEFT/RIGHT  adjust (SHIFT x10)   PGUP/PGDN  jump   "
                                      "ENTER  apply   ESC  cancel", True, (130, 152, 136))
         self.screen.blit(hint, hint.get_rect(midbottom=(card.centerx, card.bottom - UI(14))))
 

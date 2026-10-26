@@ -273,11 +273,7 @@ class BitzkeyApp:
                     elif event.key == pg.K_RIGHT:
                         self.playing = False
                         self.simulation.advance()
-                    elif event.key == pg.K_LEFT:
-                        self.playing = False
-                        self.simulation.rewind()
                     elif event.key == pg.K_r:
-                        self.simulation.close()
                         self.simulation = self._new_world()
                         self.selected_id = None
                         self.graph.reset()
@@ -319,9 +315,7 @@ class BitzkeyApp:
                 elif self.show_census and event.type in (pg.MOUSEBUTTONDOWN, pg.MOUSEBUTTONUP, pg.MOUSEMOTION,
                                                          pg.MOUSEWHEEL):
                     action = self.graph.handle(event)
-                    if action == "seek":
-                        self._seek(self.graph.seek_turn)
-                    elif action == "map":
+                    if action == "map":
                         self._close_graph()  # at the run's end, to look over the map before leaving
                     elif action == "catalog":
                         self._catalog_picked()
@@ -399,15 +393,6 @@ class BitzkeyApp:
             return False
         self._leave(Dialog("Leaving this simulation", [], [("leave", "LEAVE")], cancel="leave"))
         return True
-
-    def _seek(self, turn: int) -> None:
-        """Pause and move the world to a turn already simulated, as far back as the history reaches."""
-        self.playing = False
-        self.simulation.seek(turn)
-        if turn < self.simulation.turn:
-            self._say(f"The history reaches back only to turn {self.simulation.turn}; moved there.")
-        else:
-            self._say(f"Moved to turn {self.simulation.turn}.")
 
     def _click(self, position: tuple[int, int]) -> None:
         if self._exemplar_menu is not None:  # a click picks a statistic or closes the menu
@@ -599,7 +584,6 @@ class BitzkeyApp:
         self.playing = False
         self._draw()
         pg.display.flip()
-        self.simulation.close()
         self.simulation = None
 
     def _ask_to_leave(self) -> None:
@@ -1507,10 +1491,8 @@ class BitzkeyApp:
     def _draw_footer(self) -> None:
         height = self.screen.get_height()
         pg.draw.rect(self.screen, (27, 37, 37), (0, height - UI(52), self.screen.get_width(), UI(52)))
-        history = f"HISTORY  {self.simulation.turn}/{self.simulation.frontier}"
-        if self.simulation.earliest:  # the oldest turns no longer fit the disk budget
-            history += f"  FROM {self.simulation.earliest}"
-        self._text(history, (UI(22), height - UI(36)), (158, 181, 160), self.small)
+        turn_label = f"TURN  {self.simulation.turn}"
+        self._text(turn_label, (UI(22), height - UI(36)), (158, 181, 160), self.small)
         label = UI.font("segoeui", 13, bold=True).render(f"EXPORT ALL SELECTED ({len(self.export_list)})", True,
                                                          (19, 26, 27) if self.export_list else (220, 229, 211))
         self._export_button = pg.Rect(0, 0, label.get_width() + UI(32), UI(34))
@@ -1534,12 +1516,12 @@ class BitzkeyApp:
         self._save_button.midright = (self._advanced_button.left - UI(10), height - UI(26))
         pg.draw.rect(self.screen, (44, 57, 52), self._save_button, border_radius=UI(6))
         self.screen.blit(label, label.get_rect(center=self._save_button.center))
-        left = max(UI(185), UI(22) + self.small.size(history)[0] + UI(24))  # clear of the history, however long
+        left = max(UI(185), UI(22) + self.small.size(turn_label)[0] + UI(24))  # clear of the turn, however long
         room = self._save_button.left - left - UI(16)
         if pg.time.get_ticks() < self.message_until:
             self._footer_lines(self.message, left, room, (238, 183, 110))
             return
-        self._footer_lines("SPACE  pause   LEFT / RIGHT  rewind / step   WHEEL / Z  zoom   I  insights   B  report   "
+        self._footer_lines("SPACE  pause   RIGHT  step   WHEEL / Z  zoom   I  insights   B  report   "
                            "G  graph   E  export   R  restart   F11  window   ESC  menu", left, room, (187, 199, 181))
 
     def _footer_lines(self, text: str, left: int, width: int, color: tuple[int, int, int]) -> None:
@@ -1622,8 +1604,6 @@ def main() -> None:
             Rules.apply(rules)  # the advanced rules hold for this world and its restarts
         app = BitzkeyApp(**settings)
         outcome = app.run()
-        if app.simulation is not None:
-            app.simulation.close()  # its history goes with it
         if outcome == "quit":
             break
         # A new world with the Bitzkeys picked on the graph starts at once; otherwise, back to the panel.

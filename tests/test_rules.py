@@ -36,21 +36,6 @@ class RulesTests(unittest.TestCase):
         form.finish()
         self.assertEqual(form.values["USE_GPU"], 0)  # it stays as it is
 
-    def test_the_rewind_history_is_set_in_the_world_rules_with_a_warning_about_memory(self):
-        from tools import Simulation as world
-        for key in ("HISTORY_TURNS", "HISTORY_MEMORY"):
-            self.assertEqual(BY_KEY[key].group, "World")
-            self.assertIn("MEMORY", Rules.WARNINGS[key])
-        self.assertTrue(BY_KEY["HISTORY_TURNS"].integer)
-        top = BY_KEY["HISTORY_TURNS"]
-        self.assertEqual((Rules.shown(top, top.maximum), Rules.shown(top, 100)), ("ALL", "100"))
-        try:
-            Rules.apply({"HISTORY_TURNS": 250, "HISTORY_MEMORY": 4.0})
-            self.assertEqual((world.HISTORY_TURNS, world.HISTORY_MEMORY), (250, 4.0))
-        finally:
-            Rules.apply({})
-        self.assertEqual((world.HISTORY_TURNS, world.HISTORY_MEMORY), (100, 1.0))
-
     def test_every_default_is_within_its_rule_and_of_its_kind(self):
         self.assertEqual(len(BY_KEY), len(RULES))
         for rule in RULES:
@@ -165,6 +150,41 @@ class AdvancedFormTests(unittest.TestCase):
         self.assertEqual(form.changed(), {"CORPSE_TURNS": 60})
         form.reset_all()
         self.assertEqual(form.changed(), {})
+
+
+
+class AdvancedSearchTests(unittest.TestCase):
+    def test_a_search_finds_the_rules_holding_every_word_of_it_in_any_case(self):
+        from display.Advanced import rule_matches
+        stamina = [rule.key for rule in RULES if rule_matches(rule, "STAMINA")]
+        self.assertIn("REST_RECOVERY", stamina)  # in its description
+        self.assertTrue(all(rule_matches(rule, "") for rule in RULES))  # nothing typed: every rule
+        self.assertTrue(rule_matches(BY_KEY["FORCED_LESSONS"], "forced_lessons"))  # by its key
+        self.assertTrue(rule_matches(BY_KEY["FORCED_LESSONS"], "mind forced"))  # its group and its name
+        self.assertFalse(rule_matches(BY_KEY["FORCED_LESSONS"], "forced unicorns"))  # every word must be there
+
+    def test_the_panel_lists_only_what_the_search_finds_and_esc_clears_it_first(self):
+        import os
+        os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+        import pygame as pg
+        from display.Advanced import AdvancedScreen
+        pg.init()
+        panel = AdvancedScreen(pg.display.set_mode((1200, 820)), {})
+        everything = len(panel._listed())
+        self.assertEqual(everything, len(RULES))
+        panel.searching = True
+        for letter in "fatigue":
+            panel._key(pg.event.Event(pg.KEYDOWN, key=pg.K_a, mod=0, unicode=letter))
+        found = panel._listed()
+        self.assertTrue(0 < len(found) < everything)
+        self.assertIn(panel.form.focus, found)  # the focus kept on a rule found
+        panel._step(len(found))  # round the found rules, back where it started
+        self.assertIn(panel.form.focus, found)
+        panel._draw()
+        panel.search = "unicorns"
+        panel._find()
+        self.assertEqual(panel._listed(), [])
+        panel._draw()  # says nothing matches
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ import tools.Simulation as simulation_module
 from tools.Brain import ACTIONS, SENSES, Brain
 from tools.Exchange import Imported
 from tools.Genome import decode_body, encode_dna
-from tools.Simulation import (Death, FULL_STAMINA, SPAWN_SPREAD, DEATH_PENALTY, PARENT_GRIEF, PARENT_JOY, BREED_COOLDOWN, PREGNANT_REMORSE, AGENT_BYTES, ATTACK_JOY, FEAST_JOY, FRESH_KILL_MEALS, KILL_MEAL, KILL_MEAL_FOR_SIZE, BIRTH_REACH, PLANT_GESTATION, Bitzkey, gestation, CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, PLANT_MEAL, PLANT_MEAL_FOR_SIZE, SEED_OFFSETS,
+from tools.Simulation import (Death, FULL_STAMINA, SPAWN_SPREAD, DEATH_PENALTY, PARENT_GRIEF, PARENT_JOY, BREED_COOLDOWN, PREGNANT_REMORSE, ATTACK_JOY, FEAST_JOY, FRESH_KILL_MEALS, KILL_MEAL, KILL_MEAL_FOR_SIZE, BIRTH_REACH, PLANT_GESTATION, Bitzkey, gestation, CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, PLANT_MEAL, PLANT_MEAL_FOR_SIZE, SEED_OFFSETS,
                               SIGHT_OFFSETS, SPAWN_SPREAD, UPROOT_BITE, UPROOT_MEALS, Simulation, litter_size,
                               nearby_offsets)
 
@@ -607,57 +607,6 @@ class SimulationTests(unittest.TestCase):
         self.assertGreater(hunter.mind["fear"], 3)
         self.assertGreater(victim.mind["fear"], victim.inborn["fear"])
 
-    def test_the_latest_turns_are_kept_in_memory_and_reached_at_once_exactly(self):
-        with patch("tools.Simulation.CLIMATE_DAMAGE", 0):  # a world that lasts
-            simulation = Simulation(width=20, height=20, population=30, seed=4)
-
-            def state():  # copies, since the live objects carry on changing
-                return ([(agent.identifier, agent.dna, agent.x, agent.y, agent.hunger, agent.health,
-                          dict(agent.mind), agent.brain and agent.brain.copy(), agent.meat, list(agent.trail))
-                         for agent in simulation.agents],
-                        dict(simulation.grass), simulation.deaths, simulation.random.getstate())
-
-            recorded = {0: state()}
-            for turn in range(1, 61):
-                simulation.advance()
-                recorded[turn] = state()
-            self.assertEqual([entry["turn"] for entry in simulation.history], list(range(61)))
-            with patch.object(Simulation, "_take_turn", side_effect=AssertionError("replayed")):
-                for target in (37, 3, 0, 59, 60, 17, 18, 60):  # every one at once, with no replaying
-                    simulation.seek(target)
-                    self.assertEqual(simulation.turn, target)
-                    self.assertEqual(state(), recorded[target], f"turn {target}")
-                simulation.seek(57)
-                simulation.advance()  # stepping on through the recorded run brings back each turn
-                self.assertEqual(state(), recorded[58])
-            simulation.seek(60)
-            simulation.advance()  # and from the latest, the world carries on
-            self.assertEqual(simulation.frontier, 61)
-            simulation.close()
-            self.assertEqual(len(simulation.history), 0)
-
-    def test_the_history_keeps_only_the_latest_turns_and_fits_its_memory(self):
-        with patch("tools.Simulation.CLIMATE_DAMAGE", 0), patch("tools.Simulation.HISTORY_TURNS", 10):
-            simulation = Simulation(width=20, height=20, population=30, seed=4)
-            for _ in range(40):
-                simulation.advance()
-            self.assertEqual([entry["turn"] for entry in simulation.history], list(range(31, 41)))
-            simulation.seek(0)  # as far back as it reaches
-            self.assertEqual(simulation.turn, 31)
-            self.assertFalse(simulation.rewind())
-            simulation.seek(40)
-            with patch("tools.Simulation.HISTORY_TURNS", 5000):  # "all": every turn from here on
-                for _ in range(20):
-                    simulation.advance()
-            self.assertEqual(len(simulation.history), 30)
-            simulation.seek(60)
-            with patch("tools.Simulation.HISTORY_MEMORY", 1e-9):  # far too little: only the newest is kept
-                simulation.advance()
-            self.assertEqual([entry["turn"] for entry in simulation.history], [61])
-        brains = sum(agent.brain_bytes for agent in simulation.agents)
-        self.assertGreater(brains, 0)
-        self.assertEqual(simulation._history_bytes, brains + AGENT_BYTES * len(simulation.agents))
-
     def test_a_history_left_behind_is_cleared_away_once_stale(self):
         import os
         import time
@@ -693,17 +642,6 @@ class SimulationTests(unittest.TestCase):
             seeded.append(count)
         self.assertEqual(seeded, [3, 2, 1, 0])  # a chance of 10%, then two thirds, a third and none
 
-    def test_rewinding_reaches_turn_zero_while_the_history_fits_its_budget(self):
-        with patch("tools.Simulation.CLIMATE_DAMAGE", 0):  # a world that lasts
-            simulation = Simulation(width=20, height=20, population=10, seed=4)
-            for _ in range(30):
-                simulation.advance()
-
-            while simulation.rewind():
-                pass
-
-        self.assertEqual((simulation.turn, simulation.frontier), (0, 30))
-
     def test_the_simulation_ends_when_no_animals_are_left(self):
         simulation = Simulation(width=10, height=10, population=0, seed=1)
         plant = simulation._add_agent(encode_dna("plant"), 1, 1)
@@ -726,7 +664,7 @@ class SimulationTests(unittest.TestCase):
 
         self.assertEqual(simulation.end_reason, "full")
 
-    def test_an_ended_simulation_stops_but_can_still_be_rewound(self):
+    def test_an_ended_simulation_stops(self):
         with patch("tools.Simulation.CLIMATE_DAMAGE", 0):  # a world that lasts until it is ended
             simulation = Simulation(width=20, height=20, population=30, seed=4)
             for _ in range(16):
@@ -735,37 +673,10 @@ class SimulationTests(unittest.TestCase):
                 if agent.species != "plant":
                     agent.health = 0
                     simulation._die(agent, "killed")
-            simulation._record()  # the end, as a recorded turn: one with a snapshot, as the killing can't be replayed
-            simulation.frontier = simulation.turn
 
             simulation.advance()
             self.assertTrue(simulation.ended)
             self.assertEqual(simulation.turn, 16)
-            simulation.seek(2)
-            self.assertFalse(simulation.ended)
-            for _ in range(20):
-                simulation.advance()
-            self.assertEqual(simulation.turn, 16)
-
-    def test_rewind_and_replay_are_exact(self):
-        simulation = Simulation(width=20, height=20, population=30, seed=4)
-
-        def state():
-            return ([(agent.identifier, agent.dna, agent.x, agent.y, agent.hunger, dict(agent.mind),
-                      agent.brain and agent.brain.copy())
-                     for agent in simulation.agents], simulation.insights.snapshot())
-
-        for _ in range(15):
-            simulation.advance()
-        expected = state()
-        for _ in range(5):
-            simulation.rewind()
-        for _ in range(5):
-            simulation.advance()
-
-        self.assertEqual(state(), expected)
-
-
 
 class NewTraitTests(unittest.TestCase):
     def setUp(self):
@@ -1546,17 +1457,8 @@ class NewTraitTests(unittest.TestCase):
         killings = sum(death.killer is not None for death in deaths)
         doing = lines[next(i for i, line in enumerate(lines) if line.startswith("WHAT THE KILLERS")) + 1:]
         self.assertEqual(sum(int(line.split()[-1]) for line in doing[1:doing.index("")]), killings)
-        later = {species: dict(causes) for species, causes in world.death_causes.items()}
-        world.seek(world.turn - 20)
         self.assertEqual(sum(sum(causes.values()) for causes in world.death_causes.values()), world.deaths)
-        while world.turn < world.frontier:
-            world.advance()
-        self.assertEqual(world.death_causes, later)  # replayed, not counted twice
         self.assertEqual(len(world.deaths_so_far()), world.deaths)
-        world.seek(world.turn - 20)
-        self.assertEqual(len(world.deaths_so_far()), world.deaths)  # the report as it was then
-        world.deploy([], 5, 5)  # a rewound world changed lets its future go, and the deaths in it
-        self.assertTrue(all(death.turn <= world.turn for death in world.death_records.values()))
 
     def test_a_brain_matrix_shows_each_situation_its_species_meets(self):
         from tools.Insights import SCENARIOS, brain_matrix, brain_matrix_lines

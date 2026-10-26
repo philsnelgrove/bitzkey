@@ -112,7 +112,7 @@ class TimeTravelTests(unittest.TestCase):
             self.simulation.advance()
         self.graph = ColourGraph()
         self.graph._size = (1200, 820)
-        self.graph._now, self.graph._frontier = self.simulation.turn, self.simulation.frontier
+        self.graph._now = self.simulation.turn
         layout = self.graph.layout()
         self.chart, self.timeline = layout["chart"], layout["timeline"]
 
@@ -162,21 +162,6 @@ class TimeTravelTests(unittest.TestCase):
                                                                         if identifier in self.simulation.death_records else "Dead"))
         self.graph.draw(surface, self.simulation, None)  # and it draws
 
-    def test_dragging_the_timeline_seeks_where_it_is_let_go(self):
-        y = self.timeline.centery
-        self.click(pg.MOUSEBUTTONDOWN, self.chart.left + 5, y)
-        self.graph.handle(pg.event.Event(pg.MOUSEMOTION, pos=(self.chart.centerx, y), rel=(0, 0), buttons=(1, 0, 0)))
-        action = self.click(pg.MOUSEBUTTONUP, self.chart.centerx, y)
-
-        self.assertEqual(action, "seek")
-        self.assertEqual(self.graph.seek_turn, self.graph.turn_at(self.chart.centerx))
-        self.assertAlmostEqual(self.graph.seek_turn, 50, delta=1)
-
-    def test_right_clicking_the_graph_seeks_that_turn(self):
-        self.assertIsNone(self.click(pg.MOUSEBUTTONDOWN, self.chart.left + 1, self.chart.centery, button=3))
-        self.assertEqual(self.click(pg.MOUSEBUTTONUP, self.chart.left + 1, self.chart.centery, button=3), "seek")
-        self.assertEqual(self.graph.seek_turn, 0)
-
     def test_the_wheel_zooms_into_the_height_around_the_pointer_and_a_right_drag_pans(self):
         y = self.chart.bottom - self.chart.height // 4
         up = (self.chart.bottom - y) / self.chart.height
@@ -187,7 +172,7 @@ class TimeTravelTests(unittest.TestCase):
         start = (self.chart.centerx, self.chart.centery)
         self.click(pg.MOUSEBUTTONDOWN, *start, button=3)
         self.graph.handle(pg.event.Event(pg.MOUSEMOTION, pos=(start[0], start[1] + 40), rel=(0, 40), buttons=(0, 0, 1)))
-        self.assertIsNone(self.click(pg.MOUSEBUTTONUP, start[0], start[1] + 40, button=3))  # a pan, not a seek
+        self.assertIsNone(self.click(pg.MOUSEBUTTONUP, start[0], start[1] + 40, button=3))  # a pan
         self.assertAlmostEqual(self.graph.floor, floor + 40 / self.chart.height / self.graph.height_zoom)
         self.graph.zoom_height(-40, y)
         self.assertEqual((self.graph.height_zoom, self.graph.floor), (1.0, 0.0))  # no further out than the whole
@@ -234,18 +219,6 @@ class TimeTravelTests(unittest.TestCase):
         self.assertEqual(self.graph.window()[0], 0)
         self.assertEqual(self.graph.window()[1] - self.graph.window()[0], last - first)
 
-    def test_after_rewinding_the_later_turns_show_as_the_future(self):
-        self.simulation.seek(40)
-
-        bars, _ = build_bars(self.simulation, "ring", CHART)
-
-        present = next(bar for bar in bars if bar.turn >= 40)
-        self.assertEqual(sorted(identifier for identifier, _, _ in present.slices),
-                         sorted(agent.identifier for agent in self.simulation.living))
-        self.assertTrue(all(bar.future for bar in bars if bar.turn > present.turn))
-        self.assertFalse(any(bar.future for bar in bars if bar.turn <= present.turn))
-        self.assertEqual(bars[-1].turn, 100)
-
     def test_a_zoomed_graph_draws_only_the_turns_in_view(self):
         bars, _ = build_bars(self.simulation, "ring", CHART, 20, 29)
 
@@ -255,17 +228,17 @@ class TimeTravelTests(unittest.TestCase):
 class SpeciesBandTests(unittest.TestCase):
     def test_a_zoomed_view_reaching_the_latest_turn_keeps_up_with_it(self):
         graph = ColourGraph()
-        graph._frontier = 400
+        graph._now = 400
         graph.zoom(4, 10_000)  # zoomed in at the right-hand end
         first, last = graph.window()
         self.assertTrue(graph.pinned)
         self.assertEqual(last, 400)
-        graph._frontier = 450  # the run goes on
+        graph._now = 450  # the run goes on
         self.assertEqual(graph.window(), (first + 50, 450))
         graph.pan(-3)  # panned back into the past, it stays put
         self.assertFalse(graph.pinned)
         held = graph.window()
-        graph._frontier = 500
+        graph._now = 500
         self.assertEqual(graph.window(), held)
 
     def test_bars_stack_by_species_and_the_dead_drop_out_of_the_selection(self):
