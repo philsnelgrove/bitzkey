@@ -1611,8 +1611,8 @@ def _shown(value: float | None, pattern: str) -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run a Bitzkey artificial ecology.")
-    parser.add_argument("--width", type=int, default=Config.GRID_WIDTH, help="world width in cells (default: 100)")
-    parser.add_argument("--height", type=int, default=Config.GRID_HEIGHT, help="world height in cells (default: 100)")
+    parser.add_argument("--width", type=int, default=Config.GRID_WIDTH, help="world width in cells (default: 360)")
+    parser.add_argument("--height", type=int, default=Config.GRID_HEIGHT, help="world height in cells (default: 180)")
     parser.add_argument("--population", type=int, default=Config.INITIAL_POPULATION)
     parser.add_argument("--grass-density", type=int, default=Config.GRASS_DENSITY,
                         help="percent of cells with grass at the start (default: 5)")

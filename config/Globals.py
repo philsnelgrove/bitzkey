@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 class Config(object):
-    VERSION = "1.23.0"  # shown at the top of every screen
+    VERSION = "1.24.0"  # shown at the top of every screen
     CORES = 1  # the processor cores the simulation thinks on: Python runs it on one
     VALUE_LIMIT = 10000000
     ITERATION_LIMIT = 10
@@ -17,8 +17,8 @@ class Config(object):
     # executable runs from a temporary folder), otherwise the project folder.
     APP_DIR = (Path(sys.executable).resolve().parent if getattr(sys, "frozen", False)
                else Path(__file__).resolve().parent.parent)
-    GRID_WIDTH = 100
-    GRID_HEIGHT = 100
+    GRID_WIDTH = 360  # a new world twice as wide as it is tall, as a globe has it
+    GRID_HEIGHT = 180
     INITIAL_POPULATION = 90
     GRASS_DENSITY = 50
     OCEAN = 67  # percent of a new world's map under the sea

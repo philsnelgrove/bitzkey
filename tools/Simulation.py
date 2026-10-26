@@ -2192,15 +2192,12 @@ class Simulation:
                 parent = self.find_agent(identifier) if identifier >= 0 else None
                 if parent is not None and parent.alive and parent.brain is not None:
                     parent.reward -= PARENT_GRIEF * (0.5 + parent.feeling("empathy"))
-        if agent.brain is not None and agent.last_senses is not None:
-            # A slow death (old age, starving or the cold or heat) is not its last choice's doing: the health it lost
-            # on the way has taught its lessons already.
-            sudden = cause not in SLOW_DEATHS
-            outcome = agent.reward + self._wellbeing(agent) - agent.last_wellbeing - (DEATH_PENALTY if sudden else 0.0)
-            self._learn(agent, outcome, outcome)
-            if sudden:  # its herd sees it fail
-                self._witness(agent, -DEATH_PENALTY)
+        # Its herd sees a sudden death fail; a slow one (old age, starving or the cold or heat) is not its last choice's
+        # doing. Its own brain learns nothing from it, as it goes with it.
+        if agent.brain is not None and agent.last_senses is not None and cause not in SLOW_DEATHS:
+            self._witness(agent, -DEATH_PENALTY)
         agent.brain = None
+        agent.memories = []
         agent.womb, agent.due_turn = [], None  # the young it carried die with it
         agent.health = min(agent.health, 0.0)  # whatever the cause, a recorded death leaves it dead
         agent.died_turn = self.turn

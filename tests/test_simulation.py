@@ -2688,19 +2688,18 @@ class RewardAuditTests(unittest.TestCase):
         self.assertEqual((lesson_weight(eat, 0.3), lesson_weight(eat, -0.3)), (PLANT_FOOD_LEARNING, 1.0))
         self.assertEqual(lesson_weight(rest, 0.3), 1.0)
 
-    def test_a_slow_death_is_not_blamed_on_the_last_choice(self):
+    def test_a_slow_death_is_not_seen_by_the_herd_and_the_dying_brain_learns_nothing(self):
         dna = encode_dna("grazer", intellect=7, empathy=7)
         for cause, blamed in (("starved", False), ("froze", False), ("old age", False), ("exhausted", True)):
             dying = self.simulation._add_agent(dna, 5, 5)
             self.simulation._index_cells()
             self.simulation._think(dying)
-            dying.reward = 0.0
-            dying.last_wellbeing = self.simulation._wellbeing(dying)
             with patch.object(Simulation, "_learn") as learns, patch.object(Simulation, "_witness") as witnessed:
                 self.simulation._die(dying, cause)
-            outcome = learns.call_args.args[1]
-            self.assertAlmostEqual(outcome, -DEATH_PENALTY if blamed else 0.0)
+            self.assertFalse(learns.called)  # its brain goes with it
             self.assertEqual(witnessed.called, blamed)
+            if blamed:
+                self.assertEqual(witnessed.call_args.args[1], -DEATH_PENALTY)
 
     def test_growing_out_of_infancy_or_into_old_age_is_no_lesson(self):
         from tools.Simulation import AGEING
