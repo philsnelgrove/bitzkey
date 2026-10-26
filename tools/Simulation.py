@@ -420,7 +420,7 @@ TEMPERAMENT_RELAPSE = 0.0005  # share of the gap back to the inborn value closed
 # fleeing a hunter or striking back at what struck it, startled awake, and a flyer over the sea, which can't rest.
 DAY_LENGTH = 8
 SLEEP = 1
-SHELTER_REACH = 1  # an infant within this many squares of a living parent is sheltered: the climate's extra hunger and harm pass it by
+SHELTER_REACH = 2  # an infant within this many squares of a living parent is sheltered: the climate's extra hunger and harm pass it by
 DAYS_IN_YEAR = 360
 DEFAULT_YEAR_LENGTH = 8 * DAYS_IN_YEAR  # a new world's, unless its settings say otherwise
 YEAR_LENGTH = DEFAULT_YEAR_LENGTH  # each world sets it from its year length setting
@@ -1219,6 +1219,22 @@ class Simulation:
     def night(self, x: int) -> bool:
         """Whether a column lies in the night now: half the map, moving west a whole turn round each day."""
         return (x - self.night_start()) % self.width < self.width // 2
+
+    def _parent_senses(self, agent: Bitzkey, sight: int) -> dict[str, float]:
+        """An infant's nearest living parent within its sight: how close, and which way it lies, as the C++ version."""
+        nearest, reach = None, None
+        if agent.infant:
+            for parent in (agent.mother, agent.father):
+                found = self.find_agent(parent) if parent >= 0 else None
+                if found is not None and found.alive:
+                    gap = abs(found.x - agent.x) + abs(found.y - agent.y)
+                    if gap <= sight and (reach is None or gap < reach):
+                        nearest, reach = found, gap
+        if nearest is None:
+            return {"parent_closeness": 0.0, "parent_east": 0.0, "parent_south": 0.0}
+        return {"parent_closeness": self._closeness(agent, (nearest.x, nearest.y), sight),
+                "parent_east": max(-1.0, min(1.0, (nearest.x - agent.x) / sight)),
+                "parent_south": max(-1.0, min(1.0, (nearest.y - agent.y) / sight))}
 
     def sheltered(self, agent: Bitzkey) -> bool:
         """Whether an infant is sheltered: a living parent within SHELTER_REACH of it. It is spared the climate."""
@@ -2092,6 +2108,7 @@ class Simulation:
             shore_north=shores[0], shore_south=shores[1], shore_east=shores[2], shore_west=shores[3],
             stamina=agent.stamina / FULL_STAMINA,
             night=float(self.night(agent.x)),
+            **self._parent_senses(agent, sight),
             **{trait: agent.feeling(trait) for trait in TEMPERAMENT},
             **agent.genes,
         )

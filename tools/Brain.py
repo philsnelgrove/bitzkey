@@ -69,6 +69,9 @@ SENSES = (
     "shore_north", "shore_south", "shore_east", "shore_west",
     "stamina",            # 1 fresh, falling to 0 exhausted, when it can only rest
     "night",              # 1 when it is night where it stands
+    # An infant's nearest living parent within its sight: 1 beside it, falling to 0 at the edge of its sight, and 0 with
+    # none in sight or grown; and which way it lies, -1 to 1, west to east and north to south:
+    "parent_closeness", "parent_east", "parent_south",
 ) + TEMPERAMENT + (    # then its current temperament, mind and social traits, each 0..7 scaled to 0..1
     *(f"inborn_{trait}" for trait in TEMPERAMENT),        # its dot's and social background's traits, as born, 0..1
     *BODY_TRAITS,                                         # its ring's traits, 0..1 (species 0 plant to 1 predator)

@@ -68,5 +68,25 @@ class DayTests(unittest.TestCase):
         self.assertFalse(simulation.sheltered(near))  # no shelter from a dead parent
 
 
+    @patch("tools.Simulation.FEEBLE_YOUTH", 0.5)  # infants for half their lives, in this test
+    def test_an_infant_senses_how_close_its_nearest_living_parent_is_and_which_way(self):
+        from tools.Brain import SENSES
+        simulation = Simulation(20, 20, 0, 1)
+        mother = simulation._add_agent(animal(False), 5, 5)
+        child = simulation._add_agent(animal(False), 7, 5)
+        orphan = simulation._add_agent(animal(False), 15, 15)
+        child.mother = mother.identifier
+        mother.age = int(mother.lifespan * 0.6)  # grown
+        simulation._index_cells()
+        self.assertTrue(simulation.sheltered(child))  # two squares off, within reach
+        senses = dict(zip(SENSES, simulation._sense(child)[0]))
+        self.assertAlmostEqual(senses["parent_closeness"], min(1.0, 1 - 1 / child.sight))
+        self.assertAlmostEqual(senses["parent_east"], -2 / child.sight)  # she is to its west
+        self.assertEqual(senses["parent_south"], 0.0)
+        for other in (orphan, mother):  # no parent, or grown
+            none = dict(zip(SENSES, simulation._sense(other)[0]))
+            self.assertEqual((none["parent_closeness"], none["parent_east"], none["parent_south"]), (0.0, 0.0, 0.0))
+
+
 if __name__ == "__main__":
     unittest.main()
