@@ -7,6 +7,7 @@ import sys
 from collections import Counter
 from collections.abc import Sequence
 
+import numpy as np
 import pygame as pg
 
 from config.Globals import Config
@@ -14,7 +15,8 @@ from display import Window
 from display.Dialog import Dialog
 from display.Report import Report
 from display.Inspector import draw_details
-from display.Look import (DOT_RADIUS_RANGE, EXPORTING, GRASS, GRID, NIGHT, RING_WIDTH, SEA_GRASS, bitzkey_layer, dot_radius, draw_reticle,
+from display.Look import (DOT_RADIUS_RANGE, EXPORTING, GRASS, GRID, GROUND_VARIANTS, GROUNDS, NIGHT, RING_WIDTH, SEA_GRASS, TEXTURE_FROM,
+                          grass_tuft, ground_tile, bitzkey_layer, dot_radius, draw_reticle,
                           map_dot_radii, draw_bitzkey, sea_colour, zone_colour)
 from display.Setup import EXPORT_DIR, SetupScreen
 from display.Language import start_language
@@ -121,6 +123,13 @@ def exemplar_text(agent: Bitzkey, kind: str, name: str) -> str:
 
 EXEMPLAR_WIDTH = 170  # each column of exemplars, in design pixels
 MENU_ROW, MENU_COLUMN = 20, 200  # an exemplar menu's rows and columns, in design pixels
+# The globe: its radius this share of the view's smaller side at no zoom, zooming in to GLOBE_ZOOM_MAX times; the map
+# drawn onto it from a picture about GLOBE_TEXTURE pixels across; and a stack's Bitzkeys each STACK_SPACING of the one
+# below's radius above it, so its face shows.
+GLOBE_SHARE = 0.46
+GLOBE_ZOOM_MAX = 8.0
+GLOBE_TEXTURE = 1600
+STACK_SPACING = 0.7
 
 
 class BitzkeyApp:
@@ -151,6 +160,13 @@ class BitzkeyApp:
         # The map's zoom (1 shows it all) and the cell at the middle of the view, while zoomed in;
         # while it is dragged, where the drag began and the middle then.
         self.map_zoom = 1.0
+        # The globe: shown rather than the map, turned about its axis and tipped, and zoomed; H hides the rest.
+        self.globe = False
+        self.hud_hidden = False
+        self.globe_yaw, self.globe_tilt, self.globe_zoom = 0.0, 0.35, 1.0
+        self._turn_from: tuple | None = None  # a drag on the globe: where it began, and its turn then
+        self._globe_look: dict | None = None  # where each pixel of its disc lies on the map, kept while its size and tilt stay
+        self._view_buttons: dict[str, pg.Rect] = {}
         self.map_centre: tuple[float, float] = (width / 2, height / 2)
         self._pan_from: tuple[tuple[int, int], tuple[float, float]] | None = None
         self.graph = ColourGraph()
@@ -291,8 +307,10 @@ class BitzkeyApp:
                         self._open_export_dialog()
                     elif event.key == pg.K_z and self.show_census:
                         self.graph.unzoom()  # the whole run, its whole height
+                    elif event.key == pg.K_h:
+                        self.hud_hidden = not self.hud_hidden  # the map or globe alone, filling the window, or everything
                     elif event.key == pg.K_z:
-                        self.map_zoom, self.map_centre = 1.0, (self.width / 2, self.height / 2)
+                        self.map_zoom, self.map_centre, self.globe_zoom = 1.0, (self.width / 2, self.height / 2), 1.0
                 elif self.show_insights and not self.show_census and self._scroll_event(event):
                     pass
                 elif not self.show_census and self._map_event(event):
@@ -316,6 +334,12 @@ class BitzkeyApp:
                 elif event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
                     if self.language_menu.click(event.pos):
                         pass  # the language menu opened, closed or chose
+                    elif not self.hud_hidden and self._view_buttons.get("map", pg.Rect(0, 0, 0, 0)).collidepoint(event.pos):
+                        self.globe = False
+                    elif not self.hud_hidden and self._view_buttons.get("globe", pg.Rect(0, 0, 0, 0)).collidepoint(event.pos):
+                        self.globe = True
+                    elif self.globe and self._map_view()[0].collidepoint(event.pos):
+                        self._pick_on_globe(event.pos)  # a click picks the Bitzkey there; the right button turns it
                     elif self._exemplar_menu is None and self._map_view()[0].collidepoint(event.pos):
                         self._marquee_from = (event.pos, bool(pg.key.get_mods() & pg.KMOD_CTRL))
                     else:
@@ -777,8 +801,12 @@ class BitzkeyApp:
         return min(UI(340), max(UI(290), self.screen.get_width() // 3))
 
     def _map_view(self) -> tuple[pg.Rect, float]:
-        """Where the map shows, and the scale at which the whole map fits it."""
-        view = self._board_area().inflate(-UI(42) - 2 * UI(EXEMPLAR_WIDTH + 16), -UI(42))  # between the exemplars
+        """Where the map shows, and the scale at which the whole map fits it: between the exemplars, or with the HUD
+        hidden, the whole window."""
+        if self.hud_hidden:
+            view = self.screen.get_rect().inflate(-UI(16), -UI(16))
+        else:
+            view = self._board_area().inflate(-UI(42) - 2 * UI(EXEMPLAR_WIDTH + 16), -UI(42))
         return view, min(view.width / self.width, view.height / self.height)
 
     def _board_area(self) -> pg.Rect:
@@ -809,6 +837,8 @@ class BitzkeyApp:
         """Zoom the map with the wheel around the pointer, and pan it by dragging with the right or
         middle button; the world carries on meanwhile. Returns whether the event was used."""
         view, fit = self._map_view()
+        if self.globe:
+            return self._globe_event(event, view)
         if event.type == pg.MOUSEWHEEL and view.collidepoint(pg.mouse.get_pos()):
             board, scale, _ = self._board_geometry()
             x, y = pg.mouse.get_pos()
@@ -832,6 +862,110 @@ class BitzkeyApp:
             return True
         return False
 
+    def _globe_event(self, event: pg.event.Event, view: pg.Rect) -> bool:
+        """The wheel zooms the globe; a drag turns it about its axis, or tips it up or down."""
+        if event.type == pg.MOUSEWHEEL and view.collidepoint(pg.mouse.get_pos()):
+            self.globe_zoom = max(0.5, min(GLOBE_ZOOM_MAX, self.globe_zoom * MAP_ZOOM_STEP ** event.y))
+            return True
+        if event.type == pg.MOUSEBUTTONDOWN and event.button in (2, 3) and view.collidepoint(event.pos):
+            self._turn_from = (event.pos, self.globe_yaw, self.globe_tilt)
+            return True
+        if event.type == pg.MOUSEBUTTONUP and self._turn_from:
+            self._turn_from = None
+            return True
+        if event.type == pg.MOUSEMOTION and self._turn_from:
+            (x, y), yaw, tilt = self._turn_from
+            radius = min(view.width, view.height) * GLOBE_SHARE * self.globe_zoom
+            self.globe_yaw = yaw - (event.pos[0] - x) / radius
+            self.globe_tilt = max(-1.3, min(1.3, tilt + (event.pos[1] - y) / radius))
+            return True
+        return False
+
+    def _pick_on_globe(self, position: tuple[int, int]) -> None:
+        """Select the topmost Bitzkey drawn under the pointer on the globe, or none."""
+        for (hx, hy), reach, identifier in reversed(getattr(self, "_globe_hits", [])):
+            if (position[0] - hx) ** 2 + (position[1] - hy) ** 2 <= (reach + 2) ** 2:
+                self.selected_id = identifier
+                return
+        self.selected_id = None
+
+    def _draw_view_buttons(self) -> None:
+        """MAP and GLOBE, above the map."""
+        view = self._map_view()[0]
+        font = UI.font("segoeui", 12, bold=True)
+        left = view.left
+        for key, label, on in (("map", "MAP", not self.globe), ("globe", "GLOBE", self.globe)):
+            button = pg.Rect(left, view.top - UI(21), UI(56 if key == "map" else 64), UI(18))
+            pg.draw.rect(self.screen, (131, 205, 143) if on else (44, 57, 52), button, border_radius=UI(4))
+            draw_label(self.screen, font, label, (19, 26, 27) if on else (220, 229, 211), button)
+            self._view_buttons[key] = button
+            left = button.right + UI(6)
+
+    def _draw_globe(self) -> None:
+        """The map wrapped round a sphere, turned and tipped, lit from the upper left, with each square's Bitzkeys
+        stacked on it, the largest at the bottom, each above the one below so its face shows, as the C++ version draws it."""
+        view = self._map_view()[0]
+        self.screen.set_clip(view)
+        width, height = self.width, self.height
+        per = max(2, min(12, GLOBE_TEXTURE // max(width, height)))  # the map flat, a few pixels a square, to wrap round it
+        texture = pg.Surface((width * per, height * per))
+        self._draw_ground(texture, texture.get_rect(), per, per, texture.get_rect())
+        radius = min(view.width, view.height) * GLOBE_SHARE * self.globe_zoom
+        size = 2 * math.ceil(radius) + 1
+        look = self._globe_look
+        if look is None or look["size"] != size or look["tilt"] != self.globe_tilt:
+            half = size / 2
+            px, py = np.meshgrid(np.arange(size) + 0.5 - half, np.arange(size) + 0.5 - half, indexing="ij")  # x first, as surfarray
+            nx, ny = px / radius, -py / radius
+            disc = nx * nx + ny * ny < 1
+            nz = np.sqrt(np.clip(1 - nx * nx - ny * ny, 0, 1))
+            c, sn = math.cos(self.globe_tilt), math.sin(self.globe_tilt)
+            y1, z1 = ny * c + nz * sn, -ny * sn + nz * c  # tipped back upright
+            look = self._globe_look = {
+                "size": size, "tilt": self.globe_tilt, "disc": disc, "longitude": np.arctan2(nx, z1),
+                "row": 0.5 - np.arcsin(np.clip(y1, -1, 1)) / math.pi,
+                "light": 0.35 + 0.65 * np.clip(-0.35 * nx + 0.45 * ny + 0.82 * nz, 0, 1)}
+        u = look["longitude"] / (2 * math.pi) + 0.5 + self.globe_yaw / (2 * math.pi)
+        u -= np.floor(u)
+        ground = pg.surfarray.array3d(texture)
+        tx = np.minimum(texture.get_width() - 1, (u * texture.get_width()).astype(int))
+        ty = np.minimum(texture.get_height() - 1, (look["row"] * texture.get_height()).astype(int))
+        colours = (ground[tx, ty] * look["light"][:, :, None]).clip(0, 255).astype(np.uint8)
+        disc_surface = pg.Surface((size, size), pg.SRCALPHA)
+        pg.surfarray.pixels3d(disc_surface)[:, :, :] = colours
+        pg.surfarray.pixels_alpha(disc_surface)[:, :] = np.where(look["disc"], 255, 0).astype(np.uint8)
+        cx, cy = view.centerx, view.centery
+        self.screen.blit(disc_surface, (cx - size // 2, cy - size // 2))
+        squares: dict[tuple[int, int], list] = {}
+        for agent in self.simulation.agents:
+            if self._corpse_opacity(agent) > 0:
+                squares.setdefault((agent.x, agent.y), []).append(agent)
+        c, sn = math.cos(self.globe_tilt), math.sin(self.globe_tilt)
+        stacks = []
+        for (x, y), members in squares.items():
+            latitude = (0.5 - (y + 0.5) / height) * math.pi
+            longitude = ((x + 0.5) / width - 0.5) * 2 * math.pi - self.globe_yaw
+            x1, y1, z1 = math.cos(latitude) * math.sin(longitude), math.sin(latitude), math.cos(latitude) * math.cos(longitude)
+            up, depth = y1 * c - z1 * sn, y1 * sn + z1 * c
+            if depth >= 0.08:  # not round the back, nor too near the edge to see
+                stacks.append((depth, cx + x1 * radius, cy - up * radius, members))
+        stacks.sort(key=lambda stack: stack[0])
+        self._globe_hits = []
+        smallest, largest = map_dot_radii(math.pi * radius / height)
+        for depth, sx, sy, members in stacks:
+            shrink = 0.55 + 0.45 * depth  # foreshortened toward the edge
+            lift = 0
+            for agent in sorted(members, key=lambda agent: -int(agent.body["size"])):
+                dot = max(2, round(dot_radius(int(agent.body["size"]), largest, smallest) * shrink))
+                point = (round(sx), round(sy - lift))
+                draw_bitzkey(self.screen, agent.dna, point, dot, alive=agent.alive, opacity=self._corpse_opacity(agent))
+                if agent.alive:
+                    self._globe_hits.append((point, dot + RING_WIDTH, agent.identifier))  # drawn last, on top
+                if agent.identifier == self.selected_id:
+                    draw_reticle(self.screen, point, round((dot + RING_WIDTH + UI(3)) * reticle_pulse()))
+                lift += max(2, round((dot + RING_WIDTH) * STACK_SPACING))  # the next above, its face clear
+        self.screen.set_clip(None)
+
     def _forget_the_dead(self) -> None:
         """Let go of any Bitzkey selected or picked that has died, so the sidebar returns to its
         neutral state rather than speaking of a selection no longer there."""
@@ -847,8 +981,16 @@ class BitzkeyApp:
         UI.fit(self.screen.get_size())
         self._forget_the_dead()
         self.screen.fill((19, 26, 27))
+        if self.hud_hidden:  # the map or the globe alone, filling the window (H brings the rest back)
+            self._draw_world()
+            if self.dialog:
+                self.dialog.draw(self.screen)
+            if self.report:
+                self.report.draw(self.screen)
+            return
         self._draw_header()
         self._draw_world()
+        self._draw_view_buttons()
         self._draw_exemplars()
         self._draw_sidebar()
         self._draw_footer()
@@ -895,14 +1037,12 @@ class BitzkeyApp:
         label = self.font.render(status, True, status_color)
         self.screen.blit(label, (menu_left - label.get_width() - UI(20), UI(20)))
 
-    def _draw_world(self) -> None:
-        board, cell_width, cell_height = self._board_geometry()
-        view = self._map_view()[0].inflate(2, 2)
-        self.screen.set_clip(view)  # zoomed in, only part of the map shows
+    def _draw_ground(self, surface: pg.Surface, board: pg.Rect, cell_width: float, cell_height: float, view: pg.Rect) -> None:
+        """The ground: each row in its temperature's colour, the sea, their textures, the grass and the night."""
         reach = view.inflate(2 * cell_width + UI(20), 2 * cell_height + UI(20))  # what may show, near enough
         for y in range(self.height):  # each row in its temperature's colour
             top, bottom = round(board.top + y * cell_height), round(board.top + (y + 1) * cell_height)
-            pg.draw.rect(self.screen, zone_colour(self.simulation.temperature(y)),
+            pg.draw.rect(surface, zone_colour(self.simulation.temperature(y)),
                          (board.left, top, board.width, bottom - top))
             if not self.simulation.has_sea:
                 continue
@@ -915,31 +1055,52 @@ class BitzkeyApp:
                 while end < self.width and self.simulation.sea(end, y):
                     end += 1
                 left, right = round(board.left + x * cell_width), round(board.left + end * cell_width)
-                pg.draw.rect(self.screen, sea, (left, top, right - left, bottom - top))
+                pg.draw.rect(surface, sea, (left, top, right - left, bottom - top))
                 x = end
-        for x, y in self.simulation.grass:
+        size = round(min(cell_width, cell_height))
+        detailed = size >= TEXTURE_FROM
+        if detailed:  # the ground's texture by the temperature now (sand to ice), or waves at sea
+            x0, x1 = max(0, int((view.left - board.left) // cell_width) - 1), min(self.width, int((view.right - board.left) // cell_width) + 2)
+            y0, y1 = max(0, int((view.top - board.top) // cell_height) - 1), min(self.height, int((view.bottom - board.top) // cell_height) + 2)
+            for y in range(y0, y1):
+                land = GROUNDS[max(0, min(3, round(self.simulation.temperature(y))))]
+                for x in range(x0, x1):
+                    variant = ((x * 73856093) ^ (y * 19349663)) % GROUND_VARIANTS
+                    surface.blit(ground_tile("sea" if self.simulation.sea(x, y) else land, size, variant),
+                                     (round(board.left + x * cell_width), round(board.top + y * cell_height)))
+        for x, y in self.simulation.grass:  # grass: tufts, or kelp at sea, where squares are large enough; else dots
             point = (round(board.left + (x + 0.5) * cell_width),
                      round(board.top + (y + 0.5) * cell_height))
             if not reach.collidepoint(point):
                 continue
-            pg.draw.circle(self.screen, SEA_GRASS if self.simulation.sea(x, y) else GRASS, point,
-                           max(1, round(min(cell_width, cell_height) * 0.18)))
+            if detailed:
+                surface.blit(grass_tuft(size, self.simulation.sea(x, y)),
+                                 (round(board.left + x * cell_width), round(board.top + y * cell_height)))
+            else:
+                pg.draw.circle(surface, SEA_GRASS if self.simulation.sea(x, y) else GRASS, point,
+                               max(1, round(min(cell_width, cell_height) * 0.18)))
         night = pg.Surface((max(1, round(self.simulation.width // 2 * cell_width)), max(1, round(board.height))), pg.SRCALPHA)
         night.fill(NIGHT)  # the night, a shadow over half the map's columns, wrapping round east to west
         for start in (self.simulation.night_start(), self.simulation.night_start() - self.simulation.width):
-            self.screen.blit(night, (round(board.left + start * cell_width), board.top))
+            surface.blit(night, (round(board.left + start * cell_width), board.top))
+
+    def _draw_world(self) -> None:
+        if self.globe:
+            self._draw_globe()
+            return
+        board, cell_width, cell_height = self._board_geometry()
+        view = self._map_view()[0].inflate(2, 2)
+        self.screen.set_clip(view)  # zoomed in, only part of the map shows
+        reach = view.inflate(2 * cell_width + UI(20), 2 * cell_height + UI(20))  # what may show, near enough
+        self._draw_ground(self.screen, board, cell_width, cell_height, view)
         smallest, largest = map_dot_radii(min(cell_width, cell_height))  # zoomed with the map
         for agent in self.simulation.agents:  # the way each came this turn, faint, beneath them all
-            layer = None
             for x, y in agent.trail:
                 point = (round(board.left + (x + 0.5) * cell_width), round(board.top + (y + 0.5) * cell_height))
                 if (x, y) == (agent.x, agent.y) or not reach.collidepoint(point):
                     continue
-                if layer is None:
-                    layer = bitzkey_layer(agent.dna, self._dot_radius(agent, largest, smallest), alive=agent.alive)
-                    layer.set_alpha(round(255 * TRAIL_OPACITY))
-                half = layer.get_width() // 2
-                self.screen.blit(layer, (point[0] - half, point[1] - half))
+                draw_bitzkey(self.screen, agent.dna, point, self._dot_radius(agent, largest, smallest), alive=agent.alive,
+                             opacity=TRAIL_OPACITY)
         for agent in self.simulation.agents:
             point = (round(board.left + (agent.x + 0.5) * cell_width),
                      round(board.top + (agent.y + 0.5) * cell_height))

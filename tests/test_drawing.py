@@ -57,11 +57,11 @@ class CentreTests(unittest.TestCase):
         surface = pg.Surface((40, 40))
         surface.fill((90, 90, 90))
         draw_bitzkey(surface, dna, (20, 20), 10)
-        self.assertEqual(surface.get_at((20, 20))[:3], color_from_word(mind_word(dna)))  # on the leaf
-        self.assertEqual(surface.get_at((26, 26))[:3], color_from_word(social_word(dna)))  # beside it
-        outlined = [(x, y) for x in range(40) for y in range(40) if surface.get_at((x, y))[:3] == OUTLINE]
-        self.assertTrue(outlined)
-        self.assertTrue(all(abs(x - 20) < 10 and abs(y - 20) < 10 for x, y in outlined))  # inside the dot
+        near = lambda found, wanted, by: all(abs(a - b) <= by for a, b in zip(found[:3], wanted))  # noqa: E731  # lit and shaded
+        self.assertTrue(near(surface.get_at((20, 20)), color_from_word(mind_word(dna)), 30))  # on the leaf
+        self.assertTrue(near(surface.get_at((23, 24)), color_from_word(social_word(dna)), 45))  # beside it, on the chip's face
+        face = [(x, y) for x in range(40) for y in range(40) if (x - 20) ** 2 + (y - 20) ** 2 <= 7 ** 2]  # the chip's face
+        self.assertTrue(any(near(surface.get_at(point), OUTLINE, 12) for point in face))  # the icon's outline on it
 
     def test_the_outline_is_a_pixel_thick_in_the_world_and_rounds_corners_when_wider(self):
         self.assertEqual(sorted(outline_offsets(1)), [(-1, 0), (0, -1), (0, 1), (1, 0)])
