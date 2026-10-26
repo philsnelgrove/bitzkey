@@ -196,7 +196,7 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "womb": [[_genome(dna), _mind(mind), numbers.brain(brain), float(energy), int(generation), int(father)]
                  for dna, mind, brain, energy, generation, father in agent.womb],
         "due_turn": agent.due_turn, "mind": _mind(agent.mind), "last_senses": numbers.senses(agent.last_senses),
-        "last_choice": int(agent.last_choice), "last_wellbeing": float(agent.last_wellbeing),
+        "last_choice": int(agent.last_choice), "last_forced": bool(agent.last_forced), "last_wellbeing": float(agent.last_wellbeing),
         "reward": float(agent.reward), "last_comfort": float(agent.last_comfort),
         "odds": {action: float(chance) for action, chance in agent.odds.items()},
     }
@@ -213,6 +213,7 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
         setattr(agent, name, float(record[name]))
     for name in ("age", "cooldown", "generation", "children", "population", "portions", "last_choice"):
         setattr(agent, name, int(record[name]))
+    agent.last_forced = bool(record.get("last_forced", False))  # chosen, in a world saved before it was kept
     for name in ("panicked", "primal_fear", "hunts_grazers", "hunts_omnivores", "hunts_predators", "guarded"):
         setattr(agent, name, bool(record[name]))
     for name in ("died_turn", "assailant", "alarm", "herd_assailant", "due_turn"):

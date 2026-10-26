@@ -213,7 +213,7 @@ BREED_LEARNING = 1.0
 COURT_LEARNING = 1.0
 # Forced lessons: 1 learns from every turn, even one with no choice in it (resting through its night or exhausted,
 # panicking or frozen); 0 learns only from the turns it chose what to do.
-FORCED_LESSONS = 1
+FORCED_LESSONS = 0
 KILL_FOOD = frozenset(ACTIONS.index(action) for action in ("hunt", "attack", "feast"))
 PLANT_FOOD = frozenset(ACTIONS.index(action) for action in ("eat", "forage", "browse", "uproot"))
 
