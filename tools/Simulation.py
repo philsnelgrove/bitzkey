@@ -420,6 +420,7 @@ TEMPERAMENT_RELAPSE = 0.0005  # share of the gap back to the inborn value closed
 # fleeing a hunter or striking back at what struck it, startled awake, and a flyer over the sea, which can't rest.
 DAY_LENGTH = 8
 SLEEP = 1
+SHELTER_REACH = 1  # an infant within this many squares of a living parent is sheltered: the climate's extra hunger and harm pass it by
 DAYS_IN_YEAR = 360
 DEFAULT_YEAR_LENGTH = 8 * DAYS_IN_YEAR  # a new world's, unless its settings say otherwise
 YEAR_LENGTH = DEFAULT_YEAR_LENGTH  # each world sets it from its year length setting
@@ -1219,6 +1220,16 @@ class Simulation:
         """Whether a column lies in the night now: half the map, moving west a whole turn round each day."""
         return (x - self.night_start()) % self.width < self.width // 2
 
+    def sheltered(self, agent: Bitzkey) -> bool:
+        """Whether an infant is sheltered: a living parent within SHELTER_REACH of it. It is spared the climate."""
+        if not agent.infant:
+            return False
+        for parent in (agent.mother, agent.father):
+            found = self.find_agent(parent) if parent >= 0 else None
+            if found is not None and found.alive and abs(found.x - agent.x) + abs(found.y - agent.y) <= SHELTER_REACH:
+                return True
+        return False
+
     def resting_time(self, agent: Bitzkey) -> bool:
         """Whether an animal is in its night where it stands: dark for the diurnal, light for the nocturnal."""
         return agent.nocturnal != self.night(agent.x)
@@ -1563,7 +1574,7 @@ class Simulation:
                 agent.last_wellbeing += max(0.0, agent.health) / agent.max_health - share_before  # is no lesson
             plant = agent.species == "plant"
             here = self._climate[agent.y]
-            steps = agent.climate_steps(here)
+            steps = 0.0 if self.sheltered(agent) else agent.climate_steps(here)  # a sheltered infant feels no weather
             hungrier = steps > 0 and (not plant or here < agent.climate[0])  # out of its temperature; a plant, too hot
             share = agent.exposure_share(here)  # less for the hardy
             # The extra food it needs rises with the weather's turning, to the full amount a step away.

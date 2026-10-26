@@ -53,6 +53,20 @@ class DayTests(unittest.TestCase):
         self.assertEqual(senses["nocturnal"], 1.0)
         self.assertTrue(set(day_owl.odds) <= {"rest", "flee", "defend"})
 
+    @patch("tools.Simulation.FEEBLE_YOUTH", 0.5)  # infants for half their lives, in this test
+    def test_an_infant_beside_a_parent_is_sheltered_from_the_climate(self):
+        simulation = Simulation(20, 20, 0, 1)
+        mother = simulation._add_agent(animal(False), 5, 5)
+        near = simulation._add_agent(animal(False), 5, 6)
+        apart = simulation._add_agent(animal(False), 9, 9)
+        near.mother = apart.mother = mother.identifier
+        mother.age = int(mother.lifespan * 0.6)  # grown
+        self.assertTrue(simulation.sheltered(near))
+        self.assertFalse(simulation.sheltered(apart))  # too far from its mother
+        self.assertFalse(simulation.sheltered(mother))  # grown, and an orphan besides
+        mother.health = 0
+        self.assertFalse(simulation.sheltered(near))  # no shelter from a dead parent
+
 
 if __name__ == "__main__":
     unittest.main()
