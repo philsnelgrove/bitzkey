@@ -82,7 +82,7 @@ _TABLE: dict[str, list[tuple]] = {
         ("SMALL_HIDING", "Small hiding", "a hunter's blow misses a small animal outright with this times its smallness squared "
          "as a chance (none at the largest)", 0.0, 1.0, 0.05),
         ("SMALL_MATURITY", "Small maturity", "the smallest are infants this share as long as their lifespans would make them, "
-         "the larger more, the largest the whole", 0.1, 1.0, 0.05),
+         "the larger more, the largest the whole", 0.01, 1.0, 0.01),
         ("FEEBLE_YOUTH", "Feeble youth", "an animal is feeble, an infant, for this share of its lifespan (1/30: 36 days for the "
          "smallest)", 0.0, 0.5, 0.001),
         ("PREDATOR_INFANCY", "Predator infancy", "a predator is an infant this share as long as other animals", 0.0, 1.0, 0.05),
