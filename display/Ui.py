@@ -11,6 +11,7 @@ import os
 
 import pygame as pg
 
+from display import Sound
 from display.Language import AsShown, as_shown, language, tr, visual_order
 
 DESIGN_SIZE = (1200, 820)
@@ -101,6 +102,7 @@ class Ui:
 
 def draw_label(surface: pg.Surface, font: pg.font.Font, text: str, color, button: pg.Rect) -> None:
     """A button's label, centred in it, and smaller if it must be to fit."""
+    Sound.button_drawn(surface, button)  # a press on it is heard
     fitting = UI.fitting(font, text, button.width - UI(10))
     image = fitting.render(text, True, color)
     surface.blit(image, image.get_rect(center=button.center))

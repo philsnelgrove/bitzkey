@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import pygame as pg
 
+from display import Sound
+
 from display import Window
 from display.Designer import Designer
 from display.Dialog import Dialog
@@ -62,7 +64,7 @@ class CatalogScreen:
         entries) for those chosen, browsing, to deploy onto the running world, ("close", None) or ("quit", None)."""
         while True:
             self.clock.tick(30)
-            for event in pg.event.get():
+            for event in Sound.events():
                 if event.type == pg.QUIT:
                     return "quit", None
                 if event.type == pg.VIDEORESIZE:
@@ -98,7 +100,7 @@ class CatalogScreen:
                     if action == "close":
                         return "close", None
             self._draw()
-            pg.display.flip()
+            Sound.show_frame()
 
     def _rows_shown(self) -> int:
         return max(1, self._layout()["list"].height // UI(ROW_HEIGHT))

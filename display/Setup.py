@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pygame as pg
 
+from display import Sound
+
 from config.Globals import Config
 from display import Window
 from display.Advanced import AdvancedScreen
@@ -239,7 +241,7 @@ class SetupScreen:
         self.screen = pg.display.get_surface() or self.screen
         while True:
             self.clock.tick(30)
-            for event in pg.event.get():
+            for event in Sound.events():
                 if event.type == pg.QUIT:
                     return None
                 if event.type == pg.VIDEORESIZE:
@@ -275,7 +277,7 @@ class SetupScreen:
                     if action == "world":  # a saved world, loaded, to carry on
                         return {**self._values(), "simulation": self.loaded}
             self._draw()
-            pg.display.flip()
+            Sound.show_frame()
 
     def _values(self) -> dict:
         return {**self.form.values(), "rules": dict(self.rules)}
@@ -390,7 +392,7 @@ class SetupScreen:
             return None
         self._tell(f"Loading {path.name}, please be patient...")
         self._draw()
-        pg.display.flip()
+        Sound.show_frame()
         try:
             self.loaded = load_world(path)
         except (OSError, ValueError) as error:

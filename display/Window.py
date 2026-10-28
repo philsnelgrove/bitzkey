@@ -6,6 +6,7 @@ from __future__ import annotations
 import pygame as pg
 
 from config.Globals import Config
+from display import Sound
 from display.Ui import UI
 
 MIN_SIZE = (860, 760)
@@ -15,6 +16,7 @@ _fullscreen = Config.FULLSCREEN
 def open_window(fullscreen: bool | None = None) -> pg.Surface:
     """Return the app window, opening it if it isn't open yet (fullscreen unless told otherwise)."""
     pg.init()
+    Sound.start()  # a button pressed clicks
     screen = pg.display.get_surface()
     if screen is None:
         screen = _show(_fullscreen if fullscreen is None else fullscreen)

@@ -9,6 +9,8 @@ from collections.abc import Mapping
 
 import pygame as pg
 
+from display import Sound
+
 from display import Window
 from display.Language import as_shown, tr
 from display.Ui import UI, fit_text, draw_label, wrapped_lines
@@ -186,7 +188,7 @@ class AdvancedScreen:
         """Return ("apply", the changed rules), ("cancel", None) or ("quit", None)."""
         while True:
             self.clock.tick(30)
-            for event in pg.event.get():
+            for event in Sound.events():
                 if event.type == pg.QUIT:
                     return "quit", None
                 if event.type == pg.VIDEORESIZE:
@@ -216,7 +218,7 @@ class AdvancedScreen:
                     if action == "apply" and self._ready():
                         return "apply", self.form.changed()
             self._draw()
-            pg.display.flip()
+            Sound.show_frame()
 
     def _ready(self) -> bool:
         self.form.finish()

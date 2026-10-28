@@ -7,6 +7,8 @@ import random
 
 import pygame as pg
 
+from display import Sound
+
 from display import Window
 from display.Look import RING_WIDTH, dot_radius, draw_bitzkey
 from display.Ui import UI, draw_label
@@ -165,7 +167,7 @@ class Designer:
         """Return ("apply", genome), ("cancel", None) or ("quit", None)."""
         while True:
             self.clock.tick(30)
-            for event in pg.event.get():
+            for event in Sound.events():
                 if event.type == pg.QUIT:
                     return "quit", None
                 if event.type == pg.VIDEORESIZE:
@@ -186,7 +188,7 @@ class Designer:
                     if action == "cancel":
                         return "cancel", None
             self._draw()
-            pg.display.flip()
+            Sound.show_frame()
 
     def _key(self, event: pg.event.Event) -> None:
         form = self.form

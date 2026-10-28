@@ -11,7 +11,7 @@ import numpy as np
 import pygame as pg
 
 from config.Globals import Config
-from display import Window
+from display import Sound, Window
 from display.Dialog import Dialog
 from display.Report import Report
 from display.Inspector import draw_details
@@ -249,7 +249,7 @@ class BitzkeyApp:
         ("configure")."""
         while True:
             self.elapsed += self.clock.tick(30) / 1000
-            for event in pg.event.get():
+            for event in Sound.events():
                 if event.type == pg.QUIT:
                     return "quit"
                 if event.type == pg.VIDEORESIZE:
@@ -364,7 +364,7 @@ class BitzkeyApp:
 
             self._tick()
             self._draw()
-            pg.display.flip()
+            Sound.show_frame()
 
     def _tick(self) -> None:
         """While playing, advance a turn every 0.24 s, and stop to show the graph once the
@@ -600,7 +600,7 @@ class BitzkeyApp:
         self.dialog = dialog
         self.playing = False
         self._draw()
-        pg.display.flip()
+        Sound.show_frame()
         self.simulation = None
 
     def _ask_to_leave(self) -> None:
@@ -621,7 +621,7 @@ class BitzkeyApp:
             return False
         self._say("Saving the world, please be patient...")
         self._draw()
-        pg.display.flip()
+        Sound.show_frame()
         try:
             save_world(self.simulation, path)
         except OSError as error:
