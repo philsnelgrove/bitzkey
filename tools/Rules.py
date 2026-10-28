@@ -199,6 +199,8 @@ _TABLE: dict[str, list[tuple]] = {
          0.0, 3.0, 0.05),
         ("SOCIAL_MOOD", "Social mood", "how much a herd-mate's success or failure seen moves the mood", 0.0, 3.0, 0.05),
         ("SOCIAL_MEMORY", "Social memory", "share of a seen success or failure still sensed a turn later", 0.0, 1.0, 0.05),
+        ("PARENTAL_INSTINCT", "Parental instinct", "how much more a parent values feeding its young, times the hungriest one's "
+         "hunger, and more if empathetic", 0.0, 20.0, 0.5),
         ("LOYALTY_PULL", "Loyalty pull", "how much more an animal values keeping to its herd, times its loyalty", 0.0, 5.0, 0.05),
         ("DOMINANCE_EASE", "Dominance ease", "share less a crowded territory troubles the most dominant, and more the most submissive",
          0.0, 1.0, 0.05),

@@ -19,9 +19,9 @@ class Config(object):
                else Path(__file__).resolve().parent.parent)
     GRID_WIDTH = 360  # a new world twice as wide as it is tall, as a globe has it
     GRID_HEIGHT = 180
-    INITIAL_POPULATION = 90
+    INITIAL_POPULATION = 300
     GRASS_DENSITY = 50
-    OCEAN = 67  # percent of a new world's map under the sea
+    OCEAN = 33  # percent of a new world's map under the sea
     MIND_MUTATION = 50  # percent chance a birth mutates the child's mind
     BODY_MUTATION = 50  # and its body
     YEAR_LENGTH = 2880  # turns in a year: 360 days of 8 turns

@@ -187,6 +187,7 @@ OTHER_KIND = 0.4       # how much of that pain reaches it when the victim is of 
 # more, times its loyalty. Dominance: a ready animal breeds with the most dominant willing partner in reach, and
 # a territory's crowding troubles the dominant less and the submissive more, by up to this share.
 LOYALTY_PULL = 0.25
+PARENTAL_INSTINCT = 10.0  # how much more a parent values feeding its young, times their hunger and its empathy
 INFANT_HERDING = 1.0  # how much more an infant values keeping to its kind, and it herds once a cell from their middle
 NURSING_REACH = 2     # each turn, a grown animal feeds the hungriest infant of its kind this close, a turn's burn of food,
 NURSING_LIMIT = 80    # while it stays below this hunger itself
@@ -507,6 +508,7 @@ FEAST, SCAVENGE, COURT, BREED = (ACTIONS.index("feast"), ACTIONS.index("scavenge
                                  ACTIONS.index("breed"))
 EAT, UPROOT, FEAST = ACTIONS.index("eat"), ACTIONS.index("uproot"), ACTIONS.index("feast")
 HERD = ACTIONS.index("herd")
+FEED_YOUNG = ACTIONS.index("feed_young")
 FED = {"ate", "browsed", "uprooted", "feasted", "scavenged"}  # what it did when it fed, to remember where
 MAX_SIGHT = 2 + SIGHT_PER_TRAIT * TRAIT_MAX + MAX_PREDATOR_SIGHT  # the furthest anything is seen: a predator's sight for prey
 SIGHT_OFFSETS = sorted(
@@ -1913,6 +1915,9 @@ class Simulation:
             valued[HERD] += LOYALTY_PULL * agent.feeling("loyalty")  # loyalty: keeping to its herd
             if agent.infant:  # an infant keeps close to its kind
                 valued[HERD] += INFANT_HERDING
+            if FEED_YOUNG in options:  # the instinct to feed its hungry young
+                hungriest = max((min(100.0, child.hunger) for child in situation.get("young", ())), default=0.0)
+                valued[FEED_YOUNG] += PARENTAL_INSTINCT * (0.5 + agent.feeling("empathy")) * hungriest / 100
             odds = choice_odds(valued, options)
             roll = self.random.random()
             choice = options[-1]
