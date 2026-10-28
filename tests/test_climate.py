@@ -169,6 +169,22 @@ class EffectTests(unittest.TestCase):
         self.assertAlmostEqual(one_away.health, 0.9 * one_away.max_health)
         self.assertAlmostEqual(two_away.health, 0.8 * two_away.max_health)
 
+    def test_an_animal_endures_the_weather_unharmed_through_its_grace_and_regains_it_at_home(self):
+        simulation = world(turn=240)
+        frail = simulation._add_agent(encode_dna("grazer", temperature=COLD), 20, 30)
+        stoic = simulation._add_agent(encode_dna("grazer", temperature=COLD), 40, 30)
+        frail.mind["resilience"], stoic.mind["resilience"] = 0, 7
+        frail.weathered = stoic.weathered = 12  # its grace spent, for the least resilient
+        simulation._add_agent(encode_dna("predator"), 90, 90)
+        with patch("tools.Simulation.WEATHER_GRACE", 1.0):  # a day: 12 turns for the least resilient, 36 for the most
+            take_turn(simulation)
+            self.assertAlmostEqual(frail.health, 0.9 * frail.max_health)  # past its grace: harmed
+            self.assertEqual(stoic.health, stoic.max_health)  # uneasy, but unharmed
+            self.assertEqual(stoic.weathered, 13)
+            stoic.climate = (MEDIUM, *stoic.climate[1:])  # home again
+            take_turn(simulation)
+            self.assertEqual(stoic.weathered, 12)  # a turn of grace regained
+
     def test_starving_out_of_its_temperature_is_dying_of_exposure(self):
         simulation = world(turn=240)
         away = simulation._add_agent(encode_dna("grazer", temperature=COLD), 20, 50)  # on the equator: too hot

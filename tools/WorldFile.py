@@ -191,6 +191,7 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "hunts_omnivores": agent.hunts_omnivores, "hunts_predators": agent.hunts_predators, "guarded": agent.guarded,
         "alarm": agent.alarm, "kill_alert": _optional_list(agent.kill_alert),
         "seen_success": float(agent.seen_success), "seen_failure": float(agent.seen_failure),
+        "weathered": float(agent.weathered),
         "herd_assailant": agent.herd_assailant, "food_memory": _optional_list(agent.food_memory),
         "danger_memory": _optional_list(agent.danger_memory), "meat": float(agent.meat),
         "meat_fill": float(agent.meat_fill), "population": agent.population, "cost_share": float(agent.cost_share),
@@ -218,6 +219,7 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
         setattr(agent, name, float(record[name]))
     for name in ("age", "cooldown", "generation", "children", "population", "portions", "last_choice"):
         setattr(agent, name, int(record[name]))
+    agent.weathered = float(record.get("weathered", 0.0))  # worlds saved before the weather's grace
     agent.last_forced = bool(record.get("last_forced", False))  # chosen, in a world saved before it was kept
     for name in ("panicked", "primal_fear", "hunts_grazers", "hunts_omnivores", "hunts_predators", "guarded"):
         setattr(agent, name, bool(record[name]))
