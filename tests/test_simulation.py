@@ -12,9 +12,11 @@ from tools.Simulation import (Death, FULL_STAMINA, SPAWN_SPREAD, DEATH_PENALTY, 
                               nearby_offsets)
 
 
+from tools.Simulation import EIGHT_TURN_DAYS
+
 def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, unless a test says so
     global _grown, _common, _grazers, _plenty
-    _grown = patch.multiple("tools.Simulation", FEEBLE_YOUTH=0.0, SMALL_HIDING=0.0, DEFAULT_YEAR_LENGTH=360, SLEEP=0)  # and 360-turn years, no sleeping
+    _grown = patch.multiple("tools.Simulation", FEEBLE_YOUTH=0.0, SMALL_HIDING=0.0, DEFAULT_YEAR_LENGTH=360, SLEEP=0, **EIGHT_TURN_DAYS)  # and 360-turn years, no sleeping, spans in eight-turn days
     _grown.start()
     _common = patch("tools.Simulation.RARE_BREEDING_COST", 1.0)  # the few Bitzkeys of a test breed at the usual cost
     _common.start()
@@ -384,7 +386,7 @@ class SimulationTests(unittest.TestCase):
         self.assertEqual(child.hunger, 100 - 2 * 10)
         self.assertEqual(child.generation, 1)
         self.assertNotIn(child.brain, (first.brain, second.brain))
-        self.assertEqual((first.hunger, first.cooldown, first.children, second.children), (10, 5, 1, 1))
+        self.assertEqual((first.hunger, first.cooldown, first.children, second.children), (10, 15, 1, 1))
         self.assertGreater(first.reward, 0)
 
     def test_breeding_past_full_hunger_leaves_the_parent_starving_not_dead(self):
@@ -592,7 +594,7 @@ class SimulationTests(unittest.TestCase):
         self.assertIsNone(victim.brain)
         self.assertEqual(self.simulation.deaths, 1)
         self.assertGreater(hunter.mind["aggression"], hunter.inborn["aggression"])
-        for _ in range(CORPSE_TURNS):
+        for _ in range(EIGHT_TURN_DAYS["CORPSE_TURNS"]):
             self.simulation._take_turn()
         self.assertNotIn(victim, self.simulation.agents)
 
@@ -1768,7 +1770,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertFalse(grazer.alive)
         self.assertEqual(grazer.died_turn, self.simulation.turn)
         self.assertIn(grazer.last_action, ("starved", "overheated", "froze"))  # starving, or out of its temperature too
-        for _ in range(CORPSE_TURNS):
+        for _ in range(EIGHT_TURN_DAYS["CORPSE_TURNS"]):
             self.simulation._take_turn()
         self.assertNotIn(grazer, self.simulation.agents)  # it decayed and was cleared away
 
@@ -2114,7 +2116,7 @@ class NewTraitTests(unittest.TestCase):
         simulation.grass = {(x, y): 3 for x in range(20) for y in (1, 5)}  # arctic, then temperate
         simulation.turn = 240  # mid-year, mild: the arctic cold, the temperate zone medium
         simulation._update_climate()
-        for _ in range(GRASS_DIEBACK):
+        for _ in range(EIGHT_TURN_DAYS["GRASS_DIEBACK"]):
             simulation.turn += 1
             simulation._wither_grass()
         self.assertEqual(sum(simulation.grass.get((x, 1), 0) for x in range(20)), 20 * 2)  # a tuft each
@@ -2179,7 +2181,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual((corpse.portions, corpse.meat), (0, 0.0))
         self.simulation._feast(first, corpse)
         self.assertEqual(first.last_action, "sought a kill")  # nothing left
-        self.assertLessEqual(corpse.died_turn, self.simulation.turn - CORPSE_TURNS)  # gone at the turn's end
+        self.assertLessEqual(corpse.died_turn, self.simulation.turn - EIGHT_TURN_DAYS["CORPSE_TURNS"])  # gone at the turn's end
 
     def test_species_evolve_along_the_chain_and_plants_stay_plants(self):
         from tools.Simulation import evolved
@@ -2261,7 +2263,7 @@ class NewTraitTests(unittest.TestCase):
         with patch.object(self.simulation.random, "random", return_value=0.0):
             self.simulation._seed(plant)  # onto the equator, where it is at home
         self.assertEqual((len(self.simulation.agents), len(self.simulation.seeds)), (1, 1))  # in the ground
-        self.simulation.turn += PLANT_GESTATION - 1
+        self.simulation.turn += EIGHT_TURN_DAYS["PLANT_GESTATION"] - 1
         self.simulation._germinate()
         self.assertEqual(len(self.simulation.agents), 1)  # not yet
         self.simulation.turn += 1
@@ -2488,7 +2490,7 @@ class RestAndRemorseTests(unittest.TestCase):
         first, second = simulation._add_agent(dna, 5, 5), simulation._add_agent(dna, 5, 6)
         simulation._index_cells()
         simulation._breed(first, second)
-        self.assertEqual((first.cooldown, second.cooldown), (round(20 * BREED_COOLDOWN), round(20 * BREED_COOLDOWN)))
+        self.assertEqual((first.cooldown, second.cooldown), (round(60 * BREED_COOLDOWN), round(60 * BREED_COOLDOWN)))
         self.assertFalse(first.can_breed)
         hunter = simulation._add_agent(encode_dna("predator"), 6, 5)
         hunter.reward = 0.0
@@ -2920,7 +2922,7 @@ class CorpsePlantTests(unittest.TestCase):
         simulation._index_cells()
         simulation._die(rotted, "starved")
         simulation._die(eaten, "killed")
-        rotted.died_turn = eaten.died_turn = simulation.turn + 1 - CORPSE_TURNS  # both gone by the coming turn's end
+        rotted.died_turn = eaten.died_turn = simulation.turn + 1 - EIGHT_TURN_DAYS["CORPSE_TURNS"]  # both gone by the coming turn's end
         eaten.portions = 0  # eaten to the last portion: nothing left to rot
         with patch.object(Simulation, "_think_all"):
             simulation._take_turn()

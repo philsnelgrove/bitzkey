@@ -6,7 +6,7 @@ import unittest
 from tools.Brain import ACTIONS
 
 from tools.Genome import TERRAINS, cross, decode_terrain, encode_dna, with_terrain
-from tools.Simulation import (AMPHIBIOUS_SPEED, BIOME_GROUPS, BIOME_SIZE, DEFAULT_OCEAN, FULL_STAMINA, REST_RECOVERY, Simulation,
+from tools.Simulation import (AMPHIBIOUS_SPEED, BIOME_GROUPS, BIOME_SIZE, DEFAULT_OCEAN, FULL_STAMINA, Simulation, rest_recovery, stamina_pace,
                               zone_temperature)
 from tools.WorldFile import world_bytes, world_from_bytes
 
@@ -79,7 +79,7 @@ class SeaTests(unittest.TestCase):
         walker.stamina = 0
         simulation._think(walker)
         self.assertEqual(walker.last_action, "rested")
-        self.assertEqual(walker.stamina, REST_RECOVERY)
+        self.assertEqual(walker.stamina, rest_recovery())
         gull = simulation._add_agent(encode_dna("grazer", terrain="avian"), x + 1, y)
         self.assertNotIn(ACTIONS.index("rest"), simulation._sense(gull)[1])  # no rest at sea
         gull.stamina = 1

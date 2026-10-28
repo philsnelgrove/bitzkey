@@ -52,13 +52,16 @@ FLIGHT_HUNGER = 0.25
 AMPHIBIOUS_SPEED = 0.5
 AMPHIBIOUS_COOLDOWN = 2.0
 AVIAN_SEED_REACH = 2.0
-# Stamina, 0 to 100: every action but rest tires an animal, and resting restores REST_RECOVERY a turn: on the whole,
-# an animal spends it in five turns of acting and gets it back in three of rest, a day of eight turns. Any other
-# action costs ACTION_FATIGUE, each square it moves STEP_FATIGUE more (a flyer's FLIGHT_FATIGUE times that), each
-# blow it strikes STRIKE_FATIGUE and mating BREED_FATIGUE (each parent); a flyer over the sea, where it can't rest,
-# tires HOVER_FATIGUE a turn more. An animal with no stamina left can only rest, and a flyer exhausted over the sea
-# drowns. An amphibious animal tires AMPHIBIOUS_FATIGUE times as fast at everything.
-REST_RECOVERY = 34.0
+# Stamina, 0 to 100: every action but rest tires an animal, and resting restores it. Its pace follows the day: of the
+# half of each day an animal is awake, the average one acts ACTIVE_SHARE and rests the rest, spending its stamina in
+# the one and getting it back in the other, however many turns a day is (see stamina_pace and rest_recovery). Before
+# that pace is applied, any action but rest costs ACTION_FATIGUE, each square it moves STEP_FATIGUE more (a flyer's
+# FLIGHT_FATIGUE times that), each blow it strikes STRIKE_FATIGUE and mating BREED_FATIGUE (each parent); a flyer over
+# the sea, where it can't rest, tires HOVER_FATIGUE a turn more; an average turn of acting costs TYPICAL_FATIGUE. An
+# animal with no stamina left can only rest, and a flyer exhausted over the sea drowns. An amphibious animal tires
+# AMPHIBIOUS_FATIGUE times as fast at everything.
+ACTIVE_SHARE = 2 / 3
+TYPICAL_FATIGUE = 20.0  # an action and two squares' going
 ACTION_FATIGUE = 10.0
 STEP_FATIGUE = 5.0
 FLIGHT_FATIGUE = 2.0
@@ -99,7 +102,7 @@ SMALL_MATURITY = 0.5
 MEAT_DIGESTION = 1 / 7
 # Feeble: an animal in its infancy (the first FEEBLE_YOUTH of its lifespan) or its old age (past AGEING of it)
 # has every body trait, and its health, at FEEBLE_SHARE of its own.
-FEEBLE_YOUTH = 1 / 30  # 36 turns for the smallest, as when they lived a year and were infants a tenth of it
+FEEBLE_YOUTH = 1 / 30  # 36 days for the smallest, as when they lived a year and were infants a tenth of it
 PREDATOR_INFANCY = 0.5  # a predator is an infant this share as long
 FEEBLE_SHARE = 0.5
 DEPLOY_GROUP = 5      # Bitzkeys deployed from the catalog onto a running world, of each chosen, a click
@@ -109,7 +112,7 @@ SPAWN_AT_HOME = 1     # 1: a group appears in rows whose usual temperature is it
 HISTORY_PREFIX = "bitzkey-history-"  # their names start so
 STALE_HISTORY_HOURS = 24  # one left this long by a run that never closed it is cleared away
 CORPSE_FERTILITY = 2   # grass grows this many times as fast on and around a corpse
-CORPSE_TURNS = 30
+CORPSE_TURNS = 90  # under four days
 CORPSE_PLANT = 0.1     # chance an animal's body that rots away entirely leaves the seed of a new plant where it lay
 BREED_RESERVE = 0  # hunger a parent must still have spare after paying to breed
 # The most a partner's ring and dot colours may differ from an animal's own before it shuns
@@ -121,7 +124,7 @@ LITTER_SIZE_WEIGHT = 0.5  # how much of litter size comes from small bodies; the
 SMALL_LITTERS = 2.0  # the smallest bodies' litters are this many times the usual, falling evenly to the usual for the largest
 # Turns an animal carries its young, from mating to birth: from the first for the smallest body to the
 # second for the largest, evenly between, rounded half up.
-GESTATION = (10, 50)
+GESTATION = (30, 150)  # a day and a quarter to six and a quarter days
 # Heat: an animal is fertile only while in heat, a stretch of the turns before its next winter, the winter of the row
 # it stands in. Heat ends HEAT_CLOSEST of a year before that winter, and HEAT_FORESIGHT more for the most patient, who
 # breed further from it; it begins HEAT_LENGTH of a year before it ends. No animal is in heat through its own winter,
@@ -176,7 +179,7 @@ PREGNANT_REMORSE = 1.0
 # if it had made the herd-mate's last choice itself, and feels it, by its empathy times its intellect.
 SOCIAL_LEARNING = 1.0  # how fast it learns from what it sees, beside learning from its own choices
 SOCIAL_MOOD = 0.3      # how much what it sees moves its mood
-SOCIAL_MEMORY = 0.8    # the share of a seen success or failure it still senses a turn later
+SOCIAL_MEMORY = 0.93   # the share of a seen success or failure it still senses a turn later (0.8 every three hours)
 OTHER_KIND = 0.4       # how much of that pain reaches it when the victim is of another species
 # The social background's traits. Loyalty: whenever it can herd, an animal values keeping to its herd this much
 # more, times its loyalty. Dominance: a ready animal breeds with the most dominant willing partner in reach, and
@@ -197,7 +200,7 @@ KINSHIP_SHUN = 0.8
 # MEMORY_TURNS at the best memory, fewer the poorer. Resilience: the most resilient get over a herd-mate's failure
 # faster, and fear a bad experience less, by up to this share, the least resilient slower and more. Moodiness:
 # experience moves the moodiest temperament by up to this share more, the steadiest by this share less.
-MEMORY_TURNS = 100
+MEMORY_TURNS = 300
 RESILIENCE = 0.5
 MOODINESS = 0.5
 LEARNING_RATE = 0.027  # at the highest intellect, before its boost
@@ -390,7 +393,7 @@ GRAZING = {"grazer": 1.25, "omnivore": 0.5}   # share of the food in grass each 
 BROWSING = {"grazer": 1.25, "omnivore": 0.75}  # share of the food in plants
 FLEE_RANGE = 3         # a hunter is only worth fleeing within this many steps, unless the herd raised the alarm
 HERD_VIGILANCE = 0.5   # how far three herd-mates close by, at full herd instinct, shrink that range
-GRASS_OUTLOOK = 150    # judging grass before breeding, an animal counts what will regrow in this many turns
+GRASS_OUTLOOK = 450    # judging grass before breeding, an animal counts what will regrow in this many turns
 STANDING_GRASS = 0.25  # and this share of the grass standing now
 GRASS_MEAL = 18        # hunger a tuft of grass sates: about a tenth of a middle-sized kill
 # A plant is eaten in portions, a bite each: every bite sates PLANT_MEAL hunger (and PLANT_MEAL_FOR_SIZE more for the
@@ -399,7 +402,7 @@ PLANT_MEAL = 70
 PLANT_MEAL_FOR_SIZE = 0
 PLANT_BITE = 15        # health a plant loses to each bite
 PLANT_REGROWTH = 0.02  # share of its health pool a plant regrows each turn
-PLANT_RECOVERY = 8     # turns after a bite before a plant can be bitten again
+PLANT_RECOVERY = 24    # turns after a bite before a plant can be bitten again: a day
 # A desperate grazer, starving with food scarce about it, may uproot a plant beside it: it eats this
 # many times a bite's meal, and tears this much of the plant's health away, recovering or not.
 UPROOT_HUNGER = 80     # starving: hunger at least this
@@ -427,11 +430,11 @@ TEMPERAMENT_RELAPSE = 0.0005  # share of the gap back to the inborn value closed
 # columns from the top to the bottom, and moves west round it once a day. With SLEEP, an animal rests through its
 # night, the dark for the diurnal and the light for the nocturnal (see the activity gene): it may only rest, but for
 # fleeing a hunter or striking back at what struck it, startled awake, and a flyer over the sea, which can't rest.
-DAY_LENGTH = 8
+DAY_LENGTH = 24  # a turn is an hour
 SLEEP = 1
 SHELTER_REACH = 2  # an infant within this many squares of a living parent is sheltered: the climate's extra hunger and harm pass it by
 DAYS_IN_YEAR = 360
-DEFAULT_YEAR_LENGTH = 8 * DAYS_IN_YEAR  # a new world's, unless its settings say otherwise
+DEFAULT_YEAR_LENGTH = 24 * DAYS_IN_YEAR  # a new world's, unless its settings say otherwise
 YEAR_LENGTH = DEFAULT_YEAR_LENGTH  # each world sets it from its year length setting
 ARCTIC_SHARE = 0.2
 EQUATOR_SHARE = 0.2
@@ -440,22 +443,26 @@ WINTER_EQUATOR_SHARE = 0.05
 CLIMATE_HUNGER = 2.0   # an animal a step or more from home, or a plant too hot, needs this many times the food
 CLIMATE_DAMAGE = 0.025  # for each step from home, a Bitzkey loses this share of its full health a turn; plants from two
 PLANT_CLIMATE_YIELD = 0.0  # a plant out of its temperature gives this share of its food
-GRASS_DIEBACK = 20     # where it isn't medium, a cell's grass loses a tuft every this many turns
-# The weather turns in waves, one in each climate zone, all setting off together as the season turns,
-# so no zone waits on another. In each, a winter washes in from the side toward its hemisphere's edge
-# toward the equator, and as it ends ebbs back the way it came, over this share of each season. The wave moves in bands of
-# WAVE_BAND rows; at its front, WAVE_FRONT bands stand part way between the old weather and the new,
-# in even steps, so the change comes as a staircase. The climate's effects move with it.
-SEASON_TURNING = 0.1
+GRASS_DIEBACK = 60     # where it isn't medium, a cell's grass loses a tuft every this many turns
+# The weather turns in waves, one in each climate zone, all setting off together, so no zone waits on
+# another. In each, a winter washes in from the side toward its hemisphere's edge toward the equator
+# over the first SEASON_TURNING of its season, stays through the middle, and ebbs back the way it came
+# over the last SEASON_TURNING (at most half each). The wave moves in bands of WAVE_BAND rows; at its
+# front, WAVE_FRONT bands stand part way between the old weather and the new, in even steps, so the
+# change comes as a staircase. The climate's effects move with it.
+SEASON_TURNING = 0.4
 WAVE_BAND = 2
 WAVE_FRONT = 4
 # A dead animal is a fresh kill, not yet carrion, through the turn it died and FRESH_KILL_TURNS more;
 # then it starts to rot. A predator or omnivore may eat a fresh kill of what it lives on whole,
 # FRESH_KILL_MEALS times the meal of making the kill, and nothing is left.
-FRESH_KILL_TURNS = 3
+FRESH_KILL_TURNS = 9
 FRESH_KILL_MEALS = 3.0
 SEED_VIABILITY = 0.75  # years a seed that falls where it can't grow stays able to germinate
-PLANT_GESTATION = 10  # turns a seed lies in the ground before it can sprout
+PLANT_GESTATION = 30  # turns a seed lies in the ground before it can sprout
+# The spans above as they were counted in turns when a day was eight of them, for the older tests' figures.
+EIGHT_TURN_DAYS = dict(CORPSE_TURNS=30, GESTATION=(10, 50), FRESH_KILL_TURNS=3, PLANT_GESTATION=10, PLANT_RECOVERY=8,
+                       GRASS_DIEBACK=20, GRASS_OUTLOOK=150, MEMORY_TURNS=100, SOCIAL_MEMORY=0.8)
 STARTING_TOLERANCE = 0.1  # the chance a random starting genome carries each tolerance flag
 HARDINESS = 0.5  # the share of exposure's extra hunger and damage an animal tolerant of it suffers
 FRAILTY = 2.0    # the share an animal tolerant of the other extreme suffers
@@ -571,31 +578,53 @@ def wave_band(y: int, height: int, quarter: int) -> tuple[int, int]:
     return offset // WAVE_BAND, (last - first) // WAVE_BAND + 1
 
 
+def _season_into(turn: int) -> float:
+    """The share of its season gone, 0 to 1."""
+    return (turn % YEAR_LENGTH * 4 - season(turn) * YEAR_LENGTH) / YEAR_LENGTH
+
+
+def _turning() -> float:
+    """SEASON_TURNING, at most half, so the wave in and the ebb never overlap."""
+    return min(0.5, SEASON_TURNING)
+
+
 def season_progress(turn: int) -> float:
-    """How far the season's wave has come: 0 as a season begins, 1 once SEASON_TURNING of it has
-    passed. The world's first season starts settled."""
-    quarter = season(turn)
-    if (turn < YEAR_LENGTH and quarter == 0) or SEASON_TURNING <= 0:
+    """How far a winter's wave has washed in: 0 as the winter begins, 1 once SEASON_TURNING of it has
+    passed; always 1 in the mild seasons."""
+    if season(turn) % 2 == 0 or _turning() <= 0:
         return 1.0
-    into = (turn % YEAR_LENGTH * 4 - quarter * YEAR_LENGTH) / YEAR_LENGTH  # share of the season gone, 0 to 1
-    return min(1.0, into / SEASON_TURNING)
+    return min(1.0, _season_into(turn) / _turning())
 
 
 def temperature_at(y: int, height: int, turn: int) -> float:
-    """A row's temperature on a turn, from 0 (hot) to 3 (very cold): its season's, though early in
-    a season, until the season's wave has passed it, the last season's or part way between the two."""
+    """A row's temperature on a turn, from 0 (hot) to 3 (very cold): its mild one, its winter's, or part
+    way between the two while a winter's wave washes in or ebbs out across it."""
     quarter = season(turn)
-    now = season_temperature(y, height, quarter)
-    progress = season_progress(turn)
-    if progress >= 1:
-        return float(now)
-    before = season_temperature(y, height, (quarter - 1) % 4)
-    if now == before:
-        return float(now)
-    band, bands = wave_band(y, height, quarter)
+    mild = zone_temperature(y, height)
+    if not in_winter(y, height, quarter):
+        return float(mild)
+    winter = mild + 1
+    into, turning = _season_into(turn), _turning()
+    if turning <= 0 or turning <= into < 1 - turning:
+        return float(winter)
+    # Washing in, from the edge toward the equator, or ebbing back the way it came.
+    ebbing = into >= 1 - turning
+    progress = (into - (1 - turning)) / turning if ebbing else into / turning
+    band, bands = wave_band(y, height, (quarter + 1) % 4 if ebbing else quarter)
     reach = progress * (bands + WAVE_FRONT)  # how far the front has come, in bands
     turned = min(1.0, max(0.0, (reach - band) / WAVE_FRONT))
-    return before + (now - before) * turned
+    return winter - turned if ebbing else mild + turned
+
+
+def stamina_pace() -> float:
+    """The share of the listed fatigue an action costs: the average animal spends its stamina over its waking half
+    day's ACTIVE_SHARE and gets it back over the rest."""
+    return FULL_STAMINA / (TYPICAL_FATIGUE * max(1.0, DAY_LENGTH / 2 * ACTIVE_SHARE))
+
+
+def rest_recovery() -> float:
+    """Stamina a turn's rest restores."""
+    return FULL_STAMINA / max(1.0, DAY_LENGTH / 2 * (1 - ACTIVE_SHARE))
 
 
 def dieback_threshold(x: int, y: int) -> float:
@@ -697,7 +726,7 @@ class Bitzkey:
     y: int
     hunger: float = 0.0
     health: float = 100.0
-    stamina: float = FULL_STAMINA  # spent by acting, restored by resting (see REST_RECOVERY)
+    stamina: float = FULL_STAMINA  # spent by acting, restored by resting (see ACTIVE_SHARE)
     wet: bool = False  # in the sea, as the world keeps it while it moves
     age: int = 0
     cooldown: int = 0
@@ -794,7 +823,9 @@ class Bitzkey:
         return self.terrain == "avian" and self.species != "plant" and self.wet
 
     def fatigue(self, cost: float) -> float:
-        """What tiring by `cost` takes from it: an amphibious animal's AMPHIBIOUS_FATIGUE times as much."""
+        """What tiring by `cost` takes from it: at the day's pace, and an amphibious animal's AMPHIBIOUS_FATIGUE
+        times as much."""
+        cost *= stamina_pace()
         return cost * AMPHIBIOUS_FATIGUE if self.terrain == "amphibious" else cost
 
     @cached_property
@@ -2235,7 +2266,7 @@ class Simulation:
     # Actions
 
     def _act(self, agent: Bitzkey, action: str, situation: dict) -> None:
-        """Act, remember where it fed, and tire (see REST_RECOVERY)."""
+        """Act, remember where it fed, and tire (see ACTIVE_SHARE)."""
         passed = len(agent.trail)
         self._do(agent, action, situation)
         if agent.last_action in FED:
@@ -2243,7 +2274,7 @@ class Simulation:
         if not agent.alive:
             return
         if agent.last_action == "rested":
-            agent.stamina = min(FULL_STAMINA, agent.stamina + REST_RECOVERY)
+            agent.stamina = min(FULL_STAMINA, agent.stamina + rest_recovery())
             return
         # Tired by what it did: each square it went (flying, the more so), each blow struck, and keeping aloft over the sea.
         cost = ACTION_FATIGUE + (len(agent.trail) - passed) * STEP_FATIGUE * (FLIGHT_FATIGUE if agent.terrain == "avian" else 1.0)
@@ -2685,7 +2716,7 @@ class Simulation:
         for parent, cost in zip((first, second), costs, strict=True):
             parent.hunger += cost
             rest = PREDATOR_BREED_COOLDOWN if parent.species == "predator" else BREED_COOLDOWN
-            parent.cooldown = round((20 - 15 * parent.physique("fertility")) * rest
+            parent.cooldown = round((60 - 45 * parent.physique("fertility")) * rest
                                     * (AMPHIBIOUS_COOLDOWN if parent.terrain == "amphibious" else 1.0))
             parent.children += litter
             parent.stamina = max(0.0, parent.stamina - parent.fatigue(BREED_FATIGUE))

@@ -10,9 +10,11 @@ from tools.Simulation import CORPSE_TURNS, Bitzkey
 from unittest.mock import patch
 
 
+from tools.Simulation import EIGHT_TURN_DAYS
+
 def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, unless a test says so
     global _grown
-    _grown = patch.multiple("tools.Simulation", FEEBLE_YOUTH=0.0, SMALL_HIDING=0.0, DEFAULT_YEAR_LENGTH=360, SLEEP=0)  # and 360-turn years, no sleeping
+    _grown = patch.multiple("tools.Simulation", FEEBLE_YOUTH=0.0, SMALL_HIDING=0.0, DEFAULT_YEAR_LENGTH=360, SLEEP=0, **EIGHT_TURN_DAYS)  # and 360-turn years, no sleeping, spans in eight-turn days
     _grown.start()
 
 
@@ -105,8 +107,8 @@ class CorpseFadeTests(unittest.TestCase):
         living, corpse = bitzkey(3), bitzkey(3)
         corpse.died_turn = 100
         self.assertEqual(BitzkeyApp._corpse_opacity(app, living), 1)
-        self.assertAlmostEqual(BitzkeyApp._corpse_opacity(app, corpse), 1 - 15 / CORPSE_TURNS)
-        app.simulation.turn = 100 + CORPSE_TURNS
+        self.assertAlmostEqual(BitzkeyApp._corpse_opacity(app, corpse), 1 - 15 / EIGHT_TURN_DAYS["CORPSE_TURNS"])
+        app.simulation.turn = 100 + EIGHT_TURN_DAYS["CORPSE_TURNS"]
         self.assertEqual(BitzkeyApp._corpse_opacity(app, corpse), 0)
 
 

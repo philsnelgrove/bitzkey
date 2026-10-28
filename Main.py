@@ -174,6 +174,8 @@ class BitzkeyApp:
         # The globe: shown rather than the map, turned about its axis and tipped, and zoomed; H hides the rest.
         self.globe = False
         self.blind = False  # neither map nor globe drawn, to spare the time
+        self.lod = True     # the level of detail hides the smaller Bitzkeys zoomed out; off, every size shows from any altitude
+        self.plants = True  # plants are drawn
         self.hud_hidden = False
         self.globe_yaw, self.globe_tilt, self.globe_zoom = 0.0, 0.35, 1.0
         self._turn_from: tuple | None = None  # a drag on the globe: where it began, and its turn then
@@ -346,6 +348,10 @@ class BitzkeyApp:
                         self.globe, self.blind = True, False
                     elif not self.hud_hidden and self._view_buttons.get("blind", pg.Rect(0, 0, 0, 0)).collidepoint(event.pos):
                         self.blind = True
+                    elif not self.hud_hidden and self._view_buttons.get("lod", pg.Rect(0, 0, 0, 0)).collidepoint(event.pos):
+                        self.lod = not self.lod
+                    elif not self.hud_hidden and self._view_buttons.get("plants", pg.Rect(0, 0, 0, 0)).collidepoint(event.pos):
+                        self.plants = not self.plants
                     elif self.globe and self._map_view()[0].collidepoint(event.pos):
                         self._pick_on_globe(event.pos)  # a click picks the Bitzkey there; the right button turns it
                     elif self._exemplar_menu is None and self._map_view()[0].collidepoint(event.pos):
@@ -888,13 +894,14 @@ class BitzkeyApp:
         self.selected_id = None
 
     def _draw_view_buttons(self) -> None:
-        """MAP and GLOBE, above the map."""
+        """MAP, GLOBE and BLIND above the map, and beside them the LOD MANAGER and PLANTS toggles."""
         view = self._map_view()[0]
         font = UI.font("segoeui", 12, bold=True)
         left = view.left
         for key, label, on in (("map", "MAP", not self.globe and not self.blind), ("globe", "GLOBE", self.globe and not self.blind),
-                               ("blind", "BLIND", self.blind)):
-            button = pg.Rect(left, view.top - UI(21), UI(56 if key == "map" else 64), UI(18))
+                               ("blind", "BLIND", self.blind), ("lod", "LOD MANAGER", self.lod), ("plants", "PLANTS", self.plants)):
+            left += UI(12) if key == "lod" else 0  # the toggles stand apart from the views
+            button = pg.Rect(left, view.top - UI(21), UI({"map": 56, "lod": 104}.get(key, 64)), UI(18))
             pg.draw.rect(self.screen, (131, 205, 143) if on else (44, 57, 52), button, border_radius=UI(4))
             draw_label(self.screen, font, label, (19, 26, 27) if on else (220, 229, 211), button)
             self._view_buttons[key] = button
@@ -955,8 +962,9 @@ class BitzkeyApp:
         for depth, sx, sy, members in stacks:
             shrink = 0.55 + 0.45 * depth  # foreshortened toward the edge
             lift = 0
-            shown = [agent for agent in members if int(agent.body["size"]) >= least or self._marked(agent)]
-            drawn, hidden = drawn + len(shown), hidden + len(members) - len(shown)  # the rest too small to see from this far out
+            shown = [agent for agent in members if self._shown(agent, least)]
+            drawn += len(shown)
+            hidden += sum(1 for agent in members if not self._shown(agent, least) and self._too_small(agent))
             for agent in sorted(shown, key=lambda agent: -int(agent.body["size"])):
                 dot = max(2, round(dot_radius(int(agent.body["size"]), largest, smallest) * shrink))
                 point = (round(sx), round(sy - lift))
@@ -969,6 +977,19 @@ class BitzkeyApp:
         if not drawn and hidden:
             self._say_too_far(view)
         self.screen.set_clip(None)
+
+    def _shown(self, agent: Bitzkey, least: int) -> bool:
+        """Whether a Bitzkey is drawn, `least` the smallest size the zoom shows: plants only while PLANTS is on, and
+        every size while LOD MANAGER is off."""
+        if self._marked(agent):
+            return True
+        if not self.plants and agent.species == "plant":
+            return False
+        return not self.lod or int(agent.body["size"]) >= least
+
+    def _too_small(self, agent: Bitzkey) -> bool:
+        """Whether one not drawn counts as too small to see from this far out, rather than a plant hidden."""
+        return self.plants or agent.species != "plant"
 
     def _marked(self, agent: Bitzkey) -> bool:
         """Whether a Bitzkey is drawn whatever its size: the one chosen, one picked, or one to export."""
@@ -1118,7 +1139,7 @@ class BitzkeyApp:
         self._draw_ground(self.screen, board, cell_width, cell_height, view)
         smallest, largest = map_dot_radii(min(cell_width, cell_height))  # zoomed with the map
         least = smallest_shown(self.map_zoom, 1.0, MAP_ZOOM_MAX)
-        shown = lambda agent: int(agent.body["size"]) >= least or self._marked(agent)  # noqa: E731
+        shown = lambda agent: self._shown(agent, least)  # noqa: E731
         for agent in self.simulation.agents:  # the way each came this turn, faint, beneath them all
             if not shown(agent):
                 continue
@@ -1134,8 +1155,8 @@ class BitzkeyApp:
                      round(board.top + (agent.y + 0.5) * cell_height))
             if not reach.collidepoint(point):
                 continue
-            if not shown(agent):  # too small to see from this far out
-                hidden += 1
+            if not shown(agent):  # too small to see from this far out, or a plant hidden
+                hidden += self._too_small(agent)
                 continue
             drawn += 1
             radius = self._dot_radius(agent, largest, smallest)

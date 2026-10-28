@@ -14,23 +14,23 @@ def animal(nocturnal: bool, terrain: str = "terrestrial") -> int:
 
 
 class DayTests(unittest.TestCase):
-    def test_a_new_worlds_year_is_360_days_of_eight_turns(self):
-        self.assertEqual((DAY_LENGTH, 8 * DAYS_IN_YEAR), (8, 2880))
+    def test_a_new_worlds_year_is_360_days_of_24_turns(self):
+        self.assertEqual((DAY_LENGTH, 24 * DAYS_IN_YEAR), (24, 8640))
         Simulation(20, 20, 0, 1)
         smallest = Bitzkey(0, encode_dna("grazer", size=0), 0, 0)
-        self.assertAlmostEqual(smallest.lifespan, LIFESPAN_YEARS[0] * 2880)  # three years of 360 days
+        self.assertAlmostEqual(smallest.lifespan, LIFESPAN_YEARS[0] * 8640)  # three years of 360 days
 
     def test_night_covers_half_the_map_and_moves_west_round_it_once_a_day(self):
-        simulation = Simulation(40, 20, 0, 1)
-        dark_turns = [0] * 40
+        simulation = Simulation(48, 20, 0, 1)
+        dark_turns = [0] * 48
         for _ in range(DAY_LENGTH):
-            dark = [x for x in range(40) if simulation.night(x)]
-            self.assertEqual(len(dark), 20)
+            dark = [x for x in range(48) if simulation.night(x)]
+            self.assertEqual(len(dark), 24)
             for x in dark:
                 dark_turns[x] += 1
             simulation.turn += 1
         self.assertEqual(set(dark_turns), {DAY_LENGTH // 2})  # every column dark half of each day
-        self.assertEqual(simulation.night_start(), Simulation(40, 20, 0, 1).night_start())  # round again in a day
+        self.assertEqual(simulation.night_start(), Simulation(48, 20, 0, 1).night_start())  # round again in a day
 
     @patch("tools.Simulation.SLEEP", 1)
     def test_an_animal_rests_through_its_night(self):

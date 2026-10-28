@@ -9,9 +9,11 @@ from tools.Simulation import Simulation
 from unittest.mock import patch
 
 
+from tools.Simulation import EIGHT_TURN_DAYS
+
 def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, unless a test says so
     global _grown
-    _grown = patch.multiple("tools.Simulation", FEEBLE_YOUTH=0.0, SMALL_HIDING=0.0, DEFAULT_YEAR_LENGTH=360, SLEEP=0)  # and 360-turn years, no sleeping
+    _grown = patch.multiple("tools.Simulation", FEEBLE_YOUTH=0.0, SMALL_HIDING=0.0, DEFAULT_YEAR_LENGTH=360, SLEEP=0, **EIGHT_TURN_DAYS)  # and 360-turn years, no sleeping, spans in eight-turn days
     _grown.start()
 
 
@@ -137,7 +139,7 @@ class AdvancedFormTests(unittest.TestCase):
         form = AdvancedForm({})
         focus(form, "CORPSE_TURNS")
         form.backspace()
-        self.assertEqual(form.text(form.focused), "3")
+        self.assertEqual(form.text(form.focused), "9")
         form.backspace()
         form.finish()
         self.assertEqual(form.values["CORPSE_TURNS"], DEFAULTS["CORPSE_TURNS"])
@@ -157,7 +159,7 @@ class AdvancedSearchTests(unittest.TestCase):
     def test_a_search_finds_the_rules_holding_every_word_of_it_in_any_case(self):
         from display.Advanced import rule_matches
         stamina = [rule.key for rule in RULES if rule_matches(rule, "STAMINA")]
-        self.assertIn("REST_RECOVERY", stamina)  # in its description
+        self.assertIn("ACTIVE_SHARE", stamina)  # in its description
         self.assertTrue(all(rule_matches(rule, "") for rule in RULES))  # nothing typed: every rule
         self.assertTrue(rule_matches(BY_KEY["FORCED_LESSONS"], "forced_lessons"))  # by its key
         self.assertTrue(rule_matches(BY_KEY["FORCED_LESSONS"], "mind forced"))  # its group and its name

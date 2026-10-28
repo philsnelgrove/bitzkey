@@ -56,8 +56,9 @@ SETTINGS = (
             0, 100, 5),
     Setting("body_mutation", "Body mutation", "percent chance a birth flips one body gene: 0 stable, 100 always",
             0, 100, 5),
-    Setting("year_length", "Year length", "turns in a year, of four seasons; a day is 8 turns, and lifespans are counted in years",
-            32, 28800, 80),
+    Setting("year_length", "Year length",
+            "turns in a year, of four seasons; a day is 24 turns, an hour each, and lifespans are counted in years",
+            32, 86400, 240),
 )
 MAX_DIGITS = 9
 

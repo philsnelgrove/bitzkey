@@ -407,14 +407,14 @@ mild again. Through the fourth quarter (the southern winter) the same happens
 from the bottom up to and through the equator. The polar caps never change. The sidebar shows the year and season.
 
 The weather doesn't change all at once: it comes in waves, one in each climate
-zone, all setting off together as the season turns, so no zone waits on another
+zone, all setting off together, so no zone waits on another
 and an animal can always see where the weather is headed. In each zone a winter
 washes in from the side toward its hemisphere's edge (the top of the map for the
-north, the bottom for the south) across to the side toward the equator, and as it
-ends ebbs back the way it came. Each wave crosses its zone in bands of two rows
-over the first tenth of each season (9 turns of a 360-turn year), faster than an animal can
-flee it, so only those that set off before it arrives escape it (the Season turning rule; it was
-half a season, slow enough to outrun). At its front four bands stand part way
+north, the bottom for the south) across to the side toward the equator over the
+first 40% of its season (36 days), stays in place through the middle 20% (18 days),
+and over the last 40% ebbs back the way it came; the mild seasons stay settled
+throughout (the Season turning rule, at most half). A turn is an hour: a day is
+24 turns, a season 90 days and a year 360. At its front four bands stand part way
 between the old weather and the new, each a quarter step further on than the
 band ahead of it, so the change comes as a staircase an animal can see within
 its sight: winter behind the front, the old season ahead of it. Each band turns
@@ -590,7 +590,7 @@ plant in sight and, once alongside, takes a bite: 70 hunger whatever the plant's
 more than grass. Each bite costs the plant 15 health, so a plant is eaten in portions in
 proportion to its size, 4 bites from the smallest and 10 from the largest, and
 plants regrow 2% of their health each turn. A bitten plant can't be bitten again
-for 8 turns, so browsers move on, but enough bites in time kill one, and a dead
+for a day (24 turns), so browsers move on, but enough bites in time kill one, and a dead
 plant leaves no meat. A desperate grazer may uproot a plant beside it instead:
 only once it is starving (80 hunger or more) and food is scarce about it (less
 than the food it would need to breed), but whether the plant has recovered from
