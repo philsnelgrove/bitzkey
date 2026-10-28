@@ -170,7 +170,7 @@ EMPATHY_PAIN = 0.15    # how much an empathetic animal feels another's wound; tw
 # and a half times as much with its empathy. Neither tells it what to do: what keeps its young alive is for its
 # brain to learn.
 PARENT_JOY = 0.3
-FEEDING_JOY = 0.2  # how glad a parent is of feeding a starving infant of its own, and in proportion for one less hungry; more if empathetic
+FEEDING_JOY = 1.0  # how glad a parent is of feeding a starving infant of its own, and in proportion for one less hungry; more if empathetic
 FEED_HUNGER = 25.0  # a parent may feed its infants within its sight once one of them is this hungry
 PARENT_GRIEF = 2.0
 # A hunter that kills a mother carrying young feels remorse, by half again and up to one and a half times as much
