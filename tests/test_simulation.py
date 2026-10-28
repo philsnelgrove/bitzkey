@@ -667,7 +667,7 @@ class SimulationTests(unittest.TestCase):
         self.assertEqual(simulation.end_reason, "full")
 
     def test_an_ended_simulation_stops(self):
-        with patch("tools.Simulation.CLIMATE_DAMAGE", 0):  # a world that lasts until it is ended
+        with patch.multiple("tools.Simulation", CLIMATE_DAMAGE=0, STARVING_DAMAGE=0):  # a world that lasts, whatever its chance until it is ended
             simulation = Simulation(width=20, height=20, population=30, seed=4)
             for _ in range(16):
                 simulation.advance()
@@ -1476,7 +1476,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(len(tally.by_killer), DEADLIEST + 1)
         self.assertTrue(0 in tally.by_killer and 1 not in tally.by_killer and DEADLIEST + 4 in tally.by_killer)
         self.assertEqual(tally.killers, DEADLIEST + 5)  # still counted
-        with patch("tools.Simulation.CLIMATE_DAMAGE", 0):  # a world that lasts
+        with patch.multiple("tools.Simulation", CLIMATE_DAMAGE=0, STARVING_DAMAGE=0):  # a world that lasts, whatever its chance
             world = Simulation(width=20, height=20, population=40, seed=3)
             for _ in range(RECENT_DEATH_TURNS + 50):
                 world.advance()

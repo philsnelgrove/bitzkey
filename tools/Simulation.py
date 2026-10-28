@@ -431,6 +431,7 @@ TEMPERAMENT_RELAPSE = 0.0005  # share of the gap back to the inborn value closed
 # night, the dark for the diurnal and the light for the nocturnal (see the activity gene): it may only rest, but for
 # fleeing a hunter or striking back at what struck it, startled awake, and a flyer over the sea, which can't rest.
 DAY_LENGTH = 24  # a turn is an hour
+FORESIGHT_DAY = 8  # the day the Mind rules' discounts and trace decays are set for (see Simulation._discount)
 SLEEP = 1
 SHELTER_REACH = 2  # an infant within this many squares of a living parent is sheltered: the climate's extra hunger and harm pass it by
 DAYS_IN_YEAR = 360
@@ -614,6 +615,11 @@ def temperature_at(y: int, height: int, turn: int) -> float:
     reach = progress * (bands + WAVE_FRONT)  # how far the front has come, in bands
     turned = min(1.0, max(0.0, (reach - band) / WAVE_FRONT))
     return winter - turned if ebbing else mild + turned
+
+
+def per_turn(rate: float) -> float:
+    """A rate set for a turn of a FORESIGHT_DAY-turn day, for a turn of this one: the same over the same span of days."""
+    return rate ** (FORESIGHT_DAY / DAY_LENGTH)
 
 
 def stamina_pace() -> float:
@@ -1828,12 +1834,20 @@ class Simulation:
                 elif (situation["grass"] or situation["grass_here"]) and not agent.last_senses[GRASS_SEEN]:
                     self._experience(agent, "discovery")
             plans.append((agent, senses, options, situation))
-        # Brains of a shape are worked as one batch: valued together, then taught together.
+        # A brain idle this turn isn't asked: one that can only rest (asleep with nothing to startle it, or spent),
+        # with no lesson waiting on what it values now, its last turn having been as forced. Nothing it would say is used.
+        startling = (ACTIONS.index("flee"), ACTIONS.index("defend"))
+        idle = [(agent.exhausted or (SLEEP and self.resting_time(agent) and not agent.aloft_at_sea
+                                     and not any(option in startling for option in options)))
+                and not (agent.last_senses is not None and (FORCED_LESSONS or not agent.last_forced))
+                for agent, _, options, _ in plans]
+        # The other brains, of a shape, are worked as one batch: valued together, then taught together.
         groups: dict[tuple[int, int], list[int]] = {}
         for index, (agent, *_) in enumerate(plans):
-            groups.setdefault((agent.brain.depth, agent.brain.width), []).append(index)
+            if not idle[index]:
+                groups.setdefault((agent.brain.depth, agent.brain.width), []).append(index)
         batches = []
-        values: list[list[float]] = [[] for _ in plans]
+        values: list[list[float]] = [[0.0] * len(ACTIONS) for _ in plans]
         for members in groups.values():
             batch = BrainBatch([plans[index][0].brain for index in members])
             for row, valued in zip(members, batch.values(np.array([plans[index][1] for index in members])).tolist()):
@@ -2145,8 +2159,15 @@ class Simulation:
 
     @staticmethod
     def _discount(agent: Bitzkey) -> float:
-        """How much the future counts against the present: more for the patient."""
-        return IMPATIENT_DISCOUNT + (PATIENT_DISCOUNT - IMPATIENT_DISCOUNT) * agent.feeling("patience")
+        """How much the future counts against the present, a turn: more for the patient. The discounts and trace
+        decays are set for a turn of a FORESIGHT_DAY-turn day, and kept to the same span of days whatever the day's
+        length."""
+        return per_turn(IMPATIENT_DISCOUNT + (PATIENT_DISCOUNT - IMPATIENT_DISCOUNT) * agent.feeling("patience"))
+
+    @staticmethod
+    def _trace_decay(agent: Bitzkey) -> float:
+        """How much of a choice's credit carries on to the next, a turn, beside the discount: more for the clever."""
+        return per_turn(brain_rules.TRACE_DECAY + (brain_rules.SMART_TRACE_DECAY - brain_rules.TRACE_DECAY) * agent.intelligence)
 
     @staticmethod
     def _learning_rate(agent: Bitzkey) -> float:
@@ -2163,7 +2184,7 @@ class Simulation:
         rate = self._learning_rate(agent)
         weight = lesson_weight(agent.last_choice, outcome)
         agent.brain.learn_traced(agent.last_senses, agent.last_choice, target, rate * weight,
-                                 self._discount(agent), agent.intelligence)
+                                 self._discount(agent), decay=self._discount(agent) * self._trace_decay(agent))
         if not replay:
             return
         count = REPLAY_PER_INTELLECT * thinking_intellect(agent.inborn["intellect"], agent.species)
@@ -2189,7 +2210,7 @@ class Simulation:
             weight = lesson_weight(agent.last_choice, outcome)
             senses[row], actions[row], targets[row] = agent.last_senses, agent.last_choice, target
             rates[row] = rate * weight
-            decays[row] = self._discount(agent) * (brain_rules.TRACE_DECAY + (brain_rules.SMART_TRACE_DECAY - brain_rules.TRACE_DECAY) * agent.intelligence)
+            decays[row] = self._discount(agent) * self._trace_decay(agent)
             taking[row] = rates[row] > 0
             count = REPLAY_PER_INTELLECT * thinking_intellect(agent.inborn["intellect"], agent.species)
             if count:

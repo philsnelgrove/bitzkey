@@ -368,14 +368,16 @@ class Brain:
         self.output_biases[action] -= learning_rate * error
 
     def learn_traced(self, inputs: Sequence[float], action: int, target: float, learning_rate: float,
-                     discount: float, sharpness: float = 0.0) -> None:
+                     discount: float, sharpness: float = 0.0, decay: float | None = None) -> None:
         """Learn from its own choice by TD(lambda): every weight's eligibility fades by the discount
         times lambda and gains how this action's value moves with it; then every weight moves by the
         clipped error times its eligibility, so the choices before this one share in it. Lambda runs
-        from TRACE_DECAY up to SMART_TRACE_DECAY with `sharpness`, its owner's intellect, 0 to 1."""
+        from TRACE_DECAY up to SMART_TRACE_DECAY with `sharpness`, its owner's intellect, 0 to 1; or `decay` gives the
+        discount times lambda whole."""
         if learning_rate <= 0:
             return
-        decay = discount * (TRACE_DECAY + (SMART_TRACE_DECAY - TRACE_DECAY) * sharpness)
+        if decay is None:  # unless given whole, the discount times lambda
+            decay = discount * (TRACE_DECAY + (SMART_TRACE_DECAY - TRACE_DECAY) * sharpness)
         if self.traces is None:
             self.traces = [(np.zeros_like(weights), np.zeros_like(biases)) for weights, biases in self.layers]
             self.traces.append((np.zeros_like(self.output_weights), np.zeros_like(self.output_biases)))
