@@ -2970,13 +2970,20 @@ class Simulation:
                 return (x + dx) % self.width, y + dy
         return None
 
+    def tie_side(self, agent: Bitzkey) -> tuple[int, int]:
+        """Which way an animal breaks ties between targets equally near, or flees one straight in line: east (1) or
+        west (-1), south (1) or north (-1), turning with its number and the turn, so no way is favoured."""
+        turns = agent.identifier + self.turn
+        return -1 if turns & 1 else 1, -1 if turns & 2 else 1
+
     def _nearest_grass(self, agent: Bitzkey, sight: int) -> tuple[int, int] | None:
         """The nearest grass in sight, but none in a row further from its home temperature than here."""
         grass, climate, x, y = self.grass, self._climate, agent.x, agent.y
         worst = agent.climate_steps(climate[y])
+        sx, sy = self.tie_side(agent)
         for dx, dy in SIGHT_WITHIN[sight]:
-            cell = (x + dx, y + dy)
-            if grass.get(cell, 0) > 0 and self._can_enter(agent, cell) and agent.climate_steps(climate[y + dy]) <= worst:
+            cell = (x + sx * dx, y + sy * dy)
+            if grass.get(cell, 0) > 0 and self._can_enter(agent, cell) and agent.climate_steps(climate[cell[1]]) <= worst:
                 return cell
         return None
 
@@ -2989,8 +2996,9 @@ class Simulation:
         if not self._carrion:
             return None
         carrion, x, y = self._carrion, agent.x, agent.y
+        sx, sy = self.tie_side(agent)
         for dx, dy in SEEN_WITHIN[sight]:
-            for corpse in carrion.get((x + dx, y + dy), ()):
+            for corpse in carrion.get((x + sx * dx, y + sy * dy), ()):
                 if corpse.meat > 0 and agent.can_be(corpse.wet):
                     return corpse
         return None
@@ -3000,8 +3008,9 @@ class Simulation:
         if not self._kills:
             return None
         kills, x, y = self._kills, agent.x, agent.y
+        sx, sy = self.tie_side(agent)
         for dx, dy in SEEN_WITHIN[sight]:
-            for corpse in kills.get((x + dx, y + dy), ()):
+            for corpse in kills.get((x + sx * dx, y + sy * dy), ()):
                 if self._feeds_on(agent, corpse) and agent.can_be(corpse.wet):
                     return corpse
         return None
@@ -3017,12 +3026,13 @@ class Simulation:
         browses = agent.species in ("grazer", "omnivore")
         courts = agent.can_breed
         cells, x, y = self._cells, agent.x, agent.y
+        sx, sy = self.tie_side(agent)
         for dx, dy in SEEN_WITHIN[max(sight, prey_sight)]:
             far = abs(dx) + abs(dy) > sight  # beyond its sight but for prey
             if ((quarry or not hunts) and (far or ((hunter or not hunted)
                                                    and (suitor or not courts) and (flora or not browses)))):
                 break
-            for other in cells.get((x + dx, y + dy), ()):
+            for other in cells.get((x + sx * dx, y + sy * dy), ()):
                 if other is agent or not other.alive:
                     continue
                 if quarry is None and self._is_prey(agent, other):
@@ -3093,9 +3103,10 @@ class Simulation:
 
     def _move_away(self, agent: Bitzkey, threat: Bitzkey) -> None:
         cells = 0
+        side = self.tie_side(agent)  # straight in line with it, either way
         for _ in range(agent.steps):
-            dx = 1 if agent.x >= threat.x else -1
-            dy = 1 if agent.y >= threat.y else -1
+            dx = side[0] if agent.x == threat.x else 1 if agent.x > threat.x else -1
+            dy = side[1] if agent.y == threat.y else 1 if agent.y > threat.y else -1
             if not self._step(agent, (agent.x + dx) % self.width, self._within(agent.y + dy)):
                 break
             cells += 1

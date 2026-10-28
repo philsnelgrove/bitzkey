@@ -3173,3 +3173,14 @@ class OmnivoresLastResortTests(unittest.TestCase):
         self.simulation._index_cells()
         self.assertTrue(infant.guarded and not parent.guarded)
         self.assertFalse(Simulation._is_prey(hunter, infant))  # guarded: prey to no one
+
+
+class TieTests(unittest.TestCase):
+    def test_ties_between_targets_equally_near_favour_no_side(self):
+        simulation = Simulation(12, 12, 0, 3)
+        simulation.grass = {(4, 5): 1, (6, 5): 1}  # west and east, one step each
+        grazers = [simulation._add_agent(encode_dna("grazer"), 5, 5) for _ in range(4)]
+        self.assertEqual({simulation._nearest_grass(grazer, 3)[0] for grazer in grazers}, {4, 6})
+        self.assertEqual(len({simulation.tie_side(grazer) for grazer in grazers}), 4)  # every pairing of the sides
+        simulation.grass = {(5, 4): 1, (5, 6): 1}  # north and south
+        self.assertEqual({simulation._nearest_grass(grazer, 3)[1] for grazer in grazers}, {4, 6})
