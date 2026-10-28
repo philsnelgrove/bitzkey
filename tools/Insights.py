@@ -77,23 +77,23 @@ SCENARIOS = (
     # so the report shows whether brains follow the warmth senses or only a habit of one direction.
     ("Too cold, warmer to the south",
      {"hunger": 0.3, "health": 1, "climate_discomfort": 0.5, "comfort_closeness": 0.6,
-      "warmth": -0.5, "warmth_north": -1, "latitude": -0.3, "age": 0.2},
+      "warmth": -0.5, "warmth_north": -1, "home_direction": 1, "home_distance": 0.3, "latitude": -0.3, "age": 0.2},
      ("go_north", "go_south", "walk_north", "walk_south", "go_east", "go_west", "rest"), ANIMALS),
     ("Too cold, warmer to the north",
      {"hunger": 0.3, "health": 1, "climate_discomfort": 0.5, "comfort_closeness": 0.6,
-      "warmth": -0.5, "warmth_south": -1, "latitude": 0.3, "age": 0.2},
+      "warmth": -0.5, "warmth_south": -1, "home_direction": -1, "home_distance": 0.3, "latitude": 0.3, "age": 0.2},
      ("go_north", "go_south", "walk_north", "walk_south", "go_east", "go_west", "rest"), ANIMALS),
     ("Too hot, cooler to the north",
      {"hunger": 0.3, "health": 1, "climate_discomfort": 0.5, "comfort_closeness": 0.6,
-      "warmth": 0.5, "warmth_south": 0.5, "latitude": 0.1, "age": 0.2},
+      "warmth": 0.5, "warmth_south": 0.5, "home_direction": -1, "home_distance": 0.3, "latitude": 0.1, "age": 0.2},
      ("go_north", "go_south", "walk_north", "walk_south", "go_east", "go_west", "rest"), ANIMALS),
     ("Too hot, cooler to the south",
      {"hunger": 0.3, "health": 1, "climate_discomfort": 0.5, "comfort_closeness": 0.6,
-      "warmth": 0.5, "warmth_north": 0.5, "latitude": -0.1, "age": 0.2},
+      "warmth": 0.5, "warmth_north": 0.5, "home_direction": 1, "home_distance": 0.3, "latitude": -0.1, "age": 0.2},
      ("go_north", "go_south", "walk_north", "walk_south", "go_east", "go_west", "rest"), ANIMALS),
     ("Far too cold, warmer to the south",
      {"hunger": 0.3, "health": 1, "climate_discomfort": 1, "comfort_closeness": 0.3,
-      "warmth": -1, "warmth_north": -1, "warmth_south": -0.5, "latitude": -0.5, "age": 0.2},
+      "warmth": -1, "warmth_north": -1, "warmth_south": -0.5, "home_direction": 1, "home_distance": 0.6, "latitude": -0.5, "age": 0.2},
      ("go_north", "go_south", "walk_north", "walk_south", "go_east", "go_west", "rest"), ANIMALS),
     ("At home, cold coming from the north",
      {"hunger": 0.3, "health": 1, "comfort_closeness": 1, "warmth_north": -0.5, "latitude": -0.3, "age": 0.2},
@@ -273,6 +273,12 @@ SITUATION = 42  # characters to the situations' column
 DEADLIEST = 10  # the killers the death report names
 
 
+# The bands the death report counts ages at death in, the first days each starts at, and their names.
+AGE_BANDS = (0, 1, 10, 30, 90, 180, 360, 720)
+AGE_BAND_NAMES = ("under a day", "1-9 days", "10-29 days", "30-89 days", "90-179 days", "180-359 days", "1-2 years",
+                  "over 2 years")
+
+
 class DeathTally:
     """Every death since the world began, counted as it happens rather than kept one by one: by cause and the
     species of the dead; who killed whom; what the killers were doing; and each killer's kills, for the living and
@@ -284,10 +290,14 @@ class DeathTally:
         self.activities: dict[str, dict[str, int]] = {}  # by what the killers were doing, by the killers' species
         self.killers = 0                                 # how many Bitzkeys have ever killed
         self.by_killer: dict[int, list] = {}             # by identifier: [species, kills, {doing: kills}]
+        self.ages: list[dict[str, int]] = [{} for _ in AGE_BANDS]  # by age at death (AGE_BANDS), by the species of the dead
 
     def add(self, death: Death) -> None:
         counts = self.causes.setdefault(death.cause, {})
         counts[death.species] = counts.get(death.species, 0) + 1
+        if death.age_days >= 0:
+            band = max(index for index, start in enumerate(AGE_BANDS) if death.age_days >= start)
+            self.ages[band][death.species] = self.ages[band].get(death.species, 0) + 1
         if death.killer is None:
             return
         counts = self.whom.setdefault(death.species, {})
@@ -352,6 +362,9 @@ def death_report_lines(deaths, word=None) -> list[str]:
     total = ([word("ALL"), *(str(by_species.get(species, 0)) for species in SPECIES_ORDER), str(everyone)] if tabs else
              [f"{'ALL':<18}" + "".join(f"{by_species.get(species, 0):>10}" for species in SPECIES_ORDER) + f"{everyone:>10}"])
     lines = table("CAUSE", ranked(tally.causes)) + ["\t".join(total)]
+    if any(tally.ages):
+        lines += ["", word("AGE AT DEATH, by species")]
+        lines += table("AGE", [(name, counts) for name, counts in zip(AGE_BAND_NAMES, tally.ages) if counts])
     kills = sum(sum(counts.values()) for counts in tally.whom.values())
     if not kills:
         return lines + ["", word("Nothing has killed anything yet.")]

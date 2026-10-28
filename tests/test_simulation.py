@@ -7,7 +7,7 @@ import tools.Simulation as simulation_module
 from tools.Brain import ACTIONS, SENSES, Brain
 from tools.Exchange import Imported
 from tools.Genome import decode_body, encode_dna
-from tools.Simulation import (Death, FULL_STAMINA, SPAWN_SPREAD, DEATH_PENALTY, PARENT_GRIEF, PARENT_JOY, BREED_COOLDOWN, PREGNANT_REMORSE, ATTACK_JOY, FEAST_JOY, FRESH_KILL_MEALS, KILL_MEAL, KILL_MEAL_FOR_SIZE, BIRTH_REACH, PLANT_GESTATION, Bitzkey, gestation, CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, PLANT_MEAL, PLANT_MEAL_FOR_SIZE, SEED_OFFSETS,
+from tools.Simulation import (Death, DAY_LENGTH, FULL_STAMINA, SPAWN_SPREAD, DEATH_PENALTY, PARENT_GRIEF, PARENT_JOY, BREED_COOLDOWN, PREGNANT_REMORSE, ATTACK_JOY, FEAST_JOY, FRESH_KILL_MEALS, KILL_MEAL, KILL_MEAL_FOR_SIZE, BIRTH_REACH, PLANT_GESTATION, Bitzkey, gestation, CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, PLANT_MEAL, PLANT_MEAL_FOR_SIZE, SEED_OFFSETS,
                               SIGHT_OFFSETS, SPAWN_SPREAD, UPROOT_BITE, UPROOT_MEALS, Simulation, litter_size,
                               nearby_offsets)
 
@@ -1463,6 +1463,18 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(len(world.deaths_so_far()), world.deaths)
         self.assertEqual(death_report_lines(world.death_tally), lines)  # counted as they happened, the same as from them all
 
+    def test_deaths_are_counted_by_age_at_death_in_bands_of_days_the_youngest_first(self):
+        from tools.Insights import AGE_BAND_NAMES, DeathTally, death_report_lines
+        tally = DeathTally()
+        for days in (0, 5, 9, 45, 400, 2000, -1):
+            tally.add(Death("starved", "grazer", 1, age_days=days))
+        tally.add(Death("killed", "predator", 1, age_days=100))
+        self.assertEqual([(name, sum(band.values())) for name, band in zip(AGE_BAND_NAMES, tally.ages) if band],
+                         [("under a day", 1), ("1-9 days", 2), ("30-89 days", 1), ("90-179 days", 1), ("1-2 years", 1),
+                          ("over 2 years", 1)])
+        self.assertEqual(tally.ages[4], {"predator": 1})
+        self.assertIn("AGE AT DEATH, by species", death_report_lines(tally))
+
     def test_deaths_are_kept_whole_only_for_the_latest_turns_and_the_tally_keeps_only_the_deadliest_killers_gone(self):
         from tools.Insights import DEADLIEST, DeathTally, death_report_lines
         from tools.Simulation import Death, RECENT_DEATH_TURNS
@@ -1653,10 +1665,10 @@ class NewTraitTests(unittest.TestCase):
         prey.health = 0.1
         self.simulation._attack(hunter, prey, "hunting")
         self.assertEqual(self.simulation.death_records[prey.identifier],
-                         Death("killed", "grazer", self.simulation.turn, hunter.identifier, "predator", "hunting"))
+                         Death("killed", "grazer", self.simulation.turn, hunter.identifier, "predator", "hunting", age_days=0))
         starved.hunger = 100.5
         self.simulation._die(starved, "starved")
-        self.assertEqual(self.simulation.death_records[starved.identifier], Death("starved", "grazer", self.simulation.turn))
+        self.assertEqual(self.simulation.death_records[starved.identifier], Death("starved", "grazer", self.simulation.turn, age_days=starved.age // DAY_LENGTH))
         self.assertEqual(death_text(self.simulation, prey.identifier),
                          f"died: killed by #{hunter.identifier:03d} predator, hunting")
         self.assertEqual(death_text(self.simulation, starved.identifier), "died: starved")
@@ -1666,7 +1678,7 @@ class NewTraitTests(unittest.TestCase):
         self.simulation._index_cells()
         reckless.health = 0.1
         self.simulation._attack(reckless, spiny)
-        self.assertEqual(self.simulation.death_records[reckless.identifier][3:], (spiny.identifier, "grazer", "spines"))
+        self.assertEqual(self.simulation.death_records[reckless.identifier][3:6], (spiny.identifier, "grazer", "spines"))
 
         defender = self.simulation._add_agent(encode_dna("grazer", weapons=7, size=7, strength=7), 2, 8)
         assailant = self.simulation._add_agent(encode_dna("omnivore"), 2, 9)
@@ -1678,7 +1690,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(self.simulation.death_records[assailant.identifier].activity, "defending")
         plant.health = 0.1
         self.simulation._browse(browser, plant)
-        self.assertEqual(self.simulation.death_records[plant.identifier][3:], (browser.identifier, "grazer", "browsing"))
+        self.assertEqual(self.simulation.death_records[plant.identifier][3:6], (browser.identifier, "grazer", "browsing"))
 
     def test_a_partner_two_cells_away_is_close_enough_to_breed_with(self):
         first = self.simulation._add_agent(encode_dna("predator"), 4, 4)

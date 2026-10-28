@@ -443,7 +443,8 @@ def _tally_record(tally: DeathTally) -> dict:
     return {"causes": counts(tally.causes), "whom": [[tally.whom.get(dead, {}).get(killer, 0) for killer in SPECIES] for dead in SPECIES],
             "activities": counts(tally.activities), "killers": tally.killers,
             "by_killer": [[identifier, SPECIES.index(kind), kills, dict(sorted(doing.items()))]
-                          for identifier, (kind, kills, doing) in sorted(tally.by_killer.items())]}
+                          for identifier, (kind, kills, doing) in sorted(tally.by_killer.items())],
+            "ages": [[band.get(species, 0) for species in SPECIES] for band in tally.ages]}
 
 
 def _tally_from(record: Mapping) -> DeathTally:
@@ -455,6 +456,8 @@ def _tally_from(record: Mapping) -> DeathTally:
                   for dead, counts in zip(SPECIES, record["whom"]) if any(counts)}
     tally.killers = int(record["killers"])
     tally.by_killer = {identifier: [SPECIES[kind], kills, dict(doing)] for identifier, kind, kills, doing in record["by_killer"]}
+    if "ages" in record:  # counted since
+        tally.ages = [{species: count for species, count in zip(SPECIES, counts) if count} for counts in record["ages"]]
     return tally
 
 

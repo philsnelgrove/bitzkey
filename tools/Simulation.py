@@ -1131,6 +1131,7 @@ class Death(NamedTuple):
     killer: int | None = None
     killer_species: str | None = None
     activity: str | None = None
+    age_days: int = -1  # how many days it lived; -1 unknown
 
 
 class Simulation:
@@ -2256,7 +2257,8 @@ class Simulation:
         eaten. Dying of old age is not held against the brain's last choice."""
         self.death_records[agent.identifier] = Death(cause, agent.species, self.turn,
                                                      None if killer is None else killer.identifier,
-                                                     None if killer is None else killer.species, activity)
+                                                     None if killer is None else killer.species, activity,
+                                                     agent.age // DAY_LENGTH)
         self._death_order.append((self.turn, agent.identifier))
         self.death_tally.add(self.death_records[agent.identifier])
         if killer is not None and agent.womb and killer.species in ("predator", "omnivore"):
