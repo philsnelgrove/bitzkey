@@ -184,6 +184,13 @@ class EffectTests(unittest.TestCase):
             stoic.climate = (MEDIUM, *stoic.climate[1:])  # home again
             take_turn(simulation)
             self.assertEqual(stoic.weathered, 12)  # a turn of grace regained
+            hardy = simulation._add_agent(encode_dna("grazer", temperature=COLD, heat_tolerance=True), 60, 30)  # the medium row is hotter than its home
+            hardy.mind["resilience"] = 0
+            hardy.weathered = 12  # past the grace of the least resilient, but twice that hardy to the heat
+            frail.climate, frail.health, frail.weathered = (COLD, False, True), frail.max_health, 12  # hardy to the cold, not the heat it is out in
+            take_turn(simulation)
+            self.assertEqual(hardy.health, hardy.max_health)
+            self.assertLess(frail.health, frail.max_health)
 
     def test_starving_out_of_its_temperature_is_dying_of_exposure(self):
         simulation = world(turn=240)
