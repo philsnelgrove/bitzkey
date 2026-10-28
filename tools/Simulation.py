@@ -163,7 +163,7 @@ UNEASE = 0.1           # how much an intolerant animal minds other species close
 CLIMATE_UNEASE = 2.0   # discomfort two or more steps from home, half that one step; less for the hardy
 PATIENT_DISCOUNT = 0.99  # gamma at the highest patience: how far ahead the patient look
 IMPATIENT_DISCOUNT = 0.9  # and at the lowest: even the least patient look some ten turns ahead
-HOMEWARD_UNEASE = 1.0  # more discomfort away from home, rising with the distance to home to this at half the map's height
+HOMEWARD_UNEASE = 3.0  # more discomfort away from home, rising with the distance to home to this at half the map's height
 EMPATHY_PAIN = 0.15    # how much an empathetic animal feels another's wound; twice that for a death
 # Parental attachment: a parent is glad of its own young, still infants, within its sight, up to PARENT_JOY with
 # three or more, and grieves PARENT_GRIEF when one of them dies, wherever it is; both by half again and up to one
