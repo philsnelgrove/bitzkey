@@ -3196,3 +3196,27 @@ class TieTests(unittest.TestCase):
         self.assertEqual(len({simulation.tie_side(grazer) for grazer in grazers}), 4)  # every pairing of the sides
         simulation.grass = {(5, 4): 1, (5, 6): 1}  # north and south
         self.assertEqual({simulation._nearest_grass(grazer, 3)[1] for grazer in grazers}, {4, 6})
+
+
+class FeedingTests(unittest.TestCase):
+    def test_a_parent_feeds_its_hungry_infants_within_its_sight_full_at_no_cost_and_is_glad_of_it(self):
+        with patch("tools.Simulation.FEEBLE_YOUTH", 1 / 30):  # infants again
+            world = Simulation(30, 30, population=0, seed=1)
+            parent = world._add_agent(encode_dna("grazer"), 10, 10)
+            hungry = world._add_agent(encode_dna("grazer"), 11, 10)
+            peckish = world._add_agent(encode_dna("grazer"), 10, 11)
+            stranger = world._add_agent(encode_dna("grazer"), 9, 10)
+            parent.age, parent.children = int(parent.lifespan / 2), 2
+            hungry.mother = peckish.mother = parent.identifier
+            for young in (hungry, peckish, stranger):
+                young.age = 0
+            hungry.hunger, peckish.hunger, stranger.hunger, parent.hunger, parent.reward = 80, 10, 90, 40, 0.0
+            world._index_cells()
+            options, situation = world._sense(parent)[1:]
+            self.assertIn(ACTIONS.index("feed_young"), options)
+            world._act(parent, "feed_young", situation)
+            self.assertEqual((hungry.hunger, peckish.hunger, stranger.hunger, parent.hunger), (0, 0, 90, 40))  # its own, at no cost
+            self.assertAlmostEqual(parent.reward,
+                                   simulation_module.FEEDING_JOY * (0.5 + parent.feeling("empathy")) * 0.9)
+            self.assertEqual(parent.last_action, "fed its young")
+            self.assertNotIn(ACTIONS.index("feed_young"), world._sense(parent)[1])  # none hungry now

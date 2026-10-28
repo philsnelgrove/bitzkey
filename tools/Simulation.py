@@ -170,6 +170,8 @@ EMPATHY_PAIN = 0.15    # how much an empathetic animal feels another's wound; tw
 # and a half times as much with its empathy. Neither tells it what to do: what keeps its young alive is for its
 # brain to learn.
 PARENT_JOY = 0.3
+FEEDING_JOY = 0.2  # how glad a parent is of feeding a starving infant of its own, and in proportion for one less hungry; more if empathetic
+FEED_HUNGER = 25.0  # a parent may feed its infants within its sight once one of them is this hungry
 PARENT_GRIEF = 2.0
 # A hunter that kills a mother carrying young feels remorse, by half again and up to one and a half times as much
 # with its empathy: a lesson, not a law.
@@ -1979,9 +1981,10 @@ class Simulation:
         herd_assailant = next((other for other in neighbors if other.identifier == agent.herd_assailant), None)
         defend_target = assailant or herd_assailant
         herd, herd_near, herd_middle = self._herd(agent)
-        young = 0 if not agent.children else sum(  # its own young, still infants, within its sight
-            1 for other in self._nearby(agent, sight)
-            if agent.identifier in (other.mother, other.father) and other.infant)
+        own_young = [] if not agent.children else [  # its own young, still infants, within its sight
+            other for other in self._nearby(agent, sight)
+            if agent.identifier in (other.mother, other.father) and other.infant]
+        young = len(own_young)
         here = self._climate[agent.y]
         discomfort = agent.climate_steps(here)
         # The nearest row it would feel at home in, however far, and the same only if within sight.
@@ -2064,6 +2067,8 @@ class Simulation:
         fed_at = self._remembered(agent, agent.food_memory)
         if fed_at and agent.food_memory[:2] != (agent.x, agent.y):
             available.add("revisit")  # back to where it last fed, while it remembers
+        if not agent.infant and any(child.hunger >= FEED_HUNGER for child in own_young):
+            available.add("feed_young")  # once one of its infants about it is hungry, it may feed them
         if agent.y > 0:
             available.update(("go_north", "walk_north"))
         if agent.y < self.height - 1:
@@ -2124,7 +2129,7 @@ class Simulation:
             **{trait: agent.feeling(trait) for trait in TEMPERAMENT},
             **agent.genes,
         )
-        situation = {"mate": mate, "nurseries": nurseries, "young_near": young, "prey": target, "threat": threat,
+        situation = {"mate": mate, "nurseries": nurseries, "young_near": young, "young": own_young, "prey": target, "threat": threat,
                      "threats": len(threats), "quarry": quarry, "hunter": hunter, "suitor": suitor,
                      "grass": grass, "grass_here": grass_here, "carrion": carrion, "kill": kill, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
                      "others": others, "defend_target": defend_target, "for_herd": assailant is None,
@@ -2393,6 +2398,8 @@ class Simulation:
         elif action == "revisit":
             self._move_toward(agent, *situation["revisit"])
             agent.last_action = "revisited"
+        elif action == "feed_young":
+            self._feed_young(agent, situation["young"])
         elif action in HEADINGS:
             dx, dy, walk, went = HEADINGS[action]
             cells = 1 if walk else agent.steps
@@ -2449,6 +2456,15 @@ class Simulation:
             self._die(plant, "uprooted", agent, "uprooting")
         elif plant.physique("weapons") > 0:
             self._defend(plant, agent)
+
+    def _feed_young(self, parent: Bitzkey, young: list[Bitzkey]) -> None:
+        """Its infants within its sight fed full, at no cost to it, and it glad of it, the more the hungrier they were."""
+        parent.last_action = "fed its young"
+        for child in young:
+            if not child.alive:
+                continue
+            parent.reward += FEEDING_JOY * (0.5 + parent.feeling("empathy")) * min(100.0, child.hunger) / 100
+            child.hunger = 0
 
     def _alert(self, agent: Bitzkey, about: Bitzkey) -> None:
         """Alert its herd within its sight: a grazer to the hunter it sees, so they may flee it from

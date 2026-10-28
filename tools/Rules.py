@@ -115,6 +115,8 @@ _TABLE: dict[str, list[tuple]] = {
     ],
     "Breeding": [
         ("BREED_RESERVE", "Breeding reserve", "hunger a parent must still have spare after paying to breed", 0, 100, 5),
+        ("FEED_HUNGER", "Feeding hunger", "how hungry one of its infants within its sight must be for a parent to feed them all, "
+         "at no cost to it", 0.0, 100.0, 5.0),
         ("MATE_RING_DIFFERENCE", "Mate ring difference", "most a partner's ring colour may differ, at no tolerance",
          0.0, 1.0, 0.01),
         ("MATE_DOT_DIFFERENCE", "Mate dot difference", "most a partner's dot colour may differ, at no tolerance",
@@ -179,6 +181,8 @@ _TABLE: dict[str, list[tuple]] = {
         ("UNEASE", "Unease", "how much an intolerant animal minds other species close by", 0.0, 5.0, 0.05),
         ("CLIMATE_UNEASE", "Climate unease", "discomfort two steps from home, half that one step; less if hardy",
          0.0, 5.0, 0.05),
+        ("FEEDING_JOY", "Feeding joy", "how glad a parent is of feeding a starving infant of its own, in proportion for one "
+         "less hungry; more if empathetic", 0.0, 5.0, 0.05),
         ("PARENT_JOY", "Parent joy", "how glad a parent is of three or more of its own infants within its sight; "
          "more if empathetic", 0.0, 5.0, 0.05),
         ("PREGNANT_REMORSE", "Pregnant remorse", "how much a hunter regrets killing a mother carrying young; more if "

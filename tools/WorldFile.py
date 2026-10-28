@@ -112,6 +112,8 @@ class _Reader:
         # For a world saved with other senses: how many it saved, and where each sensed now lies among them, or -1.
         self.saved_inputs = INPUT_SIZE
         self.sense_from: list[int] | None = None
+        # For a world saved before the latest actions were added (they are only ever added at the end): how many it saved.
+        self.saved_actions = len(ACTIONS)
 
     def whole(self, at: int, count: int) -> np.ndarray:
         if at < 0 or at + count > self.ints.size:
@@ -144,10 +146,13 @@ class _Reader:
                 biases = self.take(at, width)
                 at += width
                 layers.append((weights, biases))
-            output_weights = self.take(at, len(ACTIONS) * width).reshape(len(ACTIONS), width)
-            at += len(ACTIONS) * width
-            output_biases = self.take(at, len(ACTIONS))
-            at += len(ACTIONS)
+            saved = self.saved_actions  # an action added since starts unweighted
+            output_weights = np.zeros((len(ACTIONS), width))
+            output_weights[:saved] = self.take(at, saved * width).reshape(saved, width)
+            at += saved * width
+            output_biases = np.zeros(len(ACTIONS))
+            output_biases[:saved] = self.take(at, saved)
+            at += saved
             sets.append((layers, output_weights, output_biases))
         brain = Brain(*sets[0])
         if len(sets) > 1:
@@ -349,8 +354,11 @@ def world_from_bytes(data: bytes) -> Simulation:
 def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
     if record.get("format") != format_:
         raise ValueError(f"This world file is format {record.get('format')}; this version reads format {WORLD_FORMAT}.")
-    if (record["actions"], record["temperament"]) != (list(ACTIONS), list(TEMPERAMENT)):
+    # Actions are only ever added at the end, so a world saved before one was added holds the first of them.
+    saved_actions = record["actions"]
+    if saved_actions != list(ACTIONS)[:len(saved_actions)] or record["temperament"] != list(TEMPERAMENT):
         raise ValueError("This world was saved by a version of Bitzkey whose brains sense or act differently.")
+    numbers.saved_actions = len(saved_actions)
     # Brains saved with other senses are read by name: a sense they lacked starts with no weight, and one no longer
     # sensed is let go.
     if record["senses"] != list(SENSES):

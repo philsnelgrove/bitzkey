@@ -13,7 +13,7 @@ from tools.Genome import (BODY_TRAITS, SPECIES, TEMPERAMENT, TEMPERATURES, TRAIT
 
 ACTIONS = ("eat", "forage", "browse", "uproot", "scavenge", "feast", "rest", "court", "breed", "hunt", "attack", "defend",
            "flee", "herd", "go_north", "go_south", "go_east", "go_west", "walk_north", "walk_south", "walk_east",
-           "walk_west", "alert", "revisit")
+           "walk_west", "alert", "revisit", "feed_young")
 SENSES = (
     "hunger",          # 0..1
     "health",          # 0..1
@@ -85,7 +85,7 @@ BASE_WIDTH = 38    # neurons in each hidden layer, up to an intellect of MAX_DEP
 WIDTH_STEP = 5     # neurons more in each layer for each point of intellect beyond MAX_DEPTH
 MAX_WIDTH = BASE_WIDTH + WIDTH_STEP * (TRAIT_MAX - MAX_DEPTH)
 TEMPERATURE = 0.2
-MUTATION = 0.05
+MUTATION = 0.0
 TRACE_DECAY = 0.7  # lambda: how much of each earlier choice's credit carries on to the next, beside the discount
 SMART_TRACE_DECAY = 0.95  # lambda at the highest intellect: the clever trace credit further back; the least, TRACE_DECAY
 # A new brain values setting off in a direction this much below its other actions, so an untaught
