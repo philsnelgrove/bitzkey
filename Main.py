@@ -1582,7 +1582,8 @@ class BitzkeyApp:
 
     def _new_world(self) -> Simulation:
         return Simulation(self.width, self.height, self.population, self.seed, self.grass_density, self.imported,
-                          self.population_cap, self.mind_mutation, self.body_mutation, self.year_length, self.ocean)
+                          self.population_cap, self.mind_mutation, self.body_mutation, self.year_length, self.ocean,
+                          pregrowth=world.PREGROWTH_TURNS)  # a new world's plants get their head start
 
     def _say(self, message: str) -> None:
         self.message = message

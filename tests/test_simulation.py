@@ -2731,6 +2731,14 @@ class FeebleTests(unittest.TestCase):
             simulation._breed(grazer, mate)
             self.assertEqual(grazer.due_turn, int(gestation(7) * 0.5 + 0.5))
 
+    def test_a_new_worlds_plants_grow_alone_first_uncounted_then_its_animals_spawn(self):
+        bare = Simulation(width=60, height=60, population=40, seed=7)
+        grown = Simulation(width=60, height=60, population=40, seed=7, pregrowth=200)
+        plants = lambda world: sum(1 for agent in world.agents if agent.species == "plant")
+        self.assertGreater(plants(grown), plants(bare))  # they spread meanwhile
+        self.assertEqual((grown.turn, grown.deaths), (0, 0))  # none of it counted
+        self.assertIn("grazer", {agent.species for agent in grown.agents})
+
     def test_the_first_bitzkeys_of_a_world_start_grown(self):
         world = Simulation(width=30, height=30, population=40, seed=3)
         animals = [agent for agent in world.agents if agent.species != "plant"]

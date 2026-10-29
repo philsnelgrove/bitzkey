@@ -42,6 +42,7 @@ SPAWN_GROUP = (3, 5)  # Bitzkeys spawn in groups of this many sharing one genome
 # groups, and its hunters from its grazers', where there is room: the farthest of APART_TRIES places, else; 0: anywhere.
 HUNTERS_APART = 15
 APART_TRIES = 20
+PREGROWTH_TURNS = 2000  # a new world's plants grow alone this many turns, uncounted, before its animals spawn
 GRAZER_SPAWN_GROUP = 30  # a new world's grazers spawn in groups this large, so the hunters' prey outnumber them
 MAX_IMPORTED = 120  # imported Bitzkeys, each spawning a group of its own
 MAX_GRID = 1000  # the widest and tallest a world can be, in cells
@@ -1267,7 +1268,7 @@ class Simulation:
                  grass_density: float = GRASS_DENSITY, imported: Sequence[Imported] = (),
                  population_cap: int | None = None, mind_mutation: float = 100 * MIND_MUTATION_CHANCE,
                  body_mutation: float = 100 * BODY_MUTATION_CHANCE, year_length: int | None = None,
-                 ocean: float = 0.0):
+                 ocean: float = 0.0, pregrowth: int = 0):
         """Spawn `population` random Bitzkeys in groups sharing a genome, plus a group for each
         `imported` Bitzkey, whose members all start with copies of its saved brain if it has one.
         `population_cap` limits living animals; None leaves crowding alone to limit them.
@@ -1346,11 +1347,16 @@ class Simulation:
         self._initial_grass = initial_grass  # what grows back each turn is a share of it
         self.grass_regrowth = initial_grass * GRASS_REGROWTH
         self._sow(initial_grass)
+        self._witnessed: list[tuple] = []
+        if population > 0:  # the plants first, and `pregrowth` turns' head start, uncounted; then the animals
+            self._spawn_biomes(plants=True)
+            if pregrowth > 0:
+                self._pregrow(pregrowth)
         species, sizes = self._starting_groups(population)  # animals: the plants start in the biomes
         for group, size in enumerate(sizes):
             self._spawn_group(make_dna(species[group], self.random), size, native=True)
         if population > 0:
-            self._spawn_biomes()
+            self._spawn_biomes(plants=False)
         for bitzkey in imported:
             self._spawn_group(bitzkey.dna, self.random.randint(*SPAWN_GROUP), bitzkey.brain, bitzkey.mind)
         for agent in self.agents:  # the first of a world are grown: just past their infancy, at full health
@@ -1763,7 +1769,17 @@ class Simulation:
                     found.append(biome)
         return found
 
-    def _spawn_biomes(self) -> None:
+    def _pregrow(self, turns: int) -> None:
+        """Plain turns, with the plants alone (advance would stop at once, with no animals alive); then none of it
+        counts: the clock and the records start afresh. As the C++ version's."""
+        for _ in range(turns):
+            self._take_turn()
+        self.turn, self.deaths, self.death_causes = 0, 0, {}
+        self.death_tally, self.death_records, self._death_order = DeathTally(), {}, deque()
+        self.insights, self.census = Insights(), Census()
+        self._update_climate()
+
+    def _spawn_biomes(self, plants: bool) -> None:
         """In every biome, BIOME_GROUPS groups of each species, native to it: the surface's own terrain (terrestrial on
         land, aquatic at sea) and the zone's usual temperature its home; grazers by GRAZER_SPAWN_GROUP, the rest
         SPAWN_GROUP. As the C++ version's."""
@@ -1772,6 +1788,8 @@ class Simulation:
             home = zone_temperature(biome[0][1], self.height)
             for _ in range(BIOME_GROUPS):
                 for kind in (SPECIES.index(name) for name in ("plant", "omnivore", "predator", "grazer")):  # the large group last
+                    if (SPECIES[kind] == "plant") != plants:
+                        continue
                     dna = make_dna(kind, self.random)
                     dna = dna & ~(0x3 << TEMPERATURE_SHIFT) | home << TEMPERATURE_SHIFT
                     dna = with_terrain(dna, "aquatic" if wet else "terrestrial")
