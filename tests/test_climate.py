@@ -765,6 +765,18 @@ class LearningFloorTests(unittest.TestCase):
         self.assertAlmostEqual(lesson(0.0), 0.0, places=12)
         self.assertGreater(abs(lesson(0.25)), 0.001)  # it learns, toward whatever its lesson's target is
 
+    def test_a_worlds_first_bitzkeys_have_an_instinct_to_breed_and_their_young_dont(self):
+        simulation = world(turn=240)
+        grazer = simulation._add_agent(encode_dna("grazer"), 20, 30)
+        grazer.age = int(0.5 * grazer.lifespan)  # grown, and ready
+        self.assertTrue(grazer.can_breed)
+        eat, breed = ACTIONS.index("eat"), ACTIONS.index("breed")
+        with patch("tools.Simulation.FIRST_BREEDING_INSTINCT", 3.0):
+            for generation in (0, 1):
+                grazer.generation = generation
+                valued = simulation_module.add_instincts(grazer, [0.0] * len(ACTIONS), [eat, breed], 0, 0)
+                self.assertAlmostEqual(valued[breed], 3.0 if generation == 0 else 0.0)
+
     def test_a_parents_instinct_closes_on_its_best_other_option_however_much_its_brain_values_things(self):
         simulation = world(turn=240)
         parent = simulation._add_agent(encode_dna("grazer"), 20, 30)

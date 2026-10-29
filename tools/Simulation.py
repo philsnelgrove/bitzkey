@@ -269,6 +269,7 @@ MATE_REACH = 2         # a partner within this many steps is close enough to bre
 MATING_CALL = 0.5      # how much more a predator ready to breed values breeding, or else courting a mate it sees
 MATING_CALL_RANGE = 2.0  # a predator ready to breed that sees no mate seeks one this many times its sight off
 OMNIVORE_MATING_CALL = 0.25  # an omnivore's milder mating call
+FIRST_BREEDING_INSTINCT = 3.0  # how much more one of a world's first, ready to breed, values breeding, or else courting
 HUNTER_BREEDING_COST = 0.5  # share of the usual breeding cost a predator or omnivore pays
 GRAZER_BREEDING_COST = 0.5  # share of the usual breeding cost a grazer pays
 PREDATOR_STING = 0.5   # share of a victim's spines a predator striking it takes
@@ -1233,6 +1234,8 @@ def add_instincts(agent: Bitzkey, valued: list[float], options: list[int], hunge
         valued = [value + urge if action in (HUNT, ATTACK) else value for action, value in enumerate(valued)]
         valued[FEAST] += BLOODLUST  # bloodlust: a fresh kill in sight is hard to pass by
     call = MATING_CALL if agent.species == "predator" else OMNIVORE_MATING_CALL if agent.species == "omnivore" else 0.0
+    if agent.generation == 0:  # the first of a world, their brains untrained, have an instinct to breed besides
+        call += FIRST_BREEDING_INSTINCT
     if call and agent.can_breed:  # the mating call: to breed if it can, else to court a mate it seeks
         valued[BREED if BREED in options else COURT] += call
     scavenger = agent.scavenger
