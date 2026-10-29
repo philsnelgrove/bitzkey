@@ -2680,6 +2680,19 @@ class FeebleTests(unittest.TestCase):
         self.assertEqual((infant.trait("size"), infant.space, infant.lifespan), (7, 8, lifespan))  # lifespan by its genes
         self.assertAlmostEqual(infant.max_health, 150.0)
 
+    def test_no_frail_bitzkey_breeds_neither_an_infant_nor_the_old(self):
+        from tools.Simulation import AGEING
+        grazer = self.simulation._add_agent(encode_dna("grazer", size=7), 5, 5)
+        grazer.age = 0
+        self.assertTrue(grazer.feeble)
+        self.assertFalse(grazer.can_breed)  # an infant
+        grazer.age = int(0.5 * grazer.lifespan)
+        self.assertFalse(grazer.feeble)
+        self.assertTrue(grazer.can_breed)  # grown
+        grazer.age = int(AGEING * grazer.lifespan) + 1
+        self.assertTrue(grazer.feeble)
+        self.assertFalse(grazer.can_breed)  # old
+
     def test_old_age_brings_feebleness_and_its_health_shrinks_to_match(self):
         from tools.Simulation import AGEING
         old = self.simulation._add_agent(encode_dna("grazer", size=7, armour=5), 5, 5)

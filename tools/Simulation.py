@@ -1146,8 +1146,9 @@ class Bitzkey:
 
     @property
     def can_breed(self) -> bool:
-        """In heat, rested, not carrying young, and able to pay for breeding with energy to spare."""
-        return (self.in_heat and self.cooldown == 0 and not self.womb
+        """In heat, not frail (neither an infant nor old: feeble), rested, not carrying young, and able to pay for breeding
+        with energy to spare."""
+        return (self.in_heat and not self.feeble and self.cooldown == 0 and not self.womb
                 and self.hunger + self.breeding_cost <= 100 - BREED_RESERVE)
 
     @property
