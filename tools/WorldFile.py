@@ -237,6 +237,7 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
                     *(value for quarter in range(4) for value in (place.seen[quarter], float(place.food[quarter]),
                                                                   float(place.danger[quarter]), float(place.comfort[quarter])))]
                    for place in agent.places],
+        "known": [[one.identifier, float(one.regard), one.last] for one in agent.known],  # each [identifier, regard, last]
     }
 
 
@@ -287,6 +288,8 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
                                    [float(entry[5 + 4 * quarter]) for quarter in range(4)],
                                    [float(entry[6 + 4 * quarter]) for quarter in range(4)])
                     for entry in record.get("places", [])]
+    agent.known = [world.Acquaintance(int(entry[0]), float(entry[1]), int(entry[2]))  # none, in a world saved before
+                   for entry in record.get("known", [])]
     agent.odds = {str(action): float(chance) for action, chance in record["odds"].items() if action in ACTIONS}
     return agent
 

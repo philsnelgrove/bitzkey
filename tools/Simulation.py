@@ -329,6 +329,21 @@ MAP_PATCH = 8
 MAP_PLACES = 16
 MAP_LEARNING = 0.2
 MAP_NEARNESS = 0.01
+# Those it knows: an animal remembers up to Acquaintances others (none at 0) by what they did to it, the one it dealt
+# with longest ago forgotten for a new one; each deed moves its regard for the doer toward the deed's worth by Regard
+# learning (the first sets it): a blow -1, being fed or nursed as an infant 1, an alert it heeded or a mating a half.
+# As the C++ version's.
+ACQUAINTANCES = 8
+REGARD_LEARNING = 0.3
+BLOW_DEED, FEEDING_DEED, ALERT_DEED, MATING_DEED = -1.0, 1.0, 0.5, 0.5
+
+
+@dataclass
+class Acquaintance:
+    """One it knows: who, how well it regards them, -1 to 1, and the turn they last dealt with it."""
+    identifier: int
+    regard: float
+    last: int
 
 
 @dataclass
@@ -823,6 +838,7 @@ class Bitzkey:
     past: list[list[float]] = field(default_factory=list)
     last_wrote: bool = False
     places: list[MapPlace] = field(default_factory=list)  # its mental map, in the order it first came to each place
+    known: list[Acquaintance] = field(default_factory=list)  # those it knows, in the order it came to know them
     seen_success: float = 0.0  # a herd-mate's success it saw, fading turn by turn
     seen_failure: float = 0.0  # a herd-mate's failure it saw, the same
     weathered: float = 0.0  # turns endured out of its temperature, one regained each turn back in it; the weather harms it once past its grace
@@ -1365,6 +1381,41 @@ class Simulation:
         """Whether a column lies in the night now: half the map, moving west a whole turn round each day."""
         return (x - self.night_start()) % self.width < self.width // 2
 
+    def _known_senses(self, agent: Bitzkey, caller: Bitzkey | None, sight: int) -> dict[str, float]:
+        """Those it knows: the nearest within its sight, and whether it knows the loudest caller, as the C++ version."""
+        found: dict[str, float] = {}
+        nearest, regard = None, 0.0
+        for known in agent.known:
+            other = self.find_agent(known.identifier)
+            if caller is not None and known.identifier == caller.identifier:
+                found.update(caller_known=1.0, caller_regard=known.regard)
+            if other is None or not other.alive or abs(other.x - agent.x) + abs(other.y - agent.y) > sight:
+                continue
+            if nearest is None or (abs(other.x - agent.x) + abs(other.y - agent.y)
+                                   < abs(nearest.x - agent.x) + abs(nearest.y - agent.y)):
+                nearest, regard = other, known.regard
+        if nearest is not None:
+            found.update(known_closeness=self._closeness(agent, (nearest.x, nearest.y), sight), known_regard=regard,
+                         known_east=max(-1.0, min(1.0, (nearest.x - agent.x) / sight)),
+                         known_south=max(-1.0, min(1.0, (nearest.y - agent.y) / sight)))
+        return found
+
+    def _note_deed(self, agent: Bitzkey, other: Bitzkey, deed: float) -> None:
+        """What `other` did to `agent`, worth `deed`, -1 to 1, noted in its regard for them."""
+        known = agent.known
+        while len(known) > max(0, ACQUAINTANCES):
+            known.remove(min(known, key=lambda one: one.last))
+        if ACQUAINTANCES <= 0 or agent is other:
+            return
+        found = next((one for one in known if one.identifier == other.identifier), None)
+        if found is None:
+            if len(known) >= ACQUAINTANCES:
+                known.remove(min(known, key=lambda one: one.last))
+            known.append(Acquaintance(other.identifier, deed, self.turn))
+            return
+        found.regard += REGARD_LEARNING * (deed - found.regard)
+        found.last = self.turn
+
     def _map_senses(self, agent: Bitzkey) -> dict[str, float]:
         """Its mental map: the best place it remembers for food this season, the worst for danger, the best for comfort
         next season, as the C++ version."""
@@ -1416,10 +1467,12 @@ class Simulation:
         place.seen[quarter] = True
         place.last = self.turn
 
-    def _heard(self, agent: Bitzkey) -> dict[str, float]:
-        """The calls made about it last turn, by any kind, each as its loudest caller made it, as the C++ version."""
+    def _heard(self, agent: Bitzkey) -> tuple[dict[str, float], Bitzkey | None]:
+        """The calls made about it last turn, by any kind, each as its loudest caller made it, and the loudest it heard of
+        all, as the C++ version."""
         heard: dict[str, float] = {}
         loudest = [0.0] * (len(CALLS) - FIRST_CALL)
+        caller, loudest_of_all = None, 0.0
         furthest = min(MAX_CALL_REACH, math.ceil(CALL_REACH * 1.5))  # the largest caller's
         for other in self._nearby(agent, furthest):
             if other.call < FIRST_CALL or other.call_turn != self.turn - 1:
@@ -1429,6 +1482,8 @@ class Simulation:
             if away > reach:
                 continue
             loudness = 1 - away / (reach + 1)
+            if loudness > loudest_of_all:
+                caller, loudest_of_all = other, loudness
             if loudness <= loudest[other.call - FIRST_CALL]:
                 continue
             loudest[other.call - FIRST_CALL] = loudness
@@ -1438,7 +1493,7 @@ class Simulation:
             heard[f"{name}_east"] = max(-1.0, min(1.0, east / reach))
             heard[f"{name}_south"] = max(-1.0, min(1.0, (other.y - agent.y) / reach))
             heard[f"{name}_kin"] = float(other.species == agent.species)
-        return heard
+        return heard, caller
 
     def _parent_senses(self, agent: Bitzkey, sight: int) -> dict[str, float]:
         """An infant's nearest living parent within its sight: how close, and which way it lies, as the C++ version."""
@@ -1862,6 +1917,7 @@ class Simulation:
             return
         agent.hunger += cost
         infant.hunger -= fed
+        self._note_deed(infant, agent, FEEDING_DEED)
 
     def _seed_corpse(self, corpse: Bitzkey) -> None:
         """A body rotted away leaves the seed of a new plant where it lay: a random plant genome, at home in the
@@ -2273,6 +2329,7 @@ class Simulation:
         if agent.y < self.height - 1:
             available.update(("go_south", "walk_south"))
 
+        heard, caller = self._heard(agent)
         senses = make_senses(
             hunger=min(1.0, agent.hunger / 100),
             health=max(0.0, agent.health / agent.max_health),
@@ -2325,9 +2382,10 @@ class Simulation:
             stamina=agent.stamina / FULL_STAMINA,
             night=float(self.night(agent.x)),
             **self._parent_senses(agent, sight),
-            **self._heard(agent),
+            **heard,
             **{f"memory_{neuron + 1}": held for neuron, held in enumerate(agent.held)},
             **self._map_senses(agent),
+            **self._known_senses(agent, caller, sight),
             **{trait: agent.feeling(trait) for trait in TEMPERAMENT},
             **agent.genes,
         )
@@ -2692,6 +2750,7 @@ class Simulation:
                 continue
             parent.reward += FEEDING_JOY * (0.5 + parent.feeling("empathy")) * min(100.0, child.hunger) / 100
             child.hunger = 0
+            self._note_deed(child, parent, FEEDING_DEED)
 
     def _alert(self, agent: Bitzkey, about: Bitzkey) -> None:
         """Alert its herd within its sight: a grazer to the hunter it sees, so they may flee it from
@@ -2702,6 +2761,7 @@ class Simulation:
             if (self._herd_mate(agent, other) and abs(other.x - agent.x) + abs(other.y - agent.y)
                     <= TRUST_REACH * other.feeling("trust") * other.sight):
                 heeded = True
+                self._note_deed(other, agent, ALERT_DEED)
                 if agent.species == "grazer":
                     if other.alarm is None:
                         other.alarm = about.identifier
@@ -2871,6 +2931,7 @@ class Simulation:
         must flee instead. Its herd-mates close by are alarmed, and those alongside the striker may
         defend it."""
         victim.assailant = striker.identifier
+        self._note_deed(victim, striker, BLOW_DEED)
         victim.danger_memory = (victim.x, victim.y, self.turn)
         herd_near = 0
         for other in self._nearby(victim, 2):
@@ -2947,6 +3008,8 @@ class Simulation:
         afford it, but a parent can only give what it has left. Each child inherits a mix of its
         parents' brains, and starts its temperament at the average of its parents' current
         temperaments, which its dot then shows."""
+        self._note_deed(first, second, MATING_DEED)
+        self._note_deed(second, first, MATING_DEED)
         litter = litter_size([(parent.trait("litter"), parent.trait("size")) for parent in (first, second)])
         if CROWDING_LIMIT:
             litter = max(1, int(litter * (1 - self._crowding(first, second, own_kind=True) / CROWDING_LIMIT) + 0.5))  # its own kind

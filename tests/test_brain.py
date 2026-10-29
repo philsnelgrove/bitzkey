@@ -214,8 +214,8 @@ class BrainTests(unittest.TestCase):
         # share; with one, it shares the blame.
         self.assertLess(changes[1], changes[0] - 0.1)
 
-    def test_there_are_142_senses(self):
-        self.assertEqual(INPUT_SIZE, 142)
+    def test_there_are_148_senses(self):
+        self.assertEqual(INPUT_SIZE, 148)
 
     def test_a_childs_brain_is_made_exactly_as_the_cpp_version_makes_it_from_the_same_seed(self):
         rng = random.Random(7)
@@ -224,9 +224,9 @@ class BrainTests(unittest.TestCase):
         # As bitzkey_cpp's Brain::inherit makes them, to the last bit.
         self.assertEqual([float(child.layers[0][0][3][11]), float(child.layers[0][0][44][89]), float(child.layers[1][1][20]),
                           float(child.layers[2][0][5][7]), float(child.output_weights[23][44]), float(child.output_biases[3])],
-                         [0.020745525901177522, 0.013482504183290209, -0.006275286693070304, 0.11086044918175474,
-                          -0.0021285730630892933, -0.0010473993121269706])  # the output layer held in hundredths
-        self.assertEqual(rng.random(), 0.30193777009768397)  # one draw of the world's for the child
+                         [0.00018905347718580975, 0.11869562473718147, 0.005349477002561016, 0.14375604358561592,
+                          -0.0006704838519255428, 0.0012942777883086462])  # the output layer held in hundredths
+        self.assertEqual(rng.random(), 0.5056811619942949)  # one draw of the world's for the child
 
     def test_a_childs_brain_is_its_parents_nudged_by_normal_mutations_of_the_mutations_size(self):
         rng = random.Random(5)

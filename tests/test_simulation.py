@@ -3317,3 +3317,34 @@ class MapTests(unittest.TestCase):
         self.assertEqual(len(grazer.places), 2)
         self.assertNotIn(0, [place.column for place in grazer.places])
         self.assertEqual(world_from_bytes(world_bytes(world)).find_agent(grazer.identifier).places, grazer.places)
+
+
+class AcquaintanceTests(unittest.TestCase):
+    def test_an_animal_remembers_others_by_what_they_did_to_it_senses_the_nearest_and_knows_a_caller(self):
+        from tools.Brain import FIRST_CALL
+        from tools.WorldFile import world_bytes, world_from_bytes
+        sm = simulation_module
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        grazer = world._add_agent(encode_dna("grazer", sight=7), 10, 10)
+        friendly = world._add_agent(encode_dna("grazer"), 12, 10)
+        brute = world._add_agent(encode_dna("predator"), 10, 12)  # within earshot
+        world._index_cells()
+        world._note_deed(grazer, friendly, sm.ALERT_DEED)  # it heeded an alert
+        world._struck(grazer, brute)  # and was struck
+        self.assertEqual([(one.identifier, one.regard) for one in grazer.known],
+                         [(friendly.identifier, sm.ALERT_DEED), (brute.identifier, sm.BLOW_DEED)])
+        world._note_deed(grazer, friendly, sm.FEEDING_DEED)  # a later deed moves its regard by Regard learning
+        self.assertAlmostEqual(grazer.known[0].regard, sm.ALERT_DEED + sm.REGARD_LEARNING * (sm.FEEDING_DEED - sm.ALERT_DEED))
+        senses = dict(zip(SENSES, world._sense(grazer)[0]))
+        self.assertAlmostEqual(senses["known_regard"], grazer.known[0].regard)  # the nearest it knows: the friend, two east
+        self.assertGreater(senses["known_east"], 0)
+        self.assertGreater(senses["known_closeness"], 0)
+        self.assertEqual(senses["caller_known"], 0.0)
+        brute.call, brute.call_turn = FIRST_CALL, world.turn - 1  # the brute calls
+        senses = dict(zip(SENSES, world._sense(grazer)[0]))
+        self.assertEqual((senses["caller_known"], senses["caller_regard"]), (1.0, sm.BLOW_DEED))
+        with patch.object(sm, "ACQUAINTANCES", 2):
+            world._note_deed(grazer, world._add_agent(encode_dna("grazer"), 20, 20), sm.MATING_DEED)  # the longest ago forgotten
+        self.assertEqual(len(grazer.known), 2)
+        self.assertNotIn(friendly.identifier, [one.identifier for one in grazer.known])
+        self.assertEqual(world_from_bytes(world_bytes(world)).find_agent(grazer.identifier).known, grazer.known)
