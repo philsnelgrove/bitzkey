@@ -228,6 +228,8 @@ _TABLE: dict[str, list[tuple]] = {
          "adds to it", 0.0, 2.0, 0.05),
         ("LEARNING_BOOST", "Learning boost", "the highest intellect learns this much faster again; the lowest, no faster",
          0.0, 5.0, 0.1),
+        ("TARGET_REFRESH", "Target refresh", "turns of an animal's age between copies of its brain that value its best choice when it learns, so its overestimates don't feed on themselves; 0: its brain values it too",
+         0, 1000, 10),
         ("REPLAY_PER_INTELLECT", "Replays per intellect", "recent experiences re-learnt each turn per point of intellect",
          0, 4, 1),
         ("BREED_LEARNING", "Breeding learning", "times as much any animal learns from breeding; more unsettles its brain for all else", 0.0, 20.0, 0.1),

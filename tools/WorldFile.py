@@ -209,6 +209,7 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "hunger": float(agent.hunger), "health": float(agent.health), "stamina": float(agent.stamina), "age": agent.age,
         "cooldown": agent.cooldown,
         "last_action": agent.last_action, "brain": numbers.brain(agent.brain), "generation": agent.generation,
+        "target": numbers.brain(agent.target),  # its target brain, or None
         "children": agent.children, "mother": agent.mother, "father": agent.father, "died_turn": agent.died_turn, "assailant": agent.assailant,
         "panicked": agent.panicked, "primal_fear": agent.primal_fear, "rivalry": float(agent.rivalry),
         "own_rivalry": float(agent.own_rivalry), "hunts_grazers": agent.hunts_grazers,
@@ -265,6 +266,7 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
         setattr(agent, name, None if record[name] is None else tuple(int(value) for value in record[name]))
     agent.last_action = str(record["last_action"])
     agent.brain = numbers.brain(record["brain"], agent.dna)
+    agent.target = numbers.brain(record["target"], agent.dna) if record.get("target") is not None else None  # else made afresh
     agent.trail = [(int(x), int(y)) for x, y in record["trail"]]
     agent.memories = [(numbers.senses(senses), numbers.action(int(choice)), float(target), float(weight))  # one of an action
                       for senses, choice, target, weight in record["memories"] if numbers.action(int(choice)) >= 0]  # no longer had is forgotten

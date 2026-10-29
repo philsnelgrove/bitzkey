@@ -230,6 +230,17 @@ LEARNING_RATE = 0.027  # at the highest intellect, before its boost
 LEARNING_BOOST = 1.0
 LEARNING_FLOOR = 0.25  # the share of LEARNING_RATE even the dullest learns at, intellect adding to it
 REPLAY_PER_INTELLECT = 2
+# Double Q-learning with a target brain: what an animal learns toward is what came of its choice and what its best choice
+# now is worth, that choice picked by its brain but valued by a copy of it, refreshed every TARGET_REFRESH turns of its
+# age, so that the brain's overestimates don't feed back into themselves; 0: its brain values it too. As the C++ version's.
+TARGET_REFRESH = 100
+
+
+def target_of(brain: Brain) -> Brain:
+    """A target brain: a copy of a brain's weights, without the traces it learns by, which it never needs."""
+    copy = brain.copy()
+    copy.traces = None
+    return copy
 PREDATOR_LEARNING = 1.0  # a predator's brain learns this many times as fast, from its own choices and replays;
 # an omnivore's gets half the bonus
 # Food that takes a kill is harder to learn than grass: a choice to hunt, attack or feast is learnt from
@@ -825,6 +836,7 @@ class Bitzkey:
     cooldown: int = 0
     last_action: str = "new"
     brain: Brain | None = None
+    target: Brain | None = None  # its target brain (see TARGET_REFRESH)
     generation: int = 0
     children: int = 0
     in_heat: bool = True  # in heat now, and so fertile: kept turn by turn (see Simulation.heat)
@@ -2156,6 +2168,8 @@ class Simulation:
         for index, (agent, *_) in enumerate(plans):
             if not idle[index]:
                 groups.setdefault((agent.brain.depth, agent.brain.width), []).append(index)
+                if TARGET_REFRESH > 0 and (agent.target is None or agent.age % TARGET_REFRESH == 0):  # its target brain due
+                    agent.target = target_of(agent.brain)
         batches = []
         values: list[list[float]] = [[0.0] * len(OUTPUTS) for _ in plans]
         for members in groups.values():
@@ -2163,6 +2177,15 @@ class Simulation:
             for row, valued in zip(members, batch.values(np.array([plans[index][1] for index in members])).tolist()):
                 values[row] = valued
             batches.append((batch, members))
+        # And what the target brains make of the same, for those with a lesson waiting: what their best choice is worth.
+        target_values: dict[int, list[float]] = {}
+        for members in groups.values():
+            rows = [index for index in members if TARGET_REFRESH > 0 and plans[index][0].last_senses is not None
+                    and plans[index][0].target is not None]
+            if rows:
+                targets = BrainBatch([plans[index][0].target for index in rows])
+                for row, valued in zip(rows, targets.values(np.array([plans[index][1] for index in rows])).tolist()):
+                    target_values[row] = valued
         comforts = [self._comfort(agent, situation) for agent, _, _, situation in plans]
         lessons: dict[int, tuple] = {}  # by plan: what came of its last choice, to learn from
         for index, ((agent, _, options, _), valued, comfort) in enumerate(zip(plans, values, comforts)):
@@ -2175,9 +2198,19 @@ class Simulation:
                 # no choice.
                 if ACTIONS[agent.last_choice] == "rest" and not agent.last_forced:
                     reward -= RESTING_UNEASE * plans[index][3].get("exposure", 0.0)
-                best_call = max(valued[call_output(call)] for call in (SILENT, *plans[index][3]["calls"]))
-                lessons[index] = (reward + self._discount(agent) * max(valued[option] for option in options), reward,
-                                  reward + self._discount(agent) * best_call)
+                # Its best choice now, by its brain, and what that is worth: by its target brain, where it has one
+                # (Double Q-learning), else by its brain.
+                worth = target_values.get(index, valued)
+                best = options[0]
+                for option in options:
+                    if valued[option] > valued[best]:
+                        best = option
+                best_call = call_output(SILENT)
+                for call in plans[index][3]["calls"]:
+                    if valued[call_output(call)] > valued[best_call]:
+                        best_call = call_output(call)
+                lessons[index] = (reward + self._discount(agent) * worth[best], reward,
+                                  reward + self._discount(agent) * worth[best_call])
                 if reward > 0:  # a lesson learnt from a choice that turned out well
                     self._experience(agent, "lesson")
         for batch, members in batches:
@@ -2638,6 +2671,7 @@ class Simulation:
         if agent.brain is not None and agent.last_senses is not None and cause not in SLOW_DEATHS:
             self._witness(agent, -DEATH_PENALTY)
         agent.brain = None
+        agent.target = None
         agent.memories = []
         agent.diary = []
         agent.womb, agent.due_turn = [], None  # the young it carried die with it
