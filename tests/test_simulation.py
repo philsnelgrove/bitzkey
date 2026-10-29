@@ -16,7 +16,8 @@ from tools.Simulation import EIGHT_TURN_DAYS
 
 def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, unless a test says so
     global _grown, _common, _grazers, _plenty
-    _grown = patch.multiple("tools.Simulation", FEEBLE_YOUTH=0.0, SMALL_HIDING=0.0, DEFAULT_YEAR_LENGTH=360, SLEEP=0, **EIGHT_TURN_DAYS)  # and 360-turn years, no sleeping, spans in eight-turn days
+    _grown = patch.multiple("tools.Simulation", FEEBLE_YOUTH=0.0, SMALL_HIDING=0.0, DEFAULT_YEAR_LENGTH=360, SLEEP=0, GRAZER_SPAWN_GROUP=5,
+                            **EIGHT_TURN_DAYS)  # and small grazer groups, so a test's world stays small  # and 360-turn years, no sleeping, spans in eight-turn days
     _grown.start()
     _common = patch("tools.Simulation.RARE_BREEDING_COST", 1.0)  # the few Bitzkeys of a test breed at the usual cost
     _common.start()
@@ -83,7 +84,7 @@ class SimulationTests(unittest.TestCase):
             self.assertGreaterEqual(len(simulation.agents), population - 5)
             for members in groups.values():
                 if members[0].species == "grazer":
-                    self.assertLessEqual(len(members), GRAZER_SPAWN_GROUP)
+                    self.assertLessEqual(len(members), GRAZER_SPAWN_GROUP + 2)  # or the rest, rather than leave a group too small
                     continue
                 if members[0].species == "plant":
                     continue  # plants may share a genome between groups
@@ -465,9 +466,10 @@ class SimulationTests(unittest.TestCase):
         from tools.Simulation import zone_temperature
         for seed in range(1, 4):
             simulation = Simulation(width=100, height=100, population=90, seed=seed)
-            for agent in simulation.agents:  # each within the spread of a centre at home
+            reach = SPAWN_SPREAD + simulation_module.BIRTH_REACH
+            for agent in simulation.agents:  # each within the spread of a centre at home, or BIRTH_REACH further where full
                 home = decode_climate(agent.dna)[0]
-                nearby = [zone_temperature(y, 100) for y in range(agent.y - SPAWN_SPREAD, agent.y + SPAWN_SPREAD + 1)]
+                nearby = [zone_temperature(y, 100) for y in range(agent.y - reach, agent.y + reach + 1)]
                 self.assertIn(min(home, 2), nearby, f"#{agent.identifier} at row {agent.y}")  # very cold homes take the arctic
         simulation = Simulation(width=100, height=100, population=0, seed=1)
         self.assertEqual(simulation._home_rows(HOT), list(range(40, 60)))
@@ -1500,7 +1502,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(len(tally.by_killer), DEADLIEST + 1)
         self.assertTrue(0 in tally.by_killer and 1 not in tally.by_killer and DEADLIEST + 4 in tally.by_killer)
         self.assertEqual(tally.killers, DEADLIEST + 5)  # still counted
-        with patch.multiple("tools.Simulation", CLIMATE_DAMAGE=0, STARVING_DAMAGE=0):  # a world that lasts, whatever its chance
+        with patch.multiple("tools.Simulation", CLIMATE_DAMAGE=0, STARVING_DAMAGE=0, BIOME_GROUPS=0):  # a world that lasts, small
             world = Simulation(width=20, height=20, population=40, seed=3)
             for _ in range(RECENT_DEATH_TURNS + 50):
                 world.advance()
@@ -1801,6 +1803,7 @@ class NewTraitTests(unittest.TestCase):
             self.simulation._take_turn()
         self.assertNotIn(grazer, self.simulation.agents)  # it decayed and was cleared away
 
+    @patch("tools.Simulation.BIOME_GROUPS", 0)  # the population alone: a world small enough to run quickly
     def test_no_body_is_left_without_a_recorded_death(self):
         # Every turn, and with rules that make moving, striking and seeding costly enough to starve.
         harsh = {"GO_EFFORT": 2.0, "STRIKE_EFFORT": 2.0, "SEED_COST": 100, "SEED_HUNGER": 100}

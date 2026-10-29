@@ -57,8 +57,8 @@ _TABLE: dict[str, list[tuple]] = {
         ("DAY_LENGTH", "Day length", "turns in a day; night covers half the map and moves round it once a day", 2, 100, 1),
         ("SLEEP", "Sleep", "1: an animal rests through its night (the dark if diurnal, the light if nocturnal) unless startled "
          "awake; 0: never forced to", 0, 1, 1),
-        ("BIOME_GROUPS", "Biome groups", "a world started with any Bitzkeys has this many more groups at home in every "
-         "biome, each stretch of land or sea in a climate zone; 0: none", 0, 10, 1),
+        ("BIOME_GROUPS", "Biome groups", "a world started with any Bitzkeys has this many groups of each species native to "
+         "every biome, each stretch of land or sea in a climate zone, on top of its population; 0: none", 0, 10, 1),
         ("BIOME_SIZE", "Biome size", "the fewest squares a stretch of land or sea in a climate zone needs to count as a biome",
          1, 1000, 5),
         ("SPAWN_AT_HOME", "Spawn at home", "1: starting and imported groups appear where their home temperature is usual; 0: anywhere", 0, 1, 1),

@@ -74,10 +74,10 @@ AMPHIBIOUS_FATIGUE = 2.0
 FULL_STAMINA = 100
 SPAWN_SPREAD = 2      # a group's members appear within this many cells of each other's centre
 # Biomes: each stretch of land or sea within one climate zone, joined square to square (east and west wrapping round),
-# of BIOME_SIZE squares or more. A world started with any Bitzkeys has BIOME_GROUPS more groups in every biome, on
-# top of its population, each at home there: the zone's usual temperature its home, and a terrain that suits it, the
-# first the surface's own (terrestrial on land, aquatic at sea) and the rest any that may live there.
-BIOME_GROUPS = 2
+# of BIOME_SIZE squares or more. A world started with any Bitzkeys has, on top of its population, BIOME_GROUPS groups of
+# each species in every biome, each native there: the zone's usual temperature its home, and the surface's own
+# terrain (terrestrial on land, aquatic at sea). As the C++ version's.
+BIOME_GROUPS = 1
 # Each death is kept whole, for the graph's tooltips, for this many turns; the death report counts every death since
 # the world began as it happens (see DeathTally), and the tally lets go of the killers gone, but the deadliest, every
 # KILLERS_LET_GO turns.
@@ -1336,10 +1336,9 @@ class Simulation:
         self._initial_grass = initial_grass  # what grows back each turn is a share of it
         self.grass_regrowth = initial_grass * GRASS_REGROWTH
         self._sow(initial_grass)
-        species, sizes = self._starting_groups(population)
-        homes = self._plant_homes(species)
+        species, sizes = self._starting_groups(population)  # animals: the plants start in the biomes
         for group, size in enumerate(sizes):
-            self._spawn_group(make_dna(species[group], self.random), size, native=True, rows=homes.get(group))
+            self._spawn_group(make_dna(species[group], self.random), size, native=True)
         if population > 0:
             self._spawn_biomes()
         for bitzkey in imported:
@@ -1627,10 +1626,12 @@ class Simulation:
         species, sizes = [], []
         remaining = population
         while remaining > 0:
-            kind = self.random.randrange(len(SPECIES))
+            kind = 1 + self.random.randrange(len(SPECIES) - 1)  # an animal: the plants start in the biomes alone
             size = remaining
             if SPECIES[kind] == "grazer":
                 size = min(max(1, GRAZER_SPAWN_GROUP), remaining)
+                if remaining - size < smallest:
+                    size = remaining  # rather than leave a group too small
             elif remaining > largest:
                 size = self.random.randint(smallest, min(largest, remaining - smallest))
             species.append(kind)
@@ -1647,25 +1648,6 @@ class Simulation:
             else:
                 zones.append([y])
         return zones
-
-    def _plant_homes(self, species: list[int]) -> dict[int, list[int]]:
-        """So that every zone starts with plants, the starting groups' plant groups take a zone each,
-        top to bottom, until every zone has one; if there are too few, the last animal groups become
-        plants, though one animal group is always kept. Returns the rows each such group's centre may
-        fall in, by group; the rest fall anywhere. `species` is changed in place."""
-        zones = self._zones()
-        plants = [group for group, kind in enumerate(species) if kind == 0]
-        animals = [group for group, kind in enumerate(species) if kind != 0]
-        while len(plants) < len(zones) and len(animals) > 1:
-            group = animals.pop()
-            species[group] = 0
-            plants.append(group)
-        lowest, highest = SPAWN_SPREAD, self.height - SPAWN_SPREAD - 1  # where a group's centre may be
-        homes = {}
-        for group, rows in zip(sorted(plants), zones):
-            centres = [y for y in rows if lowest <= y <= highest]
-            homes[group] = centres or [min(highest, max(lowest, rows[len(rows) // 2]))]
-        return homes
 
     def _spawn_group(self, dna: int, size: int, brain: Brain | None = None,
                      mind: Mapping[str, float] | None = None, native: bool = False,
@@ -1746,17 +1728,19 @@ class Simulation:
         return found
 
     def _spawn_biomes(self) -> None:
-        """BIOME_GROUPS starting groups at home in every biome."""
+        """In every biome, BIOME_GROUPS groups of each species, native to it: the surface's own terrain (terrestrial on
+        land, aquatic at sea) and the zone's usual temperature its home; grazers by GRAZER_SPAWN_GROUP, the rest
+        SPAWN_GROUP. As the C++ version's."""
         for biome in self.biomes():
             wet = self.sea(*biome[0])
             home = zone_temperature(biome[0][1], self.height)
-            fitting = ("aquatic", "avian", "amphibious") if wet else ("terrestrial", "avian", "amphibious")
-            for group in range(BIOME_GROUPS):
-                dna = make_dna(self.random.randrange(len(SPECIES)), self.random)
-                dna = dna & ~(0x3 << TEMPERATURE_SHIFT) | home << TEMPERATURE_SHIFT
-                # The first the surface's own; the rest any terrain that may live there.
-                dna = with_terrain(dna, fitting[0] if group == 0 else fitting[self.random.randrange(3)])
-                self._spawn_group(dna, self.random.randint(*SPAWN_GROUP), native=True, biome=biome)
+            for _ in range(BIOME_GROUPS):
+                for kind in (SPECIES.index(name) for name in ("plant", "omnivore", "predator", "grazer")):  # the large group last
+                    dna = make_dna(kind, self.random)
+                    dna = dna & ~(0x3 << TEMPERATURE_SHIFT) | home << TEMPERATURE_SHIFT
+                    dna = with_terrain(dna, "aquatic" if wet else "terrestrial")
+                    size = max(1, GRAZER_SPAWN_GROUP) if SPECIES[kind] == "grazer" else self.random.randint(*SPAWN_GROUP)
+                    self._spawn_group(dna, size, native=True, biome=biome)
 
     def _home_rows(self, home: int) -> list[int]:
         """The rows a group's centre may fall in whose usual temperature is `home`, or nearest it:

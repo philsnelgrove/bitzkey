@@ -2,6 +2,7 @@
 
 import random
 import unittest
+from unittest.mock import patch
 
 from tools.Brain import ACTIONS
 
@@ -96,10 +97,14 @@ class SeaTests(unittest.TestCase):
             for biome in simulation.biomes():
                 self.assertGreaterEqual(len(biome), BIOME_SIZE)
                 home, wet, squares = zone_temperature(biome[0][1], 60), simulation.sea(*biome[0]), set(biome)
-                at_home = sum((agent.x, agent.y) in squares and agent.climate[0] == home and agent.can_be(wet)
-                              for agent in simulation.agents)
-                self.assertGreaterEqual(at_home, BIOME_GROUPS)
+                own = "aquatic" if wet else "terrestrial"  # of each species: at home there, of the surface's own terrain
+                for species in ("plant", "grazer", "omnivore", "predator"):
+                    natives = sum((agent.x, agent.y) in squares and agent.species == species and agent.terrain == own
+                                  and (species == "plant" or agent.climate[0] == home) for agent in simulation.agents)
+                    self.assertGreaterEqual(natives, BIOME_GROUPS)
         self.assertEqual(Simulation(60, 60, 0, 7).agents, [])  # an empty world stays empty
+        with patch("tools.Simulation.BIOME_GROUPS", 0):  # the population alone: animals, the plants starting in the biomes
+            self.assertNotIn("plant", {agent.species for agent in Simulation(60, 60, 60, 7).agents})
 
     def test_the_sea_and_stamina_are_saved_with_the_world(self):
         simulation = seaside(6, 60)

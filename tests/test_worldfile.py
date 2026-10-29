@@ -6,6 +6,16 @@ from tools.Simulation import Simulation
 from tools.WorldFile import WORLD_MAGIC, world_bytes, world_from_bytes
 
 
+def setUpModule():  # small grazer groups, so a test's world stays small
+    global _small
+    _small = patch("tools.Simulation.GRAZER_SPAWN_GROUP", 5)
+    _small.start()
+
+
+def tearDownModule():
+    _small.stop()
+
+
 class WorldFileTests(unittest.TestCase):
     def tearDown(self):
         Rules.apply({})
