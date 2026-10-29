@@ -45,7 +45,7 @@ import numpy as np
 
 from tools import Rules
 from tools import Simulation as world
-from tools.Brain import ACTIONS, INPUT_SIZE, MAX_WIDTH, SENSES, Brain
+from tools.Brain import ACTIONS, INPUT_SIZE, MAX_WIDTH, SENSES, VALUE_SCALE, Brain
 from tools.Genome import GENOME_VERSION, TEMPERAMENT, convert_v3
 from tools.Insights import DeathTally
 from tools.Simulation import SPECIES, Bitzkey, Death, Simulation, brain_shape
@@ -115,6 +115,7 @@ class _Reader:
         # For a world saved before the latest actions were added (they are only ever added at the end): how many it saved.
         self.saved_actions = len(ACTIONS)
         self.uncentred = False  # saved before brains read their senses centred: each is made to, choosing as before
+        self.unscaled = False  # saved before brains held their values in hundredths: each is made to
 
     def whole(self, at: int, count: int) -> np.ndarray:
         if at < 0 or at + count > self.ints.size:
@@ -162,6 +163,8 @@ class _Reader:
             brain.traces.append((output_weights.copy(), output_biases.copy()))
         if self.uncentred:
             brain.centre_inputs()
+        if self.unscaled:
+            brain.scale_values()
         shape = brain_shape(dna)
         return brain if (brain.depth, brain.width) == shape else brain.resized(*shape)
 
@@ -288,7 +291,7 @@ def world_bytes(simulation: Simulation) -> bytes:
             run += 1
         sea.append(run)
     record = {
-        "format": WORLD_FORMAT, "genome_version": GENOME_VERSION, "senses": list(SENSES), "centred_senses": True, "actions": list(ACTIONS),
+        "format": WORLD_FORMAT, "genome_version": GENOME_VERSION, "senses": list(SENSES), "centred_senses": True, "value_scale": VALUE_SCALE, "actions": list(ACTIONS),
         "temperament": list(TEMPERAMENT),
         "settings": {"width": simulation.width, "height": simulation.height,
                      "population_cap": simulation.population_cap, "mind_mutation": simulation.mind_mutation,
@@ -363,6 +366,7 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
         raise ValueError("This world was saved by a version of Bitzkey whose brains sense or act differently.")
     numbers.saved_actions = len(saved_actions)
     numbers.uncentred = not record.get("centred_senses", False)
+    numbers.unscaled = "value_scale" not in record
     # Brains saved with other senses are read by name: a sense they lacked starts with no weight, and one no longer
     # sensed is let go.
     if record["senses"] != list(SENSES):

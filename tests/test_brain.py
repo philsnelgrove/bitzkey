@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from tools.Brain import (ACTIONS, read_senses, BASE_WIDTH, INPUT_SIZE, MAX_WIDTH, SENSES, Brain, choice_odds, depth_for, gene_senses,
+from tools.Brain import (ACTIONS, VALUE_SCALE, read_senses, BASE_WIDTH, INPUT_SIZE, MAX_WIDTH, SENSES, Brain, choice_odds, depth_for, gene_senses,
                          make_senses, width_for)
 from tools.Genome import BODY_TRAITS, TEMPERAMENT, encode_dna
 
@@ -70,7 +70,7 @@ class BrainTests(unittest.TestCase):
             traced.learn_traced(senses, 0, 1.0, 0.0001, 1.0, sharpness)
             fresh = brain.copy()
             fresh.learn_traced(senses, 0, 1.0, 0.0001, 1.0, sharpness)
-            decays.append(traced.traces[-1][1][0] - fresh.traces[-1][1][0])  # the bias trace: decay + 1, less 1
+            decays.append((traced.traces[-1][1][0] - fresh.traces[-1][1][0]) / VALUE_SCALE)  # the bias trace: decay + 1, less 1 (in hundredths)
         self.assertAlmostEqual(decays[0], TRACE_DECAY)
         self.assertAlmostEqual(decays[1], SMART_TRACE_DECAY)
 
@@ -188,7 +188,7 @@ class BrainTests(unittest.TestCase):
         with patch("tools.Brain.HEADING_RELUCTANCE", 0.0):
             eager = Brain.random(random.Random(7))
         for action, (mine, theirs) in zip(ACTIONS, zip(reluctant.output_biases, eager.output_biases), strict=True):
-            self.assertAlmostEqual(mine, theirs - (0.5 if action.startswith(("go_", "walk_")) else 0.0))
+            self.assertAlmostEqual(mine, theirs - (0.5 * VALUE_SCALE if action.startswith(("go_", "walk_")) else 0.0))  # held in hundredths
 
     def test_a_first_traced_lesson_is_an_ordinary_lesson(self):
         traced, plain = Brain.random(random.Random(7), 3), Brain.random(random.Random(7), 3)
@@ -223,7 +223,7 @@ class BrainTests(unittest.TestCase):
         self.assertEqual([float(child.layers[0][0][3][11]), float(child.layers[0][0][44][89]), float(child.layers[1][1][20]),
                           float(child.layers[2][0][5][7]), float(child.output_weights[23][44]), float(child.output_biases[3])],
                          [-0.15983579101927251, 0.092250751175896234, -0.097734976568545115, -0.097151955572367998,
-                          -0.011420547423109582, -0.019905365281007829])
+                          -0.00011420547423109583, -0.00019905365281007838])  # the output layer held in hundredths
         self.assertEqual(rng.random(), 0.20169522729508749)  # one draw of the world's for the child
 
     def test_a_childs_brain_is_its_parents_nudged_by_normal_mutations_of_the_mutations_size(self):
@@ -243,7 +243,7 @@ class BrainTests(unittest.TestCase):
         activation = senses  # as it read them before
         for weights, biases in brain.layers:
             activation = np.tanh(weights @ activation + biases)
-        before = brain.output_weights @ activation + brain.output_biases
+        before = (brain.output_weights @ activation + brain.output_biases) / VALUE_SCALE  # held in hundredths, given whole
         brain.centre_inputs()
         for mine, theirs in zip(brain.values(senses.tolist()), before, strict=True):
             self.assertAlmostEqual(mine, theirs, places=10)
@@ -311,7 +311,8 @@ class BrainTests(unittest.TestCase):
         loaded = Brain.from_record(record)
 
         self.assertTrue(all(row[SENSES.index("hunger")] == 0.0 for row in loaded.layers[0][0]))
-        self.assertEqual(loaded.output_biases.tolist(), [round(bias, 6) for bias in original.output_biases.tolist()])
+        # exported whole, rounded, and held in hundredths again
+        self.assertEqual(loaded.output_biases.tolist(), [round(bias / VALUE_SCALE, 6) * VALUE_SCALE for bias in original.output_biases.tolist()])
 
     def test_a_brain_saved_with_one_hidden_layer_loads_one_layer_deep(self):
         brain = Brain.random(random.Random(7))
@@ -355,3 +356,19 @@ class BrainTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ValueScaleTests(unittest.TestCase):
+    def test_a_brain_made_to_hold_its_values_in_hundredths_values_everything_as_before_and_exports_them_whole(self):
+        rng = random.Random(4)
+        brain = Brain.random(rng, 2, BASE_WIDTH)
+        senses = [rng.random() for _ in SENSES]
+        before = brain.values(senses)
+        brain.output_weights /= VALUE_SCALE  # as a brain saved before held them: whole
+        brain.output_biases /= VALUE_SCALE
+        brain.scale_values()
+        for mine, theirs in zip(brain.values(senses), before, strict=True):
+            self.assertAlmostEqual(mine, theirs, places=10)
+        for mine, theirs in zip(Brain.from_record(brain.to_record()).values(senses), before, strict=True):
+            self.assertAlmostEqual(mine, theirs, places=3)  # rounded for export
+        self.assertLess(abs(brain.output_biases[ACTIONS.index("eat")]), 0.01)  # held small

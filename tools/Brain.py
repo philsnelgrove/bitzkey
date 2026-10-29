@@ -89,6 +89,13 @@ _READ_SCALE = np.array([1.0 if name in SIGNED_SENSES else 2.0 for name in SENSES
 _READ_SHIFT = np.array([0.0 if name in SIGNED_SENSES else -1.0 for name in SENSES])
 
 
+# A brain holds its values in hundredths: what an action is worth over the turns it looks ahead runs to ten and more,
+# and its neurons, each between -1 and 1, would jam at their limits to make that much, the same whatever it senses.
+# Held small, the output layer makes them of neurons free to follow the senses. It gives and learns them whole. As the
+# C++ version's.
+VALUE_SCALE = 0.01
+
+
 def read_senses(inputs: np.ndarray) -> np.ndarray:
     """The senses (or rows of them) as a brain reads them."""
     return inputs * _READ_SCALE + _READ_SHIFT
@@ -293,8 +300,10 @@ class Brain:
             bound = math.sqrt(6 / (reads + width))
             layers.append(([[rng.uniform(-bound, bound) for _ in range(reads)] for _ in range(width)], [0.0] * width))
         spread = output_spread(width)
-        return cls(layers, [[rng.uniform(-spread, spread) for _ in range(width)] for _ in ACTIONS],
-                   [rng.uniform(-0.2, 0.2) - (HEADING_RELUCTANCE if action in HEADINGS else 0.0) for action in ACTIONS])
+        brain = cls(layers, [[rng.uniform(-spread, spread) for _ in range(width)] for _ in ACTIONS],
+                    [rng.uniform(-0.2, 0.2) - (HEADING_RELUCTANCE if action in HEADINGS else 0.0) for action in ACTIONS])
+        brain.scale_values()  # valuing as it would whole
+        return brain
 
     @classmethod
     def inherit(cls, first: Brain, second: Brain, rng: random.Random, depth: int = 1, width: int = BASE_WIDTH,
@@ -331,9 +340,10 @@ class Brain:
                                      _fitted(second.output_weights, outputs)),
                     np.where(from_first, first.output_biases, second.output_biases))
         if mutation:
-            for weights in ([weights for weights, _ in child.layers] + [child.output_weights]
-                            + [biases for _, biases in child.layers] + [child.output_biases]):
-                weights += mutation * np.array([stream.normal() for _ in range(weights.size)]).reshape(weights.shape)
+            # The output layer's as much as in whole values, held in hundredths.
+            for weights, size in ([(weights, mutation) for weights, _ in child.layers] + [(child.output_weights, mutation * VALUE_SCALE)]
+                                  + [(biases, mutation) for _, biases in child.layers] + [(child.output_biases, mutation * VALUE_SCALE)]):
+                weights += size * np.array([stream.normal() for _ in range(weights.size)]).reshape(weights.shape)
         return child
 
     def centre_inputs(self) -> None:
@@ -346,6 +356,13 @@ class Brain:
         for neuron in range(weights.shape[0]):
             for sense in np.flatnonzero(centred):
                 biases[neuron] += weights[neuron, sense]
+        self.traces = None
+
+    def scale_values(self) -> None:
+        """Made to hold its values in hundredths (VALUE_SCALE), from a brain that held them whole, valuing just as
+        before. What it was learning from lets go."""
+        self.output_weights *= VALUE_SCALE
+        self.output_biases *= VALUE_SCALE
         self.traces = None
 
     def resized(self, depth: int, width: int) -> Brain:
@@ -370,7 +387,7 @@ class Brain:
 
     def values(self, inputs: Sequence[float]) -> list[float]:
         """Return the estimated value of every action in this situation."""
-        return ((self.output_weights * self._activations(inputs)[-1]).sum(axis=1) + self.output_biases).tolist()
+        return (((self.output_weights * self._activations(inputs)[-1]).sum(axis=1) + self.output_biases) / VALUE_SCALE).tolist()
 
     def learn(self, inputs: Sequence[float], action: int, target: float, learning_rate: float) -> None:
         """Move one action's value toward a target, with the error clipped for stability, back
@@ -379,10 +396,11 @@ class Brain:
             return
         activations = self._activations(inputs)
         top = activations[-1]
-        value = float((self.output_weights[action] * top).sum() + self.output_biases[action])
+        value = float((self.output_weights[action] * top).sum() + self.output_biases[action]) / VALUE_SCALE
         error = max(-1.0, min(1.0, value - target))
         gradient = error * self.output_weights[action]
-        self.output_weights[action] -= learning_rate * error * top
+        output_step = learning_rate * error * VALUE_SCALE  # the output layer moves the whole value as it would
+        self.output_weights[action] -= output_step * top
         for index in range(self.depth - 1, -1, -1):
             weights, biases = self.layers[index]
             delta = gradient * (1 - activations[index + 1] * activations[index + 1])
@@ -390,7 +408,7 @@ class Brain:
                 gradient = (weights * delta[:, None]).sum(axis=0)
             biases -= learning_rate * delta
             weights -= learning_rate * np.outer(delta, activations[index])
-        self.output_biases[action] -= learning_rate * error
+        self.output_biases[action] -= output_step
 
     def learn_traced(self, inputs: Sequence[float], action: int, target: float, learning_rate: float,
                      discount: float, sharpness: float = 0.0, decay: float | None = None) -> None:
@@ -409,12 +427,12 @@ class Brain:
         *hidden, (output_weights, output_biases) = self.traces
         activations = self._activations(inputs)
         top = activations[-1]
-        value = float((self.output_weights[action] * top).sum() + self.output_biases[action])
+        value = float((self.output_weights[action] * top).sum() + self.output_biases[action]) / VALUE_SCALE
         error = max(-1.0, min(1.0, value - target))
         output_weights *= decay
-        output_weights[action] += top
+        output_weights[action] += VALUE_SCALE * top  # gathering in hundredths, so it moves the whole value as it would
         output_biases *= decay
-        output_biases[action] += 1.0
+        output_biases[action] += VALUE_SCALE
         gradient = self.output_weights[action]
         for index in range(self.depth - 1, -1, -1):
             weights, _ = self.layers[index]
@@ -457,8 +475,9 @@ class Brain:
             "actions": list(ACTIONS),
             "layers": [{"weights": [rounded(row) for row in weights], "biases": rounded(biases)}
                        for weights, biases in self.layers],
-            "output_weights": [rounded(weights) for weights in self.output_weights],
-            "output_biases": rounded(self.output_biases),
+            # The output layer exported whole, as it values (it is held in hundredths), lest rounding lose it.
+            "output_weights": [rounded(weights / VALUE_SCALE) for weights in self.output_weights],
+            "output_biases": rounded(self.output_biases / VALUE_SCALE),
         }
 
     @classmethod
@@ -506,6 +525,7 @@ class Brain:
         )
         if not record.get("centred_senses"):  # exported before brains read their senses centred
             brain.centre_inputs()
+        brain.scale_values()  # its output layer exported whole, held in hundredths
         return brain
 
     def __eq__(self, other: object) -> bool:
@@ -542,7 +562,7 @@ class BrainBatch:
     def values(self, inputs: np.ndarray) -> np.ndarray:
         """Every brain's value of every action, a row a brain, for its row of senses."""
         top = self._activations(inputs)[-1]
-        return np.matmul(self.output_weights, top[:, :, None])[:, :, 0] + self.output_biases
+        return (np.matmul(self.output_weights, top[:, :, None])[:, :, 0] + self.output_biases) / VALUE_SCALE
 
     def _backward(self, activations: list[np.ndarray], gradient: np.ndarray):
         """Each hidden layer's delta, from the top down, for a gradient at the top, worked out from the weights as
@@ -558,13 +578,15 @@ class BrainBatch:
         activations = self._activations(inputs)
         top = activations[-1]
         chosen = self.output_weights[self.rows, actions]
-        errors = np.clip(np.einsum("bi,bi->b", chosen, top) + self.output_biases[self.rows, actions] - targets, -1.0, 1.0)
+        errors = np.clip((np.einsum("bi,bi->b", chosen, top) + self.output_biases[self.rows, actions]) / VALUE_SCALE - targets,
+                         -1.0, 1.0)
         gradient = errors[:, None] * chosen
-        self.output_weights[self.rows, actions] -= (rates * errors)[:, None] * top
+        output_steps = rates * errors * VALUE_SCALE  # the output layer moves the whole value as it would
+        self.output_weights[self.rows, actions] -= output_steps[:, None] * top
         for index, delta in self._backward(activations, gradient):
             self.biases[index] -= rates[:, None] * delta
             self.weights[index] -= rates[:, None, None] * delta[:, :, None] * activations[index][:, None, :]
-        self.output_biases[self.rows, actions] -= rates * errors
+        self.output_biases[self.rows, actions] -= output_steps
 
     def learn_traced(self, inputs: np.ndarray, actions: np.ndarray, targets: np.ndarray, rates: np.ndarray,
                      decays: np.ndarray, taking: np.ndarray) -> None:
@@ -588,11 +610,12 @@ class BrainBatch:
         activations = self._activations(inputs)
         top = activations[-1]
         chosen = self.output_weights[self.rows, actions]
-        errors = np.clip(np.einsum("bi,bi->b", chosen, top) + self.output_biases[self.rows, actions] - targets, -1.0, 1.0)
+        errors = np.clip((np.einsum("bi,bi->b", chosen, top) + self.output_biases[self.rows, actions]) / VALUE_SCALE - targets,
+                         -1.0, 1.0)
         output_weights *= decay[:, None, None]
-        output_weights[self.rows, actions] += adding[:, None] * top
+        output_weights[self.rows, actions] += (adding * VALUE_SCALE)[:, None] * top  # gathering in hundredths
         output_biases *= decay[:, None]
-        output_biases[self.rows, actions] += adding
+        output_biases[self.rows, actions] += adding * VALUE_SCALE
         for index, delta in self._backward(activations, chosen.copy()):
             weight_traces[index] *= decay[:, None, None]
             weight_traces[index] += adding[:, None, None] * delta[:, :, None] * activations[index][:, None, :]
