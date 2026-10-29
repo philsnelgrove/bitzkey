@@ -10,6 +10,7 @@ from collections.abc import Sequence
 import numpy as np
 import pygame as pg
 
+import display.Inspector as Inspector
 import display.Look as Look
 
 from config.Globals import Config
@@ -1059,9 +1060,16 @@ class BitzkeyApp:
         self._draw_world()
         self._draw_view_buttons()
         self._draw_exemplars()
+        self._word_popup = self._trait_popup = None
         self._draw_sidebar()
         self._draw_footer()
         self._draw_square()
+        agent = self.simulation.find_agent(self.selected_id) if self.selected_id is not None else None
+        if agent is not None and not self.show_census and not self.dialog and not self.report:  # a word or a trait, over the rest
+            if self._word_popup is not None:
+                Inspector.draw_word_popup(self.screen, agent, self._word_popup, pg.mouse.get_pos())
+            elif self._trait_popup is not None:
+                Inspector.draw_trait_popup(self.screen, agent, self._trait_popup, True, pg.mouse.get_pos())
         self._draw_exemplar_menu()  # over everything but the graph and dialogs
         self.language_menu.draw_list(self.screen)
         if self.show_census:
@@ -1333,6 +1341,9 @@ class BitzkeyApp:
 
         draw_details(self.screen, agent, x, lambda offset: UI(332 + offset), width,
                      here=self.simulation.temperature(agent.y))
+        mouse = pg.mouse.get_pos()  # the mouse over a colour chit or a trait: a popup of it, drawn last
+        self._word_popup = next((part for part, spot in enumerate(Inspector.LAST_SWATCHES) if spot and spot.collidepoint(mouse)), None)
+        self._trait_popup = next((spot for rect, spot in Inspector.LAST_TRAITS if rect.collidepoint(mouse)), None)
         self._text("C  copy as JSON      A  export      K  catalog", (x, UI(719)), (116, 139, 124), self.small)
         chosen = agent.identifier in self.export_list
         half = (width - UI(8)) // 2

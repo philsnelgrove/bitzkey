@@ -450,7 +450,7 @@ class ColourGraph:
         self._text(screen, heading, (panel.left + UI(24), panel.top + UI(18)), (229, 239, 220),
                    UI.fitting(self.bold, heading, layout["sort"].left - panel.left - UI(36)))
         closing = "new world" if self.ended else "close"
-        self._text(screen, "Every Bitzkey alive over time, in its own colour.    TAB  ring / dot / social    C  copy    "
+        self._text(screen, "Every Bitzkey alive over time, in its own colour.    TAB  ring / dot / social / species    C  copy    "
                    f"S  save    K  catalog    G or ESC  {closing}",
                    (panel.left + UI(24), panel.top + UI(54)), (144, 170, 151), self.small)
         for name, text in (("clear", "CLEAR"), ("copy", "COPY"), ("save", "SAVE")):
