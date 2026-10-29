@@ -45,6 +45,10 @@ def about() -> str:
 INSIGHTS_TOP = 290  # the insights panel's top, in design pixels: just below the population counts
 MAP_ZOOM_STEP = 1.25  # each wheel notch zooms the map in (or out) by this much
 MAP_ZOOM_MAX = 12.0   # the closest the map zooms in, times its whole-map size
+# The Bitzkeys' calls are heard zoomed in this close or closer, quietly at first, louder closer still, and the larger
+# the caller, the louder: CALL_VOLUME the loudest, from the largest, zoomed in all the way. As the C++ version's.
+CALL_HEARING_ZOOM = 4.0
+CALL_VOLUME = 0.35
 DRAG_THRESHOLD = 5    # design pixels a press must move on the map to draw a marquee rather than click
 RETICLE_PULSE_MS = 2000  # a selected Bitzkey's sights swell to twice their size and back this often, paused or not
 TRAIL_OPACITY = 0.5   # how faintly a Bitzkey shows on each cell it passed through this turn
@@ -171,6 +175,7 @@ class BitzkeyApp:
         # The map's zoom (1 shows it all) and the cell at the middle of the view, while zoomed in;
         # while it is dragged, where the drag began and the middle then.
         self.map_zoom = 1.0
+        self.calls_heard_turn = -1  # the turn whose calls were last heard from the map
         # The globe: shown rather than the map, turned about its axis and tipped, and zoomed; H hides the rest.
         self.globe = False
         self.blind = False  # neither map nor globe drawn, to spare the time
@@ -1150,6 +1155,9 @@ class BitzkeyApp:
                 draw_bitzkey(self.screen, agent.dna, point, self._dot_radius(agent, largest, smallest), alive=agent.alive,
                              opacity=TRAIL_OPACITY)
         drawn = hidden = 0
+        heard = []  # this turn's calls, from those drawn, once
+        hearing = self.map_zoom >= CALL_HEARING_ZOOM and self.simulation.turn != self.calls_heard_turn
+        nearness = (self.map_zoom - CALL_HEARING_ZOOM) / (MAP_ZOOM_MAX - CALL_HEARING_ZOOM)
         for agent in self.simulation.agents:
             point = (round(board.left + (agent.x + 0.5) * cell_width),
                      round(board.top + (agent.y + 0.5) * cell_height))
@@ -1159,6 +1167,10 @@ class BitzkeyApp:
                 hidden += self._too_small(agent)
                 continue
             drawn += 1
+            if (hearing and agent.alive and agent.call != world.SILENT and agent.call_turn == self.simulation.turn
+                    and view.collidepoint(point)):
+                loudness = CALL_VOLUME * (0.3 + 0.7 * nearness) * (0.25 + 0.75 * agent.physique("size"))
+                heard.append((agent.call, loudness, (point[0] - view.centerx) / (view.width / 2)))
             radius = self._dot_radius(agent, largest, smallest)
             self._draw_bitzkey(agent, point, radius, self._corpse_opacity(agent))
             if agent.identifier == self.selected_id or (agent.alive and agent.identifier in self.graph.selection):
@@ -1184,6 +1196,9 @@ class BitzkeyApp:
         if not drawn and hidden:
             self._say_too_far(view)
         self.screen.set_clip(None)
+        if hearing:
+            self.calls_heard_turn = self.simulation.turn
+            Sound.calls_heard(heard)
 
     def _draw_exemplars(self) -> None:
         """Five cards a side, evenly spaced, each the living animal that stands out in its way; a

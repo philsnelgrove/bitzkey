@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 import tools.Simulation as simulation_module
 
-from tools.Brain import ACTIONS, SENSES, Brain
+from tools.Brain import ACTIONS, ALERT_CALL, SENSES, Brain
 from tools.Exchange import Imported
 from tools.Genome import decode_body, encode_dna
 from tools.Simulation import (Death, DAY_LENGTH, FULL_STAMINA, SPAWN_SPREAD, DEATH_PENALTY, PARENT_GRIEF, PARENT_JOY, BREED_COOLDOWN, PREGNANT_REMORSE, ATTACK_JOY, FEAST_JOY, FRESH_KILL_MEALS, KILL_MEAL, KILL_MEAL_FOR_SIZE, BIRTH_REACH, PLANT_GESTATION, Bitzkey, gestation, CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, PLANT_MEAL, PLANT_MEAL_FOR_SIZE, SEED_OFFSETS,
@@ -521,7 +521,7 @@ class SimulationTests(unittest.TestCase):
             self.assertEqual(grazer.last_comfort, 0.4)
             grazer.last_wellbeing = self.simulation._wellbeing(grazer)
             self.simulation._think(grazer)  # just as comfortable: no success or failure in that
-        (agent, target, outcome), = learn.call_args.args[1]  # the batch's one lesson: (agent, target, outcome)
+        (agent, target, outcome, _), = learn.call_args.args[1]  # the batch's one lesson: (agent, target, outcome, call target)
         self.assertIs(agent, grazer)
         values = grazer.brain.values(self.simulation._sense(grazer)[0])
         best = max(values[option] for option in self.simulation._sense(grazer)[1])
@@ -1613,9 +1613,11 @@ class NewTraitTests(unittest.TestCase):
         pack_mate = self.simulation._add_agent(hunter.dna, 4, 6)
         self.simulation._index_cells()
         options, situation = self.simulation._sense(lookout)[1:]
-        self.assertIn(ACTIONS.index("alert"), options)
-        self.simulation._act(lookout, "alert", situation)
-        self.assertEqual((lookout.last_action, herd_mate.alarm), ("alerted", hunter.identifier))
+        self.assertNotIn("alert", ACTIONS)  # a call now, made alongside an action
+        self.assertIn(ALERT_CALL, situation["calls"])
+        lookout.call, lookout.call_turn = ALERT_CALL, self.simulation.turn
+        self.simulation._act(lookout, "rest", situation)
+        self.assertEqual((lookout.last_action, herd_mate.alarm), ("rested", hunter.identifier))
         self.assertIn(ACTIONS.index("flee"), self.simulation._sense(herd_mate)[1])  # alarmed, it may flee from afar
 
         kill = self.simulation._add_agent(encode_dna("grazer"), 0, 9)
@@ -1623,8 +1625,9 @@ class NewTraitTests(unittest.TestCase):
         self.simulation._die(kill, "killed")
         self.simulation._index_cells()
         options, situation = self.simulation._sense(hunter)[1:]
-        self.assertIn(ACTIONS.index("alert"), options)
-        self.simulation._act(hunter, "alert", situation)
+        self.assertIn(ALERT_CALL, situation["calls"])
+        hunter.call, hunter.call_turn = ALERT_CALL, self.simulation.turn
+        self.simulation._act(hunter, "rest", situation)
         self.assertEqual(pack_mate.kill_alert, (0, 9))
         senses, options, situation = self.simulation._sense(pack_mate)
         self.assertIn(ACTIONS.index("feast"), options)
@@ -3221,3 +3224,44 @@ class FeedingTests(unittest.TestCase):
                                    simulation_module.FEEDING_JOY * (0.5 + parent.feeling("empathy")) * 0.9)
             self.assertEqual(parent.last_action, "fed its young")
             self.assertNotIn(ACTIONS.index("feed_young"), world._sense(parent)[1])  # none hungry now
+
+
+class CallTests(unittest.TestCase):
+    """Calls made alongside actions, and heard by those within their reach, as the C++ version's tests."""
+
+    def test_a_call_is_heard_within_its_reach_the_louder_the_nearer_with_its_way_and_kind(self):
+        from tools.Brain import FIRST_CALL
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        small = world._add_agent(encode_dna("grazer", size=0), 10, 10)
+        large = world._add_agent(encode_dna("grazer", size=7), 30, 30)
+        self.assertLess(simulation_module.call_reach(small), simulation_module.call_reach(large))
+        near = world._add_agent(encode_dna("predator"), 11, 10)  # any kind hears
+        far = world._add_agent(encode_dna("grazer"), 10 + simulation_module.call_reach(small) + 1, 10)
+        world._index_cells()
+        small.call, small.call_turn = FIRST_CALL + 2, world.turn - 1  # called last turn
+        heard = dict(zip(SENSES, world._sense(near)[0]))
+        self.assertAlmostEqual(heard["heard_call_3"], 1 - 1 / (simulation_module.call_reach(small) + 1))
+        self.assertEqual((heard["heard_call_1"], heard["heard_call_3_south"], heard["heard_call_3_kin"]), (0.0, 0.0, 0.0))
+        self.assertLess(heard["heard_call_3_east"], 0)  # the caller lies to its west
+        self.assertEqual(dict(zip(SENSES, world._sense(far)[0]))["heard_call_3"], 0.0)  # beyond its reach
+        herd_mate = world._add_agent(encode_dna("grazer"), 10, 11)
+        stranger = world._add_agent(encode_dna("predator"), 10, 9)  # the same call, from either side
+        world._index_cells()
+        stranger.call, stranger.call_turn = FIRST_CALL + 2, world.turn - 1
+        heard = dict(zip(SENSES, world._sense(herd_mate)[0]))
+        self.assertEqual(heard["heard_call_3_kin"], 1.0)  # its own kind, nearest
+        self.assertLess(heard["heard_call_3_south"], 0)  # and from the north
+        small.call_turn = stranger.call_turn = world.turn - 2  # an old call is no longer heard
+        self.assertEqual(dict(zip(SENSES, world._sense(near)[0]))["heard_call_3"], 0.0)
+
+    def test_every_animal_that_thinks_calls_or_keeps_silent_and_a_world_keeps_its_calls(self):
+        from tools.Brain import CALLS, FIRST_CALL, SILENT
+        from tools.WorldFile import world_bytes, world_from_bytes
+        world = Simulation(width=30, height=30, population=12, seed=4)
+        for _ in range(20):
+            world._take_turn()
+        self.assertTrue(all(SILENT <= agent.call < len(CALLS) for agent in world.living))
+        caller = world._add_agent(encode_dna("grazer"), 5, 5)
+        caller.call, caller.call_turn, caller.last_call = FIRST_CALL + 4, 7, FIRST_CALL + 4
+        again = world_from_bytes(world_bytes(world)).find_agent(caller.identifier)
+        self.assertEqual((again.call, again.call_turn, again.last_call), (FIRST_CALL + 4, 7, FIRST_CALL + 4))

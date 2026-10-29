@@ -45,7 +45,7 @@ import numpy as np
 
 from tools import Rules
 from tools import Simulation as world
-from tools.Brain import ACTIONS, INPUT_SIZE, MAX_WIDTH, SENSES, VALUE_SCALE, Brain
+from tools.Brain import ACTIONS, INPUT_SIZE, MAX_WIDTH, OUTPUTS, SENSES, VALUE_SCALE, Brain
 from tools.Genome import GENOME_VERSION, TEMPERAMENT, convert_v3
 from tools.Insights import DeathTally
 from tools.Simulation import SPECIES, Bitzkey, Death, Simulation, brain_shape
@@ -112,8 +112,11 @@ class _Reader:
         # For a world saved with other senses: how many it saved, and where each sensed now lies among them, or -1.
         self.saved_inputs = INPUT_SIZE
         self.sense_from: list[int] | None = None
-        # For a world saved before the latest actions were added (they are only ever added at the end): how many it saved.
-        self.saved_actions = len(ACTIONS)
+        # For a world saved with other outputs (actions, calls): how many it saved, where each output now lies among
+        # them, or -1, and what each action it saved is now, or -1 for one no longer an action.
+        self.saved_outputs = len(OUTPUTS)
+        self.output_from: list[int] | None = None
+        self.action_now: list[int] | None = None
         self.uncentred = False  # saved before brains read their senses centred: each is made to, choosing as before
         self.unscaled = False  # saved before brains held their values in hundredths: each is made to
 
@@ -148,13 +151,17 @@ class _Reader:
                 biases = self.take(at, width)
                 at += width
                 layers.append((weights, biases))
-            saved = self.saved_actions  # an action added since starts unweighted
-            output_weights = np.zeros((len(ACTIONS), width))
-            output_weights[:saved] = self.take(at, saved * width).reshape(saved, width)
+            # An output added since starts unweighted, and one no longer had is let go.
+            saved = self.saved_outputs
+            saved_weights = self.take(at, saved * width).reshape(saved, width)
             at += saved * width
-            output_biases = np.zeros(len(ACTIONS))
-            output_biases[:saved] = self.take(at, saved)
+            saved_biases = self.take(at, saved)
             at += saved
+            output_from = self.output_from if self.output_from is not None else range(len(OUTPUTS))
+            output_weights, output_biases = np.zeros((len(OUTPUTS), width)), np.zeros(len(OUTPUTS))
+            for output, source in enumerate(output_from):
+                if source >= 0:
+                    output_weights[output], output_biases[output] = saved_weights[source], saved_biases[source]
             sets.append((layers, output_weights, output_biases))
         brain = Brain(*sets[0])
         if len(sets) > 1:
@@ -167,6 +174,12 @@ class _Reader:
             brain.scale_values()
         shape = brain_shape(dna)
         return brain if (brain.depth, brain.width) == shape else brain.resized(*shape)
+
+    def action(self, saved: int) -> int:
+        """What an action it saved is now, or -1 for one no longer an action."""
+        if self.action_now is None:
+            return saved
+        return self.action_now[saved] if 0 <= saved < len(self.action_now) else -1
 
     def senses(self, at: int | None) -> list[float] | None:
         return None if at is None else self._as_senses(self.take(int(at), self.saved_inputs)).tolist()
@@ -216,6 +229,7 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "last_choice": int(agent.last_choice), "last_forced": bool(agent.last_forced), "last_panicked": bool(agent.last_panicked), "last_wellbeing": float(agent.last_wellbeing),
         "reward": float(agent.reward), "last_comfort": float(agent.last_comfort),
         "odds": {action: float(chance) for action, chance in agent.odds.items()},
+        "call": agent.call, "call_turn": agent.call_turn, "last_call": agent.last_call,
     }
 
 
@@ -242,15 +256,21 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
     agent.last_action = str(record["last_action"])
     agent.brain = numbers.brain(record["brain"], agent.dna)
     agent.trail = [(int(x), int(y)) for x, y in record["trail"]]
-    agent.memories = [(numbers.senses(senses), int(choice), float(target), float(weight))
-                      for senses, choice, target, weight in record["memories"]]
+    agent.memories = [(numbers.senses(senses), numbers.action(int(choice)), float(target), float(weight))  # one of an action
+                      for senses, choice, target, weight in record["memories"] if numbers.action(int(choice)) >= 0]  # no longer had is forgotten
     agent.womb = [(genome(young[0]), _mind_from(young[1]), numbers.brain(young[2], genome(young[0])), float(young[3]),
                    int(young[4]), int(young[5]) if len(young) > 5 else -1)
                   for young in record["womb"]]
     agent.mother = int(record.get("mother", -1))  # unknown in a world saved before parents were kept
     agent.father = int(record.get("father", -1))
     agent.last_senses = numbers.senses(record["last_senses"])
-    agent.odds = {str(action): float(chance) for action, chance in record["odds"].items()}
+    agent.last_choice = numbers.action(agent.last_choice)
+    if agent.last_choice < 0:  # an action no longer had: nothing to learn from it
+        agent.last_choice, agent.last_senses = ACTIONS.index("rest"), None
+    agent.call = int(record.get("call", 0))  # silent, in a world saved before calls
+    agent.call_turn = int(record.get("call_turn", -1))
+    agent.last_call = int(record.get("last_call", -1))
+    agent.odds = {str(action): float(chance) for action, chance in record["odds"].items() if action in ACTIONS}
     return agent
 
 
@@ -292,7 +312,7 @@ def world_bytes(simulation: Simulation) -> bytes:
             run += 1
         sea.append(run)
     record = {
-        "format": WORLD_FORMAT, "genome_version": GENOME_VERSION, "senses": list(SENSES), "centred_senses": True, "value_scale": VALUE_SCALE, "actions": list(ACTIONS),
+        "format": WORLD_FORMAT, "genome_version": GENOME_VERSION, "senses": list(SENSES), "centred_senses": True, "value_scale": VALUE_SCALE, "actions": list(OUTPUTS),
         "temperament": list(TEMPERAMENT),
         "settings": {"width": simulation.width, "height": simulation.height,
                      "population_cap": simulation.population_cap, "mind_mutation": simulation.mind_mutation,
@@ -361,11 +381,14 @@ def world_from_bytes(data: bytes) -> Simulation:
 def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
     if record.get("format") != format_:
         raise ValueError(f"This world file is format {record.get('format')}; this version reads format {WORLD_FORMAT}.")
-    # Actions are only ever added at the end, so a world saved before one was added holds the first of them.
-    saved_actions = record["actions"]
-    if saved_actions != list(ACTIONS)[:len(saved_actions)] or record["temperament"] != list(TEMPERAMENT):
+    if not isinstance(record["actions"], list) or record["temperament"] != list(TEMPERAMENT):
         raise ValueError("This world was saved by a version of Bitzkey whose brains sense or act differently.")
-    numbers.saved_actions = len(saved_actions)
+    # Brains' outputs saved otherwise are read by name, as their senses are; so are the actions chosen.
+    if record["actions"] != list(OUTPUTS):
+        saved_at = {name: index for index, name in enumerate(record["actions"])}
+        numbers.saved_outputs = len(record["actions"])
+        numbers.output_from = [saved_at.get(name, -1) for name in OUTPUTS]
+        numbers.action_now = [ACTIONS.index(name) if name in ACTIONS else -1 for name in record["actions"]]
     numbers.uncentred = not record.get("centred_senses", False)
     numbers.unscaled = "value_scale" not in record
     # Brains saved with other senses are read by name: a sense they lacked starts with no weight, and one no longer
@@ -407,6 +430,8 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
     simulation.insights.offered = {}
     simulation.insights.chosen = {}
     for species, trait, level, action, offered, chosen in record["insights"]:
+        if action not in ACTIONS:  # no longer an action
+            continue
         key = (species, trait, level, action)
         if offered:
             simulation.insights.offered[key] = offered

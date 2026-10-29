@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from tools.Brain import (ACTIONS, VALUE_SCALE, read_senses, BASE_WIDTH, INPUT_SIZE, MAX_WIDTH, SENSES, Brain, choice_odds, depth_for, gene_senses,
+from tools.Brain import (ACTIONS, OUTPUTS, VALUE_SCALE, read_senses, BASE_WIDTH, INPUT_SIZE, MAX_WIDTH, SENSES, Brain, choice_odds, depth_for, gene_senses,
                          make_senses, width_for)
 from tools.Genome import BODY_TRAITS, TEMPERAMENT, encode_dna
 
@@ -80,7 +80,7 @@ class BrainTests(unittest.TestCase):
         second = Brain.random(random.Random(7))
 
         self.assertEqual(first.values(senses), second.values(senses))
-        self.assertEqual(len(first.values(senses)), len(ACTIONS))
+        self.assertEqual(len(first.values(senses)), len(OUTPUTS))
 
     def test_learning_moves_value_toward_target(self):
         brain = Brain.random(random.Random(7))
@@ -106,7 +106,7 @@ class BrainTests(unittest.TestCase):
         self.assertEqual((BASE_WIDTH, MAX_WIDTH), (38, 53))
         brain = Brain.random(random.Random(7), 4, 53)
         self.assertEqual((brain.depth, brain.width, brain.layers[0][0].shape, brain.layers[3][0].shape, brain.output_weights.shape),
-                         (4, 53, (53, INPUT_SIZE), (53, 53), (len(ACTIONS), 53)))
+                         (4, 53, (53, INPUT_SIZE), (53, 53), (len(OUTPUTS), 53)))
         self.assertEqual((Brain.random(random.Random(7)).depth, Brain.random(random.Random(7)).width), (1, BASE_WIDTH))
 
     def test_there_is_an_input_for_each_action_and_each_ring_dot_and_social_trait(self):
@@ -162,7 +162,7 @@ class BrainTests(unittest.TestCase):
             self.assertFalse(child.layers[0][0][neuron].any() or child.layers[1][0][neuron].any())
         self.assertFalse(child.output_weights[:, 48:].any())
         narrower = Brain.inherit(wide, wide, rng, 1, 38, mutation=0)
-        self.assertEqual(narrower.output_weights.shape, (len(ACTIONS), 38))
+        self.assertEqual(narrower.output_weights.shape, (len(OUTPUTS), 38))
         self.assertTrue(np.array_equal(narrower.layers[0][0], wide.layers[0][0][:38]))
 
     def test_resizing_deepens_with_pass_through_layers_or_drops_the_last(self):
@@ -187,8 +187,8 @@ class BrainTests(unittest.TestCase):
         reluctant = Brain.random(random.Random(7))
         with patch("tools.Brain.HEADING_RELUCTANCE", 0.0):
             eager = Brain.random(random.Random(7))
-        for action, (mine, theirs) in zip(ACTIONS, zip(reluctant.output_biases, eager.output_biases), strict=True):
-            self.assertAlmostEqual(mine, theirs - (0.5 * VALUE_SCALE if action.startswith(("go_", "walk_")) else 0.0))  # held in hundredths
+        for output, (mine, theirs) in zip(OUTPUTS, zip(reluctant.output_biases, eager.output_biases), strict=True):
+            self.assertAlmostEqual(mine, theirs - (0.5 * VALUE_SCALE if output.startswith(("go_", "walk_")) else 0.0))  # held in hundredths
 
     def test_a_first_traced_lesson_is_an_ordinary_lesson(self):
         traced, plain = Brain.random(random.Random(7), 3), Brain.random(random.Random(7), 3)
@@ -212,8 +212,8 @@ class BrainTests(unittest.TestCase):
         # share; with one, it shares the blame.
         self.assertLess(changes[1], changes[0] - 0.1)
 
-    def test_there_are_105_senses(self):
-        self.assertEqual(INPUT_SIZE, 105)
+    def test_there_are_125_senses(self):
+        self.assertEqual(INPUT_SIZE, 125)
 
     def test_a_childs_brain_is_made_exactly_as_the_cpp_version_makes_it_from_the_same_seed(self):
         rng = random.Random(7)
@@ -222,9 +222,9 @@ class BrainTests(unittest.TestCase):
         # As bitzkey_cpp's Brain::inherit makes them, to the last bit.
         self.assertEqual([float(child.layers[0][0][3][11]), float(child.layers[0][0][44][89]), float(child.layers[1][1][20]),
                           float(child.layers[2][0][5][7]), float(child.output_weights[23][44]), float(child.output_biases[3])],
-                         [-0.15983579101927251, 0.092250751175896234, -0.097734976568545115, -0.097151955572367998,
-                          -0.00011420547423109583, -0.00019905365281007838])  # the output layer held in hundredths
-        self.assertEqual(rng.random(), 0.20169522729508749)  # one draw of the world's for the child
+                         [-0.23658292914570006, 0.11340388464196856, -0.011246071065037158, -0.14567023957432845,
+                          -0.0001361504241306272, -0.0011229592658597712])  # the output layer held in hundredths
+        self.assertEqual(rng.random(), 0.38711809408769293)  # one draw of the world's for the child
 
     def test_a_childs_brain_is_its_parents_nudged_by_normal_mutations_of_the_mutations_size(self):
         rng = random.Random(5)
@@ -255,8 +255,8 @@ class BrainTests(unittest.TestCase):
         narrow = 12
         layers = [(rng.uniform(-0.5, 0.5, (narrow, INPUT_SIZE)), rng.uniform(-0.2, 0.2, narrow)),
                   (rng.uniform(-0.5, 0.5, (narrow, narrow)), rng.uniform(-0.2, 0.2, narrow))]
-        output_weights, output_biases = rng.uniform(-0.3, 0.3, (len(ACTIONS), narrow)), rng.uniform(-0.2, 0.2, len(ACTIONS))
-        record = {"senses": list(SENSES), "centred_senses": True, "actions": list(ACTIONS),
+        output_weights, output_biases = rng.uniform(-0.3, 0.3, (len(OUTPUTS), narrow)), rng.uniform(-0.2, 0.2, len(OUTPUTS))
+        record = {"senses": list(SENSES), "centred_senses": True, "actions": list(OUTPUTS),
                   "layers": [{"weights": weights.tolist(), "biases": biases.tolist()} for weights, biases in layers],
                   "output_weights": output_weights.tolist(), "output_biases": output_biases.tolist()}
         loaded = Brain.from_record(record)

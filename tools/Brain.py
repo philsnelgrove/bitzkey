@@ -13,7 +13,21 @@ from tools.Genome import (BODY_TRAITS, SPECIES, TEMPERAMENT, TEMPERATURES, TRAIT
 
 ACTIONS = ("eat", "forage", "browse", "uproot", "scavenge", "feast", "rest", "court", "breed", "hunt", "attack", "defend",
            "flee", "herd", "go_north", "go_south", "go_east", "go_west", "walk_north", "walk_south", "walk_east",
-           "walk_west", "alert", "revisit", "feed_young")
+           "walk_west", "revisit", "feed_young")
+# Alongside its action, every animal that thinks keeps silent or calls: the alert, to its herd, of a hunter (grazers)
+# or a fresh kill (hunters) it sees, or one of five calls that mean only what its kind come to make of them, heard by
+# all close enough. A brain values them as it values its actions, after them, and learns them the same way.
+CALLS = ("silent", "alert", "call_1", "call_2", "call_3", "call_4", "call_5")
+SILENT, ALERT_CALL, FIRST_CALL = 0, 1, 2  # the five calls from FIRST_CALL on
+CALL_COUNT = 5
+OUTPUTS = ACTIONS + CALLS  # a brain's outputs by name: its actions, then silence and the calls
+
+
+def call_output(call: int) -> int:
+    """The output valuing a call (or silence)."""
+    return len(ACTIONS) + call
+
+
 SENSES = (
     "hunger",          # 0..1
     "health",          # 0..1
@@ -72,6 +86,10 @@ SENSES = (
     # An infant's nearest living parent within its sight: 1 beside it, falling to 0 at the edge of its sight, and 0 with
     # none in sight or grown; and which way it lies, -1 to 1, west to east and north to south:
     "parent_closeness", "parent_east", "parent_south",
+    # The calls it heard since it last chose, each of the five as the loudest who made it made it: how loud, 1 from
+    # beside it, falling to 0 at the call's reach (the larger the caller, the further it carries); which way it lay, -1
+    # to 1, west to east and north to south; and whether it was of its own species, 1 or 0. All 0 for one not heard.
+    *(f"heard_call_{call}{part}" for call in range(1, 6) for part in ("", "_east", "_south", "_kin")),
 ) + TEMPERAMENT + (    # then its current temperament, mind and social traits, each 0..7 scaled to 0..1
     *(f"inborn_{trait}" for trait in TEMPERAMENT),        # its dot's and social background's traits, as born, 0..1
     *BODY_TRAITS,                                         # its ring's traits, 0..1 (species 0 plant to 1 predator)
@@ -84,7 +102,8 @@ INPUT_SIZE = len(SENSES)
 # both ways (senses never below 0 push all its weights the same way, lesson after lesson, until the neuron jams at its
 # limit, the same whatever it senses, and learns no more); those already running -1..1 read as they are. As the C++
 # version's read_sense.
-SIGNED_SENSES = frozenset(("latitude", "warmth", "warmth_north", "warmth_south", "home_direction", "parent_east", "parent_south"))
+SIGNED_SENSES = frozenset(("latitude", "warmth", "warmth_north", "warmth_south", "home_direction", "parent_east", "parent_south",
+                           *(f"heard_call_{call}_{way}" for call in range(1, 6) for way in ("east", "south"))))
 _READ_SCALE = np.array([1.0 if name in SIGNED_SENSES else 2.0 for name in SENSES])
 _READ_SHIFT = np.array([0.0 if name in SIGNED_SENSES else -1.0 for name in SENSES])
 
@@ -111,6 +130,7 @@ SMART_TRACE_DECAY = 0.95  # lambda at the highest intellect: the clever trace cr
 # A new brain values setting off in a direction this much below its other actions, so an untaught
 # brain doesn't march straight away from its range, its herd and its food before it has learned where to go.
 HEADING_RELUCTANCE = 0.5
+CALL_RELUCTANCE = 0.5  # and values each call this much below silence, so an untaught world isn't all calling at once
 HEADINGS = ("go_north", "go_south", "go_east", "go_west", "walk_north", "walk_south", "walk_east", "walk_west")
 RECORD_DIGITS = 6  # decimal places kept when a brain is exported
 
@@ -301,8 +321,9 @@ class Brain:
             bound = math.sqrt(6 / (reads + width))
             layers.append(([[rng.uniform(-bound, bound) for _ in range(reads)] for _ in range(width)], [0.0] * width))
         spread = output_spread(width)
-        brain = cls(layers, [[rng.uniform(-spread, spread) for _ in range(width)] for _ in ACTIONS],
-                    [rng.uniform(-0.2, 0.2) - (HEADING_RELUCTANCE if action in HEADINGS else 0.0) for action in ACTIONS])
+        brain = cls(layers, [[rng.uniform(-spread, spread) for _ in range(width)] for _ in OUTPUTS],
+                    [rng.uniform(-0.2, 0.2) - (HEADING_RELUCTANCE if output in HEADINGS else 0.0) for output in OUTPUTS])
+        brain.output_biases[call_output(ALERT_CALL):] -= CALL_RELUCTANCE
         brain.scale_values()  # valuing as it would whole
         return brain
 
@@ -335,8 +356,8 @@ class Brain:
                 layers.append((_fitted(donors[0].layers[index][0], shape), _fitted(donors[0].layers[index][1], (width,))))
             else:
                 layers.append(_identity_layer(width))
-        from_first = np.array([stream.random() < 0.5 for _ in ACTIONS])
-        outputs = (len(ACTIONS), width)
+        from_first = np.array([stream.random() < 0.5 for _ in OUTPUTS])
+        outputs = (len(OUTPUTS), width)
         child = cls(layers, np.where(from_first[:, None], _fitted(first.output_weights, outputs),
                                      _fitted(second.output_weights, outputs)),
                     np.where(from_first, first.output_biases, second.output_biases))
@@ -372,7 +393,7 @@ class Brain:
         layers = [(_fitted(weights, (width, INPUT_SIZE if index == 0 else width)), _fitted(biases, (width,)))
                   for index, (weights, biases) in enumerate(self.layers[:depth])]
         layers += [_identity_layer(width) for _ in range(depth - len(layers))]
-        return Brain(layers, _fitted(self.output_weights, (len(ACTIONS), width)), self.output_biases)
+        return Brain(layers, _fitted(self.output_weights, (len(OUTPUTS), width)), self.output_biases)
 
     def _activations(self, inputs: Sequence[float]) -> list[np.ndarray]:
         """The senses, then each hidden layer's output."""
@@ -387,7 +408,7 @@ class Brain:
         return activations
 
     def values(self, inputs: Sequence[float]) -> list[float]:
-        """Return the estimated value of every action in this situation."""
+        """Return the estimated value of every output, its actions' then its calls', in this situation."""
         return (((self.output_weights * self._activations(inputs)[-1]).sum(axis=1) + self.output_biases) / VALUE_SCALE).tolist()
 
     def learn(self, inputs: Sequence[float], action: int, target: float, learning_rate: float) -> None:
@@ -473,7 +494,7 @@ class Brain:
         return {
             "senses": list(SENSES),
             "centred_senses": True,
-            "actions": list(ACTIONS),
+            "actions": list(OUTPUTS),  # its outputs: actions, then calls
             "layers": [{"weights": [rounded(row) for row in weights], "biases": rounded(biases)}
                        for weights, biases in self.layers],
             # The output layer exported whole, as it values (it is held in hundredths), lest rounding lose it.
@@ -521,8 +542,8 @@ class Brain:
                     if index == 0 else weights, biases) for index, (weights, biases) in enumerate(layers)]
         brain = cls(
             matched,
-            [output_weights[action_at[name]] if name in action_at else [0.0] * width for name in ACTIONS],
-            [output_biases[action_at[name]] if name in action_at else 0.0 for name in ACTIONS],
+            [output_weights[action_at[name]] if name in action_at else [0.0] * width for name in OUTPUTS],
+            [output_biases[action_at[name]] if name in action_at else 0.0 for name in OUTPUTS],
         )
         if not record.get("centred_senses"):  # exported before brains read their senses centred
             brain.centre_inputs()

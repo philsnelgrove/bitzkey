@@ -556,8 +556,10 @@ neural network, and that brain chooses everything it does. Each turn it senses:
 - its current temperament, mind and social traits
 - its own genome: each of its dot's and social background's traits as born, each
   of its ring's traits (species among them) and its climate genes
+- the calls it heard last turn (see Calls below): for each of the five, how loud
+  the loudest caller was, which way it lay, and whether it was of its own species
 
-That is 91 senses in all. Its brain has a hidden layer for each point of its
+That is 125 senses in all. Its brain has a hidden layer for each point of its
 inborn intellect, at least one and up to four, each of 38 neurons; beyond four,
 each point of intellect adds five neurons to every layer instead. So the dullest
 think with one layer of 38 neurons, and the brightest with four layers of 53.
@@ -583,12 +585,25 @@ world it can double the time each turn spends learning.
 
 It then picks one of the actions open to it: eat, forage, browse, uproot,
 scavenge, feast, rest, court, breed, hunt, attack, defend, flee, herd, go north,
-go south, go east, go west, walk north, walk south, walk east, walk west, alert or
-revisit. Revisiting heads back toward where it last fed, while it remembers where
-that was (see memory, under Genome). Alerting tells its herd within its sight: a grazer that sees a hunter raises the alarm, so its
-herd-mates may flee that hunter from up to six cells away; a predator that sees a
+go south, go east, go west, walk north, walk south, walk east, walk west, revisit
+or feed its young. Revisiting heads back toward where it last fed, while it remembers where
+that was (see memory, under Genome).
+
+Calls: alongside its action, every animal awake keeps silent or calls, by a second
+choice its brain makes as it makes the first, valuing each as it values its actions
+and learning from what came of the turn the same way. One asleep, spent or frozen with
+fear keeps silent. It may alert its herd, when it has news: a grazer that sees a hunter raises the alarm, so its
+herd-mates within its sight may flee that hunter from up to six cells away; a predator that sees a
 fresh kill points its pack to it, so they may come to feast though they don't see it themselves.
-Alerting pleases it a little (Alert joy), but only when a herd-mate was near enough to take it in. Two instincts sit on top of what a brain learns: a
+Alerting pleases it a little (Alert joy), but only when a herd-mate was near enough to take it in.
+Or it may make one of five calls that mean nothing to begin with: only what its kind
+come to make of them. A call is heard the turn after by every animal within its reach, of
+any species, so a hunter may learn to follow its prey's calls: Call reach steps times a
+half and the caller's size (2 to 6 by default), louder the nearer. Every call costs its caller a
+little hunger (Call cost, 0.2), so silence has its worth. A new brain values each call a
+little below silence, so a young world isn't all calling at once. Zoomed in four times or
+closer, the map plays each call's own sound, quietly, louder the closer it is zoomed and
+the larger the caller, from where it called across the view. Two instincts sit on top of what a brain learns: a
 predator's bloodlust makes a fresh kill in sight hard to pass by (Bloodlust), and an animal with a
 carrion trait above the middle craves carrion it sees, the more the higher the trait (Carrion craving). It
 isn't told which actions are open; it picks among them by the values its brain

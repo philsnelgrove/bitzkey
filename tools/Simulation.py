@@ -19,7 +19,8 @@ from pathlib import Path
 import numpy as np
 
 import tools.Brain as brain_rules  # its rules, as they now stand
-from tools.Brain import ACTIONS, SENSES, Brain, BrainBatch, choice_odds, depth_for, gene_senses, make_senses, width_for
+from tools.Brain import (ACTIONS, ALERT_CALL, CALLS, FIRST_CALL, OUTPUTS, SENSES, SILENT, Brain, BrainBatch, call_output, choice_odds,
+                         depth_for, gene_senses, make_senses, width_for)
 from tools.Genome import (GENOME, SPECIES, TEMPERAMENT, TRAIT_MAX, body_word, color_from_word, cross, decode_nocturnal, dot_difference,
                           inherit_mind,
                           ring_difference, social_difference, social_word, BODY_MUTATION_CHANCE, COLD_TOLERANCE,
@@ -311,6 +312,11 @@ CARRION_AVERSION = 1.0  # how much less a carrion-eater values hunting and attac
 CARRION_COWARDICE = 1.0  # a carrion-eater's least chance of breaking when struck, at the highest carrion trait, likewise
 ALERT_JOY = 0.1        # pleasure of alerting its herd: to a hunter, for a grazer; to a fresh kill, for a hunter
 ALARM_REACH = 6        # an alarmed animal knows where the hunter is within this many steps
+# Calls (Brain.py): one carries this many steps times a half and its caller's size (a share of its range), at least
+# one, and costs its caller this much hunger, as any call does, the alert among them.
+CALL_REACH = 4
+CALL_COST = 0.2
+MAX_CALL_REACH = 20  # the most Call reach may be
 SIGHT_PER_TRAIT = 3  # each step of the sight trait lets an animal see this many cells further
 PREDATOR_SIGHT = 3  # predators see prey this many cells further than they otherwise see, up to MAX_PREDATOR_SIGHT
 MAX_PREDATOR_SIGHT = 3
@@ -711,6 +717,11 @@ def predator_dna(dna: int) -> int:
     return (dna & ~(0x7 << shift)) | (((trait & 0x4) | 0x3) << shift)
 
 
+def call_reach(caller: Bitzkey) -> int:
+    """How many steps its calls carry (Call reach)."""
+    return min(MAX_CALL_REACH, max(1, round(CALL_REACH * (0.5 + caller.physique("size")))))
+
+
 def gestation(size: int) -> int:
     """Turns an animal of this body size carries its young."""
     shortest, longest = GESTATION
@@ -775,6 +786,9 @@ class Bitzkey:
     own_rivalry: float = 0.0  # the same, counting only its own species: what wears down its reluctance
     alarm: int | None = None  # what struck a herd-mate close by since it last acted, or a herd-mate alerted it to
     kill_alert: tuple[int, int] | None = None  # where a pack-mate alerted it to a fresh kill since it last acted
+    call: int = SILENT  # what it called alongside its last action (Brain.py's CALLS), heard the turn after
+    call_turn: int = -1  # the turn it called it
+    last_call: int = -1  # its last choice of call, to learn from with its action; -1 for none of its own
     seen_success: float = 0.0  # a herd-mate's success it saw, fading turn by turn
     seen_failure: float = 0.0  # a herd-mate's failure it saw, the same
     weathered: float = 0.0  # turns endured out of its temperature, one regained each turn back in it; the weather harms it once past its grace
@@ -1316,6 +1330,30 @@ class Simulation:
     def night(self, x: int) -> bool:
         """Whether a column lies in the night now: half the map, moving west a whole turn round each day."""
         return (x - self.night_start()) % self.width < self.width // 2
+
+    def _heard(self, agent: Bitzkey) -> dict[str, float]:
+        """The calls made about it last turn, by any kind, each as its loudest caller made it, as the C++ version."""
+        heard: dict[str, float] = {}
+        loudest = [0.0] * (len(CALLS) - FIRST_CALL)
+        furthest = min(MAX_CALL_REACH, math.ceil(CALL_REACH * 1.5))  # the largest caller's
+        for other in self._nearby(agent, furthest):
+            if other.call < FIRST_CALL or other.call_turn != self.turn - 1:
+                continue
+            reach = call_reach(other)
+            away = abs(other.x - agent.x) + abs(other.y - agent.y)
+            if away > reach:
+                continue
+            loudness = 1 - away / (reach + 1)
+            if loudness <= loudest[other.call - FIRST_CALL]:
+                continue
+            loudest[other.call - FIRST_CALL] = loudness
+            name = f"heard_call_{other.call - FIRST_CALL + 1}"
+            east = (other.x - agent.x + self.width // 2) % self.width - self.width // 2
+            heard[name] = loudness
+            heard[f"{name}_east"] = max(-1.0, min(1.0, east / reach))
+            heard[f"{name}_south"] = max(-1.0, min(1.0, (other.y - agent.y) / reach))
+            heard[f"{name}_kin"] = float(other.species == agent.species)
+        return heard
 
     def _parent_senses(self, agent: Bitzkey, sight: int) -> dict[str, float]:
         """An infant's nearest living parent within its sight: how close, and which way it lies, as the C++ version."""
@@ -1906,7 +1944,7 @@ class Simulation:
             if not idle[index]:
                 groups.setdefault((agent.brain.depth, agent.brain.width), []).append(index)
         batches = []
-        values: list[list[float]] = [[0.0] * len(ACTIONS) for _ in plans]
+        values: list[list[float]] = [[0.0] * len(OUTPUTS) for _ in plans]
         for members in groups.values():
             batch = BrainBatch([plans[index][0].brain for index in members])
             for row, valued in zip(members, batch.values(np.array([plans[index][1] for index in members])).tolist()):
@@ -1924,13 +1962,16 @@ class Simulation:
                 # no choice.
                 if ACTIONS[agent.last_choice] == "rest" and not agent.last_forced:
                     reward -= RESTING_UNEASE * plans[index][3].get("exposure", 0.0)
-                lessons[index] = (reward + self._discount(agent) * max(valued[option] for option in options), reward)
+                best_call = max(valued[call_output(call)] for call in (SILENT, *plans[index][3]["calls"]))
+                lessons[index] = (reward + self._discount(agent) * max(valued[option] for option in options), reward,
+                                  reward + self._discount(agent) * best_call)
                 if reward > 0:  # a lesson learnt from a choice that turned out well
                     self._experience(agent, "lesson")
         for batch, members in batches:
             self._learn_batch(batch, [(plans[index][0], *lessons[index]) if index in lessons else None for index in members])
         actions = []
-        for (agent, senses, options, situation), valued, comfort in zip(plans, values, comforts):
+        for index, ((agent, senses, options, situation), valued, comfort) in enumerate(zip(plans, values, comforts)):
+            calls_valued = valued
             if self._primal_fear(agent, situation["hunter"]):
                 # Overcome: it panics, fleeing the hunter, or freezes where it stands, whatever its brain wants.
                 if self.random.random() < PRIMAL_FREEZE * (1 - agent.intelligence):
@@ -1956,6 +1997,7 @@ class Simulation:
             roll = self.random.random()
             explore = self.random.random()
             restless = self.random.random()
+            call_roll = self.random.random()
             # In peril, with a hunter or threat near, struck, or starving, it heeds its brain alone: curiosity pales.
             peril = bool(situation["hunter"] or situation["threats"] or situation["assailant"] or agent.hunger >= 100)
             curiosity = agent.feeling("curiosity")
@@ -1978,6 +2020,16 @@ class Simulation:
             if not situation.get("panic") and not situation.get("frozen"):  # a panicked flight, or freezing, was no choice
                 self.insights.record(agent.species, agent.profile, (ACTIONS[option] for option in options), action)
             agent.odds = {ACTIONS[option]: chance for option, chance in odds.items()}
+            # And what it calls as it does it: by its brain alone, one asleep, spent or frozen with fear keeping silent.
+            agent.call, agent.last_call = SILENT, -1
+            if not idle[index] and not situation.get("frozen"):
+                for output, chance in choice_odds(calls_valued, [call_output(call) for call in situation["calls"]]).items():
+                    call_roll -= chance
+                    agent.call = output - len(ACTIONS)
+                    if call_roll < 0:
+                        break
+                agent.last_call = agent.call
+                agent.call_turn = self.turn
             agent.last_senses = senses
             agent.last_choice = choice
             agent.last_forced = len(options) == 1
@@ -2116,8 +2168,6 @@ class Simulation:
                 alert_to = seen_hunter
             elif agent.species in ("omnivore", "predator") and seen_kill is not None:
                 alert_to = seen_kill
-        if alert_to is not None:
-            available.add("alert")
         fed_at = self._remembered(agent, agent.food_memory)
         if fed_at and agent.food_memory[:2] != (agent.x, agent.y):
             available.add("revisit")  # back to where it last fed, while it remembers
@@ -2180,17 +2230,19 @@ class Simulation:
             stamina=agent.stamina / FULL_STAMINA,
             night=float(self.night(agent.x)),
             **self._parent_senses(agent, sight),
+            **self._heard(agent),
             **{trait: agent.feeling(trait) for trait in TEMPERAMENT},
             **agent.genes,
         )
         situation = {"mate": mate, "nurseries": nurseries, "young_near": young, "young": own_young, "prey": target, "threat": threat,
-                     "threats": len(threats), "quarry": quarry, "hunter": hunter, "suitor": suitor,
+                     "threats": len(threats), "quarry": quarry, "hunter": hunter, "suitor": suitor, "suitor_at": suitor and (suitor.x, suitor.y),
                      "grass": grass, "grass_here": grass_here, "carrion": carrion, "kill": kill, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
                      "others": others, "defend_target": defend_target, "for_herd": assailant is None,
                      "herd": herd, "herd_near": herd_near, "herd_middle": herd_middle,
                      "exposure": min(2, discomfort) / 2 * agent.exposure_share(here), "uprootable": uprootable,
                      "home_distance": home_distance * agent.exposure_share(here),
-                     "alert_to": alert_to, "revisit": agent.food_memory and agent.food_memory[:2]}
+                     "alert_to": alert_to, "revisit": agent.food_memory and agent.food_memory[:2],
+                     "calls": [SILENT, *([ALERT_CALL] if alert_to is not None else []), *range(FIRST_CALL, len(CALLS))]}
         return senses, [ACTIONS.index(action) for action in ACTIONS if action in available], situation
 
     def _wellbeing(self, agent: Bitzkey) -> float:
@@ -2264,18 +2316,22 @@ class Simulation:
             del agent.memories[:-count]
 
     def _learn_batch(self, batch: BrainBatch, lessons: list[tuple | None]) -> None:
-        """_learn, with replays, for every brain of a batch at once, each (agent, target, outcome) or None for a brain
-        with nothing to learn this turn; then the weights go back to the brains."""
+        """_learn, with replays, for every brain of a batch at once, each (agent, target, outcome, call target) or None
+        for a brain with nothing to learn this turn; then the weights go back to the brains. Last, each learns from its
+        call, if it chose one, as from an action untraced: what came of the turn, and the best call open now."""
         size = len(lessons)
         senses = np.zeros((size, len(SENSES)))
         actions, targets = np.zeros(size, dtype=int), np.zeros(size)
         rates, decays, taking = np.zeros(size), np.zeros(size), np.zeros(size, dtype=bool)
         replays: list[list[tuple]] = [[] for _ in range(size)]
+        calls: list[tuple | None] = [None] * size
         for row, lesson in enumerate(lessons):
             if lesson is None:
                 continue
-            agent, target, outcome = lesson
+            agent, target, outcome, call_target = lesson
             rate = self._learning_rate(agent)
+            if agent.last_call >= 0:
+                calls[row] = (agent.last_senses, call_output(agent.last_call), call_target, rate)
             weight = lesson_weight(agent.last_choice, outcome)
             senses[row], actions[row], targets[row] = agent.last_senses, agent.last_choice, target
             rates[row] = rate * weight
@@ -2294,6 +2350,12 @@ class Simulation:
             for row, replayed in enumerate(replays):
                 if turn < len(replayed):
                     senses[row], actions[row], targets[row], rates[row] = replayed[turn]
+            batch.learn(senses, actions, targets, rates)
+        if any(call is not None for call in calls):
+            senses, rates = np.zeros((size, len(SENSES))), np.zeros(size)
+            for row, call in enumerate(calls):
+                if call is not None:
+                    senses[row], actions[row], targets[row], rates[row] = call
             batch.learn(senses, actions, targets, rates)
         batch.write_back()
 
@@ -2357,7 +2419,11 @@ class Simulation:
     # Actions
 
     def _act(self, agent: Bitzkey, action: str, situation: dict) -> None:
-        """Act, remember where it fed, and tire (see ACTIVE_SHARE)."""
+        """Call, act, remember where it fed, and tire (see ACTIVE_SHARE)."""
+        if agent.call != SILENT and agent.call_turn == self.turn:  # its call, as it sets about its action
+            agent.hunger = min(100.0, agent.hunger + CALL_COST)
+            if agent.call == ALERT_CALL and situation["alert_to"] is not None:
+                self._alert(agent, situation["alert_to"])
         passed = len(agent.trail)
         self._do(agent, action, situation)
         if agent.last_action in FED:
@@ -2409,10 +2475,14 @@ class Simulation:
             agent.heal(0.015)
             agent.last_action = "rested"
         elif action == "court":
+            # Toward where it saw its suitor; the suitor itself is looked at only if it was seen within sight (the mating
+            # call reaches further), as one further off can't come within reach this turn. As the C++ version.
             suitor = situation["suitor"]
-            self._move_toward(agent, suitor.x, suitor.y)
+            seen = situation.get("suitor_at") or (suitor.x, suitor.y)
+            near = abs(seen[0] - agent.x) + abs(seen[1] - agent.y) <= MAX_SIGHT
+            self._move_toward(agent, *seen)
             agent.last_action = "courted"
-            if (suitor.alive and abs(suitor.x - agent.x) + abs(suitor.y - agent.y) <= MATE_REACH
+            if (near and suitor.alive and abs(suitor.x - agent.x) + abs(suitor.y - agent.y) <= MATE_REACH
                     and self._may_breed(agent, suitor)):
                 agent.reward += mating_joy(agent, COURT_JOY)  # courted into reach, to breed
         elif action == "breed":
@@ -2447,8 +2517,6 @@ class Simulation:
         elif action == "herd":
             self._move_toward(agent, *situation["herd_middle"])
             agent.last_action = "herded"
-        elif action == "alert":
-            self._alert(agent, situation["alert_to"])
         elif action == "revisit":
             self._move_toward(agent, *situation["revisit"])
             agent.last_action = "revisited"
@@ -2536,7 +2604,6 @@ class Simulation:
                     other.kill_alert = (about.x, about.y)
         if heeded:  # a pleasure only when a herd-mate took it in
             agent.reward += ALERT_JOY
-        agent.last_action = "alerted"
 
     def _scavenge(self, agent: Bitzkey, corpse: Bitzkey) -> None:
         """Go to the carrion and, once alongside, eat a portion, its share of the meat left; a

@@ -690,7 +690,7 @@ class ExplorationTests(unittest.TestCase):
                 return len(made)
         steady, curious, unmoved = choices(0, 1.0), choices(7, 1.0), choices(7, 0.0)
         self.assertGreater(curious, steady + 2)  # it tries what its brain wouldn't
-        self.assertLessEqual(unmoved, steady + 1)
+        self.assertLessEqual(unmoved, steady + 2)  # what it learns may differ, curious or not, but it tries no more at random
 
     def test_an_animal_whose_brain_chooses_to_rest_is_restless_instead_unless_in_peril(self):
         def rests(restless, starving):
@@ -738,6 +738,8 @@ class CalendarAndReportTests(unittest.TestCase):
         simulation = world(turn=240)
         parent = simulation._add_agent(encode_dna("grazer"), 20, 30)
         parent.mind["empathy"] = 7  # its instinct at its strongest
+        parent.brain = parent.brain.copy()  # valuing feeding below its other options, whatever the world drew
+        parent.brain.output_biases[ACTIONS.index("feed_young")] -= 2 * VALUE_SCALE
 
         def feeding(instinct):
             with patch("tools.Simulation.PARENTAL_INSTINCT", instinct):
