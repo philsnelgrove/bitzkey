@@ -38,6 +38,7 @@ GRASS_REGROWTH = 0.032  # share of the starting grass that grows back each turn
 MAX_POPULATION = 20000  # the most Bitzkeys spawned at the start; a world's population cap is a setting
 CROWDING_LIMIT = 10    # litters shrink as crowding nears this; at it, an animal doesn't breed; 0: no limit
 SPAWN_GROUP = (3, 5)  # Bitzkeys spawn in groups of this many sharing one genome
+GRAZER_SPAWN_GROUP = 50  # a new world's grazers spawn in groups this large, so the hunters' prey outnumber them
 MAX_IMPORTED = 120  # imported Bitzkeys, each spawning a group of its own
 MAX_GRID = 1000  # the widest and tallest a world can be, in cells
 # The sea: a new world's share of the map under it, in percent, and how broad its land and sea are, as a share of the
@@ -1335,8 +1336,7 @@ class Simulation:
         self._initial_grass = initial_grass  # what grows back each turn is a share of it
         self.grass_regrowth = initial_grass * GRASS_REGROWTH
         self._sow(initial_grass)
-        sizes = self._group_sizes(population)
-        species = [self.random.randrange(len(SPECIES)) for _ in sizes]
+        species, sizes = self._starting_groups(population)
         homes = self._plant_homes(species)
         for group, size in enumerate(sizes):
             self._spawn_group(make_dna(species[group], self.random), size, native=True, rows=homes.get(group))
@@ -1619,19 +1619,24 @@ class Simulation:
         self._grass_rows = [y for y, growth in enumerate(self._growth) if growth > 0]
         self._grass_reach = list(accumulate(self._growth[y] for y in self._grass_rows))
 
-    def _group_sizes(self, population: int) -> list[int]:
-        """Random group sizes adding up to the population, never leaving a group too small.
-        Only a population below the smallest group size spawns as one smaller group."""
+    def _starting_groups(self, population: int) -> tuple[list[int], list[int]]:
+        """Each group's species at random, then its size: GRAZER_SPAWN_GROUP for grazers, so that the hunters' prey
+        outnumber them from the start, else SPAWN_GROUP; never more than the population left, nor leaving a group too
+        small. As the C++ version's."""
         smallest, largest = SPAWN_GROUP
-        sizes = []
+        species, sizes = [], []
         remaining = population
-        while remaining > largest:
-            size = self.random.randint(smallest, min(largest, remaining - smallest))
+        while remaining > 0:
+            kind = self.random.randrange(len(SPECIES))
+            size = remaining
+            if SPECIES[kind] == "grazer":
+                size = min(max(1, GRAZER_SPAWN_GROUP), remaining)
+            elif remaining > largest:
+                size = self.random.randint(smallest, min(largest, remaining - smallest))
+            species.append(kind)
             sizes.append(size)
             remaining -= size
-        if remaining:
-            sizes.append(remaining)
-        return sizes
+        return species, sizes
 
     def _zones(self) -> list[list[int]]:
         """The climate zones from top to bottom, each the rows it covers outside the winters."""

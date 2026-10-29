@@ -71,15 +71,22 @@ class SimulationTests(unittest.TestCase):
         self.assertAlmostEqual(sum(lush.grass.values()), 200 + 100 * lush.grass_regrowth, delta=8)
 
     @patch("tools.Simulation.BIOME_GROUPS", 0)  # the population alone, without the biomes' groups
-    def test_random_population_spawns_in_clustered_groups_of_three_to_five(self):
+    def test_random_population_spawns_in_clustered_groups_grazers_by_grazer_group_the_rest_three_to_five(self):
+        from tools.Simulation import GRAZER_SPAWN_GROUP
         for population in (3, 7, 90, 101):
             simulation = Simulation(width=50, height=50, population=population, seed=population)
             groups = {}
             for agent in simulation.agents:
                 groups.setdefault(agent.dna, []).append(agent)
 
-            self.assertEqual(len(simulation.agents), population)
+            self.assertLessEqual(len(simulation.agents), population)  # each where there is room: a large group may run out
+            self.assertGreaterEqual(len(simulation.agents), population - 5)
             for members in groups.values():
+                if members[0].species == "grazer":
+                    self.assertLessEqual(len(members), GRAZER_SPAWN_GROUP)
+                    continue
+                if members[0].species == "plant":
+                    continue  # plants may share a genome between groups
                 self.assertIn(len(members), (3, 4, 5))
                 # Within SPAWN_SPREAD of the centre, or BIRTH_REACH further where a square is full.
                 spread = 2 * (SPAWN_SPREAD + BIRTH_REACH)

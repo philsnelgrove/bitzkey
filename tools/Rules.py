@@ -266,6 +266,7 @@ _TABLE: dict[str, list[tuple]] = {
         ("MATING_CALL", "Mating call", "how much more a predator ready to breed values breeding, or else courting a mate it sees", 0.0, 5.0, 0.05),
         ("MATING_CALL_RANGE", "Mating call range", "times its sight a predator ready to breed seeks a mate, when it sees none", 0.0, 3.0, 0.25),
         ("OMNIVORE_MATING_CALL", "Mating call, omnivores", "how much more an omnivore ready to breed values breeding, or else courting", 0.0, 5.0, 0.05),
+        ("GRAZER_SPAWN_GROUP", "Grazer group", "grazers in each group a new world starts with (other species start in groups of 3 to 5)", 1, 500, 5),
         ("FIRST_BREEDING_INSTINCT", "First breeding instinct", "how much more one of a world's first Bitzkeys, its brain untrained, values breeding when ready, or else courting",
          0.0, 10.0, 0.25),
         ("HUNTER_BREEDING_COST", "Breeding cost, hunters", "share of the usual breeding cost a predator or omnivore pays", 0.0, 1.0, 0.05),
