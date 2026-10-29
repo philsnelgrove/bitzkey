@@ -32,7 +32,7 @@ from display.ColourGraph import ColourGraph
 from display.WorldFiles import choose_save_path
 from tools.Exchange import Imported, bitzkey_record, export_bitzkeys, format_records
 from tools.Genome import genome_record
-from tools.Genome import TEMPERAMENT, TRAIT_MAX, decode_climate
+from tools.Genome import SPECIES, TEMPERAMENT, TERRAINS, TRAIT_MAX, decode_climate
 from tools.Insights import ANIMALS, brain_matrix_lines, brain_report, death_report_lines
 from tools import Catalog, Rules
 from tools import Simulation as world
@@ -150,6 +150,10 @@ def smallest_shown(zoom: float, least: float, most: float) -> int:
     return max(0, min(TRAIT_MAX, math.ceil(TRAIT_MAX * (1 - inward / ALL_SIZES_AT) - 1e-9)))
 
 
+# The view's buttons and the filters' two rows above the map take this much of the board's height, in design pixels.
+FILTER_ROWS_HEIGHT = 63
+
+
 class BitzkeyApp:
     def __init__(self, width: int, height: int, population: int, grass_density: int, ocean: float, seed: int | None,
                  population_cap: int | None = None, mind_mutation: int = Config.MIND_MUTATION,
@@ -183,12 +187,14 @@ class BitzkeyApp:
         self.globe = False
         self.blind = False  # neither map nor globe drawn, to spare the time
         self.lod = True     # the level of detail hides the smaller Bitzkeys zoomed out; off, every size shows from any altitude
-        self.plants = True  # plants are drawn
+        self.species_shown = dict.fromkeys(SPECIES, True)  # each species drawn, or filtered out
+        self.terrain_shown = dict.fromkeys(TERRAINS, True)  # each terrain drawn, or filtered out
         self.hud_hidden = False
         self.globe_yaw, self.globe_tilt, self.globe_zoom = 0.0, 0.35, 1.0
         self._turn_from: tuple | None = None  # a drag on the globe: where it began, and its turn then
         self._globe_look: dict | None = None  # where each pixel of its disc lies on the map, kept while its size and tilt stay
         self._view_buttons: dict[str, pg.Rect] = {}
+        self._filter_buttons: dict[tuple[str, str], pg.Rect] = {}  # by ("species" or "terrain", its name)
         self.map_centre: tuple[float, float] = (width / 2, height / 2)
         self._pan_from: tuple[tuple[int, int], tuple[float, float]] | None = None
         self.graph = ColourGraph()
@@ -364,8 +370,11 @@ class BitzkeyApp:
                         self.blind = True
                     elif not self.hud_hidden and self._view_buttons.get("lod", pg.Rect(0, 0, 0, 0)).collidepoint(event.pos):
                         self.lod = not self.lod
-                    elif not self.hud_hidden and self._view_buttons.get("plants", pg.Rect(0, 0, 0, 0)).collidepoint(event.pos):
-                        self.plants = not self.plants
+                    elif not self.hud_hidden and any(button.collidepoint(event.pos) for button in self._filter_buttons.values()):
+                        for (kind, name), button in self._filter_buttons.items():
+                            if button.collidepoint(event.pos):
+                                shown = self.species_shown if kind == "species" else self.terrain_shown
+                                shown[name] = not shown[name]
                     elif self.globe and self._map_view()[0].collidepoint(event.pos):
                         self._pick_on_globe(event.pos)  # a click picks the Bitzkey there; the right button turns it
                     elif self._exemplar_menu is None and self._map_view()[0].collidepoint(event.pos):
@@ -840,6 +849,8 @@ class BitzkeyApp:
             view = self.screen.get_rect().inflate(-UI(16), -UI(16))
         else:
             view = self._board_area().inflate(-UI(42) - 2 * UI(EXEMPLAR_WIDTH + 16), -UI(42))
+            more = UI(FILTER_ROWS_HEIGHT) - UI(21)  # the rows of buttons above the map take more than the margin
+            view = pg.Rect(view.left, view.top + more, view.width, view.height - more)
         return view, min(view.width / self.width, view.height / self.height)
 
     def _board_area(self) -> pg.Rect:
@@ -923,18 +934,29 @@ class BitzkeyApp:
         self.selected_id = None
 
     def _draw_view_buttons(self) -> None:
-        """MAP, GLOBE and BLIND above the map, and beside them the LOD MANAGER and PLANTS toggles."""
+        """Three rows above the map: MAP, GLOBE and BLIND with the LOD MANAGER toggle beside them, then the filters by
+        species, then by terrain, as the C++ version's."""
         view = self._map_view()[0]
         font = UI.font("segoeui", 12, bold=True)
+        top = view.top - UI(FILTER_ROWS_HEIGHT)
         left = view.left
         for key, label, on in (("map", "MAP", not self.globe and not self.blind), ("globe", "GLOBE", self.globe and not self.blind),
-                               ("blind", "BLIND", self.blind), ("lod", "LOD MANAGER", self.lod), ("plants", "PLANTS", self.plants)):
-            left += UI(12) if key == "lod" else 0  # the toggles stand apart from the views
-            button = pg.Rect(left, view.top - UI(21), UI({"map": 56, "lod": 104}.get(key, 64)), UI(18))
+                               ("blind", "BLIND", self.blind), ("lod", "LOD MANAGER", self.lod)):
+            left += UI(12) if key == "lod" else 0  # the toggle stands apart from the views
+            button = pg.Rect(left, top, UI({"map": 56, "lod": 104}.get(key, 64)), UI(18))
             pg.draw.rect(self.screen, (131, 205, 143) if on else (44, 57, 52), button, border_radius=UI(4))
             draw_label(self.screen, font, label, (19, 26, 27) if on else (220, 229, 211), button)
             self._view_buttons[key] = button
             left = button.right + UI(6)
+        for row, (kind, shown) in enumerate((("species", self.species_shown), ("terrain", self.terrain_shown)), start=1):
+            left = view.left
+            for name, on in shown.items():  # each as wide as its label in the language shown
+                label = (name + "s" if kind == "species" else name).upper()
+                button = pg.Rect(left, top + row * UI(21), font.size(tr(label))[0] + UI(16), UI(18))
+                pg.draw.rect(self.screen, (131, 205, 143) if on else (44, 57, 52), button, border_radius=UI(4))
+                draw_label(self.screen, font, label, (19, 26, 27) if on else (220, 229, 211), button)
+                self._filter_buttons[(kind, name)] = button
+                left = button.right + UI(6)
 
     def _draw_globe(self) -> None:
         """The map wrapped round a sphere, turned and tipped, lit from the upper left, with each square's Bitzkeys
@@ -1008,17 +1030,21 @@ class BitzkeyApp:
         self.screen.set_clip(None)
 
     def _shown(self, agent: Bitzkey, least: int) -> bool:
-        """Whether a Bitzkey is drawn, `least` the smallest size the zoom shows: plants only while PLANTS is on, and
-        every size while LOD MANAGER is off."""
+        """Whether a Bitzkey is drawn, `least` the smallest size the zoom shows: only while its species and terrain
+        are both shown, and every size while LOD MANAGER is off."""
         if self._marked(agent):
             return True
-        if not self.plants and agent.species == "plant":
+        if self._filtered_out(agent):
             return False
         return not self.lod or int(agent.body["size"]) >= least
 
+    def _filtered_out(self, agent: Bitzkey) -> bool:
+        """Hidden by the filters: its species or its terrain off."""
+        return not self.species_shown[agent.species] or not self.terrain_shown[agent.terrain]
+
     def _too_small(self, agent: Bitzkey) -> bool:
-        """Whether one not drawn counts as too small to see from this far out, rather than a plant hidden."""
-        return self.plants or agent.species != "plant"
+        """Whether one not drawn counts as too small to see from this far out, rather than filtered out."""
+        return not self._filtered_out(agent)
 
     def _marked(self, agent: Bitzkey) -> bool:
         """Whether a Bitzkey is drawn whatever its size: the one chosen, one picked, or one to export."""
