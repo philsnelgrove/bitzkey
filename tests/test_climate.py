@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import patch
 
 import tools.Simulation as simulation_module
-from tools.Brain import ACTIONS, SENSES
+from tools.Brain import ACTIONS, SENSES, VALUE_SCALE
 from tools.Genome import decode_climate, encode_dna
 from tools.Simulation import (COLD, HOMEWARD_UNEASE, PLANT_BITE, CURIOSITY_JOY, DEATH_PENALTY, GO_EFFORT, WALK_REST, GRASS_DIEBACK, dieback_threshold, season_progress, season_temperature, wave_band, HOT, KILL_MEAL, KILL_MEAL_FOR_SIZE, LEARNING_RATE, MEDIUM, PLANT_MEAL,
                               SOCIAL_MEMORY, SOCIAL_MOOD, VERY_COLD, Simulation, season, temperature_at, year,
@@ -559,7 +559,7 @@ class SocietyTests(unittest.TestCase):
         self.simulation._die(dying, "exhausted")  # a sudden death, its last choice's doing
         self.assertEqual(witness.brain, before)  # what the herd saw is learnt at the turn's end, with the rest
         self.assertEqual([(observer, choice, outcome, rate) for observer, _, choice, outcome, rate in self.simulation._witnessed
-                          if observer is witness], [(witness, dying.last_choice, -DEATH_PENALTY, LEARNING_RATE)])
+                          if observer is witness], [(witness, dying.last_choice, -DEATH_PENALTY, LEARNING_RATE * simulation_module.FATAL_LESSON)])  # a death seen teaches hard
         self.simulation._learn_witnessed()
         self.assertNotEqual(witness.brain, before)
         self.assertEqual((witness.reward, witness.seen_failure), (SOCIAL_MOOD * -DEATH_PENALTY, 1.0))
@@ -677,7 +677,7 @@ if __name__ == "__main__":
 class ExplorationTests(unittest.TestCase):
     def test_a_curious_animal_tries_its_options_at_random_now_and_then(self):
         def choices(curiosity, exploration):
-            with patch.multiple("tools.Simulation", CURIOUS_EXPLORATION=exploration), patch("tools.Brain.TEMPERATURE", 0.01):
+            with patch.multiple("tools.Simulation", CURIOUS_EXPLORATION=exploration, RESTLESS_CURIOSITY=0.0),                     patch("tools.Brain.TEMPERATURE", 0.01):
                 simulation = world(turn=240)
                 grazer = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM), 20, 30)
                 simulation._add_agent(encode_dna("predator"), 90, 90)
@@ -691,3 +691,38 @@ class ExplorationTests(unittest.TestCase):
         steady, curious, unmoved = choices(0, 1.0), choices(7, 1.0), choices(7, 0.0)
         self.assertGreater(curious, steady + 2)  # it tries what its brain wouldn't
         self.assertLessEqual(unmoved, steady + 1)
+
+    def test_an_animal_whose_brain_chooses_to_rest_is_restless_instead_unless_in_peril(self):
+        def rests(restless, starving):
+            with patch.multiple("tools.Simulation", CURIOUS_EXPLORATION=0.0, RESTLESS_CURIOSITY=restless), \
+                    patch("tools.Brain.TEMPERATURE", 0.01):
+                simulation = world(turn=240)
+                grazer = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM), 20, 30)
+                grazer.brain.output_biases[ACTIONS.index("rest")] += 100 * VALUE_SCALE  # a brain set on resting
+                simulation._add_agent(encode_dna("predator"), 90, 90)
+                rested = 0
+                for _ in range(50):
+                    grazer.hunger, grazer.health, grazer.mind["curiosity"] = (100 if starving else 0), grazer.max_health, 7
+                    grazer.stamina, grazer.x, grazer.y = simulation_module.FULL_STAMINA, 20, 30
+                    simulation._take_turn()
+                    rested += ACTIONS[grazer.last_choice] == "rest" and not grazer.last_forced
+                return rested
+        self.assertGreater(rests(0.0, False), 40)
+        self.assertEqual(rests(1.0, False), 0)  # the most curious, always restless
+        self.assertGreater(rests(1.0, True), 40)  # in peril, starving, curiosity pales
+
+    def test_a_panicked_flight_teaches_though_forced_lessons_are_off(self):
+        def lesson(panicked):
+            simulation = world(turn=240)
+            grazer = simulation._add_agent(encode_dna("grazer", intellect=4), 20, 30)
+            simulation._add_agent(encode_dna("predator"), 90, 90)
+            senses, _, situation = simulation._sense(grazer)
+            grazer.last_senses, grazer.last_choice = list(senses), ACTIONS.index("flee")
+            grazer.last_forced, grazer.last_panicked = True, panicked
+            grazer.last_comfort = simulation._comfort(grazer, situation)
+            grazer.last_wellbeing = simulation._wellbeing(grazer) - 0.5  # it came out better
+            before = grazer.brain.values(senses)[ACTIONS.index("flee")]
+            simulation._take_turn()
+            return grazer.brain.values(senses)[ACTIONS.index("flee")] - before
+        self.assertGreater(lesson(True), 0.001)
+        self.assertAlmostEqual(lesson(False), 0.0, places=12)

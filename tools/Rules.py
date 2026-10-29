@@ -237,6 +237,11 @@ _TABLE: dict[str, list[tuple]] = {
          1.0, 5.0, 0.1),
         ("CURIOUS_EXPLORATION", "Curious exploration", "the chance, times its curiosity, that an animal tries any of its "
          "options at random rather than as its brain values them", 0.0, 1.0, 0.01),
+        ("FATAL_LESSON", "Fatal lesson", "how many times as hard a herd-mate's death teaches those who see it what it last did",
+         1.0, 20.0, 0.5),
+        ("RESTLESS_CURIOSITY", "Restless curiosity", "the chance, times a half and its curiosity, that an animal whose brain "
+         "chose to rest (not made to) does any of its other options instead; none in peril (a hunter or threat near, struck, "
+         "or starving)", 0.0, 1.0, 0.05),
         ("TEMPERATURE", "Choice temperature", "how loosely a brain picks among its options", 0.01, 5.0, 0.05),
         ("MUTATION", "Brain mutation", "how much a newborn's brain varies from its parents'", 0.0, 1.0, 0.01),
         ("HEADING_RELUCTANCE", "Heading reluctance", "how much less a new brain values setting off in a direction",

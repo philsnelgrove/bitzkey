@@ -154,8 +154,10 @@ LIBIDO_IN_JOY = 0.25  # the share of those pleasures that libido sets
 FIGHT_JOY = 0.5
 COMPANY_JOY = 0.1
 CURIOSITY_JOY = 0.15   # pleasure of setting off in a direction, scaled by curiosity
-CURIOUS_EXPLORATION = 0.05  # the chance, times its curiosity, that an animal tries any of its options at random rather
+CURIOUS_EXPLORATION = 0.1  # the chance, times its curiosity, that an animal tries any of its options at random rather
                             # than as its brain values them, so no option goes untried for good
+RESTLESS_CURIOSITY = 0.5  # the chance, times a half and its curiosity, that an animal whose brain chose to rest (not made
+                          # to) does any of its other options instead; in peril, neither, but as its brain chooses
 # Moving costs food. A walk, a single cell, saves this share of the turn's burn, as resting does; going
 # as far as its speed allows costs this share of a turn's burn more for each cell beyond the first.
 WALK_REST = 0.5
@@ -182,6 +184,7 @@ PREGNANT_REMORSE = 1.0
 # Society: an animal sees what happens to its herd-mates (its pack, for a predator) within its sight. A
 # herd-mate's kill is a success, its death (but of old age) a failure; the witness learns from it as
 # if it had made the herd-mate's last choice itself, and feels it, by its empathy times its intellect.
+FATAL_LESSON = 5.0  # how many times as hard a herd-mate's death teaches those who see it
 SOCIAL_LEARNING = 1.0  # how fast it learns from what it sees, beside learning from its own choices
 SOCIAL_MOOD = 0.3      # how much what it sees moves its mood
 SOCIAL_MEMORY = 0.93   # the share of a seen success or failure it still senses a turn later (0.8 every three hours)
@@ -791,6 +794,7 @@ class Bitzkey:
     last_senses: list[float] | None = None
     last_choice: int = 0
     last_forced: bool = False  # whether it had no choice but last_choice
+    last_panicked: bool = False  # whether that was a panicked flight, which teaches though it was no choice
     last_wellbeing: float = 0.0
     reward: float = 0.0
     last_comfort: float = 0.0  # how comfortable it felt at its last decision
@@ -1860,7 +1864,7 @@ class Simulation:
         startling = (ACTIONS.index("flee"), ACTIONS.index("defend"))
         idle = [(agent.exhausted or (SLEEP and self.resting_time(agent) and not agent.aloft_at_sea
                                      and not any(option in startling for option in options)))
-                and not (agent.last_senses is not None and (FORCED_LESSONS or not agent.last_forced))
+                and not (agent.last_senses is not None and (FORCED_LESSONS or not agent.last_forced or agent.last_panicked))
                 for agent, _, options, _ in plans]
         # The other brains, of a shape, are worked as one batch: valued together, then taught together.
         groups: dict[tuple[int, int], list[int]] = {}
@@ -1877,7 +1881,7 @@ class Simulation:
         comforts = [self._comfort(agent, situation) for agent, _, _, situation in plans]
         lessons: dict[int, tuple] = {}  # by plan: what came of its last choice, to learn from
         for index, ((agent, _, options, _), valued, comfort) in enumerate(zip(plans, values, comforts)):
-            if agent.last_senses is not None and (FORCED_LESSONS or not agent.last_forced):
+            if agent.last_senses is not None and (FORCED_LESSONS or not agent.last_forced or agent.last_panicked):  # a panicked flight teaches
                 # What came of its last choice: whatever raised its health (fullness counting with it) or
                 # its mood was a success, whatever lowered them a failure, by how much; both may happen.
                 reward = (agent.reward + self._wellbeing(agent) - agent.last_wellbeing
@@ -1932,8 +1936,12 @@ class Simulation:
             odds = choice_odds(valued, options)
             roll = self.random.random()
             explore = self.random.random()
+            restless = self.random.random()
+            # In peril, with a hunter or threat near, struck, or starving, it heeds its brain alone: curiosity pales.
+            peril = bool(situation["hunter"] or situation["threats"] or situation["assailant"] or agent.hunger >= 100)
+            curiosity = agent.feeling("curiosity")
             choice = options[-1]
-            if len(options) > 1 and explore < CURIOUS_EXPLORATION * agent.feeling("curiosity"):
+            if not peril and len(options) > 1 and explore < CURIOUS_EXPLORATION * curiosity:
                 # Curious, it tries any of its options, whatever its brain makes of them.
                 choice = options[min(len(options) - 1, int(roll * len(options)))]
             else:
@@ -1942,6 +1950,11 @@ class Simulation:
                     if roll < 0:
                         choice = option
                         break
+                restlessness = RESTLESS_CURIOSITY * (0.5 + curiosity)
+                if not peril and ACTIONS[choice] == "rest" and len(options) > 1 and restless < restlessness:
+                    # Restless, it does any of its other options instead of resting.
+                    others = [option for option in options if ACTIONS[option] != "rest"]
+                    choice = others[min(len(others) - 1, int(restless / restlessness * len(others)))]
             action = ACTIONS[choice]
             if not situation.get("panic") and not situation.get("frozen"):  # a panicked flight, or freezing, was no choice
                 self.insights.record(agent.species, agent.profile, (ACTIONS[option] for option in options), action)
@@ -1949,6 +1962,7 @@ class Simulation:
             agent.last_senses = senses
             agent.last_choice = choice
             agent.last_forced = len(options) == 1
+            agent.last_panicked = bool(situation.get("panic"))
             agent.last_wellbeing = self._wellbeing(agent)
             agent.last_comfort = comfort
             agent.reward = 0.0
@@ -3317,8 +3331,9 @@ class Simulation:
                 continue
             heed = (observer.feeling("empathy") * observer.intelligence
                     * (1 + TRUST_HEED * (2 * observer.feeling("trust") - 1)))  # the trusting take in more
+            heft = FATAL_LESSON if outcome <= -DEATH_PENALTY else 1.0  # a death seen teaches hard
             self._witnessed.append((observer, actor.last_senses, actor.last_choice, outcome,
-                                    LEARNING_RATE * heed * SOCIAL_LEARNING * lesson_weight(actor.last_choice, outcome)))  # at the end
+                                    LEARNING_RATE * heed * SOCIAL_LEARNING * heft * lesson_weight(actor.last_choice, outcome)))  # at the end
             observer.reward += SOCIAL_MOOD * heed * outcome
             if outcome > 0:
                 observer.seen_success = 1.0
