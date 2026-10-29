@@ -1341,6 +1341,10 @@ class Simulation:
             self._spawn_biomes()
         for bitzkey in imported:
             self._spawn_group(bitzkey.dna, self.random.randint(*SPAWN_GROUP), bitzkey.brain, bitzkey.mind)
+        for agent in self.agents:  # the first of a world are grown: just past their infancy, at full health
+            if agent.species != "plant":
+                agent.age = math.ceil(agent.infancy)
+                agent.health = agent.max_health
         # What herd-mates saw this turn, to learn from at its end: (observer, senses, choice, outcome, rate).
         self._witnessed: list[tuple] = []
         self._take_census()

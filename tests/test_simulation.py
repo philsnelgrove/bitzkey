@@ -2680,6 +2680,14 @@ class FeebleTests(unittest.TestCase):
         self.assertEqual((infant.trait("size"), infant.space, infant.lifespan), (7, 8, lifespan))  # lifespan by its genes
         self.assertAlmostEqual(infant.max_health, 150.0)
 
+    def test_the_first_bitzkeys_of_a_world_start_grown(self):
+        world = Simulation(width=30, height=30, population=40, seed=3)
+        animals = [agent for agent in world.agents if agent.species != "plant"]
+        self.assertTrue(animals)
+        for agent in animals:
+            self.assertFalse(agent.feeble)
+            self.assertAlmostEqual(agent.health, agent.max_health)
+
     def test_no_frail_bitzkey_breeds_neither_an_infant_nor_the_old(self):
         from tools.Simulation import AGEING
         grazer = self.simulation._add_agent(encode_dna("grazer", size=7), 5, 5)
