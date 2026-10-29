@@ -335,6 +335,10 @@ MAP_NEARNESS = 0.01
 # As the C++ version's.
 ACQUAINTANCES = 8
 REGARD_LEARNING = 0.3
+# The diary: up to Diary entries (none at 0) of an animal's most vivid experiences, by how much came of them, fading by
+# Diary fading each turn since; each turn it re-learns from one, in turn. As the C++ version's.
+DIARY_ENTRIES = 8
+DIARY_FADING = 0.999
 BLOW_DEED, FEEDING_DEED, ALERT_DEED, MATING_DEED = -1.0, 1.0, 0.5, 0.5
 
 
@@ -855,6 +859,7 @@ class Bitzkey:
     trail: list[tuple[int, int]] = field(default_factory=list)  # the cells it passed through this turn, for the map
     # Its most recent experiences, each (senses, choice, target), newest last, to re-learn from.
     memories: list[tuple] = field(default_factory=list)
+    diary: list[list] = field(default_factory=list)  # each [(senses, choice, target, weight), vividness, turn]
     # The young it carries, conceived at mating, each (dna, mind, brain, energy, generation), and the
     # turn they are born.
     womb: list[tuple] = field(default_factory=list)
@@ -1399,6 +1404,21 @@ class Simulation:
                          known_east=max(-1.0, min(1.0, (nearest.x - agent.x) / sight)),
                          known_south=max(-1.0, min(1.0, (nearest.y - agent.y) / sight)))
         return found
+
+    def _note_entry(self, agent: Bitzkey, memory: tuple, vividness: float) -> None:
+        """An experience, kept in its diary if more vivid than the faintest there, now, or there is room."""
+        def faded(entry: list) -> float:
+            return entry[1] * DIARY_FADING ** (self.turn - entry[2])
+        while len(agent.diary) > max(0, DIARY_ENTRIES):
+            agent.diary.remove(min(agent.diary, key=faded))
+        if DIARY_ENTRIES <= 0 or vividness <= 0:
+            return
+        if len(agent.diary) < DIARY_ENTRIES:
+            agent.diary.append([memory, vividness, self.turn])
+            return
+        weakest = min(agent.diary, key=faded)
+        if faded(weakest) < vividness:
+            agent.diary[agent.diary.index(weakest)] = [memory, vividness, self.turn]
 
     def _note_deed(self, agent: Bitzkey, other: Bitzkey, deed: float) -> None:
         """What `other` did to `agent`, worth `deed`, -1 to 1, noted in its regard for them."""
@@ -2463,6 +2483,10 @@ class Simulation:
                                  self._discount(agent), decay=self._discount(agent) * self._trace_decay(agent))
         if not replay:
             return
+        if DIARY_ENTRIES > 0 and agent.diary and rate > 0:
+            senses, choice, remembered, counted = agent.diary[self.turn % len(agent.diary)][0]
+            agent.brain.learn(senses, choice, remembered, rate * counted)
+        self._note_entry(agent, (agent.last_senses, agent.last_choice, target, weight), abs(outcome))
         count = REPLAY_PER_INTELLECT * thinking_intellect(agent.inborn["intellect"], agent.species)
         for senses, choice, remembered, counted in agent.memories[-count:] if count else ():  # the latest, up to count
             agent.brain.learn(senses, choice, remembered, rate * counted)
@@ -2493,8 +2517,12 @@ class Simulation:
             decays[row] = self._discount(agent) * self._trace_decay(agent)
             taking[row] = rates[row] > 0
             count = REPLAY_PER_INTELLECT * thinking_intellect(agent.inborn["intellect"], agent.species)
+            if DIARY_ENTRIES > 0 and agent.diary and rate > 0:
+                entry_senses, choice, remembered, counted = agent.diary[self.turn % len(agent.diary)][0]
+                replays[row].append((entry_senses, choice, remembered, rate * counted))
+            self._note_entry(agent, (agent.last_senses, agent.last_choice, target, weight), abs(outcome))
             if count:
-                replays[row] = [(remembered_senses, choice, remembered, rate * counted)
+                replays[row] += [(remembered_senses, choice, remembered, rate * counted)
                                 for remembered_senses, choice, remembered, counted in agent.memories[-count:]]
                 agent.memories.append((agent.last_senses, agent.last_choice, target, weight))
                 del agent.memories[:-count]
@@ -2560,6 +2588,7 @@ class Simulation:
             self._witness(agent, -DEATH_PENALTY)
         agent.brain = None
         agent.memories = []
+        agent.diary = []
         agent.womb, agent.due_turn = [], None  # the young it carried die with it
         agent.health = min(agent.health, 0.0)  # whatever the cause, a recorded death leaves it dead
         agent.died_turn = self.turn

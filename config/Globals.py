@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 class Config(object):
-    VERSION = "1.48.0"  # shown at the top of every screen
+    VERSION = "1.49.0"  # shown at the top of every screen
     CORES = 1  # the processor cores the simulation thinks on: Python runs it on one
     VALUE_LIMIT = 10000000
     ITERATION_LIMIT = 10

@@ -223,6 +223,8 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "trail": [list(cell) for cell in agent.trail],
         "memories": [[numbers.senses(senses), int(choice), float(target), float(weight)]
                      for senses, choice, target, weight in agent.memories],
+        "diary": [[numbers.senses(senses), int(choice), float(target), float(weight), float(vividness), int(turn)]
+                  for (senses, choice, target, weight), vividness, turn in agent.diary],
         "womb": [[_genome(dna), _mind(mind), numbers.brain(brain), float(energy), int(generation), int(father)]
                  for dna, mind, brain, energy, generation, father in agent.womb],
         "due_turn": agent.due_turn, "mind": _mind(agent.mind), "last_senses": numbers.senses(agent.last_senses),
@@ -266,6 +268,9 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
     agent.trail = [(int(x), int(y)) for x, y in record["trail"]]
     agent.memories = [(numbers.senses(senses), numbers.action(int(choice)), float(target), float(weight))  # one of an action
                       for senses, choice, target, weight in record["memories"] if numbers.action(int(choice)) >= 0]  # no longer had is forgotten
+    agent.diary = [[(numbers.senses(entry[0]), numbers.action(int(entry[1])), float(entry[2]), float(entry[3])),
+                    float(entry[4]), int(entry[5])]
+                   for entry in record.get("diary", []) if numbers.action(int(entry[1])) >= 0]
     agent.womb = [(genome(young[0]), _mind_from(young[1]), numbers.brain(young[2], genome(young[0])), float(young[3]),
                    int(young[4]), int(young[5]) if len(young) > 5 else -1)
                   for young in record["womb"]]
