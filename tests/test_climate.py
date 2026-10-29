@@ -737,11 +737,13 @@ class CalendarAndReportTests(unittest.TestCase):
         from tools.Insights import brain_matrix
         simulation = world(turn=240)
         parent = simulation._add_agent(encode_dna("grazer"), 20, 30)
+        parent.mind["empathy"] = 7  # its instinct at its strongest
 
         def feeding(instinct):
             with patch("tools.Simulation.PARENTAL_INSTINCT", instinct):
                 return dict(brain_matrix(parent))["Fed and safe, its hungry infants about it"]["feed_young"]
-        self.assertGreater(feeding(10.0), feeding(0.0) + 0.1)
+        self.assertGreater(feeding(2.0), feeding(0.0))
+        self.assertGreater(feeding(2.0), 0.25)  # above the best of its other three options, so the likeliest
 
 
 class LearningFloorTests(unittest.TestCase):
@@ -760,3 +762,15 @@ class LearningFloorTests(unittest.TestCase):
                 return grazer.brain.values(senses)[ACTIONS.index("eat")] - before
         self.assertAlmostEqual(lesson(0.0), 0.0, places=12)
         self.assertGreater(lesson(0.25), 0.001)
+
+    def test_a_parents_instinct_closes_on_its_best_other_option_however_much_its_brain_values_things(self):
+        simulation = world(turn=240)
+        parent = simulation._add_agent(encode_dna("grazer"), 20, 30)
+        parent.mind["empathy"] = 3.5  # halfway
+        eat, feed = ACTIONS.index("eat"), ACTIONS.index("feed_young")
+        with patch("tools.Simulation.PARENTAL_INSTINCT", 2.0):
+            for scale in (1.0, 10.0):
+                valued = [0.0] * len(ACTIONS)
+                valued[eat] = 2 * scale
+                valued = simulation_module.add_instincts(parent, valued, [eat, feed], 0, 50)  # its young half hungry
+                self.assertAlmostEqual(valued[feed], valued[eat])  # level, whatever the values' size

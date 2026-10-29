@@ -193,7 +193,8 @@ OTHER_KIND = 0.4       # how much of that pain reaches it when the victim is of 
 # more, times its loyalty. Dominance: a ready animal breeds with the most dominant willing partner in reach, and
 # a territory's crowding troubles the dominant less and the submissive more, by up to this share.
 LOYALTY_PULL = 0.25
-PARENTAL_INSTINCT = 10.0  # how much more a parent values feeding its young, times their hunger and its empathy
+PARENTAL_INSTINCT = 2.0  # how much of the gap between feeding its young and its best other option a parent closes, times
+                         # the hungriest's hunger and a half and its empathy: at 2, half hungry, level
 INFANT_HERDING = 1.0  # how much more an infant values keeping to its kind, and it herds once a cell from their middle
 NURSING_REACH = 2     # each turn, a grown animal feeds the hungriest infant of its kind this close, a turn's burn of food,
 NURSING_LIMIT = 80    # while it stays below this hunger itself
@@ -1171,8 +1172,11 @@ def add_instincts(agent: Bitzkey, valued: list[float], options: list[int], hunge
     valued[HERD] += LOYALTY_PULL * agent.feeling("loyalty")  # loyalty: keeping to its herd
     if agent.infant:  # an infant keeps close to its kind
         valued[HERD] += INFANT_HERDING
-    if FEED_YOUNG in options:  # the instinct to feed its hungry young
-        valued[FEED_YOUNG] += PARENTAL_INSTINCT * (0.5 + agent.feeling("empathy")) * hungriest_young / 100
+    if FEED_YOUNG in options:
+        # The instinct to feed its hungry young: closing on the best of its other options, however much those are worth.
+        others = [valued[option] for option in options if option != FEED_YOUNG]
+        gap = max(0.0, max(others) - valued[FEED_YOUNG]) if others else 0.0
+        valued[FEED_YOUNG] += PARENTAL_INSTINCT * (0.5 + agent.feeling("empathy")) * hungriest_young / 100 * gap
     return valued
 
 
