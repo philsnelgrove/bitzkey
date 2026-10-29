@@ -80,6 +80,18 @@ SENSES = (
     "nocturnal",  # its activity gene: 1 nocturnal, 0 diurnal
 )
 INPUT_SIZE = len(SENSES)
+# The senses as a brain reads them: each that runs 0..1 centred, read as -1..1, so that a lesson moves a neuron's weights
+# both ways (senses never below 0 push all its weights the same way, lesson after lesson, until the neuron jams at its
+# limit, the same whatever it senses, and learns no more); those already running -1..1 read as they are. As the C++
+# version's read_sense.
+SIGNED_SENSES = frozenset(("latitude", "warmth", "warmth_north", "warmth_south", "home_direction", "parent_east", "parent_south"))
+_READ_SCALE = np.array([1.0 if name in SIGNED_SENSES else 2.0 for name in SENSES])
+_READ_SHIFT = np.array([0.0 if name in SIGNED_SENSES else -1.0 for name in SENSES])
+
+
+def read_senses(inputs: np.ndarray) -> np.ndarray:
+    """The senses (or rows of them) as a brain reads them."""
+    return inputs * _READ_SCALE + _READ_SHIFT
 MAX_DEPTH = 4      # hidden layers: one for each point of inborn intellect, at least one and up to this many
 BASE_WIDTH = 38    # neurons in each hidden layer, up to an intellect of MAX_DEPTH
 WIDTH_STEP = 5     # neurons more in each layer for each point of intellect beyond MAX_DEPTH
@@ -324,6 +336,18 @@ class Brain:
                 weights += mutation * np.array([stream.normal() for _ in range(weights.size)]).reshape(weights.shape)
         return child
 
+    def centre_inputs(self) -> None:
+        """Made to read the senses centred (read_senses), from a brain that read them as they were, choosing just as
+        before: each weight on a sense x read as 2x - 1 halved, and the half it gave at 0 given by the neuron's bias.
+        What it was learning from lets go."""
+        weights, biases = self.layers[0]
+        centred = _READ_SCALE == 2.0
+        weights[:, centred] /= 2
+        for neuron in range(weights.shape[0]):
+            for sense in np.flatnonzero(centred):
+                biases[neuron] += weights[neuron, sense]
+        self.traces = None
+
     def resized(self, depth: int, width: int) -> Brain:
         """A copy `depth` layers of `width` neurons: deeper with layers that pass their input on, or
         shallower without its last layers, and each layer cut down or padded (see _fitted)."""
@@ -337,6 +361,7 @@ class Brain:
         activation = np.asarray(inputs, dtype=float)
         if activation.shape != (INPUT_SIZE,):
             raise ValueError(f"Expected {INPUT_SIZE} inputs, got {activation.size}.")
+        activation = read_senses(activation)
         activations = [activation]
         for weights, biases in self.layers:
             activation = _tanh((weights * activation).sum(axis=1) + biases)
@@ -428,6 +453,7 @@ class Brain:
             return [round(value, RECORD_DIGITS) for value in values.tolist()]
         return {
             "senses": list(SENSES),
+            "centred_senses": True,
             "actions": list(ACTIONS),
             "layers": [{"weights": [rounded(row) for row in weights], "biases": rounded(biases)}
                        for weights, biases in self.layers],
@@ -473,11 +499,14 @@ class Brain:
         action_at = {name: index for index, name in enumerate(actions)}
         matched = [([[row[sense_at[name]] if name in sense_at else 0.0 for name in SENSES] for row in weights]
                     if index == 0 else weights, biases) for index, (weights, biases) in enumerate(layers)]
-        return cls(
+        brain = cls(
             matched,
             [output_weights[action_at[name]] if name in action_at else [0.0] * width for name in ACTIONS],
             [output_biases[action_at[name]] if name in action_at else 0.0 for name in ACTIONS],
         )
+        if not record.get("centred_senses"):  # exported before brains read their senses centred
+            brain.centre_inputs()
+        return brain
 
     def __eq__(self, other: object) -> bool:
         return (isinstance(other, Brain) and self.depth == other.depth
@@ -505,7 +534,7 @@ class BrainBatch:
         self.traced = np.array([brain.traces is not None for brain in brains])
 
     def _activations(self, inputs: np.ndarray) -> list[np.ndarray]:
-        activations = [inputs]
+        activations = [read_senses(inputs)]
         for weights, biases in zip(self.weights, self.biases):
             activations.append(np.tanh(np.matmul(weights, activations[-1][:, :, None])[:, :, 0] + biases))
         return activations

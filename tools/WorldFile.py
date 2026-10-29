@@ -114,6 +114,7 @@ class _Reader:
         self.sense_from: list[int] | None = None
         # For a world saved before the latest actions were added (they are only ever added at the end): how many it saved.
         self.saved_actions = len(ACTIONS)
+        self.uncentred = False  # saved before brains read their senses centred: each is made to, choosing as before
 
     def whole(self, at: int, count: int) -> np.ndarray:
         if at < 0 or at + count > self.ints.size:
@@ -159,6 +160,8 @@ class _Reader:
             layers, output_weights, output_biases = sets[1]
             brain.traces = [(weights.copy(), biases.copy()) for weights, biases in layers]
             brain.traces.append((output_weights.copy(), output_biases.copy()))
+        if self.uncentred:
+            brain.centre_inputs()
         shape = brain_shape(dna)
         return brain if (brain.depth, brain.width) == shape else brain.resized(*shape)
 
@@ -285,7 +288,7 @@ def world_bytes(simulation: Simulation) -> bytes:
             run += 1
         sea.append(run)
     record = {
-        "format": WORLD_FORMAT, "genome_version": GENOME_VERSION, "senses": list(SENSES), "actions": list(ACTIONS),
+        "format": WORLD_FORMAT, "genome_version": GENOME_VERSION, "senses": list(SENSES), "centred_senses": True, "actions": list(ACTIONS),
         "temperament": list(TEMPERAMENT),
         "settings": {"width": simulation.width, "height": simulation.height,
                      "population_cap": simulation.population_cap, "mind_mutation": simulation.mind_mutation,
@@ -359,6 +362,7 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
     if saved_actions != list(ACTIONS)[:len(saved_actions)] or record["temperament"] != list(TEMPERAMENT):
         raise ValueError("This world was saved by a version of Bitzkey whose brains sense or act differently.")
     numbers.saved_actions = len(saved_actions)
+    numbers.uncentred = not record.get("centred_senses", False)
     # Brains saved with other senses are read by name: a sense they lacked starts with no weight, and one no longer
     # sensed is let go.
     if record["senses"] != list(SENSES):

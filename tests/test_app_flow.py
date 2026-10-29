@@ -1,3 +1,4 @@
+import json
 import os
 import unittest
 from unittest.mock import patch
@@ -233,7 +234,7 @@ class SimulationFlowTests(unittest.TestCase):
         records, gone = self.app._chosen_records()
         self.assertEqual(gone, 1)
         self.assertIn("brain", records[0])
-        self.assertEqual(import_bitzkeys(str(records[0]).replace("'", '"'))[0].dna, self.animal.dna)
+        self.assertEqual(import_bitzkeys(json.dumps(records[0]))[0].dna, self.animal.dna)
 
     def test_the_footer_button_opens_the_export_dialog(self):
         self.app._toggle_export()

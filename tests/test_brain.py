@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from tools.Brain import (ACTIONS, BASE_WIDTH, INPUT_SIZE, MAX_WIDTH, SENSES, Brain, choice_odds, depth_for, gene_senses,
+from tools.Brain import (ACTIONS, read_senses, BASE_WIDTH, INPUT_SIZE, MAX_WIDTH, SENSES, Brain, choice_odds, depth_for, gene_senses,
                          make_senses, width_for)
 from tools.Genome import BODY_TRAITS, TEMPERAMENT, encode_dna
 
@@ -235,19 +235,34 @@ class BrainTests(unittest.TestCase):
         self.assertAlmostEqual(nudges.std(), 0.05, delta=0.001)
         self.assertAlmostEqual(np.mean(np.abs(nudges) > 0.15), 0.0027, delta=0.0006)  # a normal's tails beyond 3 sigma
 
+    def test_a_brain_that_read_its_senses_uncentred_made_to_read_them_centred_values_everything_as_before(self):
+        rng = random.Random(3)
+        brain = Brain.random(rng, 2, BASE_WIDTH)
+        senses = np.array([rng.uniform(-1, 1) if name in ("latitude", "warmth", "warmth_north", "warmth_south", "home_direction",
+                                                          "parent_east", "parent_south") else rng.random() for name in SENSES])
+        activation = senses  # as it read them before
+        for weights, biases in brain.layers:
+            activation = np.tanh(weights @ activation + biases)
+        before = brain.output_weights @ activation + brain.output_biases
+        brain.centre_inputs()
+        for mine, theirs in zip(brain.values(senses.tolist()), before, strict=True):
+            self.assertAlmostEqual(mine, theirs, places=10)
+        self.assertEqual(read_senses(np.zeros(INPUT_SIZE))[SENSES.index("hunger")], -1.0)
+        self.assertEqual(read_senses(np.full(INPUT_SIZE, -0.4))[SENSES.index("latitude")], -0.4)
+
     def test_a_brain_saved_with_narrower_layers_loads_as_saved_and_values_alike(self):
         rng = np.random.default_rng(5)
         narrow = 12
         layers = [(rng.uniform(-0.5, 0.5, (narrow, INPUT_SIZE)), rng.uniform(-0.2, 0.2, narrow)),
                   (rng.uniform(-0.5, 0.5, (narrow, narrow)), rng.uniform(-0.2, 0.2, narrow))]
         output_weights, output_biases = rng.uniform(-0.3, 0.3, (len(ACTIONS), narrow)), rng.uniform(-0.2, 0.2, len(ACTIONS))
-        record = {"senses": list(SENSES), "actions": list(ACTIONS),
+        record = {"senses": list(SENSES), "centred_senses": True, "actions": list(ACTIONS),
                   "layers": [{"weights": weights.tolist(), "biases": biases.tolist()} for weights, biases in layers],
                   "output_weights": output_weights.tolist(), "output_biases": output_biases.tolist()}
         loaded = Brain.from_record(record)
         self.assertEqual([weights.shape for weights, _ in loaded.layers], [(narrow, INPUT_SIZE), (narrow, narrow)])
         senses = rng.uniform(0, 1, INPUT_SIZE)
-        activation = senses
+        activation = read_senses(senses)  # as a brain reads them
         for weights, biases in layers:
             activation = np.tanh(weights @ activation + biases)
         expected = output_weights @ activation + output_biases
