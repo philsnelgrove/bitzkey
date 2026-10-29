@@ -221,6 +221,8 @@ _TABLE: dict[str, list[tuple]] = {
          0.0, 1.0, 0.05),
         ("SMART_TRACE_DECAY", "Trace decay, smartest", "trace decay at the highest intellect; the lowest keeps the one above",
          0.0, 1.0, 0.01),
+        ("LEARNING_FLOOR", "Learning floor", "the share of the learning rate even the dullest animal learns at; its intellect "
+         "adds to it", 0.0, 2.0, 0.05),
         ("LEARNING_BOOST", "Learning boost", "the highest intellect learns this much faster again; the lowest, no faster",
          0.0, 5.0, 0.1),
         ("REPLAY_PER_INTELLECT", "Replays per intellect", "recent experiences re-learnt each turn per point of intellect",

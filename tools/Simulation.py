@@ -218,6 +218,7 @@ LEARNING_RATE = 0.027  # at the highest intellect, before its boost
 # animal re-learns from REPLAY_PER_INTELLECT of its most recent experiences for each point of its
 # inborn intellect, so the least replay none.
 LEARNING_BOOST = 1.0
+LEARNING_FLOOR = 0.25  # the share of LEARNING_RATE even the dullest learns at, intellect adding to it
 REPLAY_PER_INTELLECT = 2
 PREDATOR_LEARNING = 1.0  # a predator's brain learns this many times as fast, from its own choices and replays;
 # an omnivore's gets half the bonus
@@ -475,7 +476,7 @@ PLANT_GESTATION = 30  # turns a seed lies in the ground before it can sprout
 # The spans above as they were counted in turns when a day was eight of them, for the older tests' figures.
 EIGHT_TURN_DAYS = dict(CORPSE_TURNS=30, GESTATION=(10, 50), FRESH_KILL_TURNS=3, PLANT_GESTATION=10, PLANT_RECOVERY=8,
                        GRASS_DIEBACK=20, GRASS_OUTLOOK=150, MEMORY_TURNS=100, SOCIAL_MEMORY=0.8,
-                       WEATHER_GRACE=0.0)  # and the weather harming at once, as when they were written
+                       WEATHER_GRACE=0.0, LEARNING_FLOOR=0.0)  # and the weather harming at once, the dullest learning nothing, as when they were written
 STARTING_TOLERANCE = 0.1  # the chance a random starting genome carries each tolerance flag
 HARDINESS = 0.5  # the share of exposure's extra hunger and damage an animal tolerant of it suffers
 FRAILTY = 2.0    # the share an animal tolerant of the other extreme suffers
@@ -2235,11 +2236,11 @@ class Simulation:
 
     @staticmethod
     def _learning_rate(agent: Bitzkey) -> float:
-        """How fast its brain learns: with its intellect, boosted further the cleverer it is, and a
-        predator's PREDATOR_LEARNING times as fast, an omnivore's with half that bonus."""
+        """How fast its brain learns: LEARNING_FLOOR at the least, and more with its intellect, boosted further the
+        cleverer it is; a predator's PREDATOR_LEARNING times as fast, an omnivore's with half that bonus."""
         sharpness = agent.intelligence
         hunter = {"predator": PREDATOR_LEARNING, "omnivore": 1 + (PREDATOR_LEARNING - 1) / 2}.get(agent.species, 1.0)
-        return LEARNING_RATE * sharpness * (1 + LEARNING_BOOST * sharpness) * hunter
+        return LEARNING_RATE * (LEARNING_FLOOR + sharpness * (1 + LEARNING_BOOST * sharpness)) * hunter
 
     def _learn(self, agent: Bitzkey, target: float, outcome: float, replay: bool = False) -> None:
         """Learn from its own last choice, by TD(lambda), so the choices before it share in what came of it; its

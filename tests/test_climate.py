@@ -742,3 +742,21 @@ class CalendarAndReportTests(unittest.TestCase):
             with patch("tools.Simulation.PARENTAL_INSTINCT", instinct):
                 return dict(brain_matrix(parent))["Fed and safe, its hungry infants about it"]["feed_young"]
         self.assertGreater(feeding(10.0), feeding(0.0) + 0.1)
+
+
+class LearningFloorTests(unittest.TestCase):
+    def test_even_the_dullest_animal_learns_at_the_learning_floor(self):
+        def lesson(floor):
+            with patch("tools.Simulation.LEARNING_FLOOR", floor):
+                simulation = world(turn=240)
+                grazer = simulation._add_agent(encode_dna("grazer", intellect=0), 20, 30)
+                simulation._add_agent(encode_dna("predator"), 90, 90)
+                senses, _, situation = simulation._sense(grazer)
+                grazer.last_senses, grazer.last_choice = list(senses), ACTIONS.index("eat")
+                grazer.last_comfort = simulation._comfort(grazer, situation)
+                grazer.last_wellbeing = simulation._wellbeing(grazer) - 0.5  # it came out better
+                before = grazer.brain.values(senses)[ACTIONS.index("eat")]
+                simulation._take_turn()
+                return grazer.brain.values(senses)[ACTIONS.index("eat")] - before
+        self.assertAlmostEqual(lesson(0.0), 0.0, places=12)
+        self.assertGreater(lesson(0.25), 0.001)
