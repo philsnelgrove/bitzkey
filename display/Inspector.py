@@ -9,10 +9,10 @@ from collections.abc import Callable
 import pygame as pg
 
 from display.Icons import draw_icon
-from display.Look import DOT_RADIUS_RANGE, dot_radius, draw_bitzkey
+from display.Look import genome_colour, DOT_RADIUS_RANGE, dot_radius, draw_bitzkey
 from display.Language import as_shown, tr
 from display.Ui import UI
-from tools.Genome import (BODY_TRAITS, MIND_TRAITS, SOCIAL_TRAITS, TEMPERATURES, body_word, decode_neurodivergence,
+from tools.Genome import (TRAIT_MAX, BODY_TRAITS, MIND_TRAITS, SOCIAL_TRAITS, TEMPERATURES, body_word, decode_neurodivergence,
                           mind_word, social_word)
 from tools.Simulation import Bitzkey
 
@@ -73,8 +73,15 @@ def draw_details(screen: pg.Surface, agent: Bitzkey, x: int, at: Callable[[float
     draw_icon(screen, agent.species, (x + width - UI(12), at(11)), UI(9), (220, 229, 211))
     _text(screen, f"#{agent.identifier:03d}  {agent.species.upper()}  {agent.terrain.upper()}  {'NOCTURNAL' if agent.nocturnal else 'DIURNAL'}",
           (x + UI(28), at(0)), (238, 238, 220), font)
-    _text(screen, f"DOT {mind_word(agent.dna):08X} RING {body_word(agent.dna):08X} SOCIAL {social_word(agent.dna):08X}",
-          (x, at(26)), (211, 219, 201), mono_small)
+    across = x  # its three colours as swatches, the hex beside each
+    for name, word in (("DOT", mind_word(agent.dna)), ("RING", body_word(agent.dna)), ("SOCIAL", social_word(agent.dna))):
+        swatch = UI(10)
+        pg.draw.rect(screen, genome_colour(word), (across, at(27), swatch, swatch))
+        pg.draw.rect(screen, (190, 190, 190), (across, at(27), swatch, swatch), 1)
+        across += swatch + UI(3)
+        label = f"{name} {word:08X}"
+        _text(screen, label, (across, at(26)), (211, 219, 201), mono_small)
+        across += mono_small.size(label)[0] + UI(5)
 
     # Temperament: the mind's traits on the left, the social background's on the right. Names are in
     # the language shown, and the numbers stand in columns after the longest of them.
@@ -94,10 +101,19 @@ def draw_details(screen: pg.Surface, agent: Bitzkey, x: int, at: Callable[[float
             born, now = agent.inborn[trait], agent.mind[trait]
             color = ((175, 192, 172) if not known or abs(now - born) < 0.25
                      else (131, 205, 143) if now > born else (238, 183, 110))
+            # A bar under the row: filled to now, a tick at birth, so the change shows at a glance
+            bar_width = numbers + digits + mono_small.size(" 0.0+")[0] - left
+            bar_y, thick = at(62 + index * 14) + UI(12), max(1, UI(2))
+            pg.draw.rect(screen, (58, 70, 62), (left, bar_y, bar_width, thick))
+            shown = now if known else born
+            pg.draw.rect(screen, color, (left, bar_y, int(bar_width * min(1.0, max(0.0, shown / TRAIT_MAX))), thick))
+            tick = left + int(bar_width * min(1.0, max(0.0, born / TRAIT_MAX)))
+            pg.draw.rect(screen, (230, 236, 226), (tick - 1, bar_y - UI(1), 2, max(2, UI(4))))
             _text(screen, trait, (left, at(62 + index * 14)), color, mono_small)
             _text(screen, f"{born:>2}", (numbers, at(62 + index * 14)), color, mono_small)
+            change = " " if not known or abs(now - born) < 0.25 else "+" if now > born else "-"  # not by colour alone
             if known:
-                _text(screen, f"{now:>5.1f}", (numbers + digits, at(62 + index * 14)), color, mono_small)
+                _text(screen, f"{now:>5.1f}{change}", (numbers + digits, at(62 + index * 14)), color, mono_small)
         if heading == "SOCIAL":
             _text(screen, "neurodiv.", (left, at(62 + len(traits) * 14)), (175, 192, 172), mono_small)
             _text(screen, f"{decode_neurodivergence(agent.dna):>2}", (numbers, at(62 + len(traits) * 14)), (175, 192, 172),
@@ -112,6 +128,10 @@ def draw_details(screen: pg.Surface, agent: Bitzkey, x: int, at: Callable[[float
         _text(screen, name, (cell, at(222 + row * 14)), (175, 192, 172), mono_small)
         _text(screen, number, (cell + width // 3 - UI(10) - mono_small.size(number)[0], at(222 + row * 14)), (175, 192, 172),
               mono_small)
+        if name != "burn":  # a bar under it on the traits' shared scale
+            bar_width, bar_y, thick = width // 3 - UI(10), at(222 + row * 14) + UI(12), max(1, UI(2))
+            pg.draw.rect(screen, (58, 70, 62), (cell, bar_y, bar_width, thick))
+            pg.draw.rect(screen, (175, 192, 172), (cell, bar_y, bar_width * agent.body[name] // TRAIT_MAX, thick))
     _draw_climate(screen, agent, x, at(280), width, here if known else None)
 
     if not known:

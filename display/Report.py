@@ -96,6 +96,14 @@ class Report:
             x = body.left
             for index, (cell, width) in enumerate(zip(cells, widths[len(cells)])):
                 words = index == 0 or (len(cells) == 5 and index >= 3)
+                if not heading and not words and "%" in cell:  # a share shaded by its size: a heatmap
+                    try:
+                        share = min(1.0, max(0.0, float(cell.strip().rstrip("*").rstrip("%")) / 100))
+                    except ValueError:
+                        share = None
+                    if share is not None:
+                        pg.draw.rect(screen, (30, round(40 + 48 * share), round(40 + 78 * share)),
+                                     (x - UI(2), y, width + UI(4), UI(LINE) - 1))
                 with AsShown():  # translated when the table was made
                     image = mono.render(cell, True, colour)
                 screen.blit(image, (x if words else x + width - image.get_width(), y))

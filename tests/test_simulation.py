@@ -374,6 +374,7 @@ class SimulationTests(unittest.TestCase):
     @patch("tools.Simulation.BREED_COOLDOWN", 1.0)  # the usual rest after breeding, as it may be set to
     @patch("tools.Simulation.GRAZER_BREEDING_COST", 1.0)  # a grazer's full cost, as these figures assume
     def test_fertile_parents_breed_cheaply_and_their_child_gets_the_energy(self):
+        self.simulation.body_mutation = 0  # the young's stomach as its parents', not by chance
         dna = encode_dna("grazer", fertility=7, libido=7)
         first = self.simulation._add_agent(dna, 5, 5)
         second = self.simulation._add_agent(dna, 5, 6)
@@ -552,6 +553,7 @@ class SimulationTests(unittest.TestCase):
 
     @patch("tools.Simulation.GRAZER_BREEDING_COST", 1.0)  # a grazer's full cost, as these figures assume
     def test_a_parent_gives_its_young_no_more_energy_than_it_has_left(self):
+        self.simulation.body_mutation = 0  # the young's stomach as its parents', not by chance
         dna = encode_dna("grazer", fertility=7)
         first = self.simulation._add_agent(dna, 5, 5)
         second = self.simulation._add_agent(dna, 5, 6)

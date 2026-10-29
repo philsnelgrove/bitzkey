@@ -58,6 +58,11 @@ class Ui:
         """Scale to the screen: as large as fits both its width and height, never below MIN_SCALE."""
         self.scale = max(MIN_SCALE, min(size[0] / DESIGN_SIZE[0], size[1] / DESIGN_SIZE[1]))
 
+    text_size = 1.0  # on top of the scale, for those who need larger text: 1, 1.25, 1.5 or 2 (F9)
+
+    def next_text_size(self) -> None:
+        self.text_size = 1.25 if self.text_size < 1.2 else 1.5 if self.text_size < 1.4 else 2.0 if self.text_size < 1.9 else 1.0
+
     def __call__(self, length: float) -> int:
         """A length from the 1200x820 design, in pixels at the current scale."""
         return round(length * self.scale)
@@ -65,7 +70,7 @@ class Ui:
     def font(self, name: str, size: int, bold: bool = False, code: str = "") -> Font:
         """A system font at `size` (design pixels), scaled; fonts are cached by their real size. In
         the chosen language's script, or in `code`'s when one is given."""
-        return self._open((name, max(6, round(size * self.scale)), bold, code or language()))
+        return self._open((name, max(6, round(size * self.scale * self.text_size)), bold, code or language()))
 
     def fitting(self, font: pg.font.Font, text: str, width: int) -> pg.font.Font:
         """The same font, smaller if it must be for the text (in the language shown) to fit `width`:

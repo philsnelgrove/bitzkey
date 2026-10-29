@@ -21,6 +21,7 @@ from display.Ui import UI, draw_label, fit_text as shortened
 from tools.Census import colour_order
 from display.Icons import draw_icon
 from display.Inspector import draw_tooltip
+from display.Look import genome_colour
 from tools.Genome import (BODY_TRAITS, MIND_TRAITS, SOCIAL_TRAITS, SPECIES, TEMPERAMENT, body_word, color_from_word,
                           decode_body, decode_climate, decode_temperament, mind_word, social_word)
 from tools import Simulation as world
@@ -37,8 +38,11 @@ MIN_VIEW = 10          # the fewest turns the graph zooms in to
 ZOOM_STEP = 0.8        # each wheel notch shows this share of the turns before it
 HEIGHT_ZOOM_MAX = 32.0  # the closest the graph zooms into its height, times the whole
 BACKGROUND = (30, 40, 40)
-PARTS = ("ring", "dot", "social")
-TITLES = {"ring": "RING / BODY", "dot": "DOT / MIND", "social": "SOCIAL BACKGROUND"}
+PARTS = ("ring", "dot", "social", "species")
+TITLES = {"ring": "RING / BODY", "dot": "DOT / MIND", "social": "SOCIAL BACKGROUND", "species": "SPECIES"}
+# The species' own colours, a colour-blind safe set (Okabe and Ito's), as words, as the C++ version's.
+SPECIES_WORDS = {name: (255 - r) << 24 | (255 - g) << 16 | (255 - b) << 8 for name, (r, g, b) in
+                 {"plant": (0, 158, 115), "grazer": (86, 180, 233), "omnivore": (230, 159, 0), "predator": (213, 94, 0)}.items()}
 # What a species' Bitzkeys are sorted by: their colour, or an inborn trait or climate gene, lowest at
 # the bottom (for the home temperature, hottest at the bottom).
 CLIMATE_SORTS = ("temperature", "heat tolerance", "cold tolerance")
@@ -57,12 +61,14 @@ class Bar:
 
 
 def word_of(dna: int, part: str) -> int:
-    """The genome's word for a part: the ring, the dot or the social background."""
+    """The genome's word for a part: the ring, the dot or the social background, or the species' colour."""
+    if part == "species":
+        return SPECIES_WORDS[decode_body(dna)["species"]]
     return body_word(dna) if part == "ring" else mind_word(dna) if part == "dot" else social_word(dna)
 
 
 def colour_of(dna: int, part: str) -> tuple[int, int, int]:
-    return color_from_word(word_of(dna, part))
+    return color_from_word(word_of(dna, part))[:3] if part == "species" else genome_colour(word_of(dna, part))  # already safe
 
 
 def faded(colour: tuple[int, int, int], amount: float) -> tuple[int, int, int]:

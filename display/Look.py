@@ -34,6 +34,22 @@ SELECTED = (25, 32, 32)    # the ring round the selected Bitzkey and those picke
 EXPORTING = (205, 120, 30)  # the ring round Bitzkeys on the export list
 
 
+
+# Colour-blind safe colours (F8): genome colours with the red-green differences a deuteranope or protanope loses moved
+# into lightness and blue-yellow, where they can be seen (a "daltonize" correction), as the C++ version's.
+COLOUR_BLIND_SAFE = False
+
+
+def genome_colour(word: int) -> tuple[int, int, int]:
+    """A genome word's colour, as shown: corrected for the colour-blind while COLOUR_BLIND_SAFE."""
+    r, g, b = color_from_word(word)[:3]
+    if COLOUR_BLIND_SAFE:
+        seen_r, seen_g, seen_b = 0.625 * r + 0.375 * g, 0.7 * r + 0.3 * g, 0.3 * g + 0.7 * b  # as a deuteranope sees it
+        lost_r, lost_g, lost_b = r - seen_r, g - seen_g, b - seen_b
+        g, b = g + 0.7 * lost_r + lost_g, b + 0.7 * lost_r + lost_b
+    return tuple(int(min(255.0, max(0.0, value)) + 0.5) for value in (r, g, b))
+
+
 def zone_colour(temperature: float) -> tuple[int, int, int]:
     """The world's grey tinted for a temperature, part way between two tints while the weather turns."""
     lower = min(int(temperature), len(ZONE_TINTS) - 1)
@@ -132,8 +148,8 @@ def bitzkey_layer(dna: int, radius: int, ring_width: int = RING_WIDTH, alive: bo
     face_radius, drop = outer - edge, max(1.0, outer * 0.14)
     reach = outer + math.ceil(drop) + 2
     layer = pg.Surface((2 * reach + 1, 2 * reach + 1), pg.SRCALPHA)
-    dot, ring = color_from_word(mind_word(dna)), color_from_word(body_word(dna))
-    social, outline = color_from_word(social_word(dna)), OUTLINE
+    dot, ring = genome_colour(mind_word(dna)), genome_colour(body_word(dna))
+    social, outline = genome_colour(social_word(dna)), OUTLINE
     if not alive:
         dot, ring, outline, social = (_scaled(colour, 1 / 3) for colour in (dot, ring, outline, social))
     icon = radius >= ICON_MIN_RADIUS
@@ -176,7 +192,7 @@ def draw_bitzkey(surface: pg.Surface, dna: int, point: tuple[int, int], radius: 
     if opacity <= 0:
         return
     shades = tuple(channel // LOOK_SHADES for word in (mind_word(dna), body_word(dna), social_word(dna))
-                   for channel in color_from_word(word)[:3])
+                   for channel in genome_colour(word)[:3])
     key = (decode_body(dna)["species"], shades, radius, ring_width, alive)
     layer = _chips.pop(key, None)  # taken out and put back, so the dict runs from least to most recently drawn
     if layer is None:

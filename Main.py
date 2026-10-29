@@ -10,6 +10,8 @@ from collections.abc import Sequence
 import numpy as np
 import pygame as pg
 
+import display.Look as Look
+
 from config.Globals import Config
 from display import Sound, Window
 from display.Dialog import Dialog
@@ -281,6 +283,12 @@ class BitzkeyApp:
                                 return "configure"
                         else:
                             self._ask_to_leave()
+                    elif event.key == pg.K_F8:
+                        Look.COLOUR_BLIND_SAFE = not Look.COLOUR_BLIND_SAFE  # colour-blind safe genome colours
+                    elif event.key == pg.K_F9:
+                        UI.next_text_size()  # larger text: 100, 125, 150, 200%
+                    elif event.key == pg.K_TAB and not self.show_census:
+                        self._step_selection(-1 if event.mod & pg.KMOD_SHIFT else 1)  # the keyboard's way through them
                     elif event.key == pg.K_F11:
                         self.screen = Window.toggle_fullscreen()
                     elif event.key == pg.K_SPACE:
@@ -781,6 +789,21 @@ class BitzkeyApp:
             return nearest.identifier
         return None
 
+    def _step_selection(self, way: int) -> None:
+        """The next living Bitzkey by identifier after the one selected, or before it, round to the first."""
+        identifiers = sorted(agent.identifier for agent in self.simulation.living())
+        if not identifiers:
+            return
+        if self.selected_id is None:
+            self._select(identifiers[0])
+            return
+        if way > 0:
+            following = [identifier for identifier in identifiers if identifier > self.selected_id]
+            self._select(following[0] if following else identifiers[0])
+        else:
+            before = [identifier for identifier in identifiers if identifier < self.selected_id]
+            self._select(before[-1] if before else identifiers[-1])
+
     def _select(self, identifier: int) -> None:
         self.selected_id = identifier
         self.graph.select({identifier})  # the map and the graph share one selection
@@ -1127,6 +1150,15 @@ class BitzkeyApp:
         night.fill(NIGHT)  # the night, a shadow over half the map's columns, wrapping round east to west
         for start in (self.simulation.night_start(), self.simulation.night_start() - self.simulation.width):
             surface.blit(night, (round(board.left + start * cell_width), board.top))
+        small, last_zone = UI.font("segoeui", 11), -1  # each climate band named where it starts, to read without colour
+        for y in range(self.height):
+            zone = min(len(HOMES) - 1, max(0, round(self.simulation.temperature(y))))
+            if zone == last_zone:
+                continue
+            last_zone = zone
+            top, left = max(round(board.top + y * cell_height), view.top) + UI(2), max(board.left, view.left) + UI(4)
+            surface.blit(small.render(HOMES[zone], True, (0, 0, 0)), (left + 1, top + 1))
+            surface.blit(small.render(HOMES[zone], True, (240, 244, 236)), (left, top))
 
     def _draw_world(self) -> None:
         if self.blind:  # neither map nor globe drawn, to spare the time it takes
@@ -1599,7 +1631,7 @@ class BitzkeyApp:
             self._footer_lines(self.message, left, room, (238, 183, 110))
             return
         self._footer_lines("SPACE  pause   RIGHT  step   WHEEL / Z  zoom   I  insights   B  report   "
-                           "G  graph   E  export   R  restart   F11  window   ESC  menu", left, room, (187, 199, 181))
+                           "G  graph   E  export   R  restart   TAB  next   F8  colour-blind   F9  text size   F11  window   ESC  menu", left, room, (187, 199, 181))
 
     def _footer_lines(self, text: str, left: int, width: int, color: tuple[int, int, int]) -> None:
         """A footer note or the keys, on one line if it fits, else on two, broken between groups of keys (or words),
