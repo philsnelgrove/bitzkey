@@ -3285,3 +3285,35 @@ class MemoryTests(unittest.TestCase):
         self.assertEqual([sensed[f"memory_{neuron}"] for neuron in range(1, 9)], grazer.held)
         again = world_from_bytes(world_bytes(world)).find_agent(grazer.identifier)
         self.assertEqual((again.held, again.past, again.last_wrote), (grazer.held, grazer.past, grazer.last_wrote))
+
+
+class MapTests(unittest.TestCase):
+    def test_an_animals_mental_map_remembers_each_place_by_season_points_to_the_best_and_forgets_the_longest_ago(self):
+        from tools.WorldFile import world_bytes, world_from_bytes
+        world = Simulation(width=60, height=60, population=0, seed=3)
+        grazer = world._add_agent(encode_dna("grazer"), 4, 4)
+        world._index_cells()
+        found = dict.fromkeys(SENSES, 0.0)
+        found.update(grass_here=1.0, climate_discomfort=0.5)
+        world._note_place(grazer, [found[name] for name in SENSES])
+        quarter = simulation_module.season(world.turn)
+        first = grazer.places[0]
+        self.assertEqual((first.column, first.row, first.seen[quarter], first.food[quarter], first.comfort[quarter]), (0, 0, True, 1.0, 0.5))
+        found["grass_here"] = 0.0
+        world._note_place(grazer, [found[name] for name in SENSES])  # again, finding none: by Map learning toward it
+        self.assertAlmostEqual(grazer.places[0].food[quarter], 1 - simulation_module.MAP_LEARNING)
+        grazer.x, grazer.y = 30, 4  # a patch with no food, far east of the first
+        found["threat_closeness"] = 0.8  # and a hunter close
+        world._note_place(grazer, [found[name] for name in SENSES])
+        senses = dict(zip(SENSES, world._sense(grazer)[0]))
+        self.assertAlmostEqual(senses["map_food"], 1 - simulation_module.MAP_LEARNING)
+        self.assertLess(senses["map_food_east"], 0)  # the food lies back west
+        self.assertAlmostEqual(senses["map_danger"], 0.8)
+        self.assertLess(abs(senses["map_danger_east"]), 0.1)  # the danger is here
+        self.assertEqual(senses["map_comfort"], 0.0)  # it has known no place next season
+        with patch.object(simulation_module, "MAP_PLACES", 2):
+            grazer.x = 50
+            world._note_place(grazer, [found[name] for name in SENSES])  # a third place: the one longest ago is forgotten
+        self.assertEqual(len(grazer.places), 2)
+        self.assertNotIn(0, [place.column for place in grazer.places])
+        self.assertEqual(world_from_bytes(world_bytes(world)).find_agent(grazer.identifier).places, grazer.places)

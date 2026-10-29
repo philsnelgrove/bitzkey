@@ -232,6 +232,11 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "call": agent.call, "call_turn": agent.call_turn, "last_call": agent.last_call,
         "held": [float(held) for held in agent.held], "last_wrote": bool(agent.last_wrote),
         "past": [numbers.senses(senses) for senses in agent.past],
+        # each [column, row, last, then for each season: seen, food, danger, comfort]
+        "places": [[place.column, place.row, place.last,
+                    *(value for quarter in range(4) for value in (place.seen[quarter], float(place.food[quarter]),
+                                                                  float(place.danger[quarter]), float(place.comfort[quarter])))]
+                   for place in agent.places],
     }
 
 
@@ -276,6 +281,12 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
         agent.held = [float(held) for held in record["held"]]
         agent.last_wrote = bool(record["last_wrote"])
         agent.past = [numbers.senses(senses) for senses in record["past"]]
+    agent.places = [world.MapPlace(int(entry[0]), int(entry[1]), int(entry[2]),  # none, in a world saved before the map
+                                   [bool(entry[3 + 4 * quarter]) for quarter in range(4)],
+                                   [float(entry[4 + 4 * quarter]) for quarter in range(4)],
+                                   [float(entry[5 + 4 * quarter]) for quarter in range(4)],
+                                   [float(entry[6 + 4 * quarter]) for quarter in range(4)])
+                    for entry in record.get("places", [])]
     agent.odds = {str(action): float(chance) for action, chance in record["odds"].items() if action in ACTIONS}
     return agent
 

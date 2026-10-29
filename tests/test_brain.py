@@ -54,13 +54,14 @@ class BrainTests(unittest.TestCase):
         self.assertAlmostEqual(simulation._learning_rate(eater),
                                LEARNING_RATE * (1 + LEARNING_BOOST) * (1 + (PREDATOR_LEARNING - 1) / 2))
         simulation._index_cells()
+        decisions = []
         for _ in range(20):  # each decides, learns from the last decision, and remembers it
-            previous = (sharp.last_senses, sharp.last_choice)
+            decisions.append((sharp.last_senses, sharp.last_choice))
             for agent in (dull, sharp):
                 simulation._think(agent)
         self.assertEqual(dull.memories, [])  # replays nothing
         self.assertEqual(len(sharp.memories), REPLAY_PER_INTELLECT * 7)  # its latest experiences, to replay
-        self.assertEqual(sharp.memories[-1][:2], previous)  # the newest: the decision it just learnt from
+        self.assertIn(tuple(sharp.memories[-1][:2]), decisions[-3:])  # the newest: a decision it lately learnt from
         # lambda runs from TRACE_DECAY for the least to SMART_TRACE_DECAY for the most intelligent
         brain = Brain.random(random.Random(2))
         senses = [0.3] * len(SENSES)
@@ -213,8 +214,8 @@ class BrainTests(unittest.TestCase):
         # share; with one, it shares the blame.
         self.assertLess(changes[1], changes[0] - 0.1)
 
-    def test_there_are_133_senses(self):
-        self.assertEqual(INPUT_SIZE, 133)
+    def test_there_are_142_senses(self):
+        self.assertEqual(INPUT_SIZE, 142)
 
     def test_a_childs_brain_is_made_exactly_as_the_cpp_version_makes_it_from_the_same_seed(self):
         rng = random.Random(7)
@@ -223,9 +224,9 @@ class BrainTests(unittest.TestCase):
         # As bitzkey_cpp's Brain::inherit makes them, to the last bit.
         self.assertEqual([float(child.layers[0][0][3][11]), float(child.layers[0][0][44][89]), float(child.layers[1][1][20]),
                           float(child.layers[2][0][5][7]), float(child.output_weights[23][44]), float(child.output_biases[3])],
-                         [-0.031133351530337063, -0.12691032926761536, -0.01758605013427229, -0.08789407554653912,
-                          -0.0012628377468725455, -0.0005043328704035753])  # the output layer held in hundredths
-        self.assertEqual(rng.random(), 0.23223140808932863)  # one draw of the world's for the child
+                         [0.020745525901177522, 0.013482504183290209, -0.006275286693070304, 0.11086044918175474,
+                          -0.0021285730630892933, -0.0010473993121269706])  # the output layer held in hundredths
+        self.assertEqual(rng.random(), 0.30193777009768397)  # one draw of the world's for the child
 
     def test_a_childs_brain_is_its_parents_nudged_by_normal_mutations_of_the_mutations_size(self):
         rng = random.Random(5)

@@ -559,8 +559,11 @@ neural network, and that brain chooses everything it does. Each turn it senses:
 - the calls it heard last turn (see Calls below): for each of the five, how loud
   the loudest caller was, which way it lay, and whether it was of its own species
 - what its eight memory neurons held (see Memory below)
+- its mental map (see The mental map below): which way, and how good, the best place it
+  remembers for food this season lies, the most dangerous, and where it was most
+  comfortable in the season to come
 
-That is 133 senses in all. Its brain has a hidden layer for each point of its
+That is 142 senses in all. Its brain has a hidden layer for each point of its
 inborn intellect, at least one and up to four, each of 38 neurons; beyond four,
 each point of intellect adds five neurons to every layer instead. So the dullest
 think with one layer of 38 neurons, and the brightest with four layers of 53.
@@ -601,6 +604,17 @@ lesson's error moves with what the memory held at the choice is carried back to 
 that wrote it, one choice back by default (Memory steps, 0 to 4; at 0 a memory is only as
 its brain was born), as fast as the brain learns times Memory learning. Asleep or spent, its
 brain unasked, it keeps what it held; the young begin with nothing held.
+
+The mental map: an animal remembers the places it has been, each a patch of eight by eight
+squares, up to 16 of them (Map places; 0 for none), forgetting the one it was in longest ago
+for a new one. For each place and each season it remembers how much food it found (grass and
+plants for a grazer, prey, kills and carrion for a predator, either for an omnivore), how
+dangerous it was (a hunter close, or a blow), and how comfortable the weather was; each visit
+moves what it remembers toward what it finds by a fifth (Map learning), the first setting it.
+It senses which way the best place it remembers for food this season lies, and how good, the
+same of the most dangerous, and which way the place it was most comfortable in next season
+lies: so it may learn to set off before the weather turns, for where it fared well last year.
+Among places as good it heeds the nearer. The young begin with no map.
 
 Calls: alongside its action, every animal awake keeps silent or calls, by a second
 choice its brain makes as it makes the first, valuing each as it values its actions

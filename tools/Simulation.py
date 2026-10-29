@@ -321,6 +321,29 @@ CALL_COST = 0.2
 # times the brain's learning rate.
 MEMORY_STEPS = 1
 MEMORY_LEARNING = 1.0
+# The mental map: an animal remembers up to Map places of the MAP_PATCH-square patches it has been in (none at 0), the
+# one it was last in longest ago forgotten for a new one; each visit moves what it remembers of a place in that season
+# toward what it finds there by Map learning (the first sets it). Among places as good, it heeds the nearer, by
+# MAP_NEARNESS a patch away. As the C++ version's.
+MAP_PATCH = 8
+MAP_PLACES = 16
+MAP_LEARNING = 0.2
+MAP_NEARNESS = 0.01
+
+
+@dataclass
+class MapPlace:
+    """A patch of the mental map: which (its column and row of patches), the turn it was last there, and, for each
+    season, whether it has been there then and what it found: food (grass and plants for a grazer, prey, kills and
+    carrion for a predator, either for an omnivore, by how close), danger (a hunter close, or a blow), and comfort (the
+    weather's), 0..1."""
+    column: int
+    row: int
+    last: int
+    seen: list[bool] = field(default_factory=lambda: [False] * 4)
+    food: list[float] = field(default_factory=lambda: [0.0] * 4)
+    danger: list[float] = field(default_factory=lambda: [0.0] * 4)
+    comfort: list[float] = field(default_factory=lambda: [0.0] * 4)
 MAX_CALL_REACH = 20  # the most Call reach may be
 SIGHT_PER_TRAIT = 3  # each step of the sight trait lets an animal see this many cells further
 PREDATOR_SIGHT = 3  # predators see prey this many cells further than they otherwise see, up to MAX_PREDATOR_SIGHT
@@ -799,6 +822,7 @@ class Bitzkey:
     # no more than Memory steps: what learning back in time goes over. Whether its memory was written at its last choice.
     past: list[list[float]] = field(default_factory=list)
     last_wrote: bool = False
+    places: list[MapPlace] = field(default_factory=list)  # its mental map, in the order it first came to each place
     seen_success: float = 0.0  # a herd-mate's success it saw, fading turn by turn
     seen_failure: float = 0.0  # a herd-mate's failure it saw, the same
     weathered: float = 0.0  # turns endured out of its temperature, one regained each turn back in it; the weather harms it once past its grace
@@ -1340,6 +1364,57 @@ class Simulation:
     def night(self, x: int) -> bool:
         """Whether a column lies in the night now: half the map, moving west a whole turn round each day."""
         return (x - self.night_start()) % self.width < self.width // 2
+
+    def _map_senses(self, agent: Bitzkey) -> dict[str, float]:
+        """Its mental map: the best place it remembers for food this season, the worst for danger, the best for comfort
+        next season, as the C++ version."""
+        quarter = season(self.turn)
+        found: dict[str, float] = {}
+        for kind, in_season in (("food", quarter), ("danger", quarter), ("comfort", (quarter + 1) % 4)):
+            best = None
+            for place in agent.places:
+                if not place.seen[in_season]:
+                    continue
+                east = (place.column * MAP_PATCH + MAP_PATCH // 2 - agent.x + self.width // 2) % self.width - self.width // 2
+                south = place.row * MAP_PATCH + MAP_PATCH // 2 - agent.y
+                score = getattr(place, kind)[in_season] - MAP_NEARNESS * (abs(east) + abs(south)) / MAP_PATCH
+                if best is None or score > best[0]:
+                    best = (score, place, east, south)
+            if best is not None:
+                _, place, east, south = best
+                found[f"map_{kind}"] = getattr(place, kind)[in_season]
+                found[f"map_{kind}_east"] = max(-1.0, min(1.0, east / (4.0 * MAP_PATCH)))
+                found[f"map_{kind}_south"] = max(-1.0, min(1.0, south / (4.0 * MAP_PATCH)))
+        return found
+
+    def _note_place(self, agent: Bitzkey, senses: Sequence[float]) -> None:
+        """What an animal finds where it stands, as it senses it, noted on its mental map."""
+        places = agent.places
+        while len(places) > max(0, MAP_PLACES):  # fewer held since: the longest ago let go
+            places.remove(min(places, key=lambda place: place.last))
+        if MAP_PLACES <= 0 or not (0 <= agent.x < self.width and 0 <= agent.y < self.height):
+            return
+        column, row = agent.x // MAP_PATCH, agent.y // MAP_PATCH
+        place = next((place for place in places if (place.column, place.row) == (column, row)), None)
+        if place is None:
+            if len(places) >= MAP_PLACES:
+                places.remove(min(places, key=lambda place: place.last))
+            place = MapPlace(column, row, self.turn)
+            places.append(place)
+        sense = dict(zip(SENSES, senses))
+        food = 0.0
+        if agent.species != "predator":
+            food = max(sense["grass_here"], sense["grass_closeness"], sense["plant_closeness"])
+        if agent.species != "grazer":
+            food = max(food, sense["prey_closeness"], sense["kill_closeness"], sense["carrion_closeness"])
+        found = {"food": food, "danger": max(sense["threat_closeness"], sense["assailant_near"]),
+                 "comfort": 1 - sense["climate_discomfort"]}
+        quarter = season(self.turn)
+        for kind, value in found.items():
+            kept = getattr(place, kind)
+            kept[quarter] = value if not place.seen[quarter] else kept[quarter] + MAP_LEARNING * (value - kept[quarter])
+        place.seen[quarter] = True
+        place.last = self.turn
 
     def _heard(self, agent: Bitzkey) -> dict[str, float]:
         """The calls made about it last turn, by any kind, each as its loudest caller made it, as the C++ version."""
@@ -1935,6 +2010,7 @@ class Simulation:
         plans = []
         for agent in agents:  # all sense the world as it stands
             senses, options, situation = self._sense(agent, surveyed=True)
+            self._note_place(agent, senses)
             if agent.last_action in TRAVELLED:
                 if situation["threat"]:
                     self._experience(agent, "ambushed")
@@ -2251,6 +2327,7 @@ class Simulation:
             **self._parent_senses(agent, sight),
             **self._heard(agent),
             **{f"memory_{neuron + 1}": held for neuron, held in enumerate(agent.held)},
+            **self._map_senses(agent),
             **{trait: agent.feeling(trait) for trait in TEMPERAMENT},
             **agent.genes,
         )

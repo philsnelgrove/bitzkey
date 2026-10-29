@@ -104,6 +104,10 @@ SENSES = (
     # to 1, west to east and north to south; and whether it was of its own species, 1 or 0. All 0 for one not heard.
     *(f"heard_call_{call}{part}" for call in range(1, 6) for part in ("", "_east", "_south", "_kin")),
     *(f"memory_{neuron}" for neuron in range(1, 9)),  # what its memory neurons held, -1..1 (see Memory)
+    # Its mental map (see Simulation's MapPlace): of the places it remembers, for this season, how good the best for food
+    # was, 0..1, and which way it lies, -1 to 1, west to east and north to south, the nearest first among equals; the
+    # same of the most dangerous; and of where it was most comfortable in the season to come.
+    *(f"map_{kind}{part}" for kind in ("food", "danger", "comfort") for part in ("", "_east", "_south")),
 ) + TEMPERAMENT + (    # then its current temperament, mind and social traits, each 0..7 scaled to 0..1
     *(f"inborn_{trait}" for trait in TEMPERAMENT),        # its dot's and social background's traits, as born, 0..1
     *BODY_TRAITS,                                         # its ring's traits, 0..1 (species 0 plant to 1 predator)
@@ -119,7 +123,8 @@ MEMORY_SENSE = SENSES.index("memory_1")  # the first sense of what the memory he
 # version's read_sense.
 SIGNED_SENSES = frozenset(("latitude", "warmth", "warmth_north", "warmth_south", "home_direction", "parent_east", "parent_south",
                            *(f"heard_call_{call}_{way}" for call in range(1, 6) for way in ("east", "south")),
-                           *(f"memory_{neuron}" for neuron in range(1, 9))))
+                           *(f"memory_{neuron}" for neuron in range(1, 9)),
+                           *(f"map_{kind}_{way}" for kind in ("food", "danger", "comfort") for way in ("east", "south"))))
 _READ_SCALE = np.array([1.0 if name in SIGNED_SENSES else 2.0 for name in SENSES])
 _READ_SHIFT = np.array([0.0 if name in SIGNED_SENSES else -1.0 for name in SENSES])
 
