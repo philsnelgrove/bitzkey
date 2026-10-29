@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING
 
-from tools.Brain import ACTIONS, choice_odds, make_senses
+from tools.Brain import ACTIONS, SENSES, choice_odds, make_senses
 from tools.Genome import BODY_TRAITS, TEMPERAMENT
 
 if TYPE_CHECKING:
@@ -207,7 +207,7 @@ def brain_report(turn: int, animals: Iterable[Bitzkey], insights: Insights) -> s
                 continue
             senses = make_senses(**situation, **awake(animal), **{trait: animal.feeling(trait) for trait in TEMPERAMENT},
                                  **animal.genes)
-            odds = choice_odds(animal.brain.values(senses), options)
+            odds = choice_odds(_as_chosen(animal, senses, options), options)
             named = {ACTIONS[option]: chance for option, chance in odds.items()}
             for group in _groups(animal.species, animal.profile):
                 per_group.setdefault(group, []).append(named)
@@ -387,6 +387,14 @@ def death_report_lines(deaths, word=None) -> list[str]:
     return lines
 
 
+def _as_chosen(animal: Bitzkey, senses: list[float], options: list[int]) -> list[float]:
+    """What it values its options at as it chooses: its brain's values and its instincts, its hunger from the situation's
+    and its young, if about it, half hungry. As the C++ version's."""
+    from tools.Simulation import add_instincts  # not at the top: the simulation reads these reports
+    return add_instincts(animal, animal.brain.values(senses), options, senses[SENSES.index("hunger")] * 100,
+                         50.0 if senses[SENSES.index("young_near")] > 0 else 0.0)
+
+
 def brain_matrix(animal: Bitzkey) -> list[tuple[str, dict[str, float]]]:
     """The animal's chance of choosing each action open to it, in each standard situation its species can meet,
     with its own temperament."""
@@ -395,7 +403,8 @@ def brain_matrix(animal: Bitzkey) -> list[tuple[str, dict[str, float]]]:
         if animal.species not in species_list:
             continue
         senses = make_senses(**situation, **awake(animal), **{trait: animal.feeling(trait) for trait in TEMPERAMENT}, **animal.genes)
-        odds = choice_odds(animal.brain.values(senses), [ACTIONS.index(action) for action in actions])
+        options = [ACTIONS.index(action) for action in actions]
+        odds = choice_odds(_as_chosen(animal, senses, options), options)
         rows.append((title, {ACTIONS[option]: chance for option, chance in odds.items()}))
     return rows
 

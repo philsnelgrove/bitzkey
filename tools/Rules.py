@@ -40,7 +40,7 @@ class Rule:
         return int(round(value)) if self.integer else float(value)
 
 
-_MODULES = {"TEMPERATURE": brain, "MUTATION": brain, "TRACE_DECAY": brain, "SMART_TRACE_DECAY": brain,
+_MODULES = {"TEMPERATURE": brain, "LESSON_LIMIT": brain, "MUTATION": brain, "TRACE_DECAY": brain, "SMART_TRACE_DECAY": brain,
             "HEADING_RELUCTANCE": brain, "GRAPH_TURNS": census}
 
 # (key, label, hint, minimum, maximum, step) by group. A step that is an int makes a whole-number rule.
@@ -242,6 +242,8 @@ _TABLE: dict[str, list[tuple]] = {
         ("RESTLESS_CURIOSITY", "Restless curiosity", "the chance, times a half and its curiosity, that an animal whose brain "
          "chose to rest (not made to) does any of its other options instead; none in peril (a hunter or threat near, struck, "
          "or starving)", 0.0, 1.0, 0.05),
+        ("LESSON_LIMIT", "Lesson limit", "the most one lesson's error counts for: higher, and a rare but large surprise teaches "
+         "faster, but learning runs jumpier", 0.5, 20.0, 0.5),
         ("TEMPERATURE", "Choice temperature", "how loosely a brain picks among its options", 0.01, 5.0, 0.05),
         ("MUTATION", "Brain mutation", "how much a newborn's brain varies from its parents'", 0.0, 1.0, 0.01),
         ("HEADING_RELUCTANCE", "Heading reluctance", "how much less a new brain values setting off in a direction",

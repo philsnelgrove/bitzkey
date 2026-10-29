@@ -540,6 +540,11 @@ def year(turn: int) -> int:
     return turn // YEAR_LENGTH + 1
 
 
+def month(turn: int) -> int:
+    """The month of its year a turn falls in, 1 to 12."""
+    return turn % YEAR_LENGTH * 12 // YEAR_LENGTH + 1
+
+
 def zone_temperature(y: int, height: int) -> int:
     """A row's temperature outside the winters: cold in the arctic, hot on the equator, medium
     between."""
@@ -1144,6 +1149,30 @@ class Death(NamedTuple):
     killer_species: str | None = None
     activity: str | None = None
     age_days: int = -1  # how many days it lived; -1 unknown
+
+
+def add_instincts(agent: Bitzkey, valued: list[float], options: list[int], hunger: float, hungriest_young: float) -> list[float]:
+    """Its instincts, on top of what its brain values its `options` at: to hunt and feast, the mating call, a scavenger's
+    craving, loyalty to its herd, an infant's to its kind, and a parent's to feed its young (the hungriest that hungry).
+    As the C++ version's."""
+    valued = list(valued)
+    if agent.species == "predator":  # the instinct to hunt, on top of what its brain has learnt
+        urge = HUNTING_INSTINCT * min(1.0, hunger / 100)
+        valued = [value + urge if action in (HUNT, ATTACK) else value for action, value in enumerate(valued)]
+        valued[FEAST] += BLOODLUST  # bloodlust: a fresh kill in sight is hard to pass by
+    call = MATING_CALL if agent.species == "predator" else OMNIVORE_MATING_CALL if agent.species == "omnivore" else 0.0
+    if call and agent.can_breed:  # the mating call: to breed if it can, else to court a mate it seeks
+        valued[BREED if BREED in options else COURT] += call
+    scavenger = agent.scavenger
+    valued[SCAVENGE] += CARRION_CRAVING * scavenger  # a carrion-eater's craving
+    valued[HUNT] -= CARRION_AVERSION * scavenger  # and its aversion to killing for itself
+    valued[ATTACK] -= CARRION_AVERSION * scavenger
+    valued[HERD] += LOYALTY_PULL * agent.feeling("loyalty")  # loyalty: keeping to its herd
+    if agent.infant:  # an infant keeps close to its kind
+        valued[HERD] += INFANT_HERDING
+    if FEED_YOUNG in options:  # the instinct to feed its hungry young
+        valued[FEED_YOUNG] += PARENTAL_INSTINCT * (0.5 + agent.feeling("empathy")) * hungriest_young / 100
+    return valued
 
 
 class Simulation:
@@ -1916,23 +1945,8 @@ class Simulation:
             elif (SLEEP and self.resting_time(agent) and not agent.aloft_at_sea and not situation.get("panic")
                   and not situation.get("frozen")):  # its night: it rests, unless startled awake by a hunter or a blow
                 options = [ACTIONS.index("rest")] + [option for option in options if ACTIONS[option] in ("defend", "flee")]
-            if agent.species == "predator":  # the instinct to hunt, on top of what its brain has learnt
-                urge = HUNTING_INSTINCT * min(1.0, agent.hunger / 100)
-                valued = [value + urge if action in (HUNT, ATTACK) else value for action, value in enumerate(valued)]
-                valued[FEAST] += BLOODLUST  # bloodlust: a fresh kill in sight is hard to pass by
-            call = MATING_CALL if agent.species == "predator" else OMNIVORE_MATING_CALL if agent.species == "omnivore" else 0.0
-            if call and agent.can_breed:  # the mating call: to breed if it can, else to court a mate it seeks
-                valued[BREED if BREED in options else COURT] += call
-            scavenger = agent.scavenger
-            valued[SCAVENGE] += CARRION_CRAVING * scavenger  # a carrion-eater's craving
-            valued[HUNT] -= CARRION_AVERSION * scavenger  # and its aversion to killing for itself
-            valued[ATTACK] -= CARRION_AVERSION * scavenger
-            valued[HERD] += LOYALTY_PULL * agent.feeling("loyalty")  # loyalty: keeping to its herd
-            if agent.infant:  # an infant keeps close to its kind
-                valued[HERD] += INFANT_HERDING
-            if FEED_YOUNG in options:  # the instinct to feed its hungry young
-                hungriest = max((min(100.0, child.hunger) for child in situation.get("young", ())), default=0.0)
-                valued[FEED_YOUNG] += PARENTAL_INSTINCT * (0.5 + agent.feeling("empathy")) * hungriest / 100
+            hungriest = max((min(100.0, child.hunger) for child in situation.get("young", ())), default=0.0)  # of its infants about it
+            valued = add_instincts(agent, valued, options, agent.hunger, hungriest)
             odds = choice_odds(valued, options)
             roll = self.random.random()
             explore = self.random.random()

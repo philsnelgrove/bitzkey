@@ -103,6 +103,7 @@ MAX_DEPTH = 4      # hidden layers: one for each point of inborn intellect, at l
 BASE_WIDTH = 38    # neurons in each hidden layer, up to an intellect of MAX_DEPTH
 WIDTH_STEP = 5     # neurons more in each layer for each point of intellect beyond MAX_DEPTH
 MAX_WIDTH = BASE_WIDTH + WIDTH_STEP * (TRAIT_MAX - MAX_DEPTH)
+LESSON_LIMIT = 5.0  # the most one lesson's error counts for, so a rare but large surprise teaches, but no lesson runs wild
 TEMPERATURE = 0.5  # loose enough that an action valued a little below the best is still tried
 MUTATION = 0.0
 TRACE_DECAY = 0.7  # lambda: how much of each earlier choice's credit carries on to the next, beside the discount
@@ -397,7 +398,7 @@ class Brain:
         activations = self._activations(inputs)
         top = activations[-1]
         value = float((self.output_weights[action] * top).sum() + self.output_biases[action]) / VALUE_SCALE
-        error = max(-1.0, min(1.0, value - target))
+        error = max(-LESSON_LIMIT, min(LESSON_LIMIT, value - target))
         gradient = error * self.output_weights[action]
         output_step = learning_rate * error * VALUE_SCALE  # the output layer moves the whole value as it would
         self.output_weights[action] -= output_step * top
@@ -428,7 +429,7 @@ class Brain:
         activations = self._activations(inputs)
         top = activations[-1]
         value = float((self.output_weights[action] * top).sum() + self.output_biases[action]) / VALUE_SCALE
-        error = max(-1.0, min(1.0, value - target))
+        error = max(-LESSON_LIMIT, min(LESSON_LIMIT, value - target))
         output_weights *= decay
         output_weights[action] += VALUE_SCALE * top  # gathering in hundredths, so it moves the whole value as it would
         output_biases *= decay
@@ -579,7 +580,7 @@ class BrainBatch:
         top = activations[-1]
         chosen = self.output_weights[self.rows, actions]
         errors = np.clip((np.einsum("bi,bi->b", chosen, top) + self.output_biases[self.rows, actions]) / VALUE_SCALE - targets,
-                         -1.0, 1.0)
+                         -LESSON_LIMIT, LESSON_LIMIT)
         gradient = errors[:, None] * chosen
         output_steps = rates * errors * VALUE_SCALE  # the output layer moves the whole value as it would
         self.output_weights[self.rows, actions] -= output_steps[:, None] * top
@@ -611,7 +612,7 @@ class BrainBatch:
         top = activations[-1]
         chosen = self.output_weights[self.rows, actions]
         errors = np.clip((np.einsum("bi,bi->b", chosen, top) + self.output_biases[self.rows, actions]) / VALUE_SCALE - targets,
-                         -1.0, 1.0)
+                         -LESSON_LIMIT, LESSON_LIMIT)
         output_weights *= decay[:, None, None]
         output_weights[self.rows, actions] += (adding * VALUE_SCALE)[:, None] * top  # gathering in hundredths
         output_biases *= decay[:, None]

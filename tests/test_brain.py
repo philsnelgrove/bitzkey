@@ -372,3 +372,17 @@ class ValueScaleTests(unittest.TestCase):
         for mine, theirs in zip(Brain.from_record(brain.to_record()).values(senses), before, strict=True):
             self.assertAlmostEqual(mine, theirs, places=3)  # rounded for export
         self.assertLess(abs(brain.output_biases[ACTIONS.index("eat")]), 0.01)  # held small
+
+
+class LessonLimitTests(unittest.TestCase):
+    def test_a_lessons_error_counts_for_no_more_than_the_lesson_limit(self):
+        start = Brain.random(random.Random(6), 1, BASE_WIDTH)
+        senses = [0.0] * len(SENSES)
+
+        def moved(limit):
+            with patch("tools.Brain.LESSON_LIMIT", limit):
+                brain = start.copy()
+                before = brain.values(senses)[ACTIONS.index("eat")]
+                brain.learn(senses, ACTIONS.index("eat"), before + 20, 0.01)  # a surprise of 20
+                return brain.values(senses)[ACTIONS.index("eat")] - before
+        self.assertAlmostEqual(moved(5.0), 5 * moved(1.0), delta=0.02 * 5 * moved(1.0))

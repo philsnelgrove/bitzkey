@@ -726,3 +726,19 @@ class ExplorationTests(unittest.TestCase):
             return grazer.brain.values(senses)[ACTIONS.index("flee")] - before
         self.assertGreater(lesson(True), 0.001)
         self.assertAlmostEqual(lesson(False), 0.0, places=12)
+
+
+class CalendarAndReportTests(unittest.TestCase):
+    def test_a_turns_month_runs_1_to_12_through_its_year(self):
+        length = simulation_module.YEAR_LENGTH
+        self.assertEqual([simulation_module.month(turn) for turn in (0, length // 12, length - 1, length)], [1, 2, 12, 1])
+
+    def test_the_brain_report_shows_choices_as_they_are_made_instincts_and_all(self):
+        from tools.Insights import brain_matrix
+        simulation = world(turn=240)
+        parent = simulation._add_agent(encode_dna("grazer"), 20, 30)
+
+        def feeding(instinct):
+            with patch("tools.Simulation.PARENTAL_INSTINCT", instinct):
+                return dict(brain_matrix(parent))["Fed and safe, its hungry infants about it"]["feed_young"]
+        self.assertGreater(feeding(10.0), feeding(0.0) + 0.1)

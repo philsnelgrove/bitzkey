@@ -33,7 +33,7 @@ from tools.Genome import TEMPERAMENT, TRAIT_MAX, decode_climate
 from tools.Insights import ANIMALS, brain_matrix_lines, brain_report, death_report_lines
 from tools import Catalog, Rules
 from tools import Simulation as world
-from tools.Simulation import DEPLOY_GROUP, SEASONS, SPECIES, Bitzkey, Simulation, season, year
+from tools.Simulation import DEPLOY_GROUP, SEASONS, SPECIES, Bitzkey, Simulation, month, season, year
 from tools.WorldFile import WORLD_SUFFIX, save_world
 
 REPORT_DIR = Config.APP_DIR / "reports"
@@ -1256,7 +1256,7 @@ class BitzkeyApp:
         self._text(f"{len(self.simulation.living)} ALIVE    {self.simulation.deaths} LOST",
                    (x, UI(108)), (157, 177, 159), self.small)
         turn = self.simulation.turn
-        label = self.font.render(f"YEAR {year(turn)}", True, (232, 236, 219))
+        label = self.font.render(f"MONTH {month(turn)}, YEAR {year(turn)}", True, (232, 236, 219))
         self.screen.blit(label, (x + width - label.get_width(), UI(84)))
         label = self.small.render(SEASONS[season(turn)].upper(), True,
                                   (140, 185, 230) if season(turn) % 2 else (157, 177, 159))
