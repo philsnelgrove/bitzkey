@@ -1,4 +1,4 @@
-# Builds dist\Bitzkey.exe: a single-file Windows executable with no console window.
+# Builds dist\Bitzkey.exe and dist\BitzkeyReports.exe: single-file Windows executables with no console window.
 # Run from anywhere:  .\build.ps1
 # It uses the project's .venv Python when there is one, otherwise the python on PATH.
 Set-Location $PSScriptRoot
@@ -12,4 +12,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $python -m PyInstaller --noconfirm --clean --onefile --windowed --name Bitzkey --add-data "i18n;i18n" Main.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Host "Built $PSScriptRoot\dist\Bitzkey.exe"
+& $python -m PyInstaller --noconfirm --clean --onefile --windowed --name BitzkeyReports --add-data "i18n;i18n" Reports.py
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+Write-Host "Built $PSScriptRoot\dist\Bitzkey.exe and $PSScriptRoot\dist\BitzkeyReports.exe"

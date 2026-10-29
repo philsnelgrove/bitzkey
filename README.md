@@ -165,13 +165,34 @@ Bitzkeys wait on the export list. R restarts the same world.
 ```
 
 This installs PyInstaller (from `requirements-build.txt`) and builds
-`dist\Bitzkey.exe`, a single file that runs on Windows without Python and opens
+`dist\Bitzkey.exe`, and the reporting panel as `dist\BitzkeyReports.exe`, each a single file that runs on Windows without Python and opens
 no console window. The script uses the project's `.venv` when there is one. If
 Windows blocks scripts, run
 `powershell -ExecutionPolicy Bypass -File .\build.ps1` instead.
 
 The executable saves `reports\` and `exports\` beside itself, so keep it in a
 folder you can write to. The first launch takes a few seconds while it unpacks.
+
+## Bitzkey Reports
+
+```powershell
+python Reports.py [WORLD.bzworld | --probe PORT] [--fullscreen] [--text FILE]
+```
+
+`Reports.py`, built as `dist\BitzkeyReports.exe`, reports on a whole world: from a save
+(OPEN SAVE, or drop a `.bzworld` on its window; saves from this version and the C++ one alike)
+or from a running C++ world's probe (type its port, or the daemon's `host:port`, and CONNECT).
+Its tabs: a summary of what stands out (a species died out, crashing or falling fast, hungry or
+in poor health, one cause taking most of a species' deaths, predators turning on their own kind,
+brains running away or jammed, herds away from home); population over the run, charted; their
+condition; deaths by cause, lately and since the start, and who killed whom; their brains (how
+far their values run, how many neurons have jammed, and how often each action is taken when it is
+open); herds and migration (how many herds are away from their home temperature, and of those
+that moved, how many moved toward it, from a running world's second look); the climate and grass
+band by band with the animals in each; the rules and settings; and the brain and death reports.
+REFRESH reads a running world again, and LIVE every 10 seconds; COPY puts the whole report on the
+clipboard as text and SAVE writes it to `reports\`. With `--text FILE` it writes the report to the
+file without a window. The C++ version's Bitzkey Reports is the same tool.
 
 ## Exemplars
 
