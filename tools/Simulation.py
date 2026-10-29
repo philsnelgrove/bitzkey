@@ -154,6 +154,8 @@ LIBIDO_IN_JOY = 0.25  # the share of those pleasures that libido sets
 FIGHT_JOY = 0.5
 COMPANY_JOY = 0.1
 CURIOSITY_JOY = 0.15   # pleasure of setting off in a direction, scaled by curiosity
+CURIOUS_EXPLORATION = 0.05  # the chance, times its curiosity, that an animal tries any of its options at random rather
+                            # than as its brain values them, so no option goes untried for good
 # Moving costs food. A walk, a single cell, saves this share of the turn's burn, as resting does; going
 # as far as its speed allows costs this share of a turn's burn more for each cell beyond the first.
 WALK_REST = 0.5
@@ -1929,12 +1931,17 @@ class Simulation:
                 valued[FEED_YOUNG] += PARENTAL_INSTINCT * (0.5 + agent.feeling("empathy")) * hungriest / 100
             odds = choice_odds(valued, options)
             roll = self.random.random()
+            explore = self.random.random()
             choice = options[-1]
-            for option in options:
-                roll -= odds[option]
-                if roll < 0:
-                    choice = option
-                    break
+            if len(options) > 1 and explore < CURIOUS_EXPLORATION * agent.feeling("curiosity"):
+                # Curious, it tries any of its options, whatever its brain makes of them.
+                choice = options[min(len(options) - 1, int(roll * len(options)))]
+            else:
+                for option in options:
+                    roll -= odds[option]
+                    if roll < 0:
+                        choice = option
+                        break
             action = ACTIONS[choice]
             if not situation.get("panic") and not situation.get("frozen"):  # a panicked flight, or freezing, was no choice
                 self.insights.record(agent.species, agent.profile, (ACTIONS[option] for option in options), action)

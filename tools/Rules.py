@@ -235,6 +235,8 @@ _TABLE: dict[str, list[tuple]] = {
          0, 1, 1),
         ("PREDATOR_LEARNING", "Predator learning", "times as fast a predator's brain learns from its own choices; an omnivore gets half the bonus",
          1.0, 5.0, 0.1),
+        ("CURIOUS_EXPLORATION", "Curious exploration", "the chance, times its curiosity, that an animal tries any of its "
+         "options at random rather than as its brain values them", 0.0, 1.0, 0.01),
         ("TEMPERATURE", "Choice temperature", "how loosely a brain picks among its options", 0.01, 5.0, 0.05),
         ("MUTATION", "Brain mutation", "how much a newborn's brain varies from its parents'", 0.0, 1.0, 0.01),
         ("HEADING_RELUCTANCE", "Heading reluctance", "how much less a new brain values setting off in a direction",

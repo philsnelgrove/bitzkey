@@ -2,6 +2,7 @@ import math
 import unittest
 from unittest.mock import patch
 
+import tools.Simulation as simulation_module
 from tools.Brain import ACTIONS, SENSES
 from tools.Genome import decode_climate, encode_dna
 from tools.Simulation import (COLD, HOMEWARD_UNEASE, PLANT_BITE, CURIOSITY_JOY, DEATH_PENALTY, GO_EFFORT, WALK_REST, GRASS_DIEBACK, dieback_threshold, season_progress, season_temperature, wave_band, HOT, KILL_MEAL, KILL_MEAL_FOR_SIZE, LEARNING_RATE, MEDIUM, PLANT_MEAL,
@@ -671,3 +672,22 @@ class SeedTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExplorationTests(unittest.TestCase):
+    def test_a_curious_animal_tries_its_options_at_random_now_and_then(self):
+        def choices(curiosity, exploration):
+            with patch.multiple("tools.Simulation", CURIOUS_EXPLORATION=exploration), patch("tools.Brain.TEMPERATURE", 0.01):
+                simulation = world(turn=240)
+                grazer = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM), 20, 30)
+                simulation._add_agent(encode_dna("predator"), 90, 90)
+                made = set()
+                for _ in range(200):
+                    grazer.hunger, grazer.health, grazer.mind["curiosity"] = 0, grazer.max_health, curiosity
+                    grazer.stamina = simulation_module.FULL_STAMINA
+                    simulation._take_turn()
+                    made.add(grazer.last_choice)
+                return len(made)
+        steady, curious, unmoved = choices(0, 1.0), choices(7, 1.0), choices(7, 0.0)
+        self.assertGreater(curious, steady + 2)  # it tries what its brain wouldn't
+        self.assertLessEqual(unmoved, steady + 1)
