@@ -17,6 +17,7 @@ from tools.Simulation import EIGHT_TURN_DAYS
 def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, unless a test says so
     global _grown, _common, _grazers, _plenty
     _grown = patch.multiple("tools.Simulation", FEEBLE_YOUTH=0.0, SMALL_HIDING=0.0, DEFAULT_YEAR_LENGTH=360, SLEEP=0, GRAZER_SPAWN_GROUP=5,
+                            GRAZER_INFANCY=1.0, GRAZER_GESTATION=1.0,  # grazers as other animals, unless a test says so
                             **EIGHT_TURN_DAYS)  # and small grazer groups, so a test's world stays small  # and 360-turn years, no sleeping, spans in eight-turn days
     _grown.start()
     _common = patch("tools.Simulation.RARE_BREEDING_COST", 1.0)  # the few Bitzkeys of a test breed at the usual cost
@@ -2717,6 +2718,18 @@ class FeebleTests(unittest.TestCase):
             near.append(sum(1 for grazer in world.agents if grazer.species == "grazer" and any(
                 min(abs(grazer.x - h.x), 120 - abs(grazer.x - h.x)) + abs(grazer.y - h.y) <= 8 for h in hunters)))
         self.assertLess(near[0] * 10, near[1])  # a hunter within eight squares of far fewer grazers
+
+    def test_a_grazers_infancy_and_gestation_are_half_as_long_as_other_animals(self):
+        from tools.Simulation import gestation
+        with patch.multiple("tools.Simulation", GRAZER_INFANCY=0.5, GRAZER_GESTATION=0.5, FEEBLE_YOUTH=0.1):
+            simulation = Simulation(width=30, height=30, population=0, seed=3)
+            grazer = simulation._add_agent(encode_dna("grazer", size=7), 5, 5)
+            omnivore = simulation._add_agent(encode_dna("omnivore", size=7), 6, 5)
+            self.assertAlmostEqual(grazer.infancy / grazer.lifespan, 0.5 * omnivore.infancy / omnivore.lifespan)
+            mate = simulation._add_agent(encode_dna("grazer", size=7), 5, 6)
+            simulation._index_cells()
+            simulation._breed(grazer, mate)
+            self.assertEqual(grazer.due_turn, int(gestation(7) * 0.5 + 0.5))
 
     def test_the_first_bitzkeys_of_a_world_start_grown(self):
         world = Simulation(width=30, height=30, population=40, seed=3)

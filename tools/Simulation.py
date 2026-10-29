@@ -110,6 +110,8 @@ MEAT_DIGESTION = 1 / 7
 # has every body trait, and its health, at FEEBLE_SHARE of its own.
 FEEBLE_YOUTH = 1 / 30  # 360 days for the largest; the smallest SMALL_MATURITY of their 36
 PREDATOR_INFANCY = 0.5  # a predator is an infant this share as long
+GRAZER_INFANCY = 0.5  # and a grazer this share as long
+GRAZER_GESTATION = 0.5  # a grazer carries its young this share as long as its size would have it
 FEEBLE_SHARE = 0.5
 DEPLOY_GROUP = 5      # Bitzkeys deployed from the catalog onto a running world, of each chosen, a click
 USE_GPU = 0  # the C++ version's: 1 thinks on the GPUs; the Python version always thinks on the CPU
@@ -969,10 +971,11 @@ class Bitzkey:
 
     @property
     def infancy(self) -> float:
-        """How long its infancy lasts, in turns: FEEBLE_YOUTH of its lifespan (a predator's PREDATOR_INFANCY as long),
-        the smallest SMALL_MATURITY of that, the larger more of it."""
+        """How long its infancy lasts, in turns: FEEBLE_YOUTH of its lifespan (a predator's PREDATOR_INFANCY as long, a
+        grazer's GRAZER_INFANCY), the smallest SMALL_MATURITY of that, the larger more of it."""
         maturity = SMALL_MATURITY + (1 - SMALL_MATURITY) * share(int(self.body["size"]))
-        return FEEBLE_YOUTH * (PREDATOR_INFANCY if self.species == "predator" else 1.0) * maturity * self.lifespan
+        part = PREDATOR_INFANCY if self.species == "predator" else GRAZER_INFANCY if self.species == "grazer" else 1.0
+        return FEEBLE_YOUTH * part * maturity * self.lifespan
 
     @property
     def infant(self) -> bool:
@@ -3108,7 +3111,8 @@ class Simulation:
                     brain.output_weights[now] = brain.output_weights[learnt].copy()
                     brain.output_biases[now] = brain.output_biases[learnt]
             first.womb.append((dna, mind, brain, given / litter, generation, second.identifier))
-        first.due_turn = self.turn + gestation(first.trait("size"))
+        carried = gestation(first.trait("size"))  # a grazer's the shorter, by GRAZER_GESTATION
+        first.due_turn = self.turn + (max(1, int(carried * GRAZER_GESTATION + 0.5)) if first.species == "grazer" else carried)
         for parent, cost in zip((first, second), costs, strict=True):
             parent.hunger += cost
             rest = PREDATOR_BREED_COOLDOWN if parent.species == "predator" else BREED_COOLDOWN

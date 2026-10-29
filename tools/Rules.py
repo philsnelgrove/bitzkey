@@ -86,6 +86,8 @@ _TABLE: dict[str, list[tuple]] = {
         ("FEEBLE_YOUTH", "Feeble youth", "an animal is feeble, an infant, for this share of its lifespan (1/30: 36 days for the "
          "smallest)", 0.0, 0.5, 0.001),
         ("PREDATOR_INFANCY", "Predator infancy", "a predator is an infant this share as long as other animals", 0.0, 1.0, 0.05),
+        ("GRAZER_INFANCY", "Grazer infancy", "a grazer is an infant this share as long as other animals", 0.0, 1.0, 0.05),
+        ("GRAZER_GESTATION", "Grazer gestation", "a grazer carries its young this share as long as its size would have it", 0.05, 1.0, 0.05),
         ("FEEBLE_SHARE", "Feeble share", "a feeble animal's body traits and health are at this share of its own",
          0.1, 1.0, 0.05),
         ("METABOLISM.0", "Metabolism, smallest", "metabolic rate of the smallest bodies", 0.1, 5.0, 0.1),
