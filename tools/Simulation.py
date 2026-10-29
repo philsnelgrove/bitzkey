@@ -19,8 +19,8 @@ from pathlib import Path
 import numpy as np
 
 import tools.Brain as brain_rules  # its rules, as they now stand
-from tools.Brain import (ACTIONS, ALERT_CALL, CALLS, FIRST_CALL, OUTPUTS, SENSES, SILENT, Brain, BrainBatch, call_output, choice_odds,
-                         depth_for, gene_senses, make_senses, width_for)
+from tools.Brain import (ACTIONS, ALERT_CALL, CALLS, FIRST_CALL, MEMORY_NEURONS, OUTPUTS, SENSES, SILENT, Brain, BrainBatch, call_output,
+                         choice_odds, depth_for, gene_senses, make_senses, memory_after, width_for)
 from tools.Genome import (GENOME, SPECIES, TEMPERAMENT, TRAIT_MAX, body_word, color_from_word, cross, decode_nocturnal, dot_difference,
                           inherit_mind,
                           ring_difference, social_difference, social_word, BODY_MUTATION_CHANCE, COLD_TOLERANCE,
@@ -316,6 +316,11 @@ ALARM_REACH = 6        # an alarmed animal knows where the hunter is within this
 # one, and costs its caller this much hunger, as any call does, the alert among them.
 CALL_REACH = 4
 CALL_COST = 0.2
+# Memory (Brain.py): how many choices back a lesson's error is carried to the memory gates that wrote what the brain
+# read, 0 for none (what it keeps is then only what it was born to), up to MAX_MEMORY_STEPS; and how fast they learn,
+# times the brain's learning rate.
+MEMORY_STEPS = 1
+MEMORY_LEARNING = 1.0
 MAX_CALL_REACH = 20  # the most Call reach may be
 SIGHT_PER_TRAIT = 3  # each step of the sight trait lets an animal see this many cells further
 PREDATOR_SIGHT = 3  # predators see prey this many cells further than they otherwise see, up to MAX_PREDATOR_SIGHT
@@ -789,6 +794,11 @@ class Bitzkey:
     call: int = SILENT  # what it called alongside its last action (Brain.py's CALLS), heard the turn after
     call_turn: int = -1  # the turn it called it
     last_call: int = -1  # its last choice of call, to learn from with its action; -1 for none of its own
+    held: list[float] = field(default_factory=lambda: [0.0] * MEMORY_NEURONS)  # what its memory neurons hold (Brain.py)
+    # Its senses at the choices before its last, most recent first, back to the first its memory wasn't written at, and
+    # no more than Memory steps: what learning back in time goes over. Whether its memory was written at its last choice.
+    past: list[list[float]] = field(default_factory=list)
+    last_wrote: bool = False
     seen_success: float = 0.0  # a herd-mate's success it saw, fading turn by turn
     seen_failure: float = 0.0  # a herd-mate's failure it saw, the same
     weathered: float = 0.0  # turns endured out of its temperature, one regained each turn back in it; the weather harms it once past its grace
@@ -2030,6 +2040,15 @@ class Simulation:
                         break
                 agent.last_call = agent.call
                 agent.call_turn = self.turn
+            # What its memory now holds, written as it chose, unless its brain wasn't asked (asleep or spent, it keeps what
+            # it held); and the senses it chose by before, while each choice since wrote its memory, to learn back in time.
+            if agent.last_senses is not None and agent.last_wrote and MEMORY_STEPS > 0:
+                agent.past = [agent.last_senses, *agent.past][:MEMORY_STEPS]
+            else:
+                agent.past = []
+            agent.last_wrote = not idle[index]
+            if not idle[index]:
+                agent.held = memory_after(calls_valued, agent.held)
             agent.last_senses = senses
             agent.last_choice = choice
             agent.last_forced = len(options) == 1
@@ -2231,6 +2250,7 @@ class Simulation:
             night=float(self.night(agent.x)),
             **self._parent_senses(agent, sight),
             **self._heard(agent),
+            **{f"memory_{neuron + 1}": held for neuron, held in enumerate(agent.held)},
             **{trait: agent.feeling(trait) for trait in TEMPERAMENT},
             **agent.genes,
         )
@@ -2358,6 +2378,14 @@ class Simulation:
                     senses[row], actions[row], targets[row], rates[row] = call
             batch.learn(senses, actions, targets, rates)
         batch.write_back()
+        for lesson in lessons:  # and back in time: what its memory held, which the choice read, taught to the gates that wrote it
+            if lesson is None:
+                continue
+            agent, target = lesson[0], lesson[1]
+            steps = min(len(agent.past), MEMORY_STEPS)
+            if steps > 0 and MEMORY_LEARNING > 0:
+                agent.brain.learn_memory(agent.last_senses, agent.past[:steps], agent.last_choice, target,
+                                         self._learning_rate(agent) * MEMORY_LEARNING)
 
     def _dies_of_age(self, agent: Bitzkey) -> bool:
         """Past AGEING of its lifespan, the chance of dying each turn grows with age, so that about

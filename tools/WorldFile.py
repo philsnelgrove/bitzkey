@@ -230,6 +230,8 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "reward": float(agent.reward), "last_comfort": float(agent.last_comfort),
         "odds": {action: float(chance) for action, chance in agent.odds.items()},
         "call": agent.call, "call_turn": agent.call_turn, "last_call": agent.last_call,
+        "held": [float(held) for held in agent.held], "last_wrote": bool(agent.last_wrote),
+        "past": [numbers.senses(senses) for senses in agent.past],
     }
 
 
@@ -270,6 +272,10 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
     agent.call = int(record.get("call", 0))  # silent, in a world saved before calls
     agent.call_turn = int(record.get("call_turn", -1))
     agent.last_call = int(record.get("last_call", -1))
+    if "held" in record:  # blank, in a world saved before memory
+        agent.held = [float(held) for held in record["held"]]
+        agent.last_wrote = bool(record["last_wrote"])
+        agent.past = [numbers.senses(senses) for senses in record["past"]]
     agent.odds = {str(action): float(chance) for action, chance in record["odds"].items() if action in ACTIONS}
     return agent
 

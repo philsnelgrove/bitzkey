@@ -558,8 +558,9 @@ neural network, and that brain chooses everything it does. Each turn it senses:
   of its ring's traits (species among them) and its climate genes
 - the calls it heard last turn (see Calls below): for each of the five, how loud
   the loudest caller was, which way it lay, and whether it was of its own species
+- what its eight memory neurons held (see Memory below)
 
-That is 125 senses in all. Its brain has a hidden layer for each point of its
+That is 133 senses in all. Its brain has a hidden layer for each point of its
 inborn intellect, at least one and up to four, each of 38 neurons; beyond four,
 each point of intellect adds five neurons to every layer instead. So the dullest
 think with one layer of 38 neurons, and the brightest with four layers of 53.
@@ -588,6 +589,18 @@ scavenge, feast, rest, court, breed, hunt, attack, defend, flee, herd, go north,
 go south, go east, go west, walk north, walk south, walk east, walk west, revisit
 or feed its young. Revisiting heads back toward where it last fed, while it remembers where
 that was (see memory, under Genome).
+
+Memory: a brain carries eight values from one choice to the next, its memory neurons,
+each read back the next time it senses. As it values its actions it gives each neuron a
+gate and a value to write: the gate, from shut to open, keeps what the neuron held, takes
+the new value, or clears it (writing nothing). Its gates read the brain's top layer, which
+reads what its memory held with all else it senses, so a brain may learn to keep a call it
+heard, a danger it saw or what it was about, or let them go. A new brain's gates are a fifth
+open, so what it holds fades slowly until it learns otherwise. They learn back in time: how a
+lesson's error moves with what the memory held at the choice is carried back to the gates
+that wrote it, one choice back by default (Memory steps, 0 to 4; at 0 a memory is only as
+its brain was born), as fast as the brain learns times Memory learning. Asleep or spent, its
+brain unasked, it keeps what it held; the young begin with nothing held.
 
 Calls: alongside its action, every animal awake keeps silent or calls, by a second
 choice its brain makes as it makes the first, valuing each as it values its actions

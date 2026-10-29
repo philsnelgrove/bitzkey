@@ -1,3 +1,4 @@
+import math
 import random
 import unittest
 
@@ -212,8 +213,8 @@ class BrainTests(unittest.TestCase):
         # share; with one, it shares the blame.
         self.assertLess(changes[1], changes[0] - 0.1)
 
-    def test_there_are_125_senses(self):
-        self.assertEqual(INPUT_SIZE, 125)
+    def test_there_are_133_senses(self):
+        self.assertEqual(INPUT_SIZE, 133)
 
     def test_a_childs_brain_is_made_exactly_as_the_cpp_version_makes_it_from_the_same_seed(self):
         rng = random.Random(7)
@@ -222,9 +223,9 @@ class BrainTests(unittest.TestCase):
         # As bitzkey_cpp's Brain::inherit makes them, to the last bit.
         self.assertEqual([float(child.layers[0][0][3][11]), float(child.layers[0][0][44][89]), float(child.layers[1][1][20]),
                           float(child.layers[2][0][5][7]), float(child.output_weights[23][44]), float(child.output_biases[3])],
-                         [-0.23658292914570006, 0.11340388464196856, -0.011246071065037158, -0.14567023957432845,
-                          -0.0001361504241306272, -0.0011229592658597712])  # the output layer held in hundredths
-        self.assertEqual(rng.random(), 0.38711809408769293)  # one draw of the world's for the child
+                         [-0.031133351530337063, -0.12691032926761536, -0.01758605013427229, -0.08789407554653912,
+                          -0.0012628377468725455, -0.0005043328704035753])  # the output layer held in hundredths
+        self.assertEqual(rng.random(), 0.23223140808932863)  # one draw of the world's for the child
 
     def test_a_childs_brain_is_its_parents_nudged_by_normal_mutations_of_the_mutations_size(self):
         rng = random.Random(5)
@@ -386,3 +387,40 @@ class LessonLimitTests(unittest.TestCase):
                 brain.learn(senses, ACTIONS.index("eat"), before + 20, 0.01)  # a surprise of 20
                 return brain.values(senses)[ACTIONS.index("eat")] - before
         self.assertAlmostEqual(moved(5.0), 5 * moved(1.0), delta=0.02 * 5 * moved(1.0))
+
+
+class MemoryTests(unittest.TestCase):
+    """Memory neurons, as the C++ version's tests."""
+
+    def test_memory_neurons_keep_overwrite_or_clear_what_they_hold_by_their_gates(self):
+        from tools.Brain import MEMORY_GATES, MEMORY_NEURONS, MEMORY_VALUES, memory_after
+        values = [0.0] * len(OUTPUTS)
+        values[MEMORY_GATES], values[MEMORY_GATES + 1], values[MEMORY_VALUES + 1], values[MEMORY_GATES + 2] = -40, 40, 0.5, 40
+        now = memory_after(values, [0.6] * MEMORY_NEURONS)
+        self.assertAlmostEqual(now[0], 0.6)  # shut: kept
+        self.assertAlmostEqual(now[1], math.tanh(0.5))  # open: what is written
+        self.assertAlmostEqual(now[2], 0.0)  # open, writing nothing: cleared
+        self.assertAlmostEqual(now[3], 0.3)  # half open: half kept
+
+    def test_learning_back_in_time_teaches_the_gates_to_hold_what_values_the_next_choice_rightly(self):
+        from tools.Brain import MEMORY_NEURONS, MEMORY_SENSE, memory_after
+        rng = random.Random(11)
+        brain = Brain.random(rng, 2, 40)
+        for neuron in range(40):  # its first layer heeding what its memory held
+            for held in range(MEMORY_NEURONS):
+                brain.layers[0][0][neuron][MEMORY_SENSE + held] = 0.4 * ((neuron + held) % 3 - 1)
+        before = [rng.random() for _ in range(MEMORY_SENSE)] + [0.3] * MEMORY_NEURONS + [0.0] * (INPUT_SIZE - MEMORY_SENSE - MEMORY_NEURONS)
+        now = [rng.random() for _ in range(MEMORY_SENSE)] + [0.0] * (INPUT_SIZE - MEMORY_SENSE)
+
+        def read_on(thinker):  # what the memory holds written at `before`, read at `now`
+            held = memory_after(thinker.values(before), [0.3] * MEMORY_NEURONS)
+            return now[:MEMORY_SENSE] + held + now[MEMORY_SENSE + MEMORY_NEURONS:]
+
+        eat = ACTIONS.index("eat")
+        target = brain.values(read_on(brain))[eat] + 1.0  # valued a whole 1 too low
+        learnt = brain.copy()
+        learnt.learn_memory(read_on(brain), [before], eat, target, 0.05)
+        self.assertLess(abs(learnt.values(read_on(learnt))[eat] - target), abs(brain.values(read_on(brain))[eat] - target))
+        still = brain.copy()
+        still.learn_memory(read_on(brain), [], eat, target, 0.05)  # with nothing before, nothing to learn
+        self.assertEqual(still, brain)

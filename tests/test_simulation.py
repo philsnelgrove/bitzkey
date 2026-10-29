@@ -520,9 +520,11 @@ class SimulationTests(unittest.TestCase):
             self.assertEqual(learn.call_args.args[1], [None])
             self.assertEqual(grazer.last_comfort, 0.4)
             grazer.last_wellbeing = self.simulation._wellbeing(grazer)
+            held = list(grazer.held)  # what its memory held as it sensed, before its choice wrote it
             self.simulation._think(grazer)  # just as comfortable: no success or failure in that
         (agent, target, outcome, _), = learn.call_args.args[1]  # the batch's one lesson: (agent, target, outcome, call target)
         self.assertIs(agent, grazer)
+        grazer.held = held
         values = grazer.brain.values(self.simulation._sense(grazer)[0])
         best = max(values[option] for option in self.simulation._sense(grazer)[1])
         self.assertAlmostEqual(target, Simulation._discount(grazer) * best)
@@ -1862,7 +1864,7 @@ class NewTraitTests(unittest.TestCase):
     def test_the_mother_carries_her_young_for_a_gestation_set_by_her_size_then_gives_birth(self):
         self.assertEqual([gestation(size) for size in (0, 1, 4, 7)], [10, 16, 33, 50])
         with patch("tools.Simulation.CLIMATE_DAMAGE", 0):
-            simulation = Simulation(width=30, height=30, population=0, seed=3)
+            simulation = Simulation(width=30, height=30, population=0, seed=3, body_mutation=0)  # the young the size of their parents
             lay_plenty_of_grass(simulation)
             dna = encode_dna("grazer", fertility=7, litter=7)  # the smallest: ten turns, and twelve young
             first, second = simulation._add_agent(dna, 15, 15), simulation._add_agent(dna, 15, 16)
@@ -3265,3 +3267,21 @@ class CallTests(unittest.TestCase):
         caller.call, caller.call_turn, caller.last_call = FIRST_CALL + 4, 7, FIRST_CALL + 4
         again = world_from_bytes(world_bytes(world)).find_agent(caller.identifier)
         self.assertEqual((again.call, again.call_turn, again.last_call), (FIRST_CALL + 4, 7, FIRST_CALL + 4))
+
+
+class MemoryTests(unittest.TestCase):
+    def test_an_animals_memory_is_written_as_it_chooses_read_back_as_it_senses_and_kept_with_the_world(self):
+        from tools.WorldFile import world_bytes, world_from_bytes
+        world = Simulation(width=30, height=30, population=0, seed=3)
+        for index in range(6):
+            world._add_agent(encode_dna("grazer"), 5 + index, 5)
+        world._add_agent(encode_dna("predator"), 20, 20)
+        for _ in range(6):
+            world._take_turn()
+        grazer = next(agent for agent in world.living if agent.species == "grazer" and agent.last_wrote)
+        self.assertTrue(any(grazer.held))
+        self.assertLessEqual(len(grazer.past), simulation_module.MEMORY_STEPS)
+        sensed = dict(zip(SENSES, world._sense(grazer)[0]))
+        self.assertEqual([sensed[f"memory_{neuron}"] for neuron in range(1, 9)], grazer.held)
+        again = world_from_bytes(world_bytes(world)).find_agent(grazer.identifier)
+        self.assertEqual((again.held, again.past, again.last_wrote), (grazer.held, grazer.past, grazer.last_wrote))

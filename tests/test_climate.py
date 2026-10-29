@@ -283,7 +283,7 @@ class EffectTests(unittest.TestCase):
         self.assertEqual((math.ceil(small.max_health / PLANT_BITE), math.ceil(large.max_health / PLANT_BITE)), (4, 10))
 
     def test_spawned_plants_are_at_home_in_their_zone_and_imports_keep_theirs(self):
-        simulation = Simulation(width=60, height=60, population=300, seed=4)
+        simulation = Simulation(width=60, height=60, population=600, seed=4)  # groups enough to reach every zone
         plants = [agent for agent in simulation.agents if agent.species == "plant"]
         self.assertTrue(plants)
         for plant in plants:  # the group's centre is within two rows

@@ -20,7 +20,20 @@ ACTIONS = ("eat", "forage", "browse", "uproot", "scavenge", "feast", "rest", "co
 CALLS = ("silent", "alert", "call_1", "call_2", "call_3", "call_4", "call_5")
 SILENT, ALERT_CALL, FIRST_CALL = 0, 1, 2  # the five calls from FIRST_CALL on
 CALL_COUNT = 5
-OUTPUTS = ACTIONS + CALLS  # a brain's outputs by name: its actions, then silence and the calls
+# Memory: a brain carries MEMORY_NEURONS values from one choice to the next, each read back the next time as a sense
+# ("memory_1" on). Each turn, beside valuing its actions and calls, it gives each a gate, z = sigmoid of its output, and a
+# value to write, c = tanh of its output, and the neuron becomes (1 - z) times what it held plus z times c: kept as it
+# was (z near 0), overwritten (z near 1), or cleared (writing 0). Its gates read the top hidden layer, which reads what
+# the memory held with everything else it senses. They learn back in time (Brain.learn_memory): how a lesson's error
+# moves with what the memory held is carried back to the gates that wrote it, as many choices back as Memory steps. As
+# the C++ version's.
+MEMORY_NEURONS = 8
+MEMORY_GATES = len(ACTIONS) + len(CALLS)  # the first gate's output, then each neuron's in turn,
+MEMORY_VALUES = MEMORY_GATES + MEMORY_NEURONS  # then the first value to write, and each neuron's
+MAX_MEMORY_STEPS = 4  # the furthest back Memory steps may reach
+# A brain's outputs by name: its actions, then silence and the calls, then its memory's gates and values to write.
+OUTPUTS = (ACTIONS + CALLS + tuple(f"memory_gate_{neuron}" for neuron in range(1, MEMORY_NEURONS + 1))
+           + tuple(f"memory_value_{neuron}" for neuron in range(1, MEMORY_NEURONS + 1)))
 
 
 def call_output(call: int) -> int:
@@ -90,6 +103,7 @@ SENSES = (
     # beside it, falling to 0 at the call's reach (the larger the caller, the further it carries); which way it lay, -1
     # to 1, west to east and north to south; and whether it was of its own species, 1 or 0. All 0 for one not heard.
     *(f"heard_call_{call}{part}" for call in range(1, 6) for part in ("", "_east", "_south", "_kin")),
+    *(f"memory_{neuron}" for neuron in range(1, 9)),  # what its memory neurons held, -1..1 (see Memory)
 ) + TEMPERAMENT + (    # then its current temperament, mind and social traits, each 0..7 scaled to 0..1
     *(f"inborn_{trait}" for trait in TEMPERAMENT),        # its dot's and social background's traits, as born, 0..1
     *BODY_TRAITS,                                         # its ring's traits, 0..1 (species 0 plant to 1 predator)
@@ -98,12 +112,14 @@ SENSES = (
     "nocturnal",  # its activity gene: 1 nocturnal, 0 diurnal
 )
 INPUT_SIZE = len(SENSES)
+MEMORY_SENSE = SENSES.index("memory_1")  # the first sense of what the memory held
 # The senses as a brain reads them: each that runs 0..1 centred, read as -1..1, so that a lesson moves a neuron's weights
 # both ways (senses never below 0 push all its weights the same way, lesson after lesson, until the neuron jams at its
 # limit, the same whatever it senses, and learns no more); those already running -1..1 read as they are. As the C++
 # version's read_sense.
 SIGNED_SENSES = frozenset(("latitude", "warmth", "warmth_north", "warmth_south", "home_direction", "parent_east", "parent_south",
-                           *(f"heard_call_{call}_{way}" for call in range(1, 6) for way in ("east", "south"))))
+                           *(f"heard_call_{call}_{way}" for call in range(1, 6) for way in ("east", "south")),
+                           *(f"memory_{neuron}" for neuron in range(1, 9))))
 _READ_SCALE = np.array([1.0 if name in SIGNED_SENSES else 2.0 for name in SENSES])
 _READ_SHIFT = np.array([0.0 if name in SIGNED_SENSES else -1.0 for name in SENSES])
 
@@ -131,6 +147,7 @@ SMART_TRACE_DECAY = 0.95  # lambda at the highest intellect: the clever trace cr
 # brain doesn't march straight away from its range, its herd and its food before it has learned where to go.
 HEADING_RELUCTANCE = 0.5
 CALL_RELUCTANCE = 0.5  # and values each call this much below silence, so an untaught world isn't all calling at once
+MEMORY_PERSISTENCE = 1.4  # and its memory gates this far below their middle, a fifth open, so what it holds fades slowly
 HEADINGS = ("go_north", "go_south", "go_east", "go_west", "walk_north", "walk_south", "walk_east", "walk_west")
 RECORD_DIGITS = 6  # decimal places kept when a brain is exported
 
@@ -173,6 +190,15 @@ def gene_senses(dna: int) -> dict[str, float]:
     values.update(swims=float(swims(terrain)), walks=float(walks(terrain)), flies=float(terrain == "avian"),
                   nocturnal=float(decode_nocturnal(dna)))
     return values
+
+
+def memory_after(values: Sequence[float], held: Sequence[float]) -> list[float]:
+    """What memory neurons hold after a choice valued so, holding `held` before it."""
+    now = []
+    for neuron in range(MEMORY_NEURONS):
+        gate = 1 / (1 + math.exp(-values[MEMORY_GATES + neuron]))
+        now.append((1 - gate) * held[neuron] + gate * math.tanh(values[MEMORY_VALUES + neuron]))
+    return now
 
 
 def choice_odds(values: Sequence[float], options: Sequence[int]) -> dict[int, float]:
@@ -323,7 +349,8 @@ class Brain:
         spread = output_spread(width)
         brain = cls(layers, [[rng.uniform(-spread, spread) for _ in range(width)] for _ in OUTPUTS],
                     [rng.uniform(-0.2, 0.2) - (HEADING_RELUCTANCE if output in HEADINGS else 0.0) for output in OUTPUTS])
-        brain.output_biases[call_output(ALERT_CALL):] -= CALL_RELUCTANCE
+        brain.output_biases[call_output(ALERT_CALL):MEMORY_GATES] -= CALL_RELUCTANCE
+        brain.output_biases[MEMORY_GATES:MEMORY_VALUES] -= MEMORY_PERSISTENCE
         brain.scale_values()  # valuing as it would whole
         return brain
 
@@ -472,6 +499,56 @@ class Brain:
             biases -= step * bias_trace
         self.output_weights -= step * output_weights
         self.output_biases -= step * output_biases
+
+    def learn_memory(self, inputs: Sequence[float], past: Sequence[Sequence[float]], action: int, target: float,
+                     learning_rate: float) -> None:
+        """Learn back in time, after the lesson on `inputs` (its senses at its choice): how that action's value, with its
+        error, moves with what its memory held then is carried back to the gates that wrote it, at `past` (its senses at
+        the choices before, most recent first, each the memory was written at), each moving its gates and values to write,
+        and the layers beneath them, to hold what would have valued the choice after rightly; and so on back."""
+        if learning_rate <= 0 or not past:
+            return
+        held = slice(MEMORY_SENSE, MEMORY_SENSE + MEMORY_NEURONS)
+        made = slice(MEMORY_GATES, MEMORY_VALUES + MEMORY_NEURONS)
+        # How the action's value, with its error, moves with what each memory neuron held: the error carried down
+        # through every layer as a lesson's, nothing moving, in whole values.
+        activations = self._activations(inputs)
+        value = float((self.output_weights[action] * activations[-1]).sum() + self.output_biases[action]) / VALUE_SCALE
+        gradient = max(-LESSON_LIMIT, min(LESSON_LIMIT, value - target)) * self.output_weights[action]
+        carried = np.zeros(MEMORY_NEURONS)
+        for index in range(self.depth - 1, -1, -1):
+            weights, _ = self.layers[index]
+            delta = gradient * (1 - activations[index + 1] * activations[index + 1])
+            if index:
+                gradient = (weights * delta[:, None]).sum(axis=0)
+            else:
+                carried = (weights[:, held] * delta[:, None]).sum(axis=0) / VALUE_SCALE
+        for step, before in enumerate(past):
+            # The choice before: each gate's and value's error, as an output's in a lesson, from what the neuron came to
+            # hold; and what of the error reaches what it held before, through what it kept of it.
+            activations = self._activations(before)
+            top = activations[-1]
+            valued = ((self.output_weights[made] * top).sum(axis=1) + self.output_biases[made]) / VALUE_SCALE
+            gate = np.array([1 / (1 + math.exp(-value)) for value in valued[:MEMORY_NEURONS]])
+            write = _tanh(valued[MEMORY_NEURONS:])
+            was = np.asarray(before, dtype=float)[held]
+            errors = np.clip(np.concatenate((carried * (write - was) * gate * (1 - gate), carried * gate * (1 - write * write))),
+                             -LESSON_LIMIT, LESSON_LIMIT)
+            kept = carried * (1 - gate)
+            gradient = (errors[:, None] * self.output_weights[made]).sum(axis=0)
+            self.output_weights[made] -= (learning_rate * errors * VALUE_SCALE)[:, None] * top
+            reached = np.zeros(MEMORY_NEURONS)
+            for index in range(self.depth - 1, -1, -1):
+                weights, biases = self.layers[index]
+                delta = gradient * (1 - activations[index + 1] * activations[index + 1])
+                if index:
+                    gradient = (weights * delta[:, None]).sum(axis=0)
+                elif step + 1 < len(past):
+                    reached = (weights[:, held] * delta[:, None]).sum(axis=0) / VALUE_SCALE
+                biases -= learning_rate * delta
+                weights -= learning_rate * np.outer(delta, activations[index])
+            self.output_biases[made] -= learning_rate * errors * VALUE_SCALE
+            carried = kept + reached
 
     @property
     def nbytes(self) -> int:
