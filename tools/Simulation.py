@@ -38,7 +38,7 @@ GRASS_REGROWTH = 0.032  # share of the starting grass that grows back each turn
 MAX_POPULATION = 20000  # the most Bitzkeys spawned at the start; a world's population cap is a setting
 CROWDING_LIMIT = 10    # litters shrink as crowding nears this; at it, an animal doesn't breed; 0: no limit
 SPAWN_GROUP = (3, 5)  # Bitzkeys spawn in groups of this many sharing one genome
-GRAZER_SPAWN_GROUP = 50  # a new world's grazers spawn in groups this large, so the hunters' prey outnumber them
+GRAZER_SPAWN_GROUP = 30  # a new world's grazers spawn in groups this large, so the hunters' prey outnumber them
 MAX_IMPORTED = 120  # imported Bitzkeys, each spawning a group of its own
 MAX_GRID = 1000  # the widest and tallest a world can be, in cells
 # The sea: a new world's share of the map under it, in percent, and how broad its land and sea are, as a share of the
@@ -1321,6 +1321,7 @@ class Simulation:
         self._growth: list[float] = []      # each row's share of medium, where grass grows
         self._band_of_row: list[int] = []   # the climate band each row lies in, top to bottom
         self._home_band: list[list[int]] = []  # by home temperature and row: the home band nearest
+        self._band_grass: list[float] = []  # the grass standing in each band, in tufts
         self._band_plants: list[int] = []   # the plants in each band, and the grazers at home there,
         self._band_grazers: list[int] = []  # as the cells were last indexed
         self._band_prey: list[int] = []       # the prey in each band, and the predators at home there, likewise
@@ -3137,6 +3138,10 @@ class Simulation:
             elif agent.meat > 0:
                 self._carrion.setdefault((agent.x, agent.y), []).append(agent)
         self._band_plants, self._band_grazers = plants, grazers
+        self._band_grass = [0.0] * len(plants)  # each band's standing grass, in tufts
+        for (_, y), tufts in self.grass.items():
+            if 0 <= y < self.height:
+                self._band_grass[self._band_of_row[y]] += tufts
         self._band_prey, self._band_predators = prey, predators
         self._band_omnivores, self._band_omnivore_prey = omnivores, omnivore_prey
         self._living = Counter(agent.species for agent in self.agents if agent.alive)
@@ -3159,12 +3164,18 @@ class Simulation:
                     for other in self._nearby(agent, NURSING_REACH))
 
     def _home_plants(self, grazer: Bitzkey) -> float:
-        """The plants in a grazer's home band per grazer at home there, itself among them; none
-        before the cells are first indexed."""
+        """The plants in a grazer's home band, its grass counted as plants, per grazer at home there, itself among
+        them; none before the cells are first indexed."""
         if not self._band_plants:
             return 0.0
         band = self._home_band[grazer.climate[0]][grazer.y]
-        return self._band_plants[band] / max(1, self._band_grazers[band])
+        return self._band_plant_food(band, "grazer") / max(1, self._band_grazers[band])
+
+    def _band_plant_food(self, band: int, species: str) -> float:
+        """A band's plants, and its grass as plants: the share of the standing grass a grazer counts on
+        (STANDING_GRASS), as well as this species digests it (GRAZING), in a plant's meals (PLANT_MEALS)."""
+        grass = self._band_grass[band] if band < len(self._band_grass) else 0.0
+        return self._band_plants[band] + GRAZING[species] * STANDING_GRASS * grass / PLANT_MEALS
 
     def _home_prey(self, predator: Bitzkey) -> float:
         """The prey in a predator's home band per predator at home there, itself among them; none before the
@@ -3231,7 +3242,7 @@ class Simulation:
                 return 0.0
             band = self._home_band[agent.climate[0]][agent.y]
             mouths = max(1, self._band_omnivores[band])
-            return (0.5 * self._fed_share(self._band_plants[band] / mouths, PLANTS_PER_GRAZER)
+            return (0.5 * self._fed_share(self._band_plant_food(band, "omnivore") / mouths, PLANTS_PER_GRAZER)
                     + 0.5 * self._fed_share(self._band_omnivore_prey[band] / mouths, PREY_PER_PREDATOR))
         if agent.species == "plant":
             return 0.0

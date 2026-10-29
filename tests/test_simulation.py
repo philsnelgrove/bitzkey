@@ -1281,6 +1281,20 @@ class NewTraitTests(unittest.TestCase):
     @patch("tools.Simulation.SMALL_LITTERS", 1.0)
     @patch("tools.Simulation.NEWBORN_FOOD", 0.0)  # no limit from the energy given
     @patch("tools.Simulation.PLANTS_PER_GRAZER", 0.5)
+    def test_the_grass_of_a_grazers_or_omnivores_home_band_counts_toward_its_plants(self):
+        from tools.Simulation import GRAZING, PLANT_MEALS, STANDING_GRASS
+        simulation = Simulation(width=30, height=30, population=0, seed=3)
+        simulation.grass.clear()
+        grazer = simulation._add_agent(encode_dna("grazer"), 15, 8)
+        omnivore = simulation._add_agent(encode_dna("omnivore"), 16, 8)
+        simulation._index_cells()
+        self.assertEqual(simulation._home_plants(grazer), 0.0)  # no plants, no grass
+        for x in (2, 3, 4, 5):
+            simulation.grass[(x, 7)] = 4  # sixteen tufts in its band
+        simulation._index_cells()
+        self.assertAlmostEqual(simulation._home_plants(grazer), GRAZING["grazer"] * STANDING_GRASS * 16 / PLANT_MEALS)
+        self.assertGreater(simulation._home_fed(omnivore), 0.0)  # the grass as plants, less well digested
+
     def test_a_grazers_breeding_follows_the_plants_in_its_home_band(self):
         simulation = Simulation(width=30, height=30, population=0, seed=3)  # temperate bands: rows 6-11 and 18-23
         dna = encode_dna("grazer", fertility=7, litter=7)  # at home in the temperate bands; a litter of six
