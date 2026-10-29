@@ -38,6 +38,10 @@ GRASS_REGROWTH = 0.032  # share of the starting grass that grows back each turn
 MAX_POPULATION = 20000  # the most Bitzkeys spawned at the start; a world's population cap is a setting
 CROWDING_LIMIT = 10    # litters shrink as crowding nears this; at it, an animal doesn't breed; 0: no limit
 SPAWN_GROUP = (3, 5)  # Bitzkeys spawn in groups of this many sharing one genome
+# A new world's grazers start at least HUNTERS_APART squares (across and down, east and west wrapping) from its hunters'
+# groups, and its hunters from its grazers', where there is room: the farthest of APART_TRIES places, else; 0: anywhere.
+HUNTERS_APART = 15
+APART_TRIES = 20
 GRAZER_SPAWN_GROUP = 30  # a new world's grazers spawn in groups this large, so the hunters' prey outnumber them
 MAX_IMPORTED = 120  # imported Bitzkeys, each spawning a group of its own
 MAX_GRID = 1000  # the widest and tallest a world can be, in cells
@@ -1333,6 +1337,8 @@ class Simulation:
         self._grass_reach: list[float] = []  # their growth added up, row by row, for sowing
         self._update_climate()
         self.grass: dict[tuple[int, int], int] = {}
+        self._grazer_centres: list[tuple[int, int]] = []  # where a new world's grazer and hunter groups were centred
+        self._hunter_centres: list[tuple[int, int]] = []
         initial_grass = round(width * height * grass_density / 100)
         self._initial_grass = initial_grass  # what grows back each turn is a share of it
         self.grass_regrowth = initial_grass * GRASS_REGROWTH
@@ -1666,9 +1672,35 @@ class Simulation:
         if rows is None and SPAWN_AT_HOME:
             rows = self._home_rows(decode_climate(dna)[0])
         terrain = decode_terrain(dna)
-        centre = biome[self.random.randrange(len(biome))] if biome is not None else self._group_centre(terrain, rows)
+
+        def place() -> tuple[int, int] | None:
+            return biome[self.random.randrange(len(biome))] if biome is not None else self._group_centre(terrain, rows)
+
+        # A new world's grazers and hunters start apart: each group centred at least HUNTERS_APART from the other kind's.
+        kind = decode_body(dna)["species"]
+        grazers, hunters = kind == "grazer", kind in ("omnivore", "predator")
+        centre = None
+        if native and (grazers or hunters) and HUNTERS_APART > 0:
+            others = self._hunter_centres if grazers else self._grazer_centres
+            best = -1
+            for _ in range(APART_TRIES):
+                found = place()
+                if found is None:
+                    break
+                nearest = min((min(abs(found[0] - x), self.width - abs(found[0] - x)) + abs(found[1] - y) for x, y in others),
+                              default=math.inf)
+                if centre is None or nearest > best:
+                    centre, best = found, nearest
+                if nearest >= HUNTERS_APART:
+                    break
+        else:
+            centre = place()
         if centre is None:  # nowhere it could live
             return
+        if native and grazers:
+            self._grazer_centres.append(centre)
+        if native and hunters:
+            self._hunter_centres.append(centre)
         x, y = centre
         if native:  # tolerance is rare at the start
             for flag in (HEAT_TOLERANCE, COLD_TOLERANCE):
@@ -3195,7 +3227,8 @@ class Simulation:
         ready, room in the world, not crowded by its own kind, food enough about it where that limits breeding,
         and, for a grazer, plants enough in its home band. A predator's prey at home shrinks its litters instead."""
         return (agent.can_breed and partner.can_breed and self._room() > 0
-                and (not CROWDING_LIMIT or self._crowding(agent, partner, own_kind=True) < CROWDING_LIMIT)  # its own kind
+                and (not CROWDING_LIMIT or agent.generation == 0  # its own kind crowds it, but for a world's first
+                     or self._crowding(agent, partner, own_kind=True) < CROWDING_LIMIT)
                 and (not self._food_needed(agent) or self._food_supply(agent) >= self._food_needed(agent))
                 and self._well_fed(agent) and not self._prey_rare(agent))
 

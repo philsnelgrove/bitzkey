@@ -1297,6 +1297,7 @@ class NewTraitTests(unittest.TestCase):
 
     def test_a_grazers_breeding_follows_the_plants_in_its_home_band(self):
         simulation = Simulation(width=30, height=30, population=0, seed=3)  # temperate bands: rows 6-11 and 18-23
+        simulation.grass.clear()  # no grass: plants alone feed it here
         dna = encode_dna("grazer", fertility=7, litter=7)  # at home in the temperate bands; a litter of six
         first = simulation._add_agent(dna, 15, 8)
         second = simulation._add_agent(dna, 15, 9)
@@ -2383,7 +2384,10 @@ class NewTraitTests(unittest.TestCase):
                 simulation._add_agent(dna, 15 + dx, y)
         simulation._index_cells()
         self.assertGreaterEqual(simulation._crowding(first, second, own_kind=True), 10)
+        first.generation = 1
         self.assertNotIn(ACTIONS.index("breed"), simulation._sense(first)[1])
+        first.generation = 0  # a world's first breed however crowded
+        self.assertIn(ACTIONS.index("breed"), simulation._sense(first)[1])
 
     def test_tolerant_animals_are_at_ease_among_other_species(self):
         tolerant = self.simulation._add_agent(encode_dna("grazer", tolerance=7, sociability=7, fear=7), 1, 1)
@@ -2704,6 +2708,16 @@ class FeebleTests(unittest.TestCase):
         self.assertEqual((infant.trait("size"), infant.space, infant.lifespan), (7, 8, lifespan))  # lifespan by its genes
         self.assertAlmostEqual(infant.max_health, 150.0)
 
+    def test_a_new_worlds_grazers_start_apart_from_its_hunters(self):
+        near = []
+        for setting in (15, 0):
+            with patch("tools.Simulation.HUNTERS_APART", setting), patch("tools.Simulation.GRAZER_SPAWN_GROUP", 30):
+                world = Simulation(width=120, height=80, population=200, seed=5)
+            hunters = [a for a in world.agents if a.species in ("omnivore", "predator")]
+            near.append(sum(1 for grazer in world.agents if grazer.species == "grazer" and any(
+                min(abs(grazer.x - h.x), 120 - abs(grazer.x - h.x)) + abs(grazer.y - h.y) <= 8 for h in hunters)))
+        self.assertLess(near[0] * 10, near[1])  # a hunter within eight squares of far fewer grazers
+
     def test_the_first_bitzkeys_of_a_world_start_grown(self):
         world = Simulation(width=30, height=30, population=40, seed=3)
         animals = [agent for agent in world.agents if agent.species != "plant"]
@@ -2864,9 +2878,11 @@ class CourtingTests(unittest.TestCase):
     def test_courting_is_open_and_pays_only_when_breeding_could_follow(self):
         from tools.Simulation import COURT_JOY
         simulation = Simulation(width=12, height=12, population=0, seed=3)
+        simulation.grass.clear()  # no grass: plants alone feed it here
         dna = encode_dna("grazer", fertility=7, sight=2)
         agent = simulation._add_agent(dna, 2, 5)
         partner = simulation._add_agent(dna, 6, 5)
+        agent.generation = partner.generation = 1  # born in the world: crowding limits them
         simulation._index_cells()
         simulation._population = 2
         court = ACTIONS.index("court")
@@ -2939,6 +2955,7 @@ class OmnivoreFoodTests(unittest.TestCase):
     @patch("tools.Simulation.PREY_PER_PREDATOR", 1.0)
     def test_an_omnivores_litters_follow_plants_and_prey_at_home_half_each(self):
         simulation = Simulation(width=30, height=30, population=0, seed=3)  # temperate bands: rows 6-11 and 18-23
+        simulation.grass.clear()  # no grass: plants alone feed it here
         dna = encode_dna("omnivore", fertility=7, litter=7)  # at home in the temperate bands
         first = simulation._add_agent(dna, 15, 8)
         second = simulation._add_agent(dna, 15, 9)
