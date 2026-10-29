@@ -514,7 +514,8 @@ class SimulationTests(unittest.TestCase):
         grazer = self.simulation._add_agent(encode_dna("grazer"), 5, 5)
         self.simulation._index_cells()
         with patch.object(Simulation, "_comfort", return_value=0.4), \
-                patch.object(Simulation, "_act"), patch.object(Simulation, "_learn_batch") as learn:
+                patch.object(Simulation, "_act"), patch.object(Simulation, "_learn_batch") as learn, \
+                patch("tools.Simulation.RESTING_UNEASE", 0.0):  # comfort alone, whatever it chose
             self.simulation._think(grazer)  # its first decision: nothing to learn from yet
             self.assertEqual(learn.call_args.args[1], [None])
             self.assertEqual(grazer.last_comfort, 0.4)

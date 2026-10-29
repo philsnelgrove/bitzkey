@@ -163,6 +163,7 @@ UNEASE = 0.1           # how much an intolerant animal minds other species close
 CLIMATE_UNEASE = 2.0   # discomfort two or more steps from home, half that one step; less for the hardy
 PATIENT_DISCOUNT = 0.99  # gamma at the highest patience: how far ahead the patient look
 IMPATIENT_DISCOUNT = 0.9  # and at the lowest: even the least patient look some ten turns ahead
+RESTING_UNEASE = 1.0  # unease, a turn, of having chosen to rest out of its temperature, two or more steps from home (half one step; less if hardy)
 HOMEWARD_UNEASE = 3.0  # more discomfort away from home, rising with the distance to home to this at half the map's height
 EMPATHY_PAIN = 0.15    # how much an empathetic animal feels another's wound; twice that for a death
 # Parental attachment: a parent is glad of its own young, still infants, within its sight, up to PARENT_JOY with
@@ -1879,6 +1880,10 @@ class Simulation:
                 # its mood was a success, whatever lowered them a failure, by how much; both may happen.
                 reward = (agent.reward + self._wellbeing(agent) - agent.last_wellbeing
                           + comfort - agent.last_comfort)
+                # Having chosen to sit the weather out, it feels it the more (Resting unease); asleep or spent, it had
+                # no choice.
+                if ACTIONS[agent.last_choice] == "rest" and not agent.last_forced:
+                    reward -= RESTING_UNEASE * plans[index][3].get("exposure", 0.0)
                 lessons[index] = (reward + self._discount(agent) * max(valued[option] for option in options), reward)
                 if reward > 0:  # a lesson learnt from a choice that turned out well
                     self._experience(agent, "lesson")

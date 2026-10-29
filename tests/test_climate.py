@@ -204,6 +204,20 @@ class EffectTests(unittest.TestCase):
         self.assertAlmostEqual(chose.max_health - chose.health, 2 * (made.max_health - made.health))
         self.assertLess(made.health, made.max_health)
 
+    def test_an_animal_that_chose_to_rest_out_of_its_temperature_learns_the_rest_felt_worse_with_no_harm_done(self):
+        def rest_value(unease):
+            with patch.multiple("tools.Simulation", RESTING_UNEASE=unease, WEATHER_GRACE=30):
+                simulation = world(turn=240)
+                grazer = simulation._add_agent(encode_dna("grazer", temperature=COLD, intellect=4), 20, 30)
+                senses, _, situation = simulation._sense(grazer)
+                grazer.last_senses, grazer.last_choice = list(senses), ACTIONS.index("rest")  # chosen
+                grazer.last_comfort, grazer.last_wellbeing = simulation._comfort(grazer, situation), simulation._wellbeing(grazer)
+                simulation._add_agent(encode_dna("predator"), 90, 90)
+                simulation._take_turn()  # thinking, and so learning
+                self.assertEqual(grazer.health, grazer.max_health)
+                return grazer.brain.values(senses)[ACTIONS.index("rest")]
+        self.assertLess(rest_value(1.0), rest_value(0.0) - 0.001)
+
     def test_starving_out_of_its_temperature_is_dying_of_exposure(self):
         simulation = world(turn=240)
         away = simulation._add_agent(encode_dna("grazer", temperature=COLD), 20, 50)  # on the equator: too hot
