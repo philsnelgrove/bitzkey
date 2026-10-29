@@ -192,6 +192,18 @@ class EffectTests(unittest.TestCase):
             self.assertEqual(hardy.health, hardy.max_health)
             self.assertLess(frail.health, frail.max_health)
 
+    def test_an_animal_that_chose_to_rest_out_of_its_temperature_takes_the_weathers_harm_twice_over(self):
+        simulation = world(turn=240)
+        chose = simulation._add_agent(encode_dna("grazer", temperature=COLD), 20, 30)
+        made = simulation._add_agent(encode_dna("grazer", temperature=COLD), 40, 30)
+        for agent in (chose, made):
+            agent.last_senses, agent.last_choice = [0.0] * len(SENSES), ACTIONS.index("rest")
+        made.last_forced = True  # asleep, or spent
+        simulation._add_agent(encode_dna("predator"), 90, 90)
+        take_turn(simulation)
+        self.assertAlmostEqual(chose.max_health - chose.health, 2 * (made.max_health - made.health))
+        self.assertLess(made.health, made.max_health)
+
     def test_starving_out_of_its_temperature_is_dying_of_exposure(self):
         simulation = world(turn=240)
         away = simulation._add_agent(encode_dna("grazer", temperature=COLD), 20, 50)  # on the equator: too hot

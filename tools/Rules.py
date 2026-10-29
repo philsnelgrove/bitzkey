@@ -397,6 +397,8 @@ _TABLE: dict[str, list[tuple]] = {
          1.0, 5.0, 0.1),
         ("CLIMATE_DAMAGE", "Climate damage", "share of full health lost a turn for each step from home (plants from two)",
          0.0, 1.0, 0.01),
+        ("RESTING_EXPOSURE", "Resting exposure", "times the weather's harm to an animal that chose to rest out of its "
+         "temperature (not asleep or spent)", 1.0, 10.0, 0.1),
         ("WEATHER_GRACE", "Weather grace", "days an animal endures out of its temperature, uneasy but unharmed, before the weather harms it (half for the least resilient, half again for the most; twice as long weather it is hardy to)",
          0.0, 30.0, 0.5),
         ("PLANT_CLIMATE_YIELD", "Plant climate yield", "share of its food a plant gives out of its temperature",

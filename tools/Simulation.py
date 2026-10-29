@@ -445,6 +445,7 @@ EQUATOR_SHARE = 0.2
 POLAR_SHARE = 0.025  # at the top and again at the bottom: 5% of the map in all
 WINTER_EQUATOR_SHARE = 0.05
 CLIMATE_HUNGER = 2.0   # an animal a step or more from home, or a plant too hot, needs this many times the food
+RESTING_EXPOSURE = 2.0  # times the weather's harm to an animal that chose to rest out of its temperature
 WEATHER_GRACE = 4.0  # days an animal endures out of its temperature, uneasy but unharmed, before the weather harms it; half as long for the least resilient, half as long again for the most; twice as long weather it is hardy to
 CLIMATE_DAMAGE = 0.025  # for each step from home, a Bitzkey loses this share of its full health a turn; plants from two
 PLANT_CLIMATE_YIELD = 0.0  # a plant out of its temperature gives this share of its food
@@ -1596,8 +1597,11 @@ class Simulation:
             hardy = here != home and (cold if here > home else heat)
             grace = 0.0 if plant else WEATHER_GRACE * DAY_LENGTH * (0.5 + agent.feeling("resilience")) * (2 if hardy else 1)
             agent.weathered = agent.weathered + 1 if felt > 0 else max(0.0, agent.weathered - 1)
+            # Choosing to sit the weather out hurts the more (Resting exposure); resting asleep or spent was no choice.
+            resting = (RESTING_EXPOSURE if agent.last_senses is not None and ACTIONS[agent.last_choice] == "rest"
+                       and not agent.last_forced else 1.0)
             if felt > 0 and agent.weathered > grace:
-                agent.health -= CLIMATE_DAMAGE * felt * share * agent.max_health
+                agent.health -= CLIMATE_DAMAGE * felt * share * resting * agent.max_health
             starving = agent.hunger >= 100
             if starving:  # it wastes away, the larger the faster
                 agent.health -= STARVING_DAMAGE * (1 + SIZE_STARVING * agent.physique("size")) * agent.max_health
