@@ -86,6 +86,7 @@ _TABLE: dict[str, list[tuple]] = {
         ("FEEBLE_YOUTH", "Feeble youth", "an animal is feeble, an infant, for this share of its lifespan (1/30: 36 days for the "
          "smallest)", 0.0, 0.5, 0.001),
         ("PREDATOR_INFANCY", "Predator infancy", "a predator is an infant this share as long as other animals", 0.0, 1.0, 0.05),
+        ("OMNIVORE_INFANCY", "Omnivore infancy", "an omnivore is an infant this share as long as other animals", 0.0, 1.0, 0.05),
         ("GRAZER_INFANCY", "Grazer infancy", "a grazer is an infant this share as long as other animals", 0.0, 1.0, 0.05),
         ("GRAZER_GESTATION", "Grazer gestation", "a grazer carries its young this share as long as its size would have it", 0.05, 1.0, 0.05),
         ("FEEBLE_SHARE", "Feeble share", "a feeble animal's body traits and health are at this share of its own",
@@ -270,6 +271,7 @@ _TABLE: dict[str, list[tuple]] = {
         ("MATING_CALL", "Mating call", "how much more a predator ready to breed values breeding, or else courting a mate it sees", 0.0, 5.0, 0.05),
         ("MATING_CALL_RANGE", "Mating call range", "times its sight a predator ready to breed seeks a mate, when it sees none", 0.0, 3.0, 0.25),
         ("OMNIVORE_MATING_CALL", "Mating call, omnivores", "how much more an omnivore ready to breed values breeding, or else courting", 0.0, 5.0, 0.05),
+        ("OMNIVORE_MATING_CALL_RANGE", "Mating call range, omnivores", "times its sight an omnivore ready to breed seeks a mate, when it sees none", 0.0, 3.0, 0.25),
         ("PREGROWTH_TURNS", "Plant head start", "turns a new world's plants grow alone, uncounted, before its animals spawn; 0: none",
          0, 20000, 100),
         ("HUNTERS_APART", "Hunters apart", "squares a new world's hunters start from its grazers, at the least, where there is room; 0: anywhere",
@@ -346,6 +348,7 @@ _TABLE: dict[str, list[tuple]] = {
         ("THORN_FORCE", "Thorn force", "a plant's counterblow at full weapons and size", 0, 100, 1),
         ("THORN_SIZE_SHARE", "Thorn size share", "share of that from the plant's size; the rest its weapons",
          0.0, 1.0, 0.05),
+        ("INFANT_THORNS", "Infant thorns", "the share of a thorny plant's counterblow an infant takes, of what a grown animal would", 0.0, 1.0, 0.05),
         ("PACK_BONUS", "Pack bonus", "extra force at prey that a herd-mate is also alongside", 0.0, 5.0, 0.05),
         ("KILL_MEAL", "Kill meal", "hunger a kill sates", 0, 200, 5),
         ("KILL_MEAL_FOR_SIZE", "Kill meal for size", "more hunger sated, up to this for the largest prey", 0, 200, 5),

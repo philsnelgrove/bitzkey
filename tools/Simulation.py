@@ -112,6 +112,7 @@ MEAT_DIGESTION = 1 / 7
 FEEBLE_YOUTH = 1 / 30  # 360 days for the largest; the smallest SMALL_MATURITY of their 36
 PREDATOR_INFANCY = 0.5  # a predator is an infant this share as long
 GRAZER_INFANCY = 0.5  # and a grazer this share as long
+OMNIVORE_INFANCY = 0.5  # and an omnivore this share as long
 GRAZER_GESTATION = 0.5  # a grazer carries its young this share as long as its size would have it
 FEEBLE_SHARE = 0.5
 DEPLOY_GROUP = 5      # Bitzkeys deployed from the catalog onto a running world, of each chosen, a click
@@ -284,6 +285,7 @@ MATE_REACH = 2         # a partner within this many steps is close enough to bre
 MATING_CALL = 0.5      # how much more a predator ready to breed values breeding, or else courting a mate it sees
 MATING_CALL_RANGE = 2.0  # a predator ready to breed that sees no mate seeks one this many times its sight off
 OMNIVORE_MATING_CALL = 0.25  # an omnivore's milder mating call
+OMNIVORE_MATING_CALL_RANGE = 2.0  # and how far, times its sight, one ready to breed that sees no mate seeks one
 FIRST_BREEDING_INSTINCT = 3.0  # how much more one of a world's first, ready to breed, values breeding, or else courting
 HUNTER_BREEDING_COST = 0.5  # share of the usual breeding cost a predator or omnivore pays
 GRAZER_BREEDING_COST = 0.5  # share of the usual breeding cost a grazer pays
@@ -395,6 +397,7 @@ PRIMAL_FREEZE = 1.0
 PANIC = (0.3, 1.0)     # chance a fully fearful animal breaks when struck, unhurt and near death;
                        # its current fear scales it, so the fearless never break
 COWARDLY_OMNIVORES = 1  # 1: an omnivore struck always breaks and flees, whatever its fear; 0: it checks its morale
+INFANT_THORNS = 0.25  # an infant pricked by a plant's thorns takes this share of what a grown animal would
 THORN_FORCE = 15       # a plant's counterblow at full weapons and size, before the defender's toughness
 THORN_SIZE_SHARE = 0.2  # share of that from the plant's size; the rest is its weapons, and strength counts for nothing
 # For each territorial species: how many rivals it tolerates from the least to the most
@@ -982,7 +985,7 @@ class Bitzkey:
         """How long its infancy lasts, in turns: FEEBLE_YOUTH of its lifespan (a predator's PREDATOR_INFANCY as long, a
         grazer's GRAZER_INFANCY), the smallest SMALL_MATURITY of that, the larger more of it."""
         maturity = SMALL_MATURITY + (1 - SMALL_MATURITY) * share(int(self.body["size"]))
-        part = PREDATOR_INFANCY if self.species == "predator" else GRAZER_INFANCY if self.species == "grazer" else 1.0
+        part = {"predator": PREDATOR_INFANCY, "grazer": GRAZER_INFANCY, "omnivore": OMNIVORE_INFANCY}.get(self.species, 1.0)
         return FEEBLE_YOUTH * part * maturity * self.lifespan
 
     @property
@@ -2318,8 +2321,9 @@ class Simulation:
         kill = self._nearest_kill(agent, sight) if agent.species in ("omnivore", "predator") else None
         prey_sight = sight + (PREDATOR_SIGHT if agent.species == "predator" else 0)
         quarry, hunter, suitor, flora = self._look_around(agent, sight, prey_sight)
-        if suitor is None and agent.species == "predator" and agent.can_breed:  # the mating call reaches further
-            suitor = next((other for other in self._nearby(agent, int(MATING_CALL_RANGE * sight))
+        call_range = {"predator": MATING_CALL_RANGE, "omnivore": OMNIVORE_MATING_CALL_RANGE}.get(agent.species, 0.0)
+        if suitor is None and call_range > 0 and agent.can_breed:  # the mating call reaches further
+            suitor = next((other for other in self._nearby(agent, int(call_range * sight))
                            if self._compatible(agent, other) and other.can_breed), None)
         assailant = next((other for other in neighbors if other.identifier == agent.assailant), None)
         herd_assailant = next((other for other in neighbors if other.identifier == agent.herd_assailant), None)
@@ -2931,7 +2935,7 @@ class Simulation:
         and owe nothing to strength. Struck in defence, a grazer's or omnivore's weapons count for less."""
         if attacker.species == "plant":
             thorns = THORN_SIZE_SHARE * attacker.physique("size") + (1 - THORN_SIZE_SHARE) * attacker.physique("weapons")
-            return THORN_FORCE * thorns * (1 - 0.6 * defender.toughness)
+            return THORN_FORCE * thorns * (1 - 0.6 * defender.toughness) * (INFANT_THORNS if defender.infant else 1.0)
         force = STRIKE_FORCE * (2 + 9 * attacker.might)
         armed = Simulation._armed(attacker) * (Simulation._defence_share(attacker) if defending else 1.0)
         return force * (1 + 0.75 * armed) * (1 - 0.6 * defender.toughness)

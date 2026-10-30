@@ -2753,6 +2753,19 @@ class FeebleTests(unittest.TestCase):
                 self.simulation._rein_in(grazer, senses, list(grazer.brain.values(senses)))
         self.assertLess(grazer.brain.values(senses)[eat], before)  # pulled back toward the limit
 
+    def test_an_omnivore_is_an_infant_half_as_long_and_an_infant_feels_a_quarter_of_a_plants_thorns(self):
+        with patch("tools.Simulation.FEEBLE_YOUTH", 0.1):
+            omnivore = self.simulation._add_agent(encode_dna("omnivore", size=7), 5, 5)
+            half, share = omnivore.infancy, simulation_module.OMNIVORE_INFANCY
+            with patch("tools.Simulation.OMNIVORE_INFANCY", 1.0):
+                self.assertAlmostEqual(half, share * omnivore.infancy)
+            plant = self.simulation._add_agent(encode_dna("plant", weapons=7), 6, 5)
+            omnivore.age = 0
+            self.assertTrue(omnivore.infant)
+            as_infant = Simulation._damage(plant, omnivore, True)
+            omnivore.age = int(0.5 * omnivore.lifespan)
+            self.assertLess(as_infant, Simulation._damage(plant, omnivore, True))  # a quarter, and an infant's toughness besides
+
     def test_the_first_bitzkeys_of_a_world_start_grown(self):
         world = Simulation(width=30, height=30, population=40, seed=3)
         animals = [agent for agent in world.agents if agent.species != "plant"]
