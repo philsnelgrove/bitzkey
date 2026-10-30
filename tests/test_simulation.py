@@ -2739,17 +2739,19 @@ class FeebleTests(unittest.TestCase):
         self.assertEqual((grown.turn, grown.deaths), (0, 0))  # none of it counted
         self.assertIn("grazer", {agent.species for agent in grown.agents})
 
-    def test_an_animals_target_brain_values_as_its_brain_did_when_copied_without_its_traces(self):
-        from tools.Simulation import target_of
-        grazer = self.simulation._add_agent(encode_dna("grazer"), 5, 5)
+    def test_what_a_brain_values_beyond_the_value_limit_is_taught_back_toward_it(self):
+        grazer = self.simulation._add_agent(encode_dna("grazer", intellect=7), 5, 5)
         self.simulation._index_cells()
         senses = self.simulation._sense(grazer)[0]
-        grazer.brain.learn_traced(senses, ACTIONS.index("eat"), 1.0, 0.5, 0.9, decay=0.9)  # traces once it has learnt
-        target = target_of(grazer.brain)
-        self.assertIsNone(target.traces)
-        self.assertEqual(list(target.values(senses)), list(grazer.brain.values(senses)))
-        grazer.brain.learn(senses, ACTIONS.index("eat"), 5.0, 0.5)  # the brain learns on; the copy stays as it was
-        self.assertNotEqual(target.values(senses)[ACTIONS.index("eat")], grazer.brain.values(senses)[ACTIONS.index("eat")])
+        eat = ACTIONS.index("eat")
+        for _ in range(200):
+            grazer.brain.learn(senses, eat, 90.0, 0.5)  # taught far past the limit
+        before = grazer.brain.values(senses)[eat]
+        self.assertGreater(before, 60.0)
+        with patch("tools.Simulation.VALUE_LIMIT", 50.0):
+            for _ in range(20):
+                self.simulation._rein_in(grazer, senses, list(grazer.brain.values(senses)))
+        self.assertLess(grazer.brain.values(senses)[eat], before)  # pulled back toward the limit
 
     def test_the_first_bitzkeys_of_a_world_start_grown(self):
         world = Simulation(width=30, height=30, population=40, seed=3)
