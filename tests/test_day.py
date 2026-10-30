@@ -36,8 +36,11 @@ class DayTests(unittest.TestCase):
     def test_an_animal_rests_through_its_night(self):
         simulation = Simulation(40, 20, 0, 1)
         simulation.grass = {}
-        dark = next(x for x in range(40) if simulation.night(x))
-        light = next(x for x in range(40) if not simulation.night(x))
+        def deep(x: int, light: bool = False) -> bool:  # deep in the dark, or the light: where they sleep, not at dusk or dawn
+            phase = (x - simulation.night_start()) % 40 - (20 if light else 0)
+            return 40 // 6 <= phase < 20 - 40 // 6
+        dark = next(x for x in range(40) if deep(x))
+        light = next(x for x in range(40) if deep(x, True))
         day_owl = simulation._add_agent(animal(False), dark, 10)
         night_owl = simulation._add_agent(animal(True), dark, 12)
         late = simulation._add_agent(animal(True), light, 10)

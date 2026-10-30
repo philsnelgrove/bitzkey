@@ -716,14 +716,14 @@ def per_turn(rate: float) -> float:
 
 
 def stamina_pace() -> float:
-    """The share of the listed fatigue an action costs: the average animal spends its stamina over its waking half
-    day's ACTIVE_SHARE and gets it back over the rest."""
-    return FULL_STAMINA / (TYPICAL_FATIGUE * max(1.0, DAY_LENGTH / 2 * ACTIVE_SHARE))
+    """The share of the listed fatigue an action costs: the average animal spends its stamina over its active
+    ACTIVE_SHARE of the day and gets it all back in its sleep."""
+    return FULL_STAMINA / (TYPICAL_FATIGUE * max(1.0, DAY_LENGTH * ACTIVE_SHARE))
 
 
 def rest_recovery() -> float:
-    """Stamina a turn's rest restores."""
-    return FULL_STAMINA / max(1.0, DAY_LENGTH / 2 * (1 - ACTIVE_SHARE))
+    """Stamina a turn's rest restores: all of it back in a sleep, the 1 - ACTIVE_SHARE of the day."""
+    return FULL_STAMINA / max(1.0, DAY_LENGTH * (1 - ACTIVE_SHARE))
 
 
 def dieback_threshold(x: int, y: int) -> float:
@@ -1577,8 +1577,15 @@ class Simulation:
         return False
 
     def resting_time(self, agent: Bitzkey) -> bool:
-        """Whether an animal is in its night where it stands: dark for the diurnal, light for the nocturnal."""
-        return agent.nocturnal != self.night(agent.x)
+        """Whether an animal sleeps where it stands: in the middle of its night (the dark for the diurnal, the light for
+        the nocturnal), the 1 - ACTIVE_SHARE of the day there, awake at its dusk and dawn. As the C++ version's."""
+        half, into = self.width // 2, (agent.x - self.night_start()) % self.width
+        if agent.nocturnal == (into < half):  # its day
+            return False
+        phase = into - half if agent.nocturnal else into  # how far into its night the column is
+        asleep = self.width * (1 - ACTIVE_SHARE)
+        awake = max(0.0, (half - asleep) / 2)  # at each end
+        return awake <= phase < awake + asleep
 
     def sea(self, x: int, y: int) -> bool:
         """Whether a square lies under the sea: none off the map, nor in a world without sea."""
