@@ -213,6 +213,10 @@ DOMINANCE_EASE = 0.5
 # this share; and an alert reaches it from a herd-mate this many times its trust times its sight away.
 TRUST_HEED = 0.5
 TRUST_REACH = 2.0
+ELDER_AGE = 720  # turns old an animal must be to teach
+STUDENT_AGE = 0.5  # the oldest a student may be, as a share of its elder's age
+STUDENT_TRUST = 0.25  # how trusting an animal must be to be willing to be taught
+TEACHING_JOY = 1.0  # how glad an elder is of teaching a student; more if empathetic
 # Kinship: the most a herd-mate's or partner's social background may differ from its own, at full kinship and
 # no tolerance, is 1 less this; less kinship, or more tolerance, accepts more.
 KINSHIP_SHUN = 0.8
@@ -357,7 +361,7 @@ REGARD_LEARNING = 0.3
 # Diary fading each turn since; each turn it re-learns from one, in turn. As the C++ version's.
 DIARY_ENTRIES = 8
 DIARY_FADING = 0.999
-BLOW_DEED, FEEDING_DEED, ALERT_DEED, MATING_DEED = -1.0, 1.0, 0.5, 0.5
+BLOW_DEED, FEEDING_DEED, ALERT_DEED, MATING_DEED, TEACHING_DEED = -1.0, 1.0, 0.5, 0.5, 1.0
 
 
 @dataclass
@@ -837,6 +841,7 @@ class Bitzkey:
     brain: Brain | None = None
     generation: int = 0
     children: int = 0
+    taught_by: int = -1  # the elder whose brain it was given, once in its life; -1 while it has none
     in_heat: bool = True  # in heat now, and so fertile: kept turn by turn (see Simulation.heat)
     mother: int = -1  # its parents' identifiers; -1 for one spawned, imported or deployed
     father: int = -1
@@ -2333,6 +2338,10 @@ class Simulation:
             other for other in self._nearby(agent, sight)
             if agent.identifier in (other.mother, other.father) and other.infant]
         young = len(own_young)
+        kind = [other for other in self._nearby(agent, sight) if other is not agent and other.alive and self._same_kind(agent, other)]
+        oldest = max(kind, key=lambda other: other.age, default=None)  # the oldest of its kind in sight
+        students = [other for other in kind
+                    if abs(other.x - agent.x) + abs(other.y - agent.y) <= 1 and self._willing_student(agent, other)]
         here = self._climate[agent.y]
         discomfort = agent.climate_steps(here)
         # The nearest row it would feel at home in, however far, and the same only if within sight.
@@ -2415,6 +2424,8 @@ class Simulation:
             available.add("revisit")  # back to where it last fed, while it remembers
         if not agent.infant and any(child.hunger >= FEED_HUNGER for child in own_young):
             available.add("feed_young")  # once one of its infants about it is hungry, it may feed them
+        if students:
+            available.add("teach")
         if agent.y > 0:
             available.update(("go_north", "walk_north"))
         if agent.y < self.height - 1:
@@ -2477,6 +2488,11 @@ class Simulation:
             **{f"memory_{neuron + 1}": held for neuron, held in enumerate(agent.held)},
             **self._map_senses(agent),
             **self._known_senses(agent, caller, sight),
+            student_near=min(3, len(students)) / 3,
+            **({} if oldest is None else {
+                "elder_age": min(1.0, oldest.age / YEAR_LENGTH), "elder_closeness": self._closeness(agent, (oldest.x, oldest.y), sight),
+                "elder_east": max(-1.0, min(1.0, (oldest.x - agent.x) / sight)),
+                "elder_south": max(-1.0, min(1.0, (oldest.y - agent.y) / sight))}),
             **{trait: agent.feeling(trait) for trait in TEMPERAMENT},
             **agent.genes,
         )
@@ -2488,6 +2504,7 @@ class Simulation:
                      "exposure": min(2, discomfort) / 2 * agent.exposure_share(here), "uprootable": uprootable,
                      "home_distance": home_distance * agent.exposure_share(here),
                      "alert_to": alert_to, "revisit": agent.food_memory and agent.food_memory[:2],
+                     "student": students[0] if students else None,
                      "calls": [SILENT, *([ALERT_CALL] if alert_to is not None else []), *range(FIRST_CALL, len(CALLS))]}
         return senses, [ACTIONS.index(action) for action in ACTIONS if action in available], situation
 
@@ -2798,6 +2815,8 @@ class Simulation:
             agent.last_action = "revisited"
         elif action == "feed_young":
             self._feed_young(agent, situation["young"])
+        elif action == "teach":
+            self._teach(agent, situation["student"])
         elif action in HEADINGS:
             dx, dy, walk, went = HEADINGS[action]
             cells = 1 if walk else agent.steps
@@ -2864,6 +2883,23 @@ class Simulation:
             parent.reward += FEEDING_JOY * (0.5 + parent.feeling("empathy")) * min(100.0, child.hunger) / 100
             child.hunger = 0
             self._note_deed(child, parent, FEEDING_DEED)
+
+    def _willing_student(self, elder: Bitzkey, student: Bitzkey) -> bool:
+        """Awake, trusting enough, never taught, young enough for this elder, and with nothing against it."""
+        return (elder.brain is not None and student.brain is not None and elder.age >= ELDER_AGE
+                and student.age <= STUDENT_AGE * elder.age and student.taught_by < 0
+                and student.feeling("trust") >= STUDENT_TRUST and not self.resting_time(student)
+                and not any(known.identifier == elder.identifier and known.regard < 0 for known in student.known))
+
+    def _teach(self, elder: Bitzkey, student: Bitzkey) -> None:
+        """Its student given a copy of its brain, cut to the student's own; what the student knew is gone."""
+        elder.last_action = "taught"
+        if not student.alive or student.taught_by >= 0:  # a student is the first elder's
+            return
+        student.brain = elder.brain.resized(student.brain.depth, student.brain.width)
+        student.taught_by = elder.identifier
+        elder.reward += TEACHING_JOY * (0.5 + elder.feeling("empathy"))
+        self._note_deed(student, elder, TEACHING_DEED)
 
     def _alert(self, agent: Bitzkey, about: Bitzkey) -> None:
         """Alert its herd within its sight: a grazer to the hunter it sees, so they may flee it from

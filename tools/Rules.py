@@ -211,6 +211,10 @@ _TABLE: dict[str, list[tuple]] = {
         ("DOMINANCE_EASE", "Dominance ease", "share less a crowded territory troubles the most dominant, and more the most submissive",
          0.0, 1.0, 0.05),
         ("TRUST_HEED", "Trust heed", "share more the most trusting take in what herd-mates do, and less the least", 0.0, 1.0, 0.05),
+        ("ELDER_AGE", "Elder age", "turns old an animal must be to teach", 0, 8640, 24),
+        ("STUDENT_AGE", "Student age", "the oldest a student may be, as a share of its elder's age", 0.0, 1.0, 0.05),
+        ("STUDENT_TRUST", "Student trust", "how trusting, 0 to 1, an animal must be to be willing to be taught", 0.0, 1.0, 0.05),
+        ("TEACHING_JOY", "Teaching joy", "how glad an elder is of teaching a student; more if empathetic", 0.0, 5.0, 0.05),
         ("TRUST_REACH", "Trust reach", "times its trust times its sight away a herd-mate's alert is heeded", 0.0, 5.0, 0.25),
         ("KINSHIP_SHUN", "Kinship shun", "at full kinship and no tolerance, a herd-mate's or partner's social background may "
          "differ by no more than 1 less this", 0.0, 1.0, 0.05),

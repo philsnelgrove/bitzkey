@@ -3234,6 +3234,20 @@ class NursingTests(unittest.TestCase):
         for young in first.womb:  # and each young starts on NEWBORN_FOOD of a stomach of its parents'
             self.assertAlmostEqual(young[3] / first.stomach, NEWBORN_FOOD)
 
+    def test_an_elder_gives_a_willing_student_a_copy_of_its_brain_once(self):
+        with patch.object(simulation_module, "ACTIVE_SHARE", 1.0), patch.object(simulation_module, "STUDENT_TRUST", 0.0):
+            elder = self.simulation._add_agent(encode_dna("grazer"), 5, 5)
+            student = self.simulation._add_agent(encode_dna("grazer"), 6, 5)
+            elder.age, student.age = simulation_module.ELDER_AGE, 10
+            shape = student.brain.depth, student.brain.width
+            senses, options, situation = self.simulation._sense(elder)
+            self.assertIn(ACTIONS.index("teach"), options)
+            self.simulation._teach(elder, situation["student"])
+            self.assertEqual(student.taught_by, elder.identifier)
+            self.assertEqual((student.brain.depth, student.brain.width), shape)
+            self.assertIsNot(student.brain, elder.brain)
+            self.assertNotIn(ACTIONS.index("teach"), self.simulation._sense(elder)[1])
+
     def test_a_grown_animal_feeds_the_hungriest_infant_of_its_kind_close_by(self):
         from tools.Simulation import NURSING_LIMIT
         adult = self.simulation._add_agent(encode_dna("grazer", size=4), 5, 5)

@@ -13,7 +13,7 @@ from tools.Genome import (BODY_TRAITS, SPECIES, TEMPERAMENT, TEMPERATURES, TRAIT
 
 ACTIONS = ("eat", "forage", "browse", "uproot", "scavenge", "feast", "rest", "court", "breed", "hunt", "attack", "defend",
            "flee", "herd", "go_north", "go_south", "go_east", "go_west", "walk_north", "walk_south", "walk_east",
-           "walk_west", "revisit", "feed_young")
+           "walk_west", "revisit", "feed_young", "teach")
 # Alongside its action, every animal that thinks keeps silent or calls: the alert, to its herd, of a hunter (grazers)
 # or a fresh kill (hunters) it sees, or one of five calls that mean only what its kind come to make of them, heard by
 # all close enough. A brain values them as it values its actions, after them, and learns them the same way.
@@ -112,6 +112,7 @@ SENSES = (
     # falling to 0 at the edge of its sight, how well it regards it, -1 to 1, and which way it lies; and whether the
     # loudest caller it heard is one it knows, 1 or 0, and how well it regards it.
     "known_closeness", "known_regard", "known_east", "known_south", "caller_known", "caller_regard",
+    "elder_age", "elder_closeness", "elder_east", "elder_south", "student_near",
 ) + TEMPERAMENT + (    # then its current temperament, mind and social traits, each 0..7 scaled to 0..1
     *(f"inborn_{trait}" for trait in TEMPERAMENT),        # its dot's and social background's traits, as born, 0..1
     *BODY_TRAITS,                                         # its ring's traits, 0..1 (species 0 plant to 1 predator)
@@ -129,7 +130,7 @@ SIGNED_SENSES = frozenset(("latitude", "warmth", "warmth_north", "warmth_south",
                            *(f"heard_call_{call}_{way}" for call in range(1, 6) for way in ("east", "south")),
                            *(f"memory_{neuron}" for neuron in range(1, 9)),
                            *(f"map_{kind}_{way}" for kind in ("food", "danger", "comfort") for way in ("east", "south")),
-                           "known_regard", "known_east", "known_south", "caller_regard"))
+                           "known_regard", "known_east", "known_south", "caller_regard", "elder_east", "elder_south"))
 _READ_SCALE = np.array([1.0 if name in SIGNED_SENSES else 2.0 for name in SENSES])
 _READ_SHIFT = np.array([0.0 if name in SIGNED_SENSES else -1.0 for name in SENSES])
 

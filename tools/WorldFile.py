@@ -209,7 +209,7 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "hunger": float(agent.hunger), "health": float(agent.health), "stamina": float(agent.stamina), "age": agent.age,
         "cooldown": agent.cooldown,
         "last_action": agent.last_action, "brain": numbers.brain(agent.brain), "generation": agent.generation,
-        "children": agent.children, "mother": agent.mother, "father": agent.father, "died_turn": agent.died_turn, "assailant": agent.assailant,
+        "children": agent.children, "mother": agent.mother, "father": agent.father, "taught_by": agent.taught_by, "died_turn": agent.died_turn, "assailant": agent.assailant,
         "panicked": agent.panicked, "primal_fear": agent.primal_fear, "rivalry": float(agent.rivalry),
         "own_rivalry": float(agent.own_rivalry), "hunts_grazers": agent.hunts_grazers,
         "hunts_omnivores": agent.hunts_omnivores, "hunts_predators": agent.hunts_predators, "guarded": agent.guarded,
@@ -276,6 +276,7 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
                   for young in record["womb"]]
     agent.mother = int(record.get("mother", -1))  # unknown in a world saved before parents were kept
     agent.father = int(record.get("father", -1))
+    agent.taught_by = int(record.get("taught_by", -1))  # none in a world saved before teaching
     agent.last_senses = numbers.senses(record["last_senses"])
     agent.last_choice = numbers.action(agent.last_choice)
     if agent.last_choice < 0:  # an action no longer had: nothing to learn from it
@@ -413,6 +414,8 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
         saved_at = {name: index for index, name in enumerate(record["actions"])}
         numbers.saved_outputs = len(record["actions"])
         numbers.output_from = [saved_at.get(name, -1) for name in OUTPUTS]
+        if "teach" not in saved_at:  # a brain from before teaching values it as it does feeding its young, or it would never try it
+            numbers.output_from[OUTPUTS.index("teach")] = saved_at.get("feed_young", -1)
         numbers.action_now = [ACTIONS.index(name) if name in ACTIONS else -1 for name in record["actions"]]
     numbers.uncentred = not record.get("centred_senses", False)
     numbers.unscaled = "value_scale" not in record
