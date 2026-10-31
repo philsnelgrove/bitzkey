@@ -491,7 +491,7 @@ PLANT_MEAL = 70
 # meat (times its digestion) and a bite of a plant's fruit (times its share of the food in plants).
 MEAT_PORTION = 855
 FRUIT_PORTION = 70
-CARRIED_HUNGER = 50  # hunger at which it may eat what it carries
+PILE_LASTS = 3.0  # times as long as a corpse a pile lasts, since food was last dropped on it
 PLANT_MEAL_FOR_SIZE = 0
 PLANT_BITE = 15        # health a plant loses to each bite
 PLANT_REGROWTH = 0.02  # share of its health pool a plant regrows each turn
@@ -1376,6 +1376,7 @@ class Simulation:
         self.meat_piles: dict[tuple[int, int], int] = {}  # the portions lying on each square with any
         self.fruit_piles: dict[tuple[int, int], int] = {}
         self._any_piles = False  # as last indexed, so that an empty map isn't searched
+        self.pile_turns: dict[tuple[int, int, bool], int] = {}  # the turn of each pile's last drop: (x, y, is it meat)
         self._grazer_centres: list[tuple[int, int]] = []  # where a new world's grazer and hunter groups were centred
         self._hunter_centres: list[tuple[int, int]] = []
         initial_grass = round(width * height * grass_density / 100)
@@ -1971,6 +1972,8 @@ class Simulation:
         for agent in self.agents:
             if agent.died_turn is not None and self.turn - agent.died_turn >= FRESH_KILL_TURNS:
                 agent.meat = max(0.0, agent.meat - agent.rot)  # no longer fresh by next turn: it rots
+        if self._any_piles:
+            self._spoil_piles()
         for agent in self.agents:  # bodies rotted away, not eaten to the last portion, may feed a new plant
             if (agent.died_turn is not None and self.turn - agent.died_turn >= CORPSE_TURNS and agent.species != "plant"
                     and agent.portions > 0 and CORPSE_PLANT and self.random.random() < CORPSE_PLANT):
@@ -2448,8 +2451,7 @@ class Simulation:
             available.add("drop_fruit")
         if (meat_pile and MEAT_PORTION * agent.digestion > 0) or (fruit_pile and FRUIT_PORTION * agent.browsing > 0):
             available.add("eat_pile")
-        if agent.hunger >= CARRIED_HUNGER and ((agent.carried_meat and MEAT_PORTION * agent.digestion > 0)
-                                               or (agent.carried_fruit and FRUIT_PORTION * agent.browsing > 0)):
+        if (agent.carried_meat and MEAT_PORTION * agent.digestion > 0) or (agent.carried_fruit and FRUIT_PORTION * agent.browsing > 0):
             available.add("eat_carried")
         alert_to = None
         if herd:  # with a herd to tell: a grazer of a hunter it sees, a hunter of a fresh kill it sees
@@ -3012,8 +3014,17 @@ class Simulation:
         agent.last_action = "feasted"
         self._eat_portion(corpse)
 
-    @staticmethod
-    def _add_to_pile(piles: dict[tuple[int, int], int], cell: tuple[int, int], portions: int) -> None:
+    def _spoil_piles(self) -> None:
+        """Those left PILE_LASTS corpses' lifetimes since their last drop are gone."""
+        life = PILE_LASTS * CORPSE_TURNS
+        for piles in (self.meat_piles, self.fruit_piles):
+            meat = piles is self.meat_piles
+            for cell in [cell for cell in piles if self.turn - self.pile_turns.get((*cell, meat), 0) >= life]:
+                del piles[cell]
+
+    def _add_to_pile(self, piles: dict[tuple[int, int], int], cell: tuple[int, int], portions: int) -> None:
+        if portions > 0:
+            self.pile_turns[(*cell, piles is self.meat_piles)] = self.turn
         left = piles.get(cell, 0) + portions
         if left > 0:
             piles[cell] = left

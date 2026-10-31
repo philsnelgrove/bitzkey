@@ -354,7 +354,8 @@ def world_bytes(simulation: Simulation) -> bytes:
         "death_tally": _tally_record(simulation.death_tally),
         "random": {"mt": list(internal[:624]), "index": internal[624], "gauss_next": gauss_next},
         "grass": [simulation.grass.get((x, y), 0) for y in range(simulation.height) for x in range(simulation.width)],
-        "piles": [[x, y, simulation.meat_piles.get((x, y), 0), simulation.fruit_piles.get((x, y), 0)]
+        "piles": [[x, y, simulation.meat_piles.get((x, y), 0), simulation.fruit_piles.get((x, y), 0),
+                   simulation.pile_turns.get((x, y, True), 0), simulation.pile_turns.get((x, y, False), 0)]
                   for y in range(simulation.height) for x in range(simulation.width)
                   if (x, y) in simulation.meat_piles or (x, y) in simulation.fruit_piles],
         "seeds": [[x, y, _genome(dna), generation, sown] for x, y, dna, generation, sown in simulation.seeds],
@@ -465,8 +466,12 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
     simulation.random.setstate((3, (*state["mt"], state["index"]), state["gauss_next"]))
     width = simulation.width
     simulation.grass = {(index % width, index // width): tufts for index, tufts in enumerate(record["grass"]) if tufts}
-    simulation.meat_piles = {(x, y): meat for x, y, meat, _ in record.get("piles", ()) if meat}  # none in a world saved before piles
-    simulation.fruit_piles = {(x, y): fruit for x, y, _, fruit in record.get("piles", ()) if fruit}
+    piles = record.get("piles", ())  # none in a world saved before piles
+    simulation.meat_piles = {(pile[0], pile[1]): pile[2] for pile in piles if pile[2]}
+    simulation.fruit_piles = {(pile[0], pile[1]): pile[3] for pile in piles if pile[3]}
+    for pile in piles:  # dropped now, in a world saved before they spoiled
+        simulation.pile_turns[(pile[0], pile[1], True)] = pile[4] if len(pile) > 4 else record["turn"]
+        simulation.pile_turns[(pile[0], pile[1], False)] = pile[5] if len(pile) > 4 else record["turn"]
     simulation.seeds = [(x, y, convert_v3(int(dna, 16)) if before_terrain else int(dna, 16), generation, sown)
                         for x, y, dna, generation, sown in record["seeds"]]
     simulation.insights.offered = {}

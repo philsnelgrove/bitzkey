@@ -3236,12 +3236,20 @@ class NursingTests(unittest.TestCase):
         for young in first.womb:  # and each young starts on NEWBORN_FOOD of a stomach of its parents'
             self.assertAlmostEqual(young[3] / first.stomach, NEWBORN_FOOD)
 
-    def test_a_hungry_animal_may_eat_what_it_carries(self):
+    def test_a_pile_spoils_once_left_long_enough(self):
+        self.simulation._add_to_pile(self.simulation.fruit_piles, (3, 4), 2)
+        self.simulation._spoil_piles()
+        self.assertEqual(self.simulation.fruit_piles[(3, 4)], 2)
+        with patch.object(simulation_module, "PILE_LASTS", 0):
+            self.simulation._spoil_piles()
+        self.assertNotIn((3, 4), self.simulation.fruit_piles)
+
+    def test_an_animal_may_eat_what_it_carries(self):
         with patch.object(simulation_module, "ACTIVE_SHARE", 1.0):
             carrier = self.simulation._add_agent(encode_dna("omnivore"), 5, 5)
             carrier.carried_fruit = 1
-            carrier.hunger = simulation_module.CARRIED_HUNGER - 1
-            self.assertNotIn(ACTIONS.index("eat_carried"), self.simulation._sense(carrier)[1])
+            carrier.hunger = 0
+            self.assertIn(ACTIONS.index("eat_carried"), self.simulation._sense(carrier)[1])
             carrier.hunger = 90
             _, options, situation = self.simulation._sense(carrier)
             self.assertIn(ACTIONS.index("eat_carried"), options)
