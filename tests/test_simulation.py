@@ -3537,3 +3537,16 @@ class MaterialTests(unittest.TestCase):
         carrier = Bitzkey(1, encode_dna("grazer", size=3), 3, 3)
         carrier.carried_stone, carrier.carried_wood = 1, 2
         self.assertEqual(carrier.load, 3)
+
+    def test_a_dressed_body_is_bone_and_materials_are_taken_one_by_one(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        dresser = Bitzkey(1, encode_dna("predator"), 5, 5)
+        corpse = Bitzkey(2, encode_dna("grazer", size=3), 6, 5)
+        corpse.portions, corpse.meat = 4, 10.0
+        simulation.bone_piles.clear()
+        simulation._move_toward = lambda *_: None  # already beside it
+        simulation._dress(dresser, corpse)
+        self.assertEqual(simulation.bone_piles[(6, 5)], 4)
+        self.assertEqual((corpse.portions, corpse.meat), (0, 0))
+        simulation._take_material(dresser, (6, 5), "bone")
+        self.assertEqual((dresser.carried_bone, simulation.bone_piles[(6, 5)]), (1, 3))

@@ -1182,7 +1182,7 @@ class BitzkeyApp:
                                max(1, round(min(cell_width, cell_height) * 0.18)))
         half = max(2, round(min(cell_width, cell_height) * 0.25))
         pile_font = UI.font("segoeui", 11)
-        for x, y in {*self.simulation.meat_piles, *self.simulation.fruit_piles}:  # meat to the left of a square, fruit to the right
+        for x, y in {*self.simulation.meat_piles, *self.simulation.fruit_piles, *self.simulation.stone_piles, *self.simulation.bone_piles, *self.simulation.wood_piles}:  # meat to the left of a square, fruit to the right
             point = (round(board.left + (x + 0.5) * cell_width), round(board.top + (y + 0.5) * cell_height))
             if not reach.collidepoint(point):
                 continue
@@ -1191,6 +1191,10 @@ class BitzkeyApp:
                 draw_pile(surface, True, meat, point[0] - half if fruit else point[0], point[1], half, pile_font)
             if fruit:
                 draw_pile(surface, False, fruit, point[0] + half if meat else point[0], point[1], half, pile_font)
+            size = max(2, half // 2)  # stone, bone and wood, small marks along the foot of the square
+            for index, (piles, colour) in enumerate(((self.simulation.stone_piles, (136, 138, 142)), (self.simulation.bone_piles, (236, 226, 205)), (self.simulation.wood_piles, (122, 80, 44)))):
+                if (x, y) in piles:
+                    pg.draw.rect(surface, colour, (point[0] + (index - 1) * (size + half // 2) - size // 2, point[1] + half, size, size))
         night = pg.Surface((max(1, round(self.simulation.width // 2 * cell_width)), max(1, round(board.height))), pg.SRCALPHA)
         night.fill(NIGHT)  # the night, a shadow over half the map's columns, wrapping round east to west
         for start in (self.simulation.night_start(), self.simulation.night_start() - self.simulation.width):
@@ -1728,8 +1732,8 @@ def _shown(value: float | None, pattern: str) -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run a Bitzkey artificial ecology.")
-    parser.add_argument("--width", type=int, default=Config.GRID_WIDTH, help="world width in cells (default: 360)")
-    parser.add_argument("--height", type=int, default=Config.GRID_HEIGHT, help="world height in cells (default: 180)")
+    parser.add_argument("--width", type=int, default=Config.GRID_WIDTH, help="world width in cells (default: 200)")
+    parser.add_argument("--height", type=int, default=Config.GRID_HEIGHT, help="world height in cells (default: 100)")
     parser.add_argument("--population", type=int, default=Config.INITIAL_POPULATION)
     parser.add_argument("--grass-density", type=int, default=Config.GRASS_DENSITY,
                         help="percent of cells with grass at the start (default: 5)")
@@ -1743,7 +1747,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--body-mutation", type=int, default=Config.BODY_MUTATION,
                         help="percent chance a birth mutates the child's body, 0 to 100 (default: 50)")
     parser.add_argument("--year-length", type=int, default=Config.YEAR_LENGTH,
-                        help="turns in a year, of four seasons (default: 360)")
+                        help="turns in a year, of four seasons (default: 200)")
     parser.add_argument("--windowed", action="store_true", help="start in a window instead of fullscreen")
     return parser.parse_args()
 
