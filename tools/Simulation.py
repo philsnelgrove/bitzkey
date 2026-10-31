@@ -872,6 +872,7 @@ class Bitzkey:
     brain: Brain | None = None
     generation: int = 0
     children: int = 0
+    infant_taught: bool = False  # whether a parent has given it its brain, its first chance
     taught_by: int = -1  # the elder whose brain it was given, once in its life; -1 while it has none
     carried_meat: int = 0  # the portions it carries
     carried_fruit: int = 0
@@ -3141,9 +3142,16 @@ class Simulation:
             child.hunger = 0
             self._note_deed(child, parent, FEEDING_DEED)
 
+    @staticmethod
+    def _first_chance(elder: Bitzkey, student: Bitzkey) -> bool:
+        """An infant untaught, and this its parent."""
+        return student.infant and not student.infant_taught and elder.identifier in (student.mother, student.father)
+
     def _willing_student(self, elder: Bitzkey, student: Bitzkey) -> bool:
         """Its elder feeble with age; and it bright enough, awake, trusting enough, never taught, young enough for
         this elder, and with nothing against it."""
+        if elder.brain is not None and student.brain is not None and self._first_chance(elder, student):
+            return not self.resting_time(student)
         return (elder.brain is not None and student.brain is not None and elder.age > AGEING * elder.lifespan
                 and student.inborn["intellect"] >= STUDENT_INTELLECT
                 and student.age <= STUDENT_AGE * elder.age and student.taught_by < 0
@@ -3153,10 +3161,16 @@ class Simulation:
     def _teach(self, elder: Bitzkey, student: Bitzkey) -> None:
         """Its student given a copy of its brain, cut to the student's own; what the student knew is gone."""
         elder.last_action = "taught"
-        if not student.alive or student.taught_by >= 0:  # a student is the first elder's
+        first_chance = self._first_chance(elder, student)
+        if not student.alive or (not first_chance and student.taught_by >= 0):  # a student is the first teacher's
             return
         student.brain = elder.brain.resized(student.brain.depth, student.brain.width)
-        student.taught_by = elder.identifier
+        if first_chance:
+            student.infant_taught = True
+        else:
+            student.taught_by = elder.identifier
+        student.crafts |= elder.crafts  # and what it can make, as far as it has got at each
+        student.craft_tries = [max(pair) for pair in zip(student.craft_tries, elder.craft_tries)]
         elder.reward += TEACHING_JOY * (0.5 + elder.feeling("empathy"))
         self._note_deed(student, elder, TEACHING_DEED)
 

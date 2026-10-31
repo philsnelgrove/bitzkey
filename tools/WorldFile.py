@@ -212,7 +212,7 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "last_action": agent.last_action, "brain": numbers.brain(agent.brain), "generation": agent.generation,
         "children": agent.children, "mother": agent.mother, "father": agent.father, "taught_by": agent.taught_by,
         "carried_meat": agent.carried_meat, "carried_fruit": agent.carried_fruit, "weapon": agent.weapon, "armour": agent.armour_worn, "weapon_uses": agent.weapon_uses, "armour_uses": agent.armour_uses,
-        "crafts": agent.crafts, "craft_tries": agent.craft_tries, "cooked_meat": agent.cooked_meat, "cooked_fruit": agent.cooked_fruit,
+        "infant_taught": agent.infant_taught, "crafts": agent.crafts, "craft_tries": agent.craft_tries, "cooked_meat": agent.cooked_meat, "cooked_fruit": agent.cooked_fruit,
         "carried_stone": agent.carried_stone,
         "carried_bone": agent.carried_bone, "carried_wood": agent.carried_wood, "died_turn": agent.died_turn, "assailant": agent.assailant,
         "panicked": agent.panicked, "primal_fear": agent.primal_fear, "rivalry": float(agent.rivalry),
@@ -281,6 +281,7 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
                   for young in record["womb"]]
     agent.mother = int(record.get("mother", -1))  # unknown in a world saved before parents were kept
     agent.father = int(record.get("father", -1))
+    agent.infant_taught = bool(record.get("infant_taught", False))
     agent.taught_by = int(record.get("taught_by", -1))  # none in a world saved before teaching
     agent.carried_meat = int(record.get("carried_meat", 0))  # nothing in a world saved before carrying
     agent.carried_fruit = int(record.get("carried_fruit", 0))
