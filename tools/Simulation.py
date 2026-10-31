@@ -486,6 +486,8 @@ GRASS_MEAL = 18        # hunger a tuft of grass sates: about a tenth of a middle
 # A plant is eaten in portions, a bite each: every bite sates PLANT_MEAL hunger (and PLANT_MEAL_FOR_SIZE more for the
 # largest, none by default) and takes PLANT_BITE of its health, so a plant's food is in proportion to its size.
 PLANT_MEAL = 70
+WOOD_LASTS = 10.0  # times as long as a pile of food a pile of wood lasts
+STONE_SCATTER_PER = 100  # one stone to this many squares, scattered once in a world's life
 # An animal may carry food off rather than eat it, up to its size + 1 portions, and drop it in a pile any may take
 # from or eat from. Eaten from a pile, a portion sates this much hunger, by the eater's gut: a middle-sized feast of
 # meat (times its digestion) and a bite of a plant's fruit (times its share of the food in plants).
@@ -850,6 +852,9 @@ class Bitzkey:
     taught_by: int = -1  # the elder whose brain it was given, once in its life; -1 while it has none
     carried_meat: int = 0  # the portions it carries
     carried_fruit: int = 0
+    carried_stone: int = 0  # and the materials
+    carried_bone: int = 0
+    carried_wood: int = 0
     in_heat: bool = True  # in heat now, and so fertile: kept turn by turn (see Simulation.heat)
     mother: int = -1  # its parents' identifiers; -1 for one spawned, imported or deployed
     father: int = -1
@@ -948,7 +953,7 @@ class Bitzkey:
 
     @property
     def load(self) -> int:
-        return self.carried_meat + self.carried_fruit
+        return self.carried_meat + self.carried_fruit + self.carried_stone + self.carried_bone + self.carried_wood
 
     @property
     def exhausted(self) -> bool:
@@ -1375,6 +1380,10 @@ class Simulation:
         self.grass: dict[tuple[int, int], int] = {}
         self.meat_piles: dict[tuple[int, int], int] = {}  # the portions lying on each square with any
         self.fruit_piles: dict[tuple[int, int], int] = {}
+        self.stone_piles: dict[tuple[int, int], int] = {}  # materials, which never spoil
+        self.bone_piles: dict[tuple[int, int], int] = {}
+        self.wood_piles: dict[tuple[int, int], int] = {}
+        self.stones_scattered = False
         self._any_piles = False  # as last indexed, so that an empty map isn't searched
         self.pile_turns: dict[tuple[int, int, bool], int] = {}  # the turn of each pile's last drop: (x, y, is it meat)
         self._grazer_centres: list[tuple[int, int]] = []  # where a new world's grazer and hunter groups were centred
@@ -1383,6 +1392,7 @@ class Simulation:
         self._initial_grass = initial_grass  # what grows back each turn is a share of it
         self.grass_regrowth = initial_grass * GRASS_REGROWTH
         self._sow(initial_grass)
+        self.scatter_stones()
         self._witnessed: list[tuple] = []
         if population > 0:  # the plants first, and `pregrowth` turns' head start, uncounted; then the animals
             self._spawn_biomes(plants=True)
@@ -1974,6 +1984,7 @@ class Simulation:
                 agent.meat = max(0.0, agent.meat - agent.rot)  # no longer fresh by next turn: it rots
         if self._any_piles:
             self._spoil_piles()
+            self._rot_wood()
         for agent in self.agents:  # bodies rotted away, not eaten to the last portion, may feed a new plant
             if (agent.died_turn is not None and self.turn - agent.died_turn >= CORPSE_TURNS and agent.species != "plant"
                     and agent.portions > 0 and CORPSE_PLANT and self.random.random() < CORPSE_PLANT):
@@ -2380,6 +2391,9 @@ class Simulation:
                 hunter = alarm_source  # the herd's alarm: flight from whatever struck a herd-mate, or it was alerted to
         seen_kill = kill
         meat_pile = self._nearest_pile(agent, sight, self.meat_piles) if self._any_piles else None
+        stone_pile = self._nearest_pile(agent, sight, self.stone_piles) if self._any_piles else None
+        bone_pile = self._nearest_pile(agent, sight, self.bone_piles) if self._any_piles else None
+        wood_pile = self._nearest_pile(agent, sight, self.wood_piles) if self._any_piles else None
         fruit_pile = self._nearest_pile(agent, sight, self.fruit_piles) if self._any_piles else None
         alerted_kill = None
         if agent.kill_alert is not None:  # a pack-mate's alert: a fresh kill it may not see itself
@@ -2445,6 +2459,23 @@ class Simulation:
                 available.add("take_meat")
             if flora or tears or fruit_pile:
                 available.add("take_fruit")
+            if stone_pile:
+                available.add("take_stone")
+            if bone_pile:
+                available.add("take_bone")
+            if wood_pile:
+                available.add("take_wood")
+        if agent.carried_stone:
+            available.add("drop_stone")
+        if agent.carried_bone:
+            available.add("drop_bone")
+        if agent.carried_wood:
+            available.add("drop_wood")
+        dressable = kill if kill else carrion
+        if agent.species == "grazer":
+            dressable = self._nearest_carrion(agent, sight)  # it won't eat one, but may dress it
+        if dressable:
+            available.add("dress")
         if agent.carried_meat:
             available.add("drop_meat")
         if agent.carried_fruit:
@@ -2496,6 +2527,13 @@ class Simulation:
             fruit_carried=agent.carried_fruit / agent.load if agent.load else 0.0,
             meat_pile_closeness=self._closeness(agent, meat_pile, sight),
             fruit_pile_closeness=self._closeness(agent, fruit_pile, sight),
+            stone_carried=agent.carried_stone / agent.load if agent.load else 0.0,
+            bone_carried=agent.carried_bone / agent.load if agent.load else 0.0,
+            wood_carried=agent.carried_wood / agent.load if agent.load else 0.0,
+            stone_pile_closeness=self._closeness(agent, stone_pile, sight),
+            bone_pile_closeness=self._closeness(agent, bone_pile, sight),
+            wood_pile_closeness=self._closeness(agent, wood_pile, sight),
+            gear_pile_closeness=0.0, fire_closeness=0.0, fire_friendly=0.0, wielding=0.0, armoured=0.0,
             kill_closeness=self._closeness(agent, kill and (kill.x, kill.y), sight),
             plant_closeness=self._closeness(agent, flora and (flora.x, flora.y), sight),
             assailant_near=float(assailant is not None),
@@ -2546,7 +2584,7 @@ class Simulation:
                      "grass": grass, "grass_here": grass_here, "carrion": carrion, "kill": kill, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
                      "others": others, "defend_target": defend_target, "for_herd": assailant is None,
                      "herd": herd, "herd_near": herd_near, "herd_middle": herd_middle,
-                     "exposure": min(2, discomfort) / 2 * agent.exposure_share(here), "uprootable": uprootable, "tears": tears, "meat_pile": meat_pile, "fruit_pile": fruit_pile,
+                     "exposure": min(2, discomfort) / 2 * agent.exposure_share(here), "uprootable": uprootable, "stone_pile": stone_pile, "bone_pile": bone_pile, "wood_pile": wood_pile, "dressable": dressable, "tears": tears, "meat_pile": meat_pile, "fruit_pile": fruit_pile,
                      "home_distance": home_distance * agent.exposure_share(here),
                      "alert_to": alert_to, "revisit": agent.food_memory and agent.food_memory[:2],
                      "student": students[0] if students else None,
@@ -2746,7 +2784,10 @@ class Simulation:
         agent.portions = 0 if agent.species == "plant" else 1 + agent.trait("size")
         self._add_to_pile(self.meat_piles, (agent.x, agent.y), agent.carried_meat)  # what it carried falls where it died
         self._add_to_pile(self.fruit_piles, (agent.x, agent.y), agent.carried_fruit)
-        agent.carried_meat = agent.carried_fruit = 0
+        self._add_to_pile(self.stone_piles, (agent.x, agent.y), agent.carried_stone)
+        self._add_to_pile(self.bone_piles, (agent.x, agent.y), agent.carried_bone)
+        self._add_to_pile(self.wood_piles, (agent.x, agent.y), agent.carried_wood + (1 + agent.trait("size") if agent.species == "plant" else 0))  # a dead plant is wood
+        agent.carried_meat = agent.carried_fruit = agent.carried_stone = agent.carried_bone = agent.carried_wood = 0
         if agent.species != "plant":
             self._kills.setdefault((agent.x, agent.y), []).append(agent)
         self.deaths += 1
@@ -2877,6 +2918,15 @@ class Simulation:
             agent.carried_fruit -= 1
             self._add_to_pile(self.fruit_piles, (agent.x, agent.y), 1)
             agent.last_action = "dropped fruit"
+        elif action in ("take_stone", "take_bone", "take_wood"):
+            self._take_material(agent, situation[action[5:] + "_pile"], action[5:])
+        elif action in ("drop_stone", "drop_bone", "drop_wood"):
+            material = action[5:]
+            setattr(agent, "carried_" + material, getattr(agent, "carried_" + material) - 1)
+            self._add_to_pile(getattr(self, material + "_piles"), (agent.x, agent.y), 1)
+            agent.last_action = "dropped " + material
+        elif action == "dress":
+            self._dress(agent, situation["dressable"])
         elif action == "eat_pile":
             self._eat_pile(agent, situation)
         elif action == "eat_carried":
@@ -3022,9 +3072,14 @@ class Simulation:
             for cell in [cell for cell in piles if self.turn - self.pile_turns.get((*cell, meat), 0) >= life]:
                 del piles[cell]
 
+    def _rot_wood(self) -> None:
+        life = PILE_LASTS * CORPSE_TURNS * WOOD_LASTS
+        for cell in [cell for cell in self.wood_piles if self.turn - self.pile_turns.get((*cell, "wood"), 0) >= life]:
+            del self.wood_piles[cell]
+
     def _add_to_pile(self, piles: dict[tuple[int, int], int], cell: tuple[int, int], portions: int) -> None:
         if portions > 0:
-            self.pile_turns[(*cell, piles is self.meat_piles)] = self.turn
+            self.pile_turns[(*cell, "wood" if piles is self.wood_piles else piles is self.meat_piles)] = self.turn
         left = piles.get(cell, 0) + portions
         if left > 0:
             piles[cell] = left
@@ -3392,7 +3447,7 @@ class Simulation:
                                     for y in range(self.height)])
 
     def _index_cells(self) -> None:
-        self._any_piles = bool(self.meat_piles or self.fruit_piles)
+        self._any_piles = bool(self.meat_piles or self.fruit_piles or self.stone_piles or self.bone_piles or self.wood_piles)
         self._cells = {}
         self._carrion = {}
         self._kills = {}
@@ -3647,6 +3702,45 @@ class Simulation:
             if grass.get(cell, 0) > 0 and self._can_enter(agent, cell) and agent.climate_steps(climate[cell[1]]) <= worst:
                 return cell
         return None
+
+    def _take_material(self, agent: Bitzkey, pile: tuple[int, int], material: str) -> None:
+        """One from a pile, carried off."""
+        self._move_toward(agent, *pile)
+        piles = getattr(self, material + "_piles")
+        if abs(pile[0] - agent.x) + abs(pile[1] - agent.y) > 1 or piles.get(pile, 0) <= 0:
+            agent.last_action = "sought a pile"
+            return
+        self._add_to_pile(piles, pile, -1)
+        setattr(agent, "carried_" + material, getattr(agent, "carried_" + material) + 1)
+        agent.last_action = "took a material"
+
+    def _dress(self, agent: Bitzkey, corpse: Bitzkey) -> None:
+        """All that is left of a body made into bone, a pile where it lay."""
+        self._move_toward(agent, corpse.x, corpse.y)
+        if abs(corpse.x - agent.x) + abs(corpse.y - agent.y) > 1 or corpse.portions <= 0:
+            agent.last_action = "sought a body"
+            return
+        self._add_to_pile(self.bone_piles, (corpse.x, corpse.y), 1 + corpse.trait("size"))
+        corpse.meat = 0
+        corpse.portions = 0
+        agent.last_action = "dressed a body"
+
+    def scatter_stones(self) -> None:
+        """One world's only stones, on the land, by an LCG of the map's size, as the C++ version draws them."""
+        if self.stones_scattered:
+            return
+        self.stones_scattered = True
+        state = self.width * 1000003 + self.height
+
+        def draw(below: int) -> int:
+            nonlocal state
+            state = (state * 6364136223846793005 + 1442695040888963407) & 0xFFFFFFFFFFFFFFFF
+            return (state >> 33) % below
+
+        for _ in range(self.width * self.height // STONE_SCATTER_PER):
+            x, y = draw(self.width), draw(self.height)
+            if not self.sea(x, y):
+                self._add_to_pile(self.stone_piles, (x, y), 1)
 
     def _nearest_pile(self, agent: Bitzkey, sight: int, piles: dict[tuple[int, int], int]) -> tuple[int, int] | None:
         sx, sy = self.tie_side(agent)

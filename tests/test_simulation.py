@@ -3527,3 +3527,13 @@ class AcquaintanceTests(unittest.TestCase):
         self.assertEqual(len(grazer.known), 2)
         self.assertNotIn(friendly.identifier, [one.identifier for one in grazer.known])
         self.assertEqual(world_from_bytes(world_bytes(world)).find_agent(grazer.identifier).known, grazer.known)
+
+
+class MaterialTests(unittest.TestCase):
+    def test_stones_fall_as_in_the_cpp_version_and_bodies_leave_bone(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        self.assertGreater(sum(simulation.stone_piles.values()), 0)
+        self.assertLessEqual(sum(simulation.stone_piles.values()), 9)
+        carrier = Bitzkey(1, encode_dna("grazer", size=3), 3, 3)
+        carrier.carried_stone, carrier.carried_wood = 1, 2
+        self.assertEqual(carrier.load, 3)

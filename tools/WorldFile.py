@@ -210,7 +210,8 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "cooldown": agent.cooldown,
         "last_action": agent.last_action, "brain": numbers.brain(agent.brain), "generation": agent.generation,
         "children": agent.children, "mother": agent.mother, "father": agent.father, "taught_by": agent.taught_by,
-        "carried_meat": agent.carried_meat, "carried_fruit": agent.carried_fruit, "died_turn": agent.died_turn, "assailant": agent.assailant,
+        "carried_meat": agent.carried_meat, "carried_fruit": agent.carried_fruit, "carried_stone": agent.carried_stone,
+        "carried_bone": agent.carried_bone, "carried_wood": agent.carried_wood, "died_turn": agent.died_turn, "assailant": agent.assailant,
         "panicked": agent.panicked, "primal_fear": agent.primal_fear, "rivalry": float(agent.rivalry),
         "own_rivalry": float(agent.own_rivalry), "hunts_grazers": agent.hunts_grazers,
         "hunts_omnivores": agent.hunts_omnivores, "hunts_predators": agent.hunts_predators, "guarded": agent.guarded,
@@ -280,6 +281,9 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
     agent.taught_by = int(record.get("taught_by", -1))  # none in a world saved before teaching
     agent.carried_meat = int(record.get("carried_meat", 0))  # nothing in a world saved before carrying
     agent.carried_fruit = int(record.get("carried_fruit", 0))
+    agent.carried_stone = int(record.get("carried_stone", 0))
+    agent.carried_bone = int(record.get("carried_bone", 0))
+    agent.carried_wood = int(record.get("carried_wood", 0))
     agent.last_senses = numbers.senses(record["last_senses"])
     agent.last_choice = numbers.action(agent.last_choice)
     if agent.last_choice < 0:  # an action no longer had: nothing to learn from it
@@ -354,6 +358,10 @@ def world_bytes(simulation: Simulation) -> bytes:
         "death_tally": _tally_record(simulation.death_tally),
         "random": {"mt": list(internal[:624]), "index": internal[624], "gauss_next": gauss_next},
         "grass": [simulation.grass.get((x, y), 0) for y in range(simulation.height) for x in range(simulation.width)],
+        "materials": [[x, y, kind + 2, piles[(x, y)], simulation.pile_turns.get((x, y, "wood"), 0) if kind == 2 else 0] for y in range(simulation.height) for x in range(simulation.width)
+                      for kind, piles in enumerate((simulation.stone_piles, simulation.bone_piles, simulation.wood_piles))
+                      if (x, y) in piles],
+        "stones_scattered": simulation.stones_scattered,
         "piles": [[x, y, simulation.meat_piles.get((x, y), 0), simulation.fruit_piles.get((x, y), 0),
                    simulation.pile_turns.get((x, y, True), 0), simulation.pile_turns.get((x, y, False), 0)]
                   for y in range(simulation.height) for x in range(simulation.width)
@@ -472,6 +480,13 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
     for pile in piles:  # dropped now, in a world saved before they spoiled
         simulation.pile_turns[(pile[0], pile[1], True)] = pile[4] if len(pile) > 4 else record["turn"]
         simulation.pile_turns[(pile[0], pile[1], False)] = pile[5] if len(pile) > 4 else record["turn"]
+    simulation.stone_piles, simulation.bone_piles, simulation.wood_piles = {}, {}, {}  # the blank world's own stones gone
+    for x, y, kind, count, dropped in record.get("materials", ()):
+        (simulation.stone_piles, simulation.bone_piles, simulation.wood_piles)[kind - 2][(x, y)] = count
+        if kind == 4:
+            simulation.pile_turns[(x, y, "wood")] = dropped
+    simulation.stones_scattered = record.get("stones_scattered", False)
+    simulation.scatter_stones()  # a world saved before stones has them now, the once
     simulation.seeds = [(x, y, convert_v3(int(dna, 16)) if before_terrain else int(dna, 16), generation, sown)
                         for x, y, dna, generation, sown in record["seeds"]]
     simulation.insights.offered = {}
