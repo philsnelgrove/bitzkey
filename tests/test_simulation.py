@@ -3559,7 +3559,7 @@ class MaterialTests(unittest.TestCase):
         hitter.weapon = 3
         self.assertAlmostEqual(Simulation._damage(hitter, target), 2 * plain)
         hitter.weapon, hitter.carried_stone = 2, 0
-        for _ in range(3):
+        for _ in range(7):
             self.assertEqual(hitter.weapon, 2)
             Simulation._wear_weapon(hitter)
         self.assertEqual(hitter.weapon, 0)
@@ -3582,3 +3582,14 @@ class MaterialTests(unittest.TestCase):
         self.assertEqual(simulation.fires[(5, 5)], (simulation.turn + 48, 1))
         simulation._cook(lighter)
         self.assertEqual(simulation.cooked_meat_piles[(5, 5)], 1)
+
+    def test_seven_units_make_a_shelter_that_doubles_a_square(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        builder = Bitzkey(1, encode_dna("omnivore", size=7), 5, 5)
+        builder.carried_stone, builder.carried_wood, builder.weapon = 4, 3, 3
+        for _ in range(6):
+            simulation._construct(builder)
+        self.assertEqual(simulation.sites[(5, 5)], 6)
+        simulation._construct(builder)
+        self.assertIn((5, 5), simulation.shelters)
+        self.assertEqual(builder.load, 0)

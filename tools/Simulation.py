@@ -493,10 +493,12 @@ WOOD_LASTS = 10.0  # times as long as a pile of food a pile of wood lasts
 NO_WEAPON, BONE_AXE, CLUB, STONE_AXE = 0, 1, 2, 3
 NO_ARMOUR, BONE_ARMOUR, WOOD_ARMOUR = 0, 1, 2
 GEAR_KINDS = ("bone_axe", "club", "stone_axe", "bone_armour", "wood_armour")
-GEAR_USES = 3
+GEAR_USES = 7
 FIRE_TURNS = 24  # a day, and another for each wood fed to it; a club lights one, a fire cooks what is carried, and cooked food never spoils
 FIRE_PANIC = 0.25  # the chance an animal panics, seeing a fire not its own or its herd's
 COOKED_FOOD = 1.5  # times as nourishing as raw
+SHELTER_UNITS = 7  # of stone or wood, any mix, to finish a shelter; until then each takes a space of the square
+FIRE_REACH = 2  # squares off, a fire shelters an animal from the cold
 DIG_CHANCE = 0.1  # that a dig finds a stone
 WEAPON_FORCE, STONE_FORCE, ARMOUR_FORCE = 2.0, 1.5, 2.0
 ARMOUR_LEAST = 2
@@ -1401,6 +1403,8 @@ class Simulation:
         self.bone_piles: dict[tuple[int, int], int] = {}
         self.wood_piles: dict[tuple[int, int], int] = {}
         self.stones_scattered = False
+        self.sites: dict[tuple[int, int], int] = {}  # units in each unfinished shelter
+        self.shelters: set[tuple[int, int]] = set()
         self.cooked_meat_piles: dict[tuple[int, int], int] = {}
         self.cooked_fruit_piles: dict[tuple[int, int], int] = {}
         self.fires: dict[tuple[int, int], tuple[int, int]] = {}  # each lit square's: the turn it goes out, who lit it
@@ -1943,7 +1947,7 @@ class Simulation:
                 agent.last_wellbeing += max(0.0, agent.health) / agent.max_health - share_before  # is no lesson
             plant = agent.species == "plant"
             here = self._climate[agent.y]
-            steps = 0.0 if self.sheltered(agent) else agent.climate_steps(here)  # a sheltered infant feels no weather
+            steps = 0.0 if self.sheltered(agent) or self._warmed_by_fire(agent, here) else agent.climate_steps(here)  # a sheltered infant feels no weather
             hungrier = steps > 0 and (not plant or here < agent.climate[0])  # out of its temperature; a plant, too hot
             share = agent.exposure_share(here)  # less for the hardy
             # The extra food it needs rises with the weather's turning, to the full amount a step away.
@@ -2549,6 +2553,8 @@ class Simulation:
             available.add("drop_fruit")
         eat_fruit = fruit_pile or (self._nearest_pile(agent, sight, self.cooked_fruit_piles) if self._any_piles else None)
         beside_fire = fire is not None and abs(fire[0] - agent.x) + abs(fire[1] - agent.y) <= 1
+        if agent.weapon and agent.carried_stone + agent.carried_wood and (agent.x, agent.y) not in self.shelters and not self.sea(agent.x, agent.y):
+            available.add("construct")
         if agent.weapon == CLUB and not self.sea(agent.x, agent.y):
             available.add("light_fire")
         if beside_fire and agent.carried_wood:
@@ -2610,6 +2616,8 @@ class Simulation:
             wood_pile_closeness=self._closeness(agent, wood_pile, sight),
             gear_pile_closeness=self._closeness(agent, gear_pile, sight), fire_closeness=self._closeness(agent, fire, sight), fire_friendly=float(fire is not None and self._fire_friendly(agent, fire)),
             wielding=float(self._gear_force(agent) > 1), armoured=float(agent.armour_worn != 0),
+            foe_sheltered=float(any(foe is not None and self._safe_inside(foe) for foe in (target, defend_target))),
+            shelter_here=1.0 if (agent.x, agent.y) in self.shelters else self.sites.get((agent.x, agent.y), 0) / SHELTER_UNITS,
             kill_closeness=self._closeness(agent, kill and (kill.x, kill.y), sight),
             plant_closeness=self._closeness(agent, flora and (flora.x, flora.y), sight),
             assailant_near=float(assailant is not None),
@@ -3015,6 +3023,8 @@ class Simulation:
             self._cut(agent, situation["flora"])
         elif action == "dig":
             self._dig(agent)
+        elif action == "construct":
+            self._construct(agent)
         elif action == "light_fire":
             self._light_fire(agent)
         elif action == "feed_fire":
@@ -3176,12 +3186,12 @@ class Simulation:
         life = PILE_LASTS * CORPSE_TURNS
         for piles in (self.meat_piles, self.fruit_piles):
             meat = piles is self.meat_piles
-            for cell in [cell for cell in piles if self.turn - self.pile_turns.get((*cell, meat), 0) >= life]:
+            for cell in [cell for cell in piles if cell not in self.shelters and self.turn - self.pile_turns.get((*cell, meat), 0) >= life]:
                 del piles[cell]
 
     def _rot_wood(self) -> None:
         life = PILE_LASTS * CORPSE_TURNS * WOOD_LASTS
-        for cell in [cell for cell in self.wood_piles if self.turn - self.pile_turns.get((*cell, "wood"), 0) >= life]:
+        for cell in [cell for cell in self.wood_piles if cell not in self.shelters and self.turn - self.pile_turns.get((*cell, "wood"), 0) >= life]:
             del self.wood_piles[cell]
 
     def _add_to_pile(self, piles: dict[tuple[int, int], int], cell: tuple[int, int], portions: int) -> None:
@@ -3366,6 +3376,30 @@ class Simulation:
         other = self.find_agent(lighter)
         return other is not None and self._herd_mate(agent, other)
 
+    def _warmed_by_fire(self, agent: Bitzkey, here: int) -> bool:
+        if not self.fires or here <= agent.climate[0]:  # only against the cold
+            return False
+        return any(until > self.turn and abs(x - agent.x) + abs(y - agent.y) <= FIRE_REACH for (x, y), (until, _) in self.fires.items())
+
+    def _safe_inside(self, animal: Bitzkey) -> bool:
+        """At rest in a shelter, out of reach."""
+        return ACTIONS[animal.last_choice] == "rest" and (animal.x, animal.y) in self.shelters
+
+    def _construct(self, agent: Bitzkey) -> None:
+        """A unit of what it carries, stone first, into the shelter on its square."""
+        if agent.carried_stone:
+            agent.carried_stone -= 1
+        else:
+            agent.carried_wood -= 1
+        cell = (agent.x, agent.y)
+        self.sites[cell] = self.sites.get(cell, 0) + 1
+        self._wear_weapon(agent)
+        agent.last_action = "built"
+        if self.sites[cell] >= SHELTER_UNITS:
+            del self.sites[cell]
+            self.shelters.add(cell)
+            agent.last_action = "finished a shelter"
+
     def _light_fire(self, agent: Bitzkey) -> None:
         """Of its club."""
         self.fires[(agent.x, agent.y)] = (self.turn + FIRE_TURNS, agent.identifier)
@@ -3444,8 +3478,11 @@ class Simulation:
         return animal.physique("weapons") * (PREDATOR_WEAPONS * share if share else 1.0)
 
     def _attack(self, agent: Bitzkey, victim: Bitzkey, activity: str = "attacking") -> None:
-        """A blow, struck hunting or attacking (`activity`). The intolerant enjoy fighting other species most; the empathetic feel their
+        """A blow, struck hunting or attacking (`activity`), but none lands on an animal at rest in a shelter. The intolerant enjoy fighting other species most; the empathetic feel their
         victim's pain, and so does any empathetic animal watching, most for its own kind. A small animal may slip away."""
+        if self._safe_inside(victim):
+            agent.last_action = "missed"
+            return
         if victim.species != "plant" and SMALL_HIDING > 0 and int(victim.body["size"]) < TRAIT_MAX:
             smallness = 1 - victim.physique("size")
             if self.random.random() < SMALL_HIDING * smallness * smallness:
@@ -3917,7 +3954,7 @@ class Simulation:
 
     def _room_in(self, cell: tuple[int, int], leaving: Bitzkey | None = None) -> int:
         """The spaces of a square that are free, as though `leaving` were not there."""
-        return CELL_SPACE - sum(other.space for other in self._cells.get(cell, ()) if other.alive and other is not leaving)
+        return CELL_SPACE * (2 if cell in self.shelters else 1) - self.sites.get(cell, 0) - sum(other.space for other in self._cells.get(cell, ()) if other.alive and other is not leaving)
 
     def _spot_near(self, cell: tuple[int, int], space: int, terrain: str = "terrestrial") -> tuple[int, int] | None:
         """A square with room for a Bitzkey taking `space`, of a terrain it may be in: this one, or else the nearest

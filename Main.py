@@ -1184,7 +1184,8 @@ class BitzkeyApp:
         pile_font = UI.font("segoeui", 11)
         for x, y in {*self.simulation.meat_piles, *self.simulation.fruit_piles, *self.simulation.stone_piles, *self.simulation.bone_piles, *self.simulation.wood_piles,
                      *(cell for piles in self.simulation.gear_piles.values() for cell in piles),
-                     *(cell for cell, (until, _) in self.simulation.fires.items() if until > self.simulation.turn)}:  # meat to the left of a square, fruit to the right
+                     *(cell for cell, (until, _) in self.simulation.fires.items() if until > self.simulation.turn),
+                     *self.simulation.shelters, *self.simulation.sites}:  # meat to the left of a square, fruit to the right
             point = (round(board.left + (x + 0.5) * cell_width), round(board.top + (y + 0.5) * cell_height))
             if not reach.collidepoint(point):
                 continue
@@ -1199,6 +1200,8 @@ class BitzkeyApp:
                     pg.draw.rect(surface, colour, (point[0] + (index - 1) * (size + half // 2) - size // 2, point[1] + half, size, size))
             if any((x, y) in piles for piles in self.simulation.gear_piles.values()):
                 pg.draw.rect(surface, (96, 130, 160), (point[0] - half // 2, point[1] - half, half, max(2, half // 2)))
+            if (x, y) in self.simulation.shelters or (x, y) in self.simulation.sites:
+                pg.draw.rect(surface, (150, 110, 70), (point[0] - half * 8 // 5, point[1] - half * 8 // 5, half * 16 // 5, half * 16 // 5), 2 if (x, y) in self.simulation.shelters else 1)
             if self.simulation.fires.get((x, y), (0,))[0] > self.simulation.turn:
                 pg.draw.circle(surface, (255, 120, 20), point, max(2, half * 7 // 10))
         night = pg.Surface((max(1, round(self.simulation.width // 2 * cell_width)), max(1, round(board.height))), pg.SRCALPHA)
@@ -1414,6 +1417,13 @@ class BitzkeyApp:
 
     def _draw_bitzkey(self, agent: Bitzkey, point: tuple[int, int], radius: int, opacity: float = 1.0) -> None:
         draw_bitzkey(self.screen, agent.dna, point, radius, alive=agent.alive, opacity=opacity)
+        size, (x, y) = max(2, radius * 3 // 5), point  # a small shield at its lower left, a small tool at its upper right
+        if agent.armour_worn:
+            pg.draw.rect(self.screen, (236, 226, 205) if agent.armour_worn == 1 else (122, 80, 44), (x - radius - size, y + radius * 3 // 5 - size, 2 * size, 3 * size // 2))
+        wields = agent.weapon or (4 if agent.carried_stone else 0)
+        if wields:
+            pg.draw.line(self.screen, (122, 80, 44) if wields == 2 else (236, 226, 205) if wields == 1 else (136, 138, 142),
+                         (x + radius - size, y - radius * 3 // 5 + size), (x + radius + size, y - radius * 3 // 5 - size), max(1, size // 2))
 
     def _corpse_opacity(self, agent: Bitzkey) -> float:
         """How visible a Bitzkey is: fully while alive, then fading as its corpse decays, gone

@@ -371,10 +371,13 @@ def world_bytes(simulation: Simulation) -> bytes:
                         for (x, y), count in sorted(simulation.gear_piles[name].items())]
                      + [[x, y, kind, count, 0] for kind, piles in ((10, simulation.cooked_meat_piles), (11, simulation.cooked_fruit_piles))
                         for (x, y), count in sorted(piles.items())],
+        "shelters": [[x, y, simulation.sites.get((x, y), 0), int((x, y) in simulation.shelters)] for y in range(simulation.height) for x in range(simulation.width)
+                     if (x, y) in simulation.sites or (x, y) in simulation.shelters],
         "fires": [[x, y, until, lighter] for (x, y), (until, lighter) in sorted(simulation.fires.items(), key=lambda fire: (fire[0][1], fire[0][0])) if until > simulation.turn],
         "stones_scattered": simulation.stones_scattered,
         "piles": [[x, y, simulation.meat_piles.get((x, y), 0), simulation.fruit_piles.get((x, y), 0),
-                   simulation.pile_turns.get((x, y, True), 0), simulation.pile_turns.get((x, y, False), 0)]
+                   simulation.pile_turns.get((x, y, True), 0) if (x, y) in simulation.meat_piles else 0,
+                   simulation.pile_turns.get((x, y, False), 0) if (x, y) in simulation.fruit_piles else 0]
                   for y in range(simulation.height) for x in range(simulation.width)
                   if (x, y) in simulation.meat_piles or (x, y) in simulation.fruit_piles],
         "seeds": [[x, y, _genome(dna), generation, sown] for x, y, dna, generation, sown in simulation.seeds],
@@ -503,6 +506,11 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
         (simulation.stone_piles, simulation.bone_piles, simulation.wood_piles)[kind - 2][(x, y)] = count
         if kind == 4:
             simulation.pile_turns[(x, y, "wood")] = dropped
+    for x, y, units, standing in record.get("shelters", ()):
+        if units:
+            simulation.sites[(x, y)] = units
+        if standing:
+            simulation.shelters.add((x, y))
     simulation.fires = {(x, y): (until, lighter) for x, y, until, lighter in record.get("fires", ())}
     simulation.stones_scattered = record.get("stones_scattered", False)
     simulation.scatter_stones()  # a world saved before stones has them now, the once

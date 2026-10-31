@@ -359,6 +359,7 @@ _TABLE: dict[str, list[tuple]] = {
         ("PILE_LASTS", "Pile life", "times as long as a corpse a pile lasts, since food was last dropped on it", 0.0, 20.0, 0.5),
         ("WOOD_LASTS", "Wood life", "times as long as a pile of food a pile of wood lasts, unless sheltered", 0.0, 100.0, 1.0),
         ("STONE_SCATTER_PER", "Stone scatter", "squares to each stone scattered, once in a world's life", 10, 1000, 10),
+        ("SHELTER_UNITS", "Shelter size", "units of stone or wood that finish a shelter", 1, 50, 1),
         ("GEAR_USES", "Gear uses", "uses before a tool or armour of bone or wood breaks", 1, 20, 1),
         ("WEAPON_FORCE", "Weapon force", "times as hard an axe or club strikes", 1.0, 5.0, 0.1),
         ("STONE_FORCE", "Stone force", "times as hard a wielded stone strikes", 1.0, 5.0, 0.1),
