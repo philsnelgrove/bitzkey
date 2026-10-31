@@ -2506,6 +2506,10 @@ class Simulation:
             available.add("take_gear")
         if agent.weapon:
             available.add("drop_weapon")
+            if not self.sea(agent.x, agent.y):
+                available.add("dig")
+        if flora and agent.weapon in (BONE_AXE, STONE_AXE):
+            available.add("cut")
         if agent.armour_worn:
             available.add("drop_armour")
         if agent.carried_stone:
@@ -2979,6 +2983,10 @@ class Simulation:
             self._dress(agent, situation["dressable"])
         elif action in ("make_bone_axe", "make_club", "make_stone_axe", "make_bone_armour", "make_wood_armour"):
             self._make_gear(agent, action)
+        elif action == "cut":
+            self._cut(agent, situation["flora"])
+        elif action == "dig":
+            self._dig(agent)
         elif action == "take_gear":
             self._take_gear(agent, situation["gear_pile"], situation["gear_kind"])
         elif action == "drop_weapon":
@@ -3286,6 +3294,26 @@ class Simulation:
             agent.armour_uses += 1
             if agent.armour_uses >= GEAR_USES:
                 agent.armour_worn, agent.armour_uses = NO_ARMOUR, 0
+
+    def _cut(self, agent: Bitzkey, plant: Bitzkey) -> None:
+        """An axe fells a plant, which leaves its wood."""
+        self._move_toward(agent, plant.x, plant.y)
+        if abs(plant.x - agent.x) + abs(plant.y - agent.y) > 1 or not plant.alive:
+            agent.last_action = "sought plants"
+            return
+        plant.health = 0
+        self._wear_weapon(agent)
+        agent.last_action = "cut down a plant"
+        self._die(plant, "cut down", agent, "cutting")
+
+    def _dig(self, agent: Bitzkey) -> None:
+        """An axe or club finds a stone in the ground, carried or left here."""
+        if agent.load < agent.capacity:
+            agent.carried_stone += 1
+        else:
+            self._add_to_pile(self.stone_piles, (agent.x, agent.y), 1)
+        self._wear_weapon(agent)
+        agent.last_action = "dug up a stone"
 
     def _drop_gear(self, cell: tuple[int, int], kind: str, uses: int) -> None:
         self.gear_piles[kind][cell] = self.gear_piles[kind].get(cell, 0) + 1

@@ -3563,3 +3563,10 @@ class MaterialTests(unittest.TestCase):
             self.assertEqual(hitter.weapon, 2)
             Simulation._wear_weapon(hitter)
         self.assertEqual(hitter.weapon, 0)
+
+    def test_digging_finds_a_stone(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        digger = Bitzkey(1, encode_dna("predator"), 0, 0)
+        digger.weapon = 2
+        simulation._dig(digger)
+        self.assertEqual((digger.carried_stone, digger.weapon_uses), (1, 1))
