@@ -3568,5 +3568,17 @@ class MaterialTests(unittest.TestCase):
         simulation = Simulation(30, 30, 0, seed=1)
         digger = Bitzkey(1, encode_dna("predator"), 0, 0)
         digger.weapon = 2
+        simulation.random.random = lambda: 0.0
         simulation._dig(digger)
         self.assertEqual((digger.carried_stone, digger.weapon_uses), (1, 1))
+
+    def test_a_fire_lasts_a_day_fed_for_longer_and_cooks(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        lighter = Bitzkey(1, encode_dna("omnivore", size=3), 5, 5)
+        lighter.weapon, lighter.carried_wood, lighter.carried_meat = 2, 1, 1
+        simulation._light_fire(lighter)
+        self.assertEqual(lighter.weapon, 0)
+        simulation._feed_fire(lighter, (5, 5))
+        self.assertEqual(simulation.fires[(5, 5)], (simulation.turn + 48, 1))
+        simulation._cook(lighter)
+        self.assertEqual(simulation.cooked_meat_piles[(5, 5)], 1)

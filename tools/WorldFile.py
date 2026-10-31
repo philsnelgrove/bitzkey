@@ -368,7 +368,10 @@ def world_bytes(simulation: Simulation) -> bytes:
                       for kind, piles in enumerate((simulation.stone_piles, simulation.bone_piles, simulation.wood_piles))
                       if (x, y) in piles]
                      + [[x, y, kind, count, simulation.gear_wear.get((x, y, name), 0)] for kind, name in enumerate(GEAR_KINDS, 5)
-                        for (x, y), count in sorted(simulation.gear_piles[name].items())],
+                        for (x, y), count in sorted(simulation.gear_piles[name].items())]
+                     + [[x, y, kind, count, 0] for kind, piles in ((10, simulation.cooked_meat_piles), (11, simulation.cooked_fruit_piles))
+                        for (x, y), count in sorted(piles.items())],
+        "fires": [[x, y, until, lighter] for (x, y), (until, lighter) in sorted(simulation.fires.items(), key=lambda fire: (fire[0][1], fire[0][0])) if until > simulation.turn],
         "stones_scattered": simulation.stones_scattered,
         "piles": [[x, y, simulation.meat_piles.get((x, y), 0), simulation.fruit_piles.get((x, y), 0),
                    simulation.pile_turns.get((x, y, True), 0), simulation.pile_turns.get((x, y, False), 0)]
@@ -490,6 +493,9 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
         simulation.pile_turns[(pile[0], pile[1], False)] = pile[5] if len(pile) > 4 else record["turn"]
     simulation.stone_piles, simulation.bone_piles, simulation.wood_piles = {}, {}, {}  # the blank world's own stones gone
     for x, y, kind, count, dropped in record.get("materials", ()):
+        if kind >= 10:
+            (simulation.cooked_meat_piles if kind == 10 else simulation.cooked_fruit_piles)[(x, y)] = count
+            continue
         if kind >= 5:
             simulation.gear_piles[GEAR_KINDS[kind - 5]][(x, y)] = count
             simulation.gear_wear[(x, y, GEAR_KINDS[kind - 5])] = dropped
@@ -497,6 +503,7 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
         (simulation.stone_piles, simulation.bone_piles, simulation.wood_piles)[kind - 2][(x, y)] = count
         if kind == 4:
             simulation.pile_turns[(x, y, "wood")] = dropped
+    simulation.fires = {(x, y): (until, lighter) for x, y, until, lighter in record.get("fires", ())}
     simulation.stones_scattered = record.get("stones_scattered", False)
     simulation.scatter_stones()  # a world saved before stones has them now, the once
     simulation.seeds = [(x, y, convert_v3(int(dna, 16)) if before_terrain else int(dna, 16), generation, sown)

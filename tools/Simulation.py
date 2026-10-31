@@ -494,6 +494,10 @@ NO_WEAPON, BONE_AXE, CLUB, STONE_AXE = 0, 1, 2, 3
 NO_ARMOUR, BONE_ARMOUR, WOOD_ARMOUR = 0, 1, 2
 GEAR_KINDS = ("bone_axe", "club", "stone_axe", "bone_armour", "wood_armour")
 GEAR_USES = 3
+FIRE_TURNS = 24  # a day, and another for each wood fed to it; a club lights one, a fire cooks what is carried, and cooked food never spoils
+FIRE_PANIC = 0.25  # the chance an animal panics, seeing a fire not its own or its herd's
+COOKED_FOOD = 1.5  # times as nourishing as raw
+DIG_CHANCE = 0.1  # that a dig finds a stone
 WEAPON_FORCE, STONE_FORCE, ARMOUR_FORCE = 2.0, 1.5, 2.0
 ARMOUR_LEAST = 2
 STONE_SCATTER_PER = 100  # one stone to this many squares, scattered once in a world's life
@@ -1397,6 +1401,9 @@ class Simulation:
         self.bone_piles: dict[tuple[int, int], int] = {}
         self.wood_piles: dict[tuple[int, int], int] = {}
         self.stones_scattered = False
+        self.cooked_meat_piles: dict[tuple[int, int], int] = {}
+        self.cooked_fruit_piles: dict[tuple[int, int], int] = {}
+        self.fires: dict[tuple[int, int], tuple[int, int]] = {}  # each lit square's: the turn it goes out, who lit it
         self.gear_piles: dict[str, dict[tuple[int, int], int]] = {kind: {} for kind in GEAR_KINDS}
         self.gear_wear: dict[tuple[int, int, str], int] = {}  # the wear in each pile, shared out as it is taken
         self._any_piles = False  # as last indexed, so that an empty map isn't searched
@@ -2271,6 +2278,10 @@ class Simulation:
                 situation["hunter"] = situation["assailant"]
                 situation["panic"] = True
                 options = [ACTIONS.index("flee")]
+            elif situation["fire"] and not self._fire_friendly(agent, situation["fire"]) and self.random.random() < FIRE_PANIC:
+                situation["hunter"] = None  # it runs from the fire
+                situation["panic"] = True
+                options = [ACTIONS.index("flee")]
             if agent.exhausted:  # spent: it can do nothing but rest, whatever it fears
                 situation["panic"] = situation["frozen"] = False
                 options = [ACTIONS.index("rest")]
@@ -2406,6 +2417,15 @@ class Simulation:
                 hunter = alarm_source  # the herd's alarm: flight from whatever struck a herd-mate, or it was alerted to
         seen_kill = kill
         meat_pile = self._nearest_pile(agent, sight, self.meat_piles) if self._any_piles else None
+        eat_meat = meat_pile or (self._nearest_pile(agent, sight, self.cooked_meat_piles) if self._any_piles else None)
+        fire = None
+        if self.fires:
+            sx, sy = self.tie_side(agent)
+            for dx, dy in SEEN_WITHIN[sight]:
+                cell = (agent.x + sx * dx, agent.y + sy * dy)
+                if self.fires.get(cell, (0,))[0] > self.turn:
+                    fire = cell
+                    break
         stone_pile = self._nearest_pile(agent, sight, self.stone_piles) if self._any_piles else None
         bone_pile = self._nearest_pile(agent, sight, self.bone_piles) if self._any_piles else None
         wood_pile = self._nearest_pile(agent, sight, self.wood_piles) if self._any_piles else None
@@ -2527,7 +2547,15 @@ class Simulation:
             available.add("drop_meat")
         if agent.carried_fruit:
             available.add("drop_fruit")
-        if (meat_pile and MEAT_PORTION * agent.digestion > 0) or (fruit_pile and FRUIT_PORTION * agent.browsing > 0):
+        eat_fruit = fruit_pile or (self._nearest_pile(agent, sight, self.cooked_fruit_piles) if self._any_piles else None)
+        beside_fire = fire is not None and abs(fire[0] - agent.x) + abs(fire[1] - agent.y) <= 1
+        if agent.weapon == CLUB and not self.sea(agent.x, agent.y):
+            available.add("light_fire")
+        if beside_fire and agent.carried_wood:
+            available.add("feed_fire")
+        if beside_fire and agent.carried_meat + agent.carried_fruit:
+            available.add("cook")
+        if (eat_meat and MEAT_PORTION * agent.digestion > 0) or (eat_fruit and FRUIT_PORTION * agent.browsing > 0):
             available.add("eat_pile")
         if (agent.carried_meat and MEAT_PORTION * agent.digestion > 0) or (agent.carried_fruit and FRUIT_PORTION * agent.browsing > 0):
             available.add("eat_carried")
@@ -2580,7 +2608,7 @@ class Simulation:
             stone_pile_closeness=self._closeness(agent, stone_pile, sight),
             bone_pile_closeness=self._closeness(agent, bone_pile, sight),
             wood_pile_closeness=self._closeness(agent, wood_pile, sight),
-            gear_pile_closeness=self._closeness(agent, gear_pile, sight), fire_closeness=0.0, fire_friendly=0.0,
+            gear_pile_closeness=self._closeness(agent, gear_pile, sight), fire_closeness=self._closeness(agent, fire, sight), fire_friendly=float(fire is not None and self._fire_friendly(agent, fire)),
             wielding=float(self._gear_force(agent) > 1), armoured=float(agent.armour_worn != 0),
             kill_closeness=self._closeness(agent, kill and (kill.x, kill.y), sight),
             plant_closeness=self._closeness(agent, flora and (flora.x, flora.y), sight),
@@ -2632,7 +2660,7 @@ class Simulation:
                      "grass": grass, "grass_here": grass_here, "carrion": carrion, "kill": kill, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
                      "others": others, "defend_target": defend_target, "for_herd": assailant is None,
                      "herd": herd, "herd_near": herd_near, "herd_middle": herd_middle,
-                     "exposure": min(2, discomfort) / 2 * agent.exposure_share(here), "uprootable": uprootable, "gear_pile": gear_pile, "gear_kind": gear_kind, "stone_pile": stone_pile, "bone_pile": bone_pile, "wood_pile": wood_pile, "dressable": dressable, "tears": tears, "meat_pile": meat_pile, "fruit_pile": fruit_pile,
+                     "exposure": min(2, discomfort) / 2 * agent.exposure_share(here), "uprootable": uprootable, "eat_meat": eat_meat, "eat_fruit": eat_fruit, "fire": fire, "gear_pile": gear_pile, "gear_kind": gear_kind, "stone_pile": stone_pile, "bone_pile": bone_pile, "wood_pile": wood_pile, "dressable": dressable, "tears": tears, "meat_pile": meat_pile, "fruit_pile": fruit_pile,
                      "home_distance": home_distance * agent.exposure_share(here),
                      "alert_to": alert_to, "revisit": agent.food_memory and agent.food_memory[:2],
                      "student": students[0] if students else None,
@@ -2987,6 +3015,12 @@ class Simulation:
             self._cut(agent, situation["flora"])
         elif action == "dig":
             self._dig(agent)
+        elif action == "light_fire":
+            self._light_fire(agent)
+        elif action == "feed_fire":
+            self._feed_fire(agent, situation["fire"])
+        elif action == "cook":
+            self._cook(agent)
         elif action == "take_gear":
             self._take_gear(agent, situation["gear_pile"], situation["gear_kind"])
         elif action == "drop_weapon":
@@ -3021,7 +3055,10 @@ class Simulation:
                 agent.reward += CURIOSITY_JOY * agent.feeling("curiosity")
             agent.last_action = went
         elif action == "flee":
-            self._move_away(agent, situation["hunter"])
+            if situation["hunter"]:
+                self._move_away(agent, situation["hunter"])
+            else:
+                self._move_toward(agent, max(0, min(self.width - 1, 2 * agent.x - situation["fire"][0])), max(0, min(self.height - 1, 2 * agent.y - situation["fire"][1])))
             agent.last_action = "panicked" if situation.get("panic") else "fled"
 
     def _browse(self, agent: Bitzkey, plant: Bitzkey) -> None:
@@ -3210,17 +3247,20 @@ class Simulation:
 
     def _eat_pile(self, agent: Bitzkey, situation: dict) -> None:
         """A portion of whichever pile in sight would fill it more, going to it first."""
-        meat = MEAT_PORTION * agent.digestion if situation["meat_pile"] else 0.0
-        fruit = FRUIT_PORTION * agent.browsing if situation["fruit_pile"] else 0.0
+        meat = MEAT_PORTION * agent.digestion if situation["eat_meat"] else 0.0
+        fruit = FRUIT_PORTION * agent.browsing if situation["eat_fruit"] else 0.0
         eats_meat = meat >= fruit
-        pile = situation["meat_pile"] if eats_meat else situation["fruit_pile"]
+        pile = situation["eat_meat"] if eats_meat else situation["eat_fruit"]
         piles = self.meat_piles if eats_meat else self.fruit_piles
+        if piles.get(pile, 0) <= 0:
+            piles = self.cooked_meat_piles if eats_meat else self.cooked_fruit_piles
         self._move_toward(agent, *pile)
         if abs(pile[0] - agent.x) + abs(pile[1] - agent.y) > 1 or piles.get(pile, 0) <= 0:
             agent.last_action = "sought a pile"
             return
         self._add_to_pile(piles, pile, -1)
-        agent.nourish(meat if eats_meat else fruit, meat=eats_meat)
+        cooked = piles is self.cooked_meat_piles or piles is self.cooked_fruit_piles
+        agent.nourish((meat if eats_meat else fruit) * (COOKED_FOOD if cooked else 1.0), meat=eats_meat)
         agent.last_action = "ate from a pile"
 
     def _eat_carried(self, agent: Bitzkey) -> None:
@@ -3308,12 +3348,46 @@ class Simulation:
 
     def _dig(self, agent: Bitzkey) -> None:
         """An axe or club finds a stone in the ground, carried or left here."""
+        self._wear_weapon(agent)
+        agent.last_action = "dug"
+        if self.random.random() >= DIG_CHANCE:
+            return
         if agent.load < agent.capacity:
             agent.carried_stone += 1
         else:
             self._add_to_pile(self.stone_piles, (agent.x, agent.y), 1)
-        self._wear_weapon(agent)
         agent.last_action = "dug up a stone"
+
+    def _fire_friendly(self, agent: Bitzkey, fire: tuple[int, int]) -> bool:
+        """Lit by it or a herd-mate."""
+        lighter = self.fires[fire][1]
+        if lighter == agent.identifier:
+            return True
+        other = self.find_agent(lighter)
+        return other is not None and self._herd_mate(agent, other)
+
+    def _light_fire(self, agent: Bitzkey) -> None:
+        """Of its club."""
+        self.fires[(agent.x, agent.y)] = (self.turn + FIRE_TURNS, agent.identifier)
+        agent.weapon, agent.weapon_uses = NO_WEAPON, 0
+        agent.last_action = "lit a fire"
+
+    def _feed_fire(self, agent: Bitzkey, fire: tuple[int, int]) -> None:
+        agent.carried_wood -= 1
+        until, lighter = self.fires[fire]
+        self.fires[fire] = (until + FIRE_TURNS, lighter)
+        agent.last_action = "fed a fire"
+
+    def _cook(self, agent: Bitzkey) -> None:
+        """What it carries, left in a cooked pile here."""
+        meat = agent.carried_meat > 0
+        if meat:
+            agent.carried_meat -= 1
+        else:
+            agent.carried_fruit -= 1
+        piles = self.cooked_meat_piles if meat else self.cooked_fruit_piles
+        self._add_to_pile(piles, (agent.x, agent.y), 1)
+        agent.last_action = "cooked"
 
     def _drop_gear(self, cell: tuple[int, int], kind: str, uses: int) -> None:
         self.gear_piles[kind][cell] = self.gear_piles[kind].get(cell, 0) + 1
@@ -3616,7 +3690,7 @@ class Simulation:
 
     def _index_cells(self) -> None:
         self._any_piles = bool(self.meat_piles or self.fruit_piles or self.stone_piles or self.bone_piles or self.wood_piles
-                               or any(self.gear_piles.values()))
+                               or any(self.gear_piles.values()) or self.cooked_meat_piles or self.cooked_fruit_piles)
         self._cells = {}
         self._carrion = {}
         self._kills = {}

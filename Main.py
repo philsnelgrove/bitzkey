@@ -1182,7 +1182,9 @@ class BitzkeyApp:
                                max(1, round(min(cell_width, cell_height) * 0.18)))
         half = max(2, round(min(cell_width, cell_height) * 0.25))
         pile_font = UI.font("segoeui", 11)
-        for x, y in {*self.simulation.meat_piles, *self.simulation.fruit_piles, *self.simulation.stone_piles, *self.simulation.bone_piles, *self.simulation.wood_piles}:  # meat to the left of a square, fruit to the right
+        for x, y in {*self.simulation.meat_piles, *self.simulation.fruit_piles, *self.simulation.stone_piles, *self.simulation.bone_piles, *self.simulation.wood_piles,
+                     *(cell for piles in self.simulation.gear_piles.values() for cell in piles),
+                     *(cell for cell, (until, _) in self.simulation.fires.items() if until > self.simulation.turn)}:  # meat to the left of a square, fruit to the right
             point = (round(board.left + (x + 0.5) * cell_width), round(board.top + (y + 0.5) * cell_height))
             if not reach.collidepoint(point):
                 continue
@@ -1195,6 +1197,10 @@ class BitzkeyApp:
             for index, (piles, colour) in enumerate(((self.simulation.stone_piles, (136, 138, 142)), (self.simulation.bone_piles, (236, 226, 205)), (self.simulation.wood_piles, (122, 80, 44)))):
                 if (x, y) in piles:
                     pg.draw.rect(surface, colour, (point[0] + (index - 1) * (size + half // 2) - size // 2, point[1] + half, size, size))
+            if any((x, y) in piles for piles in self.simulation.gear_piles.values()):
+                pg.draw.rect(surface, (96, 130, 160), (point[0] - half // 2, point[1] - half, half, max(2, half // 2)))
+            if self.simulation.fires.get((x, y), (0,))[0] > self.simulation.turn:
+                pg.draw.circle(surface, (255, 120, 20), point, max(2, half * 7 // 10))
         night = pg.Surface((max(1, round(self.simulation.width // 2 * cell_width)), max(1, round(board.height))), pg.SRCALPHA)
         night.fill(NIGHT)  # the night, a shadow over half the map's columns, wrapping round east to west
         for start in (self.simulation.night_start(), self.simulation.night_start() - self.simulation.width):
