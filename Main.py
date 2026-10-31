@@ -92,6 +92,7 @@ EXEMPLAR_CHOICES = [[stat[0] for stat in EXEMPLAR_STATS].index(title) for title 
     "SMARTEST", "LARGEST", "OLDEST", "MOST CHILDREN", "LATEST GENERATION",
     "STRONGEST", "FASTEST", "BEST ARMOURED", "MOST FERTILE", "BEST FED")]
 HOMES = ("hot", "medium", "cold", "very cold")
+SQUARE_DELAY = 400  # milliseconds on a square before its popup
 
 
 def exemplar_value(agent: Bitzkey, kind: str, name: str) -> float:
@@ -219,6 +220,7 @@ class BitzkeyApp:
         self._exemplar_menu: int | None = None  # the card whose menu is open
         self._square: tuple[int, int] | None = None  # the map square under the pointer, listed in a popup
         self._square_panel: pg.Rect | None = None
+        self._square_since = 0  # when the pointer came to this square
         self._square_rows: list[tuple[pg.Rect, int]] = []
         self._menu_items: list[tuple[pg.Rect, int]] = []  # the open menu's choices, and which statistic each is
         self.renewal = ""  # the Bitzkeys to start a new world with, on leaving for one
@@ -534,7 +536,10 @@ class BitzkeyApp:
             on_panel = self._square_panel is not None and self._square_panel.collidepoint(event.pos)
             if not on_panel:
                 quiet = not any(event.buttons) and self._exemplar_menu is None and not self.deploying
-                self._square = self._cell_at(event.pos) if quiet else None
+                cell = self._cell_at(event.pos) if quiet else None
+                if cell != self._square:
+                    self._square_since = pg.time.get_ticks()
+                self._square = cell
             return False
         if event.type == pg.MOUSEBUTTONDOWN and event.button == 1 and self._square_panel is not None                 and self._square_panel.collidepoint(event.pos):
             for row, identifier in self._square_rows:
@@ -546,7 +551,7 @@ class BitzkeyApp:
     def _draw_square(self) -> None:
         """The popup listing the Bitzkeys in the square under the pointer, beside the square."""
         self._square_panel, self._square_rows = None, []
-        if self._square is None or self.show_census or self.dialog or self.report:
+        if self._square is None or self.show_census or self.dialog or self.report or pg.time.get_ticks() - self._square_since < SQUARE_DELAY:
             return
         here = [agent for agent in self.simulation.living if (agent.x, agent.y) == self._square]
         world_ = self.simulation

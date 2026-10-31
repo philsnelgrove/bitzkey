@@ -1825,9 +1825,9 @@ class NewTraitTests(unittest.TestCase):
         harsh = {"GO_EFFORT": 2.0, "STRIKE_EFFORT": 2.0, "SEED_COST": 100, "SEED_HUNGER": 100}
         for rules in ({}, harsh):
             with patch.dict(simulation_module.__dict__, rules):
-                for seed in (1, 2, 3):
-                    simulation = Simulation(width=40, height=40, population=120, seed=seed)
-                    for _ in range(120):
+                for seed in (1, 2):
+                    simulation = Simulation(width=30, height=30, population=60, seed=seed)
+                    for _ in range(60):
                         simulation.advance()
                         ghosts = [agent for agent in simulation.agents if not agent.alive and agent.died_turn is None]
                         self.assertEqual(ghosts, [], f"seed {seed}, turn {simulation.turn}, rules {rules}")

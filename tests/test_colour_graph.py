@@ -29,10 +29,11 @@ CHART = pg.Rect(100, 50, 400, 200)
 
 
 class BuildBarsTests(unittest.TestCase):
-    def setUp(self):
-        self.simulation = Simulation(width=30, height=30, population=40, seed=6)
+    @classmethod
+    def setUpClass(cls):  # one world for all: they only read it
+        cls.simulation = Simulation(width=30, height=30, population=40, seed=6)
         for _ in range(60):
-            self.simulation.advance()
+            cls.simulation.advance()
 
     def test_last_bar_is_exactly_the_present(self):
         bars, _ = build_bars(self.simulation, "ring", CHART)
@@ -104,15 +105,16 @@ class PickingTests(unittest.TestCase):
 
 
 class TimeTravelTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):  # one world for all: they only read it
+        with unittest.mock.patch("tools.Simulation.CLIMATE_DAMAGE", 0):  # a world that lasts the hundred turns
+            cls.simulation = Simulation(width=30, height=30, population=30, seed=7)
+            for _ in range(100):
+                cls.simulation.advance()
+
     def setUp(self):
         pg.font.init()
         UI.fit((1200, 820))
-        mild = unittest.mock.patch("tools.Simulation.CLIMATE_DAMAGE", 0)  # a world that lasts the hundred turns
-        mild.start()
-        self.addCleanup(mild.stop)
-        self.simulation = Simulation(width=30, height=30, population=30, seed=7)
-        for _ in range(100):
-            self.simulation.advance()
         self.graph = ColourGraph()
         self.graph._size = (1200, 820)
         self.graph._now = self.simulation.turn

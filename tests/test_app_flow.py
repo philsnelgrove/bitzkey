@@ -9,6 +9,10 @@ import pygame as pg
 
 from display.Dialog import Dialog
 from Main import BitzkeyApp
+import Main
+import tools.Simulation
+
+Main.SQUARE_DELAY = 0  # and the popups at once
 from tools.Exchange import import_bitzkeys
 
 
@@ -35,7 +39,8 @@ class DialogTests(unittest.TestCase):
 
 class SimulationFlowTests(unittest.TestCase):
     def setUp(self):
-        self.app = BitzkeyApp(30, 30, 30, 5, 0, 3)
+        with patch("tools.Simulation.PREGROWTH_TURNS", 50):  # a new world's head start is most of what a test costs
+            self.app = BitzkeyApp(30, 30, 30, 5, 0, 3)
         pg.event.clear()
         for _ in range(5):
             self.app.simulation.advance()
@@ -368,7 +373,8 @@ class CatalogFlowTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.addCleanup(self.folder.cleanup)
-        self.app = BitzkeyApp(30, 30, 30, 5, 0, 4)
+        with patch("tools.Simulation.PREGROWTH_TURNS", 50):
+            self.app = BitzkeyApp(30, 30, 30, 5, 0, 4)
         pg.event.clear()
         for _ in range(5):
             self.app.simulation.advance()

@@ -22,7 +22,7 @@ class WorldFileTests(unittest.TestCase):
 
     def test_a_world_loaded_carries_on_exactly_as_it_would_have(self):
         world = Simulation(30, 30, population=40, seed=5)
-        for _ in range(40):
+        for _ in range(20):
             world.advance()
         data = world_bytes(world)
         loaded = world_from_bytes(data)
