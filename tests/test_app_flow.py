@@ -461,7 +461,8 @@ class CatalogFlowTests(unittest.TestCase):
         board, cell, _ = self.app._board_geometry()
         def at(agent):
             return round(board.left + (agent.x + 0.5) * cell), round(board.top + (agent.y + 0.5) * cell)
-        first, second = self.animals[0], next(a for a in self.animals[1:] if (a.x, a.y) != (self.animals[0].x, self.animals[0].y))
+        cells = [(agent.x, agent.y) for agent in self.app.simulation.living]
+        first, second = [agent for agent in self.animals if cells.count((agent.x, agent.y)) == 1][:2]  # each alone on its square
         self.app._pick_on_map(at(first), at(first), False)
         self.assertEqual((self.app.selected_id, self.app.graph.selection), (first.identifier, {first.identifier}))
         self.app._pick_on_map(at(second), at(second), True)  # CTRL: added

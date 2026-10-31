@@ -2721,12 +2721,14 @@ class FeebleTests(unittest.TestCase):
 
     def test_a_grazers_infancy_and_gestation_are_half_as_long_as_other_animals(self):
         from tools.Simulation import gestation
-        with patch.multiple("tools.Simulation", GRAZER_INFANCY=0.5, GRAZER_GESTATION=0.5, FEEBLE_YOUTH=0.1):
+        with patch.multiple("tools.Simulation", GRAZER_INFANCY=0.5, OMNIVORE_INFANCY=1.0, GRAZER_GESTATION=0.5, FEEBLE_YOUTH=0.1):
             simulation = Simulation(width=30, height=30, population=0, seed=3)
             grazer = simulation._add_agent(encode_dna("grazer", size=7), 5, 5)
             omnivore = simulation._add_agent(encode_dna("omnivore", size=7), 6, 5)
             self.assertAlmostEqual(grazer.infancy / grazer.lifespan, 0.5 * omnivore.infancy / omnivore.lifespan)
             mate = simulation._add_agent(encode_dna("grazer", size=7), 5, 6)
+            for parent in (grazer, mate):
+                parent.age = round(parent.lifespan / 2)  # grown, its size its own
             simulation._index_cells()
             simulation._breed(grazer, mate)
             self.assertEqual(grazer.due_turn, int(gestation(7) * 0.5 + 0.5))
@@ -3237,13 +3239,15 @@ class NursingTests(unittest.TestCase):
     def test_an_elder_gives_a_willing_student_a_copy_of_its_brain_once(self):
         with patch.object(simulation_module, "ACTIVE_SHARE", 1.0), patch.object(simulation_module, "STUDENT_TRUST", 0.0):
             elder = self.simulation._add_agent(encode_dna("grazer"), 5, 5)
-            student = self.simulation._add_agent(encode_dna("grazer"), 6, 5)
-            elder.age, student.age = simulation_module.ELDER_AGE, 10
+            student = self.simulation._add_agent(encode_dna("grazer", intellect=4), 6, 5)
+            dull = self.simulation._add_agent(encode_dna("grazer", intellect=3), 5, 6)
+            elder.age, student.age, dull.age = int(simulation_module.AGEING * elder.lifespan) + 1, 10, 10
             shape = student.brain.depth, student.brain.width
             senses, options, situation = self.simulation._sense(elder)
             self.assertIn(ACTIONS.index("teach"), options)
             self.simulation._teach(elder, situation["student"])
             self.assertEqual(student.taught_by, elder.identifier)
+            self.assertLess(dull.taught_by, 0)
             self.assertEqual((student.brain.depth, student.brain.width), shape)
             self.assertIsNot(student.brain, elder.brain)
             self.assertNotIn(ACTIONS.index("teach"), self.simulation._sense(elder)[1])

@@ -213,7 +213,7 @@ DOMINANCE_EASE = 0.5
 # this share; and an alert reaches it from a herd-mate this many times its trust times its sight away.
 TRUST_HEED = 0.5
 TRUST_REACH = 2.0
-ELDER_AGE = 720  # turns old an animal must be to teach
+STUDENT_INTELLECT = 4  # the least inborn intellect an animal needs to be taught
 STUDENT_AGE = 0.5  # the oldest a student may be, as a share of its elder's age
 STUDENT_TRUST = 0.25  # how trusting an animal must be to be willing to be taught
 TEACHING_JOY = 1.0  # how glad an elder is of teaching a student; more if empathetic
@@ -2885,8 +2885,10 @@ class Simulation:
             self._note_deed(child, parent, FEEDING_DEED)
 
     def _willing_student(self, elder: Bitzkey, student: Bitzkey) -> bool:
-        """Awake, trusting enough, never taught, young enough for this elder, and with nothing against it."""
-        return (elder.brain is not None and student.brain is not None and elder.age >= ELDER_AGE
+        """Its elder feeble with age; and it bright enough, awake, trusting enough, never taught, young enough for
+        this elder, and with nothing against it."""
+        return (elder.brain is not None and student.brain is not None and elder.age > AGEING * elder.lifespan
+                and student.inborn["intellect"] >= STUDENT_INTELLECT
                 and student.age <= STUDENT_AGE * elder.age and student.taught_by < 0
                 and student.feeling("trust") >= STUDENT_TRUST and not self.resting_time(student)
                 and not any(known.identifier == elder.identifier and known.regard < 0 for known in student.known))
