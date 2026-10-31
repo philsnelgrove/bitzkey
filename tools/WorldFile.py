@@ -212,6 +212,7 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "last_action": agent.last_action, "brain": numbers.brain(agent.brain), "generation": agent.generation,
         "children": agent.children, "mother": agent.mother, "father": agent.father, "taught_by": agent.taught_by,
         "carried_meat": agent.carried_meat, "carried_fruit": agent.carried_fruit, "weapon": agent.weapon, "armour": agent.armour_worn, "weapon_uses": agent.weapon_uses, "armour_uses": agent.armour_uses,
+        "crafts": agent.crafts, "craft_tries": agent.craft_tries, "cooked_meat": agent.cooked_meat, "cooked_fruit": agent.cooked_fruit,
         "carried_stone": agent.carried_stone,
         "carried_bone": agent.carried_bone, "carried_wood": agent.carried_wood, "died_turn": agent.died_turn, "assailant": agent.assailant,
         "panicked": agent.panicked, "primal_fear": agent.primal_fear, "rivalry": float(agent.rivalry),
@@ -287,6 +288,10 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
     agent.armour_worn = int(record.get("armour", 0))
     agent.weapon_uses = int(record.get("weapon_uses", 0))
     agent.armour_uses = int(record.get("armour_uses", 0))
+    agent.crafts = int(record.get("crafts", 0))
+    agent.craft_tries = list(record.get("craft_tries", (0, 0, 0, 0, 0)))
+    agent.cooked_meat = int(record.get("cooked_meat", 0))
+    agent.cooked_fruit = int(record.get("cooked_fruit", 0))
     agent.carried_stone = int(record.get("carried_stone", 0))
     agent.carried_bone = int(record.get("carried_bone", 0))
     agent.carried_wood = int(record.get("carried_wood", 0))
@@ -371,7 +376,7 @@ def world_bytes(simulation: Simulation) -> bytes:
                         for (x, y), count in sorted(simulation.gear_piles[name].items())]
                      + [[x, y, kind, count, 0] for kind, piles in ((10, simulation.cooked_meat_piles), (11, simulation.cooked_fruit_piles))
                         for (x, y), count in sorted(piles.items())],
-        "shelters": [[x, y, simulation.sites.get((x, y), 0), int((x, y) in simulation.shelters)] for y in range(simulation.height) for x in range(simulation.width)
+        "shelters": [[x, y, simulation.sites.get((x, y), 0), int((x, y) in simulation.shelters), simulation.site_turns.get((x, y), 0)] for y in range(simulation.height) for x in range(simulation.width)
                      if (x, y) in simulation.sites or (x, y) in simulation.shelters],
         "fires": [[x, y, until, lighter] for (x, y), (until, lighter) in sorted(simulation.fires.items(), key=lambda fire: (fire[0][1], fire[0][0])) if until > simulation.turn],
         "stones_scattered": simulation.stones_scattered,
@@ -506,9 +511,10 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
         (simulation.stone_piles, simulation.bone_piles, simulation.wood_piles)[kind - 2][(x, y)] = count
         if kind == 4:
             simulation.pile_turns[(x, y, "wood")] = dropped
-    for x, y, units, standing in record.get("shelters", ()):
+    for x, y, units, standing, *built in record.get("shelters", ()):
         if units:
             simulation.sites[(x, y)] = units
+            simulation.site_turns[(x, y)] = built[0] if built else record["turn"]  # built now, in a world saved before they fell
         if standing:
             simulation.shelters.add((x, y))
     simulation.fires = {(x, y): (until, lighter) for x, y, until, lighter in record.get("fires", ())}

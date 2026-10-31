@@ -3581,7 +3581,7 @@ class MaterialTests(unittest.TestCase):
         simulation._feed_fire(lighter, (5, 5))
         self.assertEqual(simulation.fires[(5, 5)], (simulation.turn + 48, 1))
         simulation._cook(lighter)
-        self.assertEqual(simulation.cooked_meat_piles[(5, 5)], 1)
+        self.assertEqual((lighter.carried_meat, lighter.cooked_meat), (0, 1))
 
     def test_seven_units_make_a_shelter_that_doubles_a_square(self):
         simulation = Simulation(30, 30, 0, seed=1)
@@ -3593,3 +3593,11 @@ class MaterialTests(unittest.TestCase):
         simulation._construct(builder)
         self.assertIn((5, 5), simulation.shelters)
         self.assertEqual(builder.load, 0)
+
+    def test_the_tenth_try_at_a_craft_is_sure(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        crafter = Bitzkey(1, encode_dna("omnivore", size=3), 5, 5)
+        crafter.carried_wood = 2
+        crafter.craft_tries[2] = 9
+        simulation._make_gear(crafter, "make_club")
+        self.assertEqual((crafter.weapon, crafter.carried_wood), (2, 1))

@@ -497,8 +497,16 @@ GEAR_USES = 7
 FIRE_TURNS = 24  # a day, and another for each wood fed to it; a club lights one, a fire cooks what is carried, and cooked food never spoils
 FIRE_PANIC = 0.25  # the chance an animal panics, seeing a fire not its own or its herd's
 COOKED_FOOD = 1.5  # times as nourishing as raw
+SITE_TURNS = 100  # an unfinished shelter left this long falls away
 SHELTER_UNITS = 7  # of stone or wood, any mix, to finish a shelter; until then each takes a space of the square
 FIRE_REACH = 2  # squares off, a fire shelters an animal from the cold
+# A craft must first be discovered, the more likely each turn the cleverer the animal holding its materials, and then
+# made to work: the chance rises with each try to certainty at CRAFT_TRIES, the sooner the cleverer. A failure spends
+# nothing, and is a small thrill of discovery to the curious.
+CRAFTS = ("make_bone_axe", "make_bone_armour", "make_club", "make_wood_armour", "make_stone_axe")
+DISCOVERY_CHANCE = 0.02
+CRAFT_TRIES = 10
+CRAFT_THRILL = 1.0
 DIG_CHANCE = 0.1  # that a dig finds a stone
 WEAPON_FORCE, STONE_FORCE, ARMOUR_FORCE = 2.0, 1.5, 2.0
 ARMOUR_LEAST = 2
@@ -867,9 +875,13 @@ class Bitzkey:
     taught_by: int = -1  # the elder whose brain it was given, once in its life; -1 while it has none
     carried_meat: int = 0  # the portions it carries
     carried_fruit: int = 0
+    cooked_meat: int = 0  # the cooked portions, which never spoil
+    cooked_fruit: int = 0
     carried_stone: int = 0  # and the materials
     carried_bone: int = 0
     carried_wood: int = 0
+    crafts: int = 0  # a bit for each craft it has discovered
+    craft_tries: list[int] = field(default_factory=lambda: [0] * 5)  # how often it has tried each
     weapon: int = 0  # what it wields and wears, and how often each has been used
     armour_worn: int = 0
     weapon_uses: int = 0
@@ -972,7 +984,7 @@ class Bitzkey:
 
     @property
     def load(self) -> int:
-        return self.carried_meat + self.carried_fruit + self.carried_stone + self.carried_bone + self.carried_wood
+        return self.carried_meat + self.carried_fruit + self.cooked_meat + self.cooked_fruit + self.carried_stone + self.carried_bone + self.carried_wood
 
     @property
     def exhausted(self) -> bool:
@@ -1405,6 +1417,7 @@ class Simulation:
         self.stones_scattered = False
         self.sites: dict[tuple[int, int], int] = {}  # units in each unfinished shelter
         self.shelters: set[tuple[int, int]] = set()
+        self.site_turns: dict[tuple[int, int], int] = {}  # the turn each site was last built on
         self.cooked_meat_piles: dict[tuple[int, int], int] = {}
         self.cooked_fruit_piles: dict[tuple[int, int], int] = {}
         self.fires: dict[tuple[int, int], tuple[int, int]] = {}  # each lit square's: the turn it goes out, who lit it
@@ -2504,9 +2517,9 @@ class Simulation:
         tears = "uproot" in available
         # Food to carry off, with room for it; what it carries to put down; a pile with food in it for this gut.
         if agent.load < agent.capacity:
-            if kill or meat_pile:
+            if kill or eat_meat:
                 available.add("take_meat")
-            if flora or tears or fruit_pile:
+            if flora or tears or fruit_pile or self._nearest_pile(agent, sight, self.cooked_fruit_piles):
                 available.add("take_fruit")
             if stone_pile:
                 available.add("take_stone")
@@ -2514,17 +2527,18 @@ class Simulation:
                 available.add("take_bone")
             if wood_pile:
                 available.add("take_wood")
+        known = lambda action: agent.crafts >> CRAFTS.index(action) & 1
         if not agent.weapon:
-            if not agent.armour_worn and agent.carried_bone:
+            if not agent.armour_worn and agent.carried_bone and known("make_bone_axe"):
                 available.add("make_bone_axe")
-            if not agent.armour_worn and agent.carried_wood:
+            if not agent.armour_worn and agent.carried_wood and known("make_club"):
                 available.add("make_club")
-            if agent.carried_stone and agent.carried_bone + agent.carried_wood:
+            if agent.carried_stone and agent.carried_bone + agent.carried_wood and known("make_stone_axe"):
                 available.add("make_stone_axe")
         if not agent.armour_worn and agent.weapon not in (BONE_AXE, CLUB):
-            if agent.carried_bone:
+            if agent.carried_bone and known("make_bone_armour"):
                 available.add("make_bone_armour")
-            if agent.carried_wood:
+            if agent.carried_wood and known("make_wood_armour"):
                 available.add("make_wood_armour")
         if gear_pile:
             available.add("take_gear")
@@ -2547,9 +2561,9 @@ class Simulation:
             dressable = self._nearest_carrion(agent, sight)  # it won't eat one, but may dress it
         if dressable:
             available.add("dress")
-        if agent.carried_meat:
+        if agent.carried_meat + agent.cooked_meat:
             available.add("drop_meat")
-        if agent.carried_fruit:
+        if agent.carried_fruit + agent.cooked_fruit:
             available.add("drop_fruit")
         eat_fruit = fruit_pile or (self._nearest_pile(agent, sight, self.cooked_fruit_piles) if self._any_piles else None)
         beside_fire = fire is not None and abs(fire[0] - agent.x) + abs(fire[1] - agent.y) <= 1
@@ -2563,7 +2577,7 @@ class Simulation:
             available.add("cook")
         if (eat_meat and MEAT_PORTION * agent.digestion > 0) or (eat_fruit and FRUIT_PORTION * agent.browsing > 0):
             available.add("eat_pile")
-        if (agent.carried_meat and MEAT_PORTION * agent.digestion > 0) or (agent.carried_fruit and FRUIT_PORTION * agent.browsing > 0):
+        if (agent.carried_meat + agent.cooked_meat and MEAT_PORTION * agent.digestion > 0) or (agent.carried_fruit + agent.cooked_fruit and FRUIT_PORTION * agent.browsing > 0):
             available.add("eat_carried")
         alert_to = None
         if herd:  # with a herd to tell: a grazer of a hunter it sees, a hunter of a fresh kill it sees
@@ -2868,6 +2882,8 @@ class Simulation:
         agent.portions = 0 if agent.species == "plant" else 1 + agent.trait("size")
         self._add_to_pile(self.meat_piles, (agent.x, agent.y), agent.carried_meat)  # what it carried falls where it died
         self._add_to_pile(self.fruit_piles, (agent.x, agent.y), agent.carried_fruit)
+        self._add_to_pile(self.cooked_meat_piles, (agent.x, agent.y), agent.cooked_meat)
+        self._add_to_pile(self.cooked_fruit_piles, (agent.x, agent.y), agent.cooked_fruit)
         self._add_to_pile(self.stone_piles, (agent.x, agent.y), agent.carried_stone)
         self._add_to_pile(self.bone_piles, (agent.x, agent.y), agent.carried_bone)
         self._add_to_pile(self.wood_piles, (agent.x, agent.y), agent.carried_wood + (1 + agent.trait("size") if agent.species == "plant" else 0))  # a dead plant is wood
@@ -2877,7 +2893,7 @@ class Simulation:
             self._drop_gear((agent.x, agent.y), GEAR_KINDS[agent.armour_worn + 2], agent.armour_uses)
         agent.weapon = NO_WEAPON
         agent.armour_worn = NO_ARMOUR
-        agent.carried_meat = agent.carried_fruit = agent.carried_stone = agent.carried_bone = agent.carried_wood = 0
+        agent.carried_meat = agent.carried_fruit = agent.cooked_meat = agent.cooked_fruit = agent.carried_stone = agent.carried_bone = agent.carried_wood = 0
         if agent.species != "plant":
             self._kills.setdefault((agent.x, agent.y), []).append(agent)
         self.deaths += 1
@@ -2917,6 +2933,8 @@ class Simulation:
             self._die(agent, "drowned")  # too tired to stay aloft, with nowhere to land
 
     def _do(self, agent: Bitzkey, action: str, situation: dict) -> None:
+        if agent.species != "plant":
+            self._discover(agent)
         if action == "eat":
             cell = (agent.x, agent.y)
             if not self.grass.get(cell):  # another got here first
@@ -3001,12 +3019,20 @@ class Simulation:
         elif action == "take_fruit":
             self._take_fruit(agent, situation)
         elif action == "drop_meat":
-            agent.carried_meat -= 1
-            self._add_to_pile(self.meat_piles, (agent.x, agent.y), 1)
+            if agent.carried_meat:
+                agent.carried_meat -= 1
+                self._add_to_pile(self.meat_piles, (agent.x, agent.y), 1)
+            else:
+                agent.cooked_meat -= 1
+                self._add_to_pile(self.cooked_meat_piles, (agent.x, agent.y), 1)
             agent.last_action = "dropped meat"
         elif action == "drop_fruit":
-            agent.carried_fruit -= 1
-            self._add_to_pile(self.fruit_piles, (agent.x, agent.y), 1)
+            if agent.carried_fruit:
+                agent.carried_fruit -= 1
+                self._add_to_pile(self.fruit_piles, (agent.x, agent.y), 1)
+            else:
+                agent.cooked_fruit -= 1
+                self._add_to_pile(self.cooked_fruit_piles, (agent.x, agent.y), 1)
             agent.last_action = "dropped fruit"
         elif action in ("take_stone", "take_bone", "take_wood"):
             self._take_material(agent, situation[action[5:] + "_pile"], action[5:])
@@ -3190,6 +3216,8 @@ class Simulation:
                 del piles[cell]
 
     def _rot_wood(self) -> None:
+        for cell in [cell for cell in self.sites if self.turn - self.site_turns.get(cell, 0) >= SITE_TURNS]:
+            del self.sites[cell]
         life = PILE_LASTS * CORPSE_TURNS * WOOD_LASTS
         for cell in [cell for cell in self.wood_piles if cell not in self.shelters and self.turn - self.pile_turns.get((*cell, "wood"), 0) >= life]:
             del self.wood_piles[cell]
@@ -3205,6 +3233,9 @@ class Simulation:
 
     def _take_meat(self, agent: Bitzkey, situation: dict) -> None:
         """A portion from the nearer of a pile and a fresh kill, carried off rather than eaten."""
+        if not situation["meat_pile"] and not situation["kill"]:
+            self._take_cooked(agent, situation["eat_meat"], True)
+            return
         pile, corpse = situation["meat_pile"], situation["kill"]
         far = lambda x, y: abs(x - agent.x) + abs(y - agent.y)
         if pile and (not corpse or far(*pile) <= far(corpse.x, corpse.y)):
@@ -3275,11 +3306,16 @@ class Simulation:
 
     def _eat_carried(self, agent: Bitzkey) -> None:
         """A portion of whichever it carries would fill it more."""
-        meat = MEAT_PORTION * agent.digestion if agent.carried_meat else 0.0
-        fruit = FRUIT_PORTION * agent.browsing if agent.carried_fruit else 0.0
+        meat = MEAT_PORTION * agent.digestion * (COOKED_FOOD if agent.cooked_meat else 1.0) if agent.carried_meat + agent.cooked_meat else 0.0
+        fruit = FRUIT_PORTION * agent.browsing * (COOKED_FOOD if agent.cooked_fruit else 1.0) if agent.carried_fruit + agent.cooked_fruit else 0.0
         eats_meat = meat >= fruit
-        if eats_meat:
-            agent.carried_meat -= 1
+        if eats_meat:  # the cooked first
+            if agent.cooked_meat:
+                agent.cooked_meat -= 1
+            else:
+                agent.carried_meat -= 1
+        elif agent.cooked_fruit:
+            agent.cooked_fruit -= 1
         else:
             agent.carried_fruit -= 1
         agent.nourish(meat if eats_meat else fruit, meat=eats_meat)
@@ -3393,6 +3429,7 @@ class Simulation:
             agent.carried_wood -= 1
         cell = (agent.x, agent.y)
         self.sites[cell] = self.sites.get(cell, 0) + 1
+        self.site_turns[cell] = self.turn
         self._wear_weapon(agent)
         agent.last_action = "built"
         if self.sites[cell] >= SHELTER_UNITS:
@@ -3413,21 +3450,51 @@ class Simulation:
         agent.last_action = "fed a fire"
 
     def _cook(self, agent: Bitzkey) -> None:
-        """What it carries, left in a cooked pile here."""
-        meat = agent.carried_meat > 0
-        if meat:
+        """What it carries, raw, carried on cooked."""
+        if agent.carried_meat:
             agent.carried_meat -= 1
+            agent.cooked_meat += 1
         else:
             agent.carried_fruit -= 1
-        piles = self.cooked_meat_piles if meat else self.cooked_fruit_piles
-        self._add_to_pile(piles, (agent.x, agent.y), 1)
+            agent.cooked_fruit += 1
         agent.last_action = "cooked"
+
+    def _take_cooked(self, agent: Bitzkey, pile: tuple[int, int], meat: bool) -> None:
+        """A cooked portion, carried off."""
+        piles = self.cooked_meat_piles if meat else self.cooked_fruit_piles
+        self._move_toward(agent, *pile)
+        if abs(pile[0] - agent.x) + abs(pile[1] - agent.y) > 1 or piles.get(pile, 0) <= 0:
+            agent.last_action = "sought a pile"
+            return
+        self._add_to_pile(piles, pile, -1)
+        if meat:
+            agent.cooked_meat += 1
+        else:
+            agent.cooked_fruit += 1
+        agent.last_action = "took cooked food"
 
     def _drop_gear(self, cell: tuple[int, int], kind: str, uses: int) -> None:
         self.gear_piles[kind][cell] = self.gear_piles[kind].get(cell, 0) + 1
         self.gear_wear[(*cell, kind)] = self.gear_wear.get((*cell, kind), 0) + uses
 
+    def _discover(self, agent: Bitzkey) -> None:
+        """Perhaps, a craft whose materials it holds."""
+        holds = (agent.carried_bone > 0, agent.carried_bone > 0, agent.carried_wood > 0, agent.carried_wood > 0,
+                 agent.carried_stone > 0 and agent.carried_bone + agent.carried_wood > 0)
+        for craft, held in enumerate(holds):
+            if held and not agent.crafts >> craft & 1 and self.random.random() < DISCOVERY_CHANCE * agent.intelligence * (2 if agent.species == "omnivore" else 1):
+                agent.crafts |= 1 << craft
+                self._experience(agent, "discovery")
+
     def _make_gear(self, agent: Bitzkey, action: str) -> None:
+        craft = CRAFTS.index(action)
+        agent.craft_tries[craft] += 1
+        tries = agent.craft_tries[craft]
+        if tries < CRAFT_TRIES and self.random.random() >= tries / CRAFT_TRIES * (0.25 + 0.75 * agent.intelligence):
+            agent.reward += CRAFT_THRILL * agent.feeling("curiosity")
+            agent.last_action = "tried to craft"
+            return
+        agent.craft_tries[craft] = CRAFT_TRIES  # it has it now
         if action == "make_bone_axe":
             agent.carried_bone -= 1
             agent.weapon = BONE_AXE
