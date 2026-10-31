@@ -3550,3 +3550,16 @@ class MaterialTests(unittest.TestCase):
         self.assertEqual((corpse.portions, corpse.meat), (0, 0))
         simulation._take_material(dresser, (6, 5), "bone")
         self.assertEqual((dresser.carried_bone, simulation.bone_piles[(6, 5)]), (1, 3))
+
+    def test_gear_strikes_harder_and_bone_and_wood_break_after_three_uses(self):
+        hitter, target = Bitzkey(1, encode_dna("predator"), 0, 0), Bitzkey(2, encode_dna("grazer", armour=0), 1, 0)
+        plain = Simulation._damage(hitter, target)
+        hitter.carried_stone = 1
+        self.assertAlmostEqual(Simulation._damage(hitter, target), 1.5 * plain)
+        hitter.weapon = 3
+        self.assertAlmostEqual(Simulation._damage(hitter, target), 2 * plain)
+        hitter.weapon, hitter.carried_stone = 2, 0
+        for _ in range(3):
+            self.assertEqual(hitter.weapon, 2)
+            Simulation._wear_weapon(hitter)
+        self.assertEqual(hitter.weapon, 0)

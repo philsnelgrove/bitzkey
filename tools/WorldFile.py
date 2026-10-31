@@ -48,6 +48,7 @@ from tools import Simulation as world
 from tools.Brain import ACTIONS, INPUT_SIZE, MAX_WIDTH, OUTPUTS, SENSES, VALUE_SCALE, Brain
 from tools.Genome import GENOME_VERSION, TEMPERAMENT, convert_v3
 from tools.Insights import DeathTally
+from tools.Simulation import GEAR_KINDS
 from tools.Simulation import SPECIES, Bitzkey, Death, Simulation, brain_shape
 
 WORLD_MAGIC = b"BITZKEY WORLD 2\n"
@@ -210,7 +211,8 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "cooldown": agent.cooldown,
         "last_action": agent.last_action, "brain": numbers.brain(agent.brain), "generation": agent.generation,
         "children": agent.children, "mother": agent.mother, "father": agent.father, "taught_by": agent.taught_by,
-        "carried_meat": agent.carried_meat, "carried_fruit": agent.carried_fruit, "carried_stone": agent.carried_stone,
+        "carried_meat": agent.carried_meat, "carried_fruit": agent.carried_fruit, "weapon": agent.weapon, "armour": agent.armour_worn, "weapon_uses": agent.weapon_uses, "armour_uses": agent.armour_uses,
+        "carried_stone": agent.carried_stone,
         "carried_bone": agent.carried_bone, "carried_wood": agent.carried_wood, "died_turn": agent.died_turn, "assailant": agent.assailant,
         "panicked": agent.panicked, "primal_fear": agent.primal_fear, "rivalry": float(agent.rivalry),
         "own_rivalry": float(agent.own_rivalry), "hunts_grazers": agent.hunts_grazers,
@@ -281,6 +283,10 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
     agent.taught_by = int(record.get("taught_by", -1))  # none in a world saved before teaching
     agent.carried_meat = int(record.get("carried_meat", 0))  # nothing in a world saved before carrying
     agent.carried_fruit = int(record.get("carried_fruit", 0))
+    agent.weapon = int(record.get("weapon", 0))
+    agent.armour_worn = int(record.get("armour", 0))
+    agent.weapon_uses = int(record.get("weapon_uses", 0))
+    agent.armour_uses = int(record.get("armour_uses", 0))
     agent.carried_stone = int(record.get("carried_stone", 0))
     agent.carried_bone = int(record.get("carried_bone", 0))
     agent.carried_wood = int(record.get("carried_wood", 0))
@@ -360,7 +366,9 @@ def world_bytes(simulation: Simulation) -> bytes:
         "grass": [simulation.grass.get((x, y), 0) for y in range(simulation.height) for x in range(simulation.width)],
         "materials": [[x, y, kind + 2, piles[(x, y)], simulation.pile_turns.get((x, y, "wood"), 0) if kind == 2 else 0] for y in range(simulation.height) for x in range(simulation.width)
                       for kind, piles in enumerate((simulation.stone_piles, simulation.bone_piles, simulation.wood_piles))
-                      if (x, y) in piles],
+                      if (x, y) in piles]
+                     + [[x, y, kind, count, simulation.gear_wear.get((x, y, name), 0)] for kind, name in enumerate(GEAR_KINDS, 5)
+                        for (x, y), count in sorted(simulation.gear_piles[name].items())],
         "stones_scattered": simulation.stones_scattered,
         "piles": [[x, y, simulation.meat_piles.get((x, y), 0), simulation.fruit_piles.get((x, y), 0),
                    simulation.pile_turns.get((x, y, True), 0), simulation.pile_turns.get((x, y, False), 0)]
@@ -482,6 +490,10 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
         simulation.pile_turns[(pile[0], pile[1], False)] = pile[5] if len(pile) > 4 else record["turn"]
     simulation.stone_piles, simulation.bone_piles, simulation.wood_piles = {}, {}, {}  # the blank world's own stones gone
     for x, y, kind, count, dropped in record.get("materials", ()):
+        if kind >= 5:
+            simulation.gear_piles[GEAR_KINDS[kind - 5]][(x, y)] = count
+            simulation.gear_wear[(x, y, GEAR_KINDS[kind - 5])] = dropped
+            continue
         (simulation.stone_piles, simulation.bone_piles, simulation.wood_piles)[kind - 2][(x, y)] = count
         if kind == 4:
             simulation.pile_turns[(x, y, "wood")] = dropped

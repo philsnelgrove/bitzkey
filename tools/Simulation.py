@@ -487,6 +487,15 @@ GRASS_MEAL = 18        # hunger a tuft of grass sates: about a tenth of a middle
 # largest, none by default) and takes PLANT_BITE of its health, so a plant's food is in proportion to its size.
 PLANT_MEAL = 70
 WOOD_LASTS = 10.0  # times as long as a pile of food a pile of wood lasts
+# What an animal may wield and wear: a tool of bone or wood breaks after GEAR_USES, a stone axe never; a stone carried
+# and nothing else wielded strikes STONE_FORCE times as hard, an axe or club WEAPON_FORCE. A bone axe or club can't go
+# with armour. Armour counts as at least ARMOUR_LEAST of the trait's points, doubled.
+NO_WEAPON, BONE_AXE, CLUB, STONE_AXE = 0, 1, 2, 3
+NO_ARMOUR, BONE_ARMOUR, WOOD_ARMOUR = 0, 1, 2
+GEAR_KINDS = ("bone_axe", "club", "stone_axe", "bone_armour", "wood_armour")
+GEAR_USES = 3
+WEAPON_FORCE, STONE_FORCE, ARMOUR_FORCE = 2.0, 1.5, 2.0
+ARMOUR_LEAST = 2
 STONE_SCATTER_PER = 100  # one stone to this many squares, scattered once in a world's life
 # An animal may carry food off rather than eat it, up to its size + 1 portions, and drop it in a pile any may take
 # from or eat from. Eaten from a pile, a portion sates this much hunger, by the eater's gut: a middle-sized feast of
@@ -855,6 +864,10 @@ class Bitzkey:
     carried_stone: int = 0  # and the materials
     carried_bone: int = 0
     carried_wood: int = 0
+    weapon: int = 0  # what it wields and wears, and how often each has been used
+    armour_worn: int = 0
+    weapon_uses: int = 0
+    armour_uses: int = 0
     in_heat: bool = True  # in heat now, and so fertile: kept turn by turn (see Simulation.heat)
     mother: int = -1  # its parents' identifiers; -1 for one spawned, imported or deployed
     father: int = -1
@@ -1384,6 +1397,8 @@ class Simulation:
         self.bone_piles: dict[tuple[int, int], int] = {}
         self.wood_piles: dict[tuple[int, int], int] = {}
         self.stones_scattered = False
+        self.gear_piles: dict[str, dict[tuple[int, int], int]] = {kind: {} for kind in GEAR_KINDS}
+        self.gear_wear: dict[tuple[int, int, str], int] = {}  # the wear in each pile, shared out as it is taken
         self._any_piles = False  # as last indexed, so that an empty map isn't searched
         self.pile_turns: dict[tuple[int, int, bool], int] = {}  # the turn of each pile's last drop: (x, y, is it meat)
         self._grazer_centres: list[tuple[int, int]] = []  # where a new world's grazer and hunter groups were centred
@@ -2394,6 +2409,16 @@ class Simulation:
         stone_pile = self._nearest_pile(agent, sight, self.stone_piles) if self._any_piles else None
         bone_pile = self._nearest_pile(agent, sight, self.bone_piles) if self._any_piles else None
         wood_pile = self._nearest_pile(agent, sight, self.wood_piles) if self._any_piles else None
+        gear_pile, gear_kind = None, None
+        heavy = agent.weapon in (BONE_AXE, CLUB)
+        for kind in GEAR_KINDS if self._any_piles else ():
+            wields = kind in GEAR_KINDS[:3]
+            if (agent.weapon or (kind != "stone_axe" and agent.armour_worn)) if wields else (agent.armour_worn or heavy):
+                continue
+            gear_pile = self._nearest_pile(agent, sight, self.gear_piles[kind])
+            if gear_pile:
+                gear_kind = kind
+                break
         fruit_pile = self._nearest_pile(agent, sight, self.fruit_piles) if self._any_piles else None
         alerted_kill = None
         if agent.kill_alert is not None:  # a pack-mate's alert: a fresh kill it may not see itself
@@ -2465,6 +2490,24 @@ class Simulation:
                 available.add("take_bone")
             if wood_pile:
                 available.add("take_wood")
+        if not agent.weapon:
+            if not agent.armour_worn and agent.carried_bone:
+                available.add("make_bone_axe")
+            if not agent.armour_worn and agent.carried_wood:
+                available.add("make_club")
+            if agent.carried_stone and agent.carried_bone + agent.carried_wood:
+                available.add("make_stone_axe")
+        if not agent.armour_worn and agent.weapon not in (BONE_AXE, CLUB):
+            if agent.carried_bone:
+                available.add("make_bone_armour")
+            if agent.carried_wood:
+                available.add("make_wood_armour")
+        if gear_pile:
+            available.add("take_gear")
+        if agent.weapon:
+            available.add("drop_weapon")
+        if agent.armour_worn:
+            available.add("drop_armour")
         if agent.carried_stone:
             available.add("drop_stone")
         if agent.carried_bone:
@@ -2533,7 +2576,8 @@ class Simulation:
             stone_pile_closeness=self._closeness(agent, stone_pile, sight),
             bone_pile_closeness=self._closeness(agent, bone_pile, sight),
             wood_pile_closeness=self._closeness(agent, wood_pile, sight),
-            gear_pile_closeness=0.0, fire_closeness=0.0, fire_friendly=0.0, wielding=0.0, armoured=0.0,
+            gear_pile_closeness=self._closeness(agent, gear_pile, sight), fire_closeness=0.0, fire_friendly=0.0,
+            wielding=float(self._gear_force(agent) > 1), armoured=float(agent.armour_worn != 0),
             kill_closeness=self._closeness(agent, kill and (kill.x, kill.y), sight),
             plant_closeness=self._closeness(agent, flora and (flora.x, flora.y), sight),
             assailant_near=float(assailant is not None),
@@ -2584,7 +2628,7 @@ class Simulation:
                      "grass": grass, "grass_here": grass_here, "carrion": carrion, "kill": kill, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
                      "others": others, "defend_target": defend_target, "for_herd": assailant is None,
                      "herd": herd, "herd_near": herd_near, "herd_middle": herd_middle,
-                     "exposure": min(2, discomfort) / 2 * agent.exposure_share(here), "uprootable": uprootable, "stone_pile": stone_pile, "bone_pile": bone_pile, "wood_pile": wood_pile, "dressable": dressable, "tears": tears, "meat_pile": meat_pile, "fruit_pile": fruit_pile,
+                     "exposure": min(2, discomfort) / 2 * agent.exposure_share(here), "uprootable": uprootable, "gear_pile": gear_pile, "gear_kind": gear_kind, "stone_pile": stone_pile, "bone_pile": bone_pile, "wood_pile": wood_pile, "dressable": dressable, "tears": tears, "meat_pile": meat_pile, "fruit_pile": fruit_pile,
                      "home_distance": home_distance * agent.exposure_share(here),
                      "alert_to": alert_to, "revisit": agent.food_memory and agent.food_memory[:2],
                      "student": students[0] if students else None,
@@ -2787,6 +2831,12 @@ class Simulation:
         self._add_to_pile(self.stone_piles, (agent.x, agent.y), agent.carried_stone)
         self._add_to_pile(self.bone_piles, (agent.x, agent.y), agent.carried_bone)
         self._add_to_pile(self.wood_piles, (agent.x, agent.y), agent.carried_wood + (1 + agent.trait("size") if agent.species == "plant" else 0))  # a dead plant is wood
+        if agent.weapon:  # and what it wielded and wore
+            self._drop_gear((agent.x, agent.y), GEAR_KINDS[agent.weapon - 1], agent.weapon_uses)
+        if agent.armour_worn:
+            self._drop_gear((agent.x, agent.y), GEAR_KINDS[agent.armour_worn + 2], agent.armour_uses)
+        agent.weapon = NO_WEAPON
+        agent.armour_worn = NO_ARMOUR
         agent.carried_meat = agent.carried_fruit = agent.carried_stone = agent.carried_bone = agent.carried_wood = 0
         if agent.species != "plant":
             self._kills.setdefault((agent.x, agent.y), []).append(agent)
@@ -2927,6 +2977,18 @@ class Simulation:
             agent.last_action = "dropped " + material
         elif action == "dress":
             self._dress(agent, situation["dressable"])
+        elif action in ("make_bone_axe", "make_club", "make_stone_axe", "make_bone_armour", "make_wood_armour"):
+            self._make_gear(agent, action)
+        elif action == "take_gear":
+            self._take_gear(agent, situation["gear_pile"], situation["gear_kind"])
+        elif action == "drop_weapon":
+            self._drop_gear((agent.x, agent.y), GEAR_KINDS[agent.weapon - 1], agent.weapon_uses)
+            agent.weapon, agent.weapon_uses = NO_WEAPON, 0
+            agent.last_action = "dropped gear"
+        elif action == "drop_armour":
+            self._drop_gear((agent.x, agent.y), GEAR_KINDS[agent.armour_worn + 2], agent.armour_uses)
+            agent.armour_worn, agent.armour_uses = NO_ARMOUR, 0
+            agent.last_action = "dropped gear"
         elif action == "eat_pile":
             self._eat_pile(agent, situation)
         elif action == "eat_carried":
@@ -3191,12 +3253,86 @@ class Simulation:
             return THORN_FORCE * thorns * (1 - 0.6 * defender.toughness) * (INFANT_THORNS if defender.infant else 1.0)
         force = STRIKE_FORCE * (2 + 9 * attacker.might)
         armed = Simulation._armed(attacker) * (Simulation._defence_share(attacker) if defending else 1.0)
-        return force * (1 + 0.75 * armed) * (1 - 0.6 * defender.toughness)
+        return force * (1 + 0.75 * armed) * (1 - 0.6 * Simulation._gear_toughness(defender)) * Simulation._gear_force(attacker)
 
     @staticmethod
     def _defence_share(animal: Bitzkey) -> float:
         """The share of its weapons an animal brings to defence."""
         return {"grazer": GRAZER_DEFENCE_WEAPONS, "omnivore": OMNIVORE_DEFENCE_WEAPONS}.get(animal.species, 1.0)
+
+    @staticmethod
+    def _gear_toughness(agent: Bitzkey) -> float:
+        """Its toughness with what it wears."""
+        if not agent.armour_worn:
+            return agent.toughness
+        natural = agent.physique("armour")
+        return agent.toughness + (1 - SIZE_IN_MIGHT) * (ARMOUR_FORCE * max(natural, ARMOUR_LEAST / TRAIT_MAX) - natural)
+
+    @staticmethod
+    def _gear_force(agent: Bitzkey) -> float:
+        """How many times as hard what it wields strikes."""
+        return WEAPON_FORCE if agent.weapon else STONE_FORCE if agent.carried_stone > 0 else 1.0
+
+    @staticmethod
+    def _wear_weapon(agent: Bitzkey) -> None:
+        if agent.weapon in (BONE_AXE, CLUB):
+            agent.weapon_uses += 1
+            if agent.weapon_uses >= GEAR_USES:
+                agent.weapon, agent.weapon_uses = NO_WEAPON, 0
+
+    @staticmethod
+    def _wear_armour(agent: Bitzkey) -> None:
+        if agent.armour_worn:
+            agent.armour_uses += 1
+            if agent.armour_uses >= GEAR_USES:
+                agent.armour_worn, agent.armour_uses = NO_ARMOUR, 0
+
+    def _drop_gear(self, cell: tuple[int, int], kind: str, uses: int) -> None:
+        self.gear_piles[kind][cell] = self.gear_piles[kind].get(cell, 0) + 1
+        self.gear_wear[(*cell, kind)] = self.gear_wear.get((*cell, kind), 0) + uses
+
+    def _make_gear(self, agent: Bitzkey, action: str) -> None:
+        if action == "make_bone_axe":
+            agent.carried_bone -= 1
+            agent.weapon = BONE_AXE
+        elif action == "make_club":
+            agent.carried_wood -= 1
+            agent.weapon = CLUB
+        elif action == "make_bone_armour":
+            agent.carried_bone -= 1
+            agent.armour_worn = BONE_ARMOUR
+        elif action == "make_wood_armour":
+            agent.carried_wood -= 1
+            agent.armour_worn = WOOD_ARMOUR
+        else:  # a stone axe, of a stone and a bone, or wood if it has no bone
+            agent.carried_stone -= 1
+            if agent.carried_bone:
+                agent.carried_bone -= 1
+            else:
+                agent.carried_wood -= 1
+            agent.weapon = STONE_AXE
+        if action not in ("make_bone_armour", "make_wood_armour"):
+            agent.weapon_uses = 0
+        agent.armour_uses = 0
+        agent.last_action = "made gear"
+
+    def _take_gear(self, agent: Bitzkey, pile: tuple[int, int], kind: str) -> None:
+        self._move_toward(agent, *pile)
+        piles = self.gear_piles[kind]
+        if abs(pile[0] - agent.x) + abs(pile[1] - agent.y) > 1 or piles.get(pile, 0) <= 0:
+            agent.last_action = "sought a pile"
+            return
+        wear = self.gear_wear.get((*pile, kind), 0)
+        uses = wear // piles[pile]  # its share of the pile's wear
+        self.gear_wear[(*pile, kind)] = wear - uses
+        piles[pile] -= 1
+        if not piles[pile]:
+            del piles[pile]
+        if kind in GEAR_KINDS[:3]:
+            agent.weapon, agent.weapon_uses = GEAR_KINDS.index(kind) + 1, uses
+        else:
+            agent.armour_worn, agent.armour_uses = GEAR_KINDS.index(kind) - 2, uses
+        agent.last_action = "took gear"
 
     @staticmethod
     def _armed(animal: Bitzkey) -> float:
@@ -3217,6 +3353,8 @@ class Simulation:
         empathy = agent.feeling("empathy")
         joy = FIGHT_JOY * agent.feeling("aggression") * (1 - 0.6 * empathy) * (1 - 0.75 * agent.feeling("tolerance"))
         damage = self._damage(agent, victim)
+        self._wear_weapon(agent)
+        self._wear_armour(victim)
         if any(self._herd_mate(agent, other) for other in self._nearby(victim, 1) if other is not agent):
             damage *= 1 + PACK_BONUS * agent.herd_instinct  # hunting as a pack
         victim.health -= damage
@@ -3275,6 +3413,8 @@ class Simulation:
         can kill, and a struck assailant must check its own morale. Defending its herd pleases a
         herd animal."""
         damage = self._damage(agent, assailant, defending=True)
+        self._wear_weapon(agent)
+        self._wear_armour(assailant)
         assailant.health -= damage
         agent.hunger += STRIKE_EFFORT * damage / agent.stomach
         self._experience(assailant, "stung")
@@ -3447,7 +3587,8 @@ class Simulation:
                                     for y in range(self.height)])
 
     def _index_cells(self) -> None:
-        self._any_piles = bool(self.meat_piles or self.fruit_piles or self.stone_piles or self.bone_piles or self.wood_piles)
+        self._any_piles = bool(self.meat_piles or self.fruit_piles or self.stone_piles or self.bone_piles or self.wood_piles
+                               or any(self.gear_piles.values()))
         self._cells = {}
         self._carrion = {}
         self._kills = {}
