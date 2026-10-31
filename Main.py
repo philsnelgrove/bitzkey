@@ -549,13 +549,30 @@ class BitzkeyApp:
         if self._square is None or self.show_census or self.dialog or self.report:
             return
         here = [agent for agent in self.simulation.living if (agent.x, agent.y) == self._square]
-        if not here:
-            return
+        world_ = self.simulation
+        tile = self._square
+        zone = min(len(HOMES) - 1, max(0, round(world_.temperature(tile[1]))))
+        notes = [f"WEATHER: {HOMES[zone]}, {SEASONS[season(world_.turn)]}"]
+        if tile in world_.shelters:
+            notes.append("SHELTER")
+        elif tile in world_.sites:
+            notes.append(f"SHELTER SITE {world_.sites[tile]}/{world.SHELTER_UNITS}")
+        fire = world_.fires.get(tile, (0,))[0] - world_.turn
+        if fire > 0:
+            notes.append(f"FIRE: {fire} TURNS LEFT")
+        count = lambda piles: piles.get(tile, 0)
+        cooked = count(world_.cooked_meat_piles) + count(world_.cooked_fruit_piles)
+        gear = sum(count(piles) for piles in world_.gear_piles.values())
+        if count(world_.meat_piles) + count(world_.fruit_piles) + cooked:
+            notes.append(f"MEAT {count(world_.meat_piles)}  FRUIT {count(world_.fruit_piles)}  COOKED {cooked}")
+        if count(world_.stone_piles) + count(world_.bone_piles) + count(world_.wood_piles) + gear:
+            notes.append(f"STONE {count(world_.stone_piles)}  BONE {count(world_.bone_piles)}  WOOD {count(world_.wood_piles)}  GEAR {gear}")
+        lines = len(notes) + 1
         board, cell_width, cell_height = self._board_geometry()
         row = UI(MENU_ROW)
         width = UI(230)
-        title = f"SQUARE ({self._square[0]}, {self._square[1]})   {sum(agent.space for agent in here)}/{world.CELL_SPACE} SPACES"
-        panel = pg.Rect(0, 0, width, (len(here) + 1) * row + UI(8))
+        title = f"{'SEA' if world_.sea(*tile) else 'SQUARE'} ({tile[0]}, {tile[1]})   {sum(agent.space for agent in here)}/{world.CELL_SPACE * (2 if tile in world_.shelters else 1)} SPACES"
+        panel = pg.Rect(0, 0, width, (len(here) + lines) * row + UI(8))
         panel.left = int(board.left + (self._square[0] + 1) * cell_width)  # touching the square, to reach it
         panel.top = int(board.top + self._square[1] * cell_height)
         if panel.right > self.screen.get_width() - UI(4):
@@ -564,8 +581,10 @@ class BitzkeyApp:
         pg.draw.rect(self.screen, (27, 37, 37), panel, border_radius=UI(5))
         pg.draw.rect(self.screen, (131, 205, 143), panel, 1, border_radius=UI(5))
         self._text(title, (panel.left + UI(10), panel.top + UI(6)), (144, 170, 151), self.small)
+        for index, note in enumerate(notes):
+            self._text(note, (panel.left + UI(10), panel.top + UI(6) + (index + 1) * row), (144, 170, 151), self.small)
         for index, agent in enumerate(here):
-            item = pg.Rect(panel.left + UI(4), panel.top + UI(4) + (index + 1) * row, width - UI(8), row)
+            item = pg.Rect(panel.left + UI(4), panel.top + UI(4) + (index + lines) * row, width - UI(8), row)
             if item.collidepoint(pg.mouse.get_pos()):
                 pg.draw.rect(self.screen, (44, 57, 52), item, border_radius=UI(3))
             chosen = agent.identifier == self.selected_id
