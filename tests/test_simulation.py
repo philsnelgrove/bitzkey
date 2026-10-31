@@ -3236,6 +3236,47 @@ class NursingTests(unittest.TestCase):
         for young in first.womb:  # and each young starts on NEWBORN_FOOD of a stomach of its parents'
             self.assertAlmostEqual(young[3] / first.stomach, NEWBORN_FOOD)
 
+    def test_a_hungry_animal_may_eat_what_it_carries(self):
+        with patch.object(simulation_module, "ACTIVE_SHARE", 1.0):
+            carrier = self.simulation._add_agent(encode_dna("omnivore"), 5, 5)
+            carrier.carried_fruit = 1
+            carrier.hunger = simulation_module.CARRIED_HUNGER - 1
+            self.assertNotIn(ACTIONS.index("eat_carried"), self.simulation._sense(carrier)[1])
+            carrier.hunger = 90
+            _, options, situation = self.simulation._sense(carrier)
+            self.assertIn(ACTIONS.index("eat_carried"), options)
+            self.simulation._act(carrier, "eat_carried", situation)
+            self.assertEqual(carrier.carried_fruit, 0)
+            self.assertLess(carrier.hunger, 90)
+
+    def test_food_is_carried_dropped_in_piles_and_taken_or_eaten_from_them(self):
+        with patch.object(simulation_module, "ACTIVE_SHARE", 1.0):
+            carrier = self.simulation._add_agent(encode_dna("omnivore", size=1), 5, 5)
+            other = self.simulation._add_agent(encode_dna("grazer"), 7, 5)
+            self.simulation.meat_piles[(5, 5)] = carrier.capacity + 1
+            self.simulation.fruit_piles[(8, 5)] = 2
+            self.simulation._index_cells()
+            for _ in range(carrier.capacity):
+                _, options, situation = self.simulation._sense(carrier)
+                self.assertIn(ACTIONS.index("take_meat"), options)
+                self.simulation._act(carrier, "take_meat", situation)
+            self.assertEqual(self.simulation.meat_piles[(5, 5)], 1)
+            _, options, situation = self.simulation._sense(carrier)
+            self.assertNotIn(ACTIONS.index("take_meat"), options)  # no room for more
+            self.simulation._act(carrier, "drop_meat", situation)
+            self.assertEqual(self.simulation.meat_piles[(5, 5)], 2)
+            other.hunger = 80
+            _, _, situation = self.simulation._sense(other)
+            self.simulation._act(other, "eat_pile", situation)
+            self.assertEqual(self.simulation.meat_piles[(5, 5)], 1)  # the pile that fills it more
+            self.assertEqual(self.simulation.fruit_piles[(8, 5)], 2)
+            self.assertLess(other.hunger, 80)
+            carried = carrier.carried_meat
+            carrier.health = 0
+            self.simulation._die(carrier, "killed")  # what it carried falls where it died
+            self.assertEqual(self.simulation.meat_piles[(5, 5)], 1 + carried)
+            self.assertEqual(carrier.carried_meat, 0)
+
     def test_an_elder_gives_a_willing_student_a_copy_of_its_brain_once(self):
         with patch.object(simulation_module, "ACTIVE_SHARE", 1.0), patch.object(simulation_module, "STUDENT_TRUST", 0.0):
             elder = self.simulation._add_agent(encode_dna("grazer"), 5, 5)

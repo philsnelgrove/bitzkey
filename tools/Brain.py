@@ -13,7 +13,7 @@ from tools.Genome import (BODY_TRAITS, SPECIES, TEMPERAMENT, TEMPERATURES, TRAIT
 
 ACTIONS = ("eat", "forage", "browse", "uproot", "scavenge", "feast", "rest", "court", "breed", "hunt", "attack", "defend",
            "flee", "herd", "go_north", "go_south", "go_east", "go_west", "walk_north", "walk_south", "walk_east",
-           "walk_west", "revisit", "feed_young", "teach")
+           "walk_west", "revisit", "feed_young", "teach", "take_meat", "take_fruit", "drop_meat", "drop_fruit", "eat_pile", "eat_carried")
 # Alongside its action, every animal that thinks keeps silent or calls: the alert, to its herd, of a hunter (grazers)
 # or a fresh kill (hunters) it sees, or one of five calls that mean only what its kind come to make of them, heard by
 # all close enough. A brain values them as it values its actions, after them, and learns them the same way.
@@ -113,6 +113,7 @@ SENSES = (
     # loudest caller it heard is one it knows, 1 or 0, and how well it regards it.
     "known_closeness", "known_regard", "known_east", "known_south", "caller_known", "caller_regard",
     "elder_age", "elder_closeness", "elder_east", "elder_south", "student_near",
+    "load", "meat_carried", "fruit_carried", "meat_pile_closeness", "fruit_pile_closeness",
 ) + TEMPERAMENT + (    # then its current temperament, mind and social traits, each 0..7 scaled to 0..1
     *(f"inborn_{trait}" for trait in TEMPERAMENT),        # its dot's and social background's traits, as born, 0..1
     *BODY_TRAITS,                                         # its ring's traits, 0..1 (species 0 plant to 1 predator)

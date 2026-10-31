@@ -209,7 +209,8 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "hunger": float(agent.hunger), "health": float(agent.health), "stamina": float(agent.stamina), "age": agent.age,
         "cooldown": agent.cooldown,
         "last_action": agent.last_action, "brain": numbers.brain(agent.brain), "generation": agent.generation,
-        "children": agent.children, "mother": agent.mother, "father": agent.father, "taught_by": agent.taught_by, "died_turn": agent.died_turn, "assailant": agent.assailant,
+        "children": agent.children, "mother": agent.mother, "father": agent.father, "taught_by": agent.taught_by,
+        "carried_meat": agent.carried_meat, "carried_fruit": agent.carried_fruit, "died_turn": agent.died_turn, "assailant": agent.assailant,
         "panicked": agent.panicked, "primal_fear": agent.primal_fear, "rivalry": float(agent.rivalry),
         "own_rivalry": float(agent.own_rivalry), "hunts_grazers": agent.hunts_grazers,
         "hunts_omnivores": agent.hunts_omnivores, "hunts_predators": agent.hunts_predators, "guarded": agent.guarded,
@@ -277,6 +278,8 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
     agent.mother = int(record.get("mother", -1))  # unknown in a world saved before parents were kept
     agent.father = int(record.get("father", -1))
     agent.taught_by = int(record.get("taught_by", -1))  # none in a world saved before teaching
+    agent.carried_meat = int(record.get("carried_meat", 0))  # nothing in a world saved before carrying
+    agent.carried_fruit = int(record.get("carried_fruit", 0))
     agent.last_senses = numbers.senses(record["last_senses"])
     agent.last_choice = numbers.action(agent.last_choice)
     if agent.last_choice < 0:  # an action no longer had: nothing to learn from it
@@ -351,6 +354,9 @@ def world_bytes(simulation: Simulation) -> bytes:
         "death_tally": _tally_record(simulation.death_tally),
         "random": {"mt": list(internal[:624]), "index": internal[624], "gauss_next": gauss_next},
         "grass": [simulation.grass.get((x, y), 0) for y in range(simulation.height) for x in range(simulation.width)],
+        "piles": [[x, y, simulation.meat_piles.get((x, y), 0), simulation.fruit_piles.get((x, y), 0)]
+                  for y in range(simulation.height) for x in range(simulation.width)
+                  if (x, y) in simulation.meat_piles or (x, y) in simulation.fruit_piles],
         "seeds": [[x, y, _genome(dna), generation, sown] for x, y, dna, generation, sown in simulation.seeds],
         "insights": [[*key, offered, simulation.insights.chosen.get(key, 0.0)]
                      for key, offered in simulation.insights.offered.items()]
@@ -416,6 +422,12 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
         numbers.output_from = [saved_at.get(name, -1) for name in OUTPUTS]
         if "teach" not in saved_at:  # a brain from before teaching values it as it does feeding its young, or it would never try it
             numbers.output_from[OUTPUTS.index("teach")] = saved_at.get("feed_young", -1)
+        if "eat_pile" not in saved_at:  # so too with carrying; and eating from a pile as it does scavenging
+            for name in ("take_meat", "take_fruit", "drop_meat", "drop_fruit"):
+                numbers.output_from[OUTPUTS.index(name)] = saved_at.get("feed_young", -1)
+            numbers.output_from[OUTPUTS.index("eat_pile")] = saved_at.get("scavenge", -1)
+        if "eat_carried" not in saved_at:
+            numbers.output_from[OUTPUTS.index("eat_carried")] = saved_at.get("scavenge", -1)
         numbers.action_now = [ACTIONS.index(name) if name in ACTIONS else -1 for name in record["actions"]]
     numbers.uncentred = not record.get("centred_senses", False)
     numbers.unscaled = "value_scale" not in record
@@ -453,6 +465,8 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
     simulation.random.setstate((3, (*state["mt"], state["index"]), state["gauss_next"]))
     width = simulation.width
     simulation.grass = {(index % width, index // width): tufts for index, tufts in enumerate(record["grass"]) if tufts}
+    simulation.meat_piles = {(x, y): meat for x, y, meat, _ in record.get("piles", ()) if meat}  # none in a world saved before piles
+    simulation.fruit_piles = {(x, y): fruit for x, y, _, fruit in record.get("piles", ()) if fruit}
     simulation.seeds = [(x, y, convert_v3(int(dna, 16)) if before_terrain else int(dna, 16), generation, sown)
                         for x, y, dna, generation, sown in record["seeds"]]
     simulation.insights.offered = {}

@@ -214,6 +214,22 @@ def _lines(surface: pg.Surface, colour, points, width: float = 1.0) -> None:
         pg.draw.lines(surface, colour, False, points, round(width))
 
 
+def draw_pile(surface: pg.Surface, meat: bool, count: int, cx: int, cy: int, half: int, font: pg.font.Font) -> None:
+    """A heap of meat or of fruit about (cx, cy), with how many portions it holds once there's room to read it."""
+    lump = max(1, half * 3 // 5)
+    dark, light = ((120, 34, 38), (190, 62, 62)) if meat else ((176, 92, 24), (230, 150, 46))
+    pg.draw.circle(surface, dark, (cx - lump, cy + lump // 2), lump)
+    pg.draw.circle(surface, dark, (cx + lump, cy + lump // 2), lump)
+    pg.draw.circle(surface, light, (cx, cy - lump // 2), lump)
+    if meat:
+        pg.draw.circle(surface, (236, 226, 205), (cx, cy - lump // 2), max(1, lump // 2))  # the bone
+    else:
+        pg.draw.circle(surface, (74, 140, 60), (cx + lump // 2, cy - lump - lump // 2), max(1, lump // 3))  # a leaf
+    if half >= 5:
+        surface.blit(font.render(str(count), True, (0, 0, 0)), (cx + 1, cy + 1))
+        surface.blit(font.render(str(count), True, (255, 255, 255)), (cx, cy))
+
+
 def grass_tuft(size: int, sea: bool) -> pg.Surface:
     """A tuft of grass the size of a square, or of kelp in the sea, kept once drawn."""
     key = (size, sea)

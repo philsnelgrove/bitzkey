@@ -19,7 +19,7 @@ from display.Dialog import Dialog
 from display.Report import Report
 from display.Inspector import draw_details
 from display.Look import (DOT_RADIUS_RANGE, EXPORTING, GRASS, GRID, GROUND_VARIANTS, GROUNDS, NIGHT, RING_WIDTH, SEA_GRASS, TEXTURE_FROM,
-                          grass_tuft, ground_tile, bitzkey_layer, dot_radius, draw_reticle,
+                          grass_tuft, ground_tile, bitzkey_layer, dot_radius, draw_pile, draw_reticle,
                           map_dot_radii, draw_bitzkey, sea_colour, zone_colour)
 from display.Setup import EXPORT_DIR, SetupScreen
 from display.Language import start_language
@@ -1180,6 +1180,17 @@ class BitzkeyApp:
             else:
                 pg.draw.circle(surface, SEA_GRASS if self.simulation.sea(x, y) else GRASS, point,
                                max(1, round(min(cell_width, cell_height) * 0.18)))
+        half = max(2, round(min(cell_width, cell_height) * 0.25))
+        pile_font = UI.font("segoeui", 11)
+        for x, y in {*self.simulation.meat_piles, *self.simulation.fruit_piles}:  # meat to the left of a square, fruit to the right
+            point = (round(board.left + (x + 0.5) * cell_width), round(board.top + (y + 0.5) * cell_height))
+            if not reach.collidepoint(point):
+                continue
+            meat, fruit = self.simulation.meat_piles.get((x, y), 0), self.simulation.fruit_piles.get((x, y), 0)
+            if meat:
+                draw_pile(surface, True, meat, point[0] - half if fruit else point[0], point[1], half, pile_font)
+            if fruit:
+                draw_pile(surface, False, fruit, point[0] + half if meat else point[0], point[1], half, pile_font)
         night = pg.Surface((max(1, round(self.simulation.width // 2 * cell_width)), max(1, round(board.height))), pg.SRCALPHA)
         night.fill(NIGHT)  # the night, a shadow over half the map's columns, wrapping round east to west
         for start in (self.simulation.night_start(), self.simulation.night_start() - self.simulation.width):

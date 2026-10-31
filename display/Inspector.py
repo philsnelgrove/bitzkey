@@ -290,6 +290,8 @@ def draw_details(screen: pg.Surface, agent: Bitzkey, x: int, at: Callable[[float
     state = f"LAST ACTION: {agent.last_action.upper()}"
     if not agent.alive:
         state += f"     MEAT LEFT {agent.meat:.0f}"
+    elif agent.load:
+        state += f"     CARRYING {agent.carried_meat} MEAT, {agent.carried_fruit} FRUIT, ROOM FOR {agent.capacity}"
     _text(screen, state, (x, at(350)), (145, 164, 146), small)
     if agent.odds:
         odds = sorted(agent.odds.items(), key=lambda item: -item[1])[:3]

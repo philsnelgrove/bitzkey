@@ -269,7 +269,8 @@ SHORT_ACTIONS = {"eat": "eat", "forage": "forage", "browse": "browse", "uproot":
                  "attack": "attack", "defend": "defend", "flee": "flee", "herd": "herd", "go_north": "go N",
                  "go_south": "go S", "go_east": "go E", "go_west": "go W", "walk_north": "walk N",
                  "walk_south": "walk S", "walk_east": "walk E", "walk_west": "walk W",
-                 "revisit": "revisit", "feed_young": "feed", "teach": "teach"}
+                 "revisit": "revisit", "feed_young": "feed", "teach": "teach",
+                 "take_meat": "take M", "take_fruit": "take F", "drop_meat": "drop M", "drop_fruit": "drop F", "eat_pile": "pile", "eat_carried": "carried"}
 CELL = 7  # characters to a column of figures
 SITUATION = 42  # characters to the situations' column
 

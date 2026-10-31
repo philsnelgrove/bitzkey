@@ -256,7 +256,7 @@ COURT_LEARNING = 1.0
 # panicking or frozen); 0 learns only from the turns it chose what to do.
 FORCED_LESSONS = 0
 KILL_FOOD = frozenset(ACTIONS.index(action) for action in ("hunt", "attack", "feast"))
-PLANT_FOOD = frozenset(ACTIONS.index(action) for action in ("eat", "forage", "browse", "uproot"))
+PLANT_FOOD = frozenset(ACTIONS.index(action) for action in ("eat", "forage", "browse", "uproot", "eat_pile", "eat_carried"))
 
 
 def lesson_weight(choice: int, outcome: float) -> float:
@@ -486,6 +486,12 @@ GRASS_MEAL = 18        # hunger a tuft of grass sates: about a tenth of a middle
 # A plant is eaten in portions, a bite each: every bite sates PLANT_MEAL hunger (and PLANT_MEAL_FOR_SIZE more for the
 # largest, none by default) and takes PLANT_BITE of its health, so a plant's food is in proportion to its size.
 PLANT_MEAL = 70
+# An animal may carry food off rather than eat it, up to its size + 1 portions, and drop it in a pile any may take
+# from or eat from. Eaten from a pile, a portion sates this much hunger, by the eater's gut: a middle-sized feast of
+# meat (times its digestion) and a bite of a plant's fruit (times its share of the food in plants).
+MEAT_PORTION = 855
+FRUIT_PORTION = 70
+CARRIED_HUNGER = 50  # hunger at which it may eat what it carries
 PLANT_MEAL_FOR_SIZE = 0
 PLANT_BITE = 15        # health a plant loses to each bite
 PLANT_REGROWTH = 0.02  # share of its health pool a plant regrows each turn
@@ -594,7 +600,7 @@ FEAST, SCAVENGE, COURT, BREED = (ACTIONS.index("feast"), ACTIONS.index("scavenge
 EAT, UPROOT, FEAST = ACTIONS.index("eat"), ACTIONS.index("uproot"), ACTIONS.index("feast")
 HERD = ACTIONS.index("herd")
 FEED_YOUNG = ACTIONS.index("feed_young")
-FED = {"ate", "browsed", "uprooted", "feasted", "scavenged"}  # what it did when it fed, to remember where
+FED = {"ate", "browsed", "uprooted", "feasted", "scavenged", "ate from a pile", "ate what it carried"}  # what it did when it fed, to remember where
 MAX_SIGHT = 2 + SIGHT_PER_TRAIT * TRAIT_MAX + MAX_PREDATOR_SIGHT  # the furthest anything is seen: a predator's sight for prey
 SIGHT_OFFSETS = sorted(
     ((dx, dy) for dx in range(-MAX_SIGHT, MAX_SIGHT + 1) for dy in range(-MAX_SIGHT, MAX_SIGHT + 1)
@@ -842,6 +848,8 @@ class Bitzkey:
     generation: int = 0
     children: int = 0
     taught_by: int = -1  # the elder whose brain it was given, once in its life; -1 while it has none
+    carried_meat: int = 0  # the portions it carries
+    carried_fruit: int = 0
     in_heat: bool = True  # in heat now, and so fertile: kept turn by turn (see Simulation.heat)
     mother: int = -1  # its parents' identifiers; -1 for one spawned, imported or deployed
     father: int = -1
@@ -932,6 +940,15 @@ class Bitzkey:
     def can_be(self, sea: bool) -> bool:
         """Whether it may be in the sea, or on the land, by its terrain."""
         return fits(self.terrain, sea)
+
+    @property
+    def capacity(self) -> int:
+        """The portions it can carry."""
+        return self.trait("size") + 1
+
+    @property
+    def load(self) -> int:
+        return self.carried_meat + self.carried_fruit
 
     @property
     def exhausted(self) -> bool:
@@ -1356,6 +1373,9 @@ class Simulation:
         self._grass_reach: list[float] = []  # their growth added up, row by row, for sowing
         self._update_climate()
         self.grass: dict[tuple[int, int], int] = {}
+        self.meat_piles: dict[tuple[int, int], int] = {}  # the portions lying on each square with any
+        self.fruit_piles: dict[tuple[int, int], int] = {}
+        self._any_piles = False  # as last indexed, so that an empty map isn't searched
         self._grazer_centres: list[tuple[int, int]] = []  # where a new world's grazer and hunter groups were centred
         self._hunter_centres: list[tuple[int, int]] = []
         initial_grass = round(width * height * grass_density / 100)
@@ -2356,6 +2376,8 @@ class Simulation:
             if hunter is None and alarm_source is not None:
                 hunter = alarm_source  # the herd's alarm: flight from whatever struck a herd-mate, or it was alerted to
         seen_kill = kill
+        meat_pile = self._nearest_pile(agent, sight, self.meat_piles) if self._any_piles else None
+        fruit_pile = self._nearest_pile(agent, sight, self.fruit_piles) if self._any_piles else None
         alerted_kill = None
         if agent.kill_alert is not None:  # a pack-mate's alert: a fresh kill it may not see itself
             alerted_kill = next((corpse for corpse in self._kills.get(agent.kill_alert, ()) if self._feeds_on(agent, corpse)),
@@ -2413,6 +2435,22 @@ class Simulation:
             uprootable = next((other for other in neighbors if other.species == "plant"), None)
             if uprootable is not None and self._food_supply(agent) < UPROOT_FOOD:
                 available.add("uproot")  # starving, with food scarce: it may tear into a plant beside it
+        tears = "uproot" in available
+        # Food to carry off, with room for it; what it carries to put down; a pile with food in it for this gut.
+        if agent.load < agent.capacity:
+            if kill or meat_pile:
+                available.add("take_meat")
+            if flora or tears or fruit_pile:
+                available.add("take_fruit")
+        if agent.carried_meat:
+            available.add("drop_meat")
+        if agent.carried_fruit:
+            available.add("drop_fruit")
+        if (meat_pile and MEAT_PORTION * agent.digestion > 0) or (fruit_pile and FRUIT_PORTION * agent.browsing > 0):
+            available.add("eat_pile")
+        if agent.hunger >= CARRIED_HUNGER and ((agent.carried_meat and MEAT_PORTION * agent.digestion > 0)
+                                               or (agent.carried_fruit and FRUIT_PORTION * agent.browsing > 0)):
+            available.add("eat_carried")
         alert_to = None
         if herd:  # with a herd to tell: a grazer of a hunter it sees, a hunter of a fresh kill it sees
             if agent.species == "grazer" and seen_hunter is not None:
@@ -2451,6 +2489,11 @@ class Simulation:
             kin_near=min(3, kin) / 3,
             others_near=min(3, others) / 3,
             carrion_closeness=self._closeness(agent, carrion and (carrion.x, carrion.y), sight),
+            load=min(1.0, agent.load / agent.capacity),
+            meat_carried=agent.carried_meat / agent.load if agent.load else 0.0,
+            fruit_carried=agent.carried_fruit / agent.load if agent.load else 0.0,
+            meat_pile_closeness=self._closeness(agent, meat_pile, sight),
+            fruit_pile_closeness=self._closeness(agent, fruit_pile, sight),
             kill_closeness=self._closeness(agent, kill and (kill.x, kill.y), sight),
             plant_closeness=self._closeness(agent, flora and (flora.x, flora.y), sight),
             assailant_near=float(assailant is not None),
@@ -2501,7 +2544,7 @@ class Simulation:
                      "grass": grass, "grass_here": grass_here, "carrion": carrion, "kill": kill, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
                      "others": others, "defend_target": defend_target, "for_herd": assailant is None,
                      "herd": herd, "herd_near": herd_near, "herd_middle": herd_middle,
-                     "exposure": min(2, discomfort) / 2 * agent.exposure_share(here), "uprootable": uprootable,
+                     "exposure": min(2, discomfort) / 2 * agent.exposure_share(here), "uprootable": uprootable, "tears": tears, "meat_pile": meat_pile, "fruit_pile": fruit_pile,
                      "home_distance": home_distance * agent.exposure_share(here),
                      "alert_to": alert_to, "revisit": agent.food_memory and agent.food_memory[:2],
                      "student": students[0] if students else None,
@@ -2699,6 +2742,9 @@ class Simulation:
                       * (0.5 if cause == "killed" else 1))
         agent.rot = agent.meat / max(1, CORPSE_TURNS - FRESH_KILL_TURNS)  # it rots once no longer fresh
         agent.portions = 0 if agent.species == "plant" else 1 + agent.trait("size")
+        self._add_to_pile(self.meat_piles, (agent.x, agent.y), agent.carried_meat)  # what it carried falls where it died
+        self._add_to_pile(self.fruit_piles, (agent.x, agent.y), agent.carried_fruit)
+        agent.carried_meat = agent.carried_fruit = 0
         if agent.species != "plant":
             self._kills.setdefault((agent.x, agent.y), []).append(agent)
         self.deaths += 1
@@ -2817,6 +2863,22 @@ class Simulation:
             self._feed_young(agent, situation["young"])
         elif action == "teach":
             self._teach(agent, situation["student"])
+        elif action == "take_meat":
+            self._take_meat(agent, situation)
+        elif action == "take_fruit":
+            self._take_fruit(agent, situation)
+        elif action == "drop_meat":
+            agent.carried_meat -= 1
+            self._add_to_pile(self.meat_piles, (agent.x, agent.y), 1)
+            agent.last_action = "dropped meat"
+        elif action == "drop_fruit":
+            agent.carried_fruit -= 1
+            self._add_to_pile(self.fruit_piles, (agent.x, agent.y), 1)
+            agent.last_action = "dropped fruit"
+        elif action == "eat_pile":
+            self._eat_pile(agent, situation)
+        elif action == "eat_carried":
+            self._eat_carried(agent)
         elif action in HEADINGS:
             dx, dy, walk, went = HEADINGS[action]
             cells = 1 if walk else agent.steps
@@ -2949,6 +3011,93 @@ class Simulation:
         corpse.meat -= corpse.meat / corpse.portions
         agent.last_action = "feasted"
         self._eat_portion(corpse)
+
+    @staticmethod
+    def _add_to_pile(piles: dict[tuple[int, int], int], cell: tuple[int, int], portions: int) -> None:
+        left = piles.get(cell, 0) + portions
+        if left > 0:
+            piles[cell] = left
+        else:
+            piles.pop(cell, None)
+
+    def _take_meat(self, agent: Bitzkey, situation: dict) -> None:
+        """A portion from the nearer of a pile and a fresh kill, carried off rather than eaten."""
+        pile, corpse = situation["meat_pile"], situation["kill"]
+        far = lambda x, y: abs(x - agent.x) + abs(y - agent.y)
+        if pile and (not corpse or far(*pile) <= far(corpse.x, corpse.y)):
+            self._move_toward(agent, *pile)
+            if far(*pile) > 1 or self.meat_piles.get(pile, 0) <= 0:
+                agent.last_action = "sought a pile"
+                return
+            self._add_to_pile(self.meat_piles, pile, -1)
+        else:
+            self._move_toward(agent, corpse.x, corpse.y)
+            if far(corpse.x, corpse.y) > 1 or not self._fresh(corpse) or corpse.meat <= 0 or corpse.portions <= 0:
+                agent.last_action = "sought a kill"
+                return
+            corpse.meat -= corpse.meat / corpse.portions
+            self._eat_portion(corpse)
+        agent.carried_meat += 1
+        agent.last_action = "took meat"
+
+    def _take_fruit(self, agent: Bitzkey, situation: dict) -> None:
+        """A portion from the nearer of a pile and a plant, or torn from one it may uproot. As browsing
+        or uprooting wound a plant, its fruit carried off rather than eaten."""
+        pile, tears = situation["fruit_pile"], situation["tears"]
+        plant = situation["uprootable"] if tears else situation["flora"]
+        far = lambda x, y: abs(x - agent.x) + abs(y - agent.y)
+        if pile and (not plant or far(*pile) <= far(plant.x, plant.y)):
+            self._move_toward(agent, *pile)
+            if far(*pile) > 1 or self.fruit_piles.get(pile, 0) <= 0:
+                agent.last_action = "sought a pile"
+                return
+            self._add_to_pile(self.fruit_piles, pile, -1)
+            agent.carried_fruit += 1
+            agent.last_action = "took fruit"
+            return
+        if not tears:
+            self._move_toward(agent, plant.x, plant.y)
+        if not plant.alive or far(plant.x, plant.y) > 1 or (not tears and plant.cooldown):
+            agent.last_action = "sought plants"
+            return
+        plant.health -= UPROOT_BITE if tears else PLANT_BITE
+        plant.cooldown = PLANT_RECOVERY
+        agent.carried_fruit += 1
+        agent.last_action = "took fruit"
+        if not plant.alive:
+            if tears:
+                self._die(plant, "uprooted", agent, "uprooting")
+            else:
+                self._die(plant, "eaten", agent, "browsing")
+        elif plant.physique("weapons") > 0:
+            self._defend(plant, agent)
+
+    def _eat_pile(self, agent: Bitzkey, situation: dict) -> None:
+        """A portion of whichever pile in sight would fill it more, going to it first."""
+        meat = MEAT_PORTION * agent.digestion if situation["meat_pile"] else 0.0
+        fruit = FRUIT_PORTION * agent.browsing if situation["fruit_pile"] else 0.0
+        eats_meat = meat >= fruit
+        pile = situation["meat_pile"] if eats_meat else situation["fruit_pile"]
+        piles = self.meat_piles if eats_meat else self.fruit_piles
+        self._move_toward(agent, *pile)
+        if abs(pile[0] - agent.x) + abs(pile[1] - agent.y) > 1 or piles.get(pile, 0) <= 0:
+            agent.last_action = "sought a pile"
+            return
+        self._add_to_pile(piles, pile, -1)
+        agent.nourish(meat if eats_meat else fruit, meat=eats_meat)
+        agent.last_action = "ate from a pile"
+
+    def _eat_carried(self, agent: Bitzkey) -> None:
+        """A portion of whichever it carries would fill it more."""
+        meat = MEAT_PORTION * agent.digestion if agent.carried_meat else 0.0
+        fruit = FRUIT_PORTION * agent.browsing if agent.carried_fruit else 0.0
+        eats_meat = meat >= fruit
+        if eats_meat:
+            agent.carried_meat -= 1
+        else:
+            agent.carried_fruit -= 1
+        agent.nourish(meat if eats_meat else fruit, meat=eats_meat)
+        agent.last_action = "ate what it carried"
 
     def _eat_portion(self, corpse: Bitzkey) -> None:
         """A portion of a body eaten: once the last is, the body is gone at the turn's end."""
@@ -3232,6 +3381,7 @@ class Simulation:
                                     for y in range(self.height)])
 
     def _index_cells(self) -> None:
+        self._any_piles = bool(self.meat_piles or self.fruit_piles)
         self._cells = {}
         self._carrion = {}
         self._kills = {}
@@ -3484,6 +3634,14 @@ class Simulation:
         for dx, dy in SIGHT_WITHIN[sight]:
             cell = (x + sx * dx, y + sy * dy)
             if grass.get(cell, 0) > 0 and self._can_enter(agent, cell) and agent.climate_steps(climate[cell[1]]) <= worst:
+                return cell
+        return None
+
+    def _nearest_pile(self, agent: Bitzkey, sight: int, piles: dict[tuple[int, int], int]) -> tuple[int, int] | None:
+        sx, sy = self.tie_side(agent)
+        for dx, dy in SEEN_WITHIN[sight]:
+            cell = (agent.x + sx * dx, agent.y + sy * dy)
+            if piles.get(cell, 0) > 0 and self._can_enter(agent, cell):
                 return cell
         return None
 
