@@ -545,8 +545,8 @@ TEMPERAMENT_RELAPSE = 0.0005  # share of the gap back to the inborn value closed
 # is temperate, medium. Every YEAR_LENGTH turns is a year, starting mild. Through its second quarter
 # the north, from the top down to and through the equator, is a step colder; through its fourth the
 # south, from the bottom up to and through the equator, is; but the arctic's outermost POLAR_SHARE, the polar caps,
-# is very cold all year, and a strip of WINTER_EQUATOR_SHARE across the equator's middle stays hot through both
-# winters. Every Bitzkey has a home temperature,
+# is very cold all year, and a strip of WINTER_EQUATOR_SHARE at the equator's end away from the winter stays hot
+# through it (the south end in the north's winter, the north end in the south's), the hot equator narrowing from its winter side. Every Bitzkey has a home temperature,
 # and may tolerate heat or cold, suffering HARDINESS of its penalties, and FRAILTY of the other's; plants tolerate nothing, and a plant
 # spawned at the start is at home in its zone's usual temperature.
 # Days: every DAY_LENGTH turns is a day, and a new world's year is 360 of them. Night covers half the map, its
@@ -677,8 +677,12 @@ def in_winter(y: int, height: int, quarter: int) -> bool:
     if place < POLAR_SHARE or place > 1 - POLAR_SHARE:
         return False  # the polar caps are very cold all year
     equator = abs(place - 0.5) < EQUATOR_SHARE / 2
-    if equator and abs(place - 0.5) < WINTER_EQUATOR_SHARE / 2:
-        return False  # the equator's heart stays hot
+    # The equator's hot strip keeps to the edge away from the winter's side: the southern end of the equator in the
+    # north's winter, the northern end in the south's.
+    if equator and quarter == 1 and place > 0.5 + EQUATOR_SHARE / 2 - WINTER_EQUATOR_SHARE:
+        return False
+    if equator and quarter == 3 and place < 0.5 - EQUATOR_SHARE / 2 + WINTER_EQUATOR_SHARE:
+        return False
     return (quarter == 1 and (place < 0.5 or equator)) or (quarter == 3 and (place > 0.5 or equator))
 
 
@@ -706,6 +710,12 @@ def wave_band(y: int, height: int, quarter: int) -> tuple[int, int]:
     equator (the second and fourth quarters), and ebbs back the other way (the third and first)."""
     north = quarter in (1, 2)
     first, last = zone_rows(y, height)
+    if zone_temperature(y, height) == HOT:  # the equator's wave crosses only what turns, narrowing the hot strip
+        winter = 1 if north else 3
+        turning = [row for row in range(first, last + 1) if in_winter(row, height, winter)]
+        if not turning:
+            return 0, 1
+        first, last = turning[0], turning[-1]
     inward = quarter in (1, 3)
     offset = y - first if north == inward else last - y
     return offset // WAVE_BAND, (last - first) // WAVE_BAND + 1

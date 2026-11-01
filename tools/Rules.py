@@ -463,7 +463,7 @@ _TABLE: dict[str, list[tuple]] = {
         ("EQUATOR_SHARE", "Equator", "share of the map's height across its middle that is the equator", 0.0, 1.0, 0.05),
         ("POLAR_SHARE", "Polar caps", "share of the map's height at the top and again at the bottom that is very cold all year",
          0.0, 0.5, 0.005),
-        ("WINTER_EQUATOR_SHARE", "Winter equator", "share of the map's height across the equator's middle that stays hot "
+        ("WINTER_EQUATOR_SHARE", "Winter equator", "share of the map's height at the equator's end away from the winter that stays hot "
          "through both winters", 0.0, 1.0, 0.01),
         ("CLIMATE_HUNGER", "Climate hunger", "times the food needed a step or more from home (a plant, only too hot)",
          1.0, 5.0, 0.1),

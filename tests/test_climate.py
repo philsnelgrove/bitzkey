@@ -396,15 +396,35 @@ class SenseTests(unittest.TestCase):
         senses = simulation._sense(lost)[0]
         self.assertEqual((senses[SENSES.index("home_direction")], senses[SENSES.index("home_distance")]), (0.0, 1.0))
 
-    def test_the_polar_caps_are_very_cold_all_year_and_the_equators_heart_stays_hot_through_both_winters(self):
+    def test_the_polar_caps_are_very_cold_all_year_and_the_equators_far_end_stays_hot_through_each_winter(self):
         for quarter in range(4):
             for y in (0, 1, 98, 99):
                 self.assertEqual(season_temperature(y, 100, quarter), VERY_COLD)
             self.assertEqual(season_temperature(2, 100, quarter), VERY_COLD if quarter == 1 else COLD)  # the arctic turns
             self.assertEqual(season_temperature(97, 100, quarter), VERY_COLD if quarter == 3 else COLD)
-            for y in (48, 49, 50, 51):
-                self.assertEqual(season_temperature(y, 100, quarter), HOT)
-            self.assertEqual(season_temperature(45, 100, quarter), MEDIUM if quarter % 2 else HOT)  # the rest turns
+            for y in range(40, 60):  # its southern 5 rows stay hot in the north's winter, its northern 5 in the south's
+                stays = quarter % 2 == 0 or (y >= 55 if quarter == 1 else y < 45)
+                self.assertEqual(season_temperature(y, 100, quarter), HOT if stays else MEDIUM)
+
+    @patch("tools.Simulation.SEASON_TURNING", 0.5)
+    def test_a_winter_narrows_the_hot_equator_from_its_winter_side_its_far_edge_unmoved(self):
+        def hot_rows(turn):
+            rows = [y for y in range(40, 60) if temperature_at(y, 100, turn) <= 0.5]
+            return rows[0], rows[-1]
+        self.assertEqual((hot_rows(10), hot_rows(90)), ((40, 59), (40, 59)))
+        previous = 40
+        for turn in (100, 110, 117, 125, 135):
+            first, last = hot_rows(turn)
+            self.assertEqual(last, 59)
+            self.assertGreaterEqual(first, previous)
+            previous = first
+        self.assertEqual(hot_rows(135), (55, 59))
+        self.assertEqual(hot_rows(162)[1], 59)
+        self.assertLess(hot_rows(162)[0], 55)
+        self.assertEqual(hot_rows(240), (40, 59))
+        self.assertEqual(hot_rows(315), (40, 44))
+        self.assertEqual(hot_rows(297)[0], 40)
+        self.assertGreaterEqual(hot_rows(297)[1], 44)
 
     @patch("tools.Simulation.SEASON_TURNING", 0.5)  # the pace the wave first had
     @patch("tools.Simulation.CLIMATE_DAMAGE", 0.01)
