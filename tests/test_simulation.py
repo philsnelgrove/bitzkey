@@ -12,7 +12,7 @@ from tools.Simulation import (Death, DAY_LENGTH, FULL_STAMINA, SPAWN_SPREAD, DEA
                               nearby_offsets)
 
 
-from tools.Simulation import BUILD_THRILL, EIGHT_TURN_DAYS, FIRE_COMFORT
+from tools.Simulation import ARMOUR_JOY, BUILD_THRILL, CRAFT_JOY, EIGHT_TURN_DAYS, FIRE_COMFORT, TOOL_JOY, WEAPON_FORCE
 
 def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, unless a test says so
     global _grown, _common, _grazers, _plenty
@@ -3614,6 +3614,35 @@ class MaterialTests(unittest.TestCase):
         self.assertAlmostEqual(simulation._hearth(lighter, seen), FIRE_COMFORT)
         self.assertEqual(simulation._hearth(stranger, seen), 0.0)
         self.assertEqual(simulation._hearth(lighter, without), 0.0)
+
+    def test_a_craft_that_works_a_weapons_harm_and_armours_saving_are_each_a_joy(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        crafter = Bitzkey(1, encode_dna("omnivore", size=3), 5, 5)
+        crafter.mind["curiosity"] = 7.0
+        crafter.carried_wood = crafter.carried_bone = 1
+        crafter.craft_tries[2] = 9
+        crafter.reward = 0.0
+        simulation._make_gear(crafter, "make_club")
+        self.assertAlmostEqual(crafter.reward, CRAFT_JOY)
+        crafter.craft_tries[1] = 9
+        crafter.reward = 0.0
+        simulation._make_gear(crafter, "make_bone_armour")
+        self.assertAlmostEqual(crafter.reward, CRAFT_JOY / 2)  # armour, half
+        striker = Bitzkey(2, encode_dna("omnivore", size=3), 8, 8)
+        victim = Bitzkey(3, encode_dna("grazer", size=3), 8, 9)
+        striker.reward = victim.reward = 0.0
+        Simulation._gear_pays(striker, victim, 3.0)
+        self.assertEqual((striker.reward, victim.reward), (0.0, 0.0))  # bare-handed
+        striker.weapon = 2
+        Simulation._gear_pays(striker, victim, 3.0)
+        self.assertAlmostEqual(striker.reward, TOOL_JOY * 3.0 * (1 - 1 / WEAPON_FORCE) / victim.max_health)
+        self.assertEqual(victim.reward, 0.0)
+        victim.armour_worn = 1
+        Simulation._gear_pays(striker, victim, 3.0)
+        saved = victim.reward
+        self.assertGreater(saved, 0)
+        Simulation._gear_pays(striker, victim, 6.0)
+        self.assertAlmostEqual(victim.reward, 3 * saved)  # the bigger the blow, the more it saved
 
     def test_the_tenth_try_at_a_craft_is_sure(self):
         simulation = Simulation(30, 30, 0, seed=1)

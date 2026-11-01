@@ -508,6 +508,9 @@ CRAFTS = ("make_bone_axe", "make_bone_armour", "make_club", "make_wood_armour", 
 DISCOVERY_CHANCE = 0.02
 CRAFT_TRIES = 10
 CRAFT_THRILL = 1.0
+CRAFT_JOY = 1.0  # a craft that works: a weapon's in full, armour's in half (times curiosity)
+TOOL_JOY = 2.0  # the harm a weapon added to a blow, as a share of its victim's health
+ARMOUR_JOY = 2.0  # the harm its armour took off a blow, as a share of its health
 BUILD_THRILL = 1.0  # each stage of a shelter, k of SHELTER_UNITS, thrills BUILD_THRILL * k / SHELTER_UNITS; finishing it, twice BUILD_THRILL (times curiosity)
 DIG_CHANCE = 0.1  # that a dig finds a stone
 WEAPON_FORCE, STONE_FORCE, ARMOUR_FORCE = 2.0, 1.5, 2.0
@@ -3376,6 +3379,20 @@ class Simulation:
         return {"grazer": GRAZER_DEFENCE_WEAPONS, "omnivore": OMNIVORE_DEFENCE_WEAPONS}.get(animal.species, 1.0)
 
     @staticmethod
+    def _gear_pays(striker: Bitzkey, struck: Bitzkey, blow: float) -> None:
+        """What the striker's weapon added to a blow is a joy to it, and what the struck one's armour took off a joy to
+        that, each by its share of the defender's health."""
+        if striker.species == "plant" or struck.max_health <= 0:
+            return
+        force = Simulation._gear_force(striker)
+        if force > 1:
+            striker.reward += TOOL_JOY * min(1.0, blow * (1 - 1 / force) / struck.max_health)
+        if struck.armour_worn and struck.species != "plant":
+            worn = Simulation._gear_toughness(struck)
+            taken = blow * 0.6 * (worn - struck.toughness) / (1 - 0.6 * worn)  # the blow without it, less the blow
+            struck.reward += ARMOUR_JOY * min(1.0, taken / struck.max_health)
+
+    @staticmethod
     def _gear_toughness(agent: Bitzkey) -> float:
         """Its toughness with what it wears."""
         if not agent.armour_worn:
@@ -3540,6 +3557,7 @@ class Simulation:
             else:
                 agent.carried_wood -= 1
             agent.weapon = STONE_AXE
+        agent.reward += CRAFT_JOY * (0.5 if action in ("make_bone_armour", "make_wood_armour") else 1.0) * agent.feeling("curiosity")
         if action not in ("make_bone_armour", "make_wood_armour"):
             agent.weapon_uses = 0
         agent.armour_uses = 0
@@ -3585,6 +3603,7 @@ class Simulation:
         empathy = agent.feeling("empathy")
         joy = FIGHT_JOY * agent.feeling("aggression") * (1 - 0.6 * empathy) * (1 - 0.75 * agent.feeling("tolerance"))
         damage = self._damage(agent, victim)
+        self._gear_pays(agent, victim, damage)
         self._wear_weapon(agent)
         self._wear_armour(victim)
         if any(self._herd_mate(agent, other) for other in self._nearby(victim, 1) if other is not agent):
@@ -3645,6 +3664,7 @@ class Simulation:
         can kill, and a struck assailant must check its own morale. Defending its herd pleases a
         herd animal."""
         damage = self._damage(agent, assailant, defending=True)
+        self._gear_pays(agent, assailant, damage)
         self._wear_weapon(agent)
         self._wear_armour(assailant)
         assailant.health -= damage
