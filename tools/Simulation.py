@@ -509,7 +509,7 @@ DISCOVERY_CHANCE = 0.0005  # rare: a find is news, and a taught recipe spreads i
 DISCOVERY_JOY = 5.0  # the joy of first discovering a craft (times curiosity), so its finder comes to prize the materials
 CRAFT_TRIES = 10
 CRAFT_THRILL = 1.0
-CRAFT_JOY = 1.0  # a craft that works: a weapon's in full, armour's in half (times curiosity)
+CRAFT_JOY = 1.0  # a craft that works: a weapon's in full, armour's in half (half plus curiosity)
 TOOL_JOY = 2.0  # the harm a weapon added to a blow, as a share of its victim's health
 ARMOUR_JOY = 2.0  # the harm its armour took off a blow, as a share of its health
 BUILD_THRILL = 1.0  # each stage of a shelter, k of SHELTER_UNITS, thrills BUILD_THRILL * k / SHELTER_UNITS; finishing it, twice BUILD_THRILL (times curiosity)
@@ -3538,7 +3538,7 @@ class Simulation:
         for craft, held in enumerate(holds):
             if held and not agent.crafts >> craft & 1 and self.random.random() < DISCOVERY_CHANCE * agent.intelligence * (2 if agent.species == "omnivore" else 1):
                 agent.crafts |= 1 << craft
-                agent.reward += DISCOVERY_JOY * agent.feeling("curiosity")
+                agent.reward += DISCOVERY_JOY * (0.5 + agent.feeling("curiosity"))
                 self._experience(agent, "discovery")
 
     def _make_gear(self, agent: Bitzkey, action: str) -> None:
@@ -3569,7 +3569,7 @@ class Simulation:
             else:
                 agent.carried_wood -= 1
             agent.weapon = STONE_AXE
-        agent.reward += CRAFT_JOY * (0.5 if action in ("make_bone_armour", "make_wood_armour") else 1.0) * agent.feeling("curiosity")
+        agent.reward += CRAFT_JOY * (0.5 if action in ("make_bone_armour", "make_wood_armour") else 1.0) * (0.5 + agent.feeling("curiosity"))
         if action not in ("make_bone_armour", "make_wood_armour"):
             agent.weapon_uses = 0
         agent.armour_uses = 0

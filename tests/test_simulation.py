@@ -3623,11 +3623,11 @@ class MaterialTests(unittest.TestCase):
         crafter.craft_tries[2] = 9
         crafter.reward = 0.0
         simulation._make_gear(crafter, "make_club")
-        self.assertAlmostEqual(crafter.reward, CRAFT_JOY)
+        self.assertAlmostEqual(crafter.reward, CRAFT_JOY * 1.5)  # half plus a full curiosity
         crafter.craft_tries[1] = 9
         crafter.reward = 0.0
         simulation._make_gear(crafter, "make_bone_armour")
-        self.assertAlmostEqual(crafter.reward, CRAFT_JOY / 2)  # armour, half
+        self.assertAlmostEqual(crafter.reward, CRAFT_JOY * 0.75)  # armour, half
         striker = Bitzkey(2, encode_dna("omnivore", size=3), 8, 8)
         victim = Bitzkey(3, encode_dna("grazer", size=3), 8, 9)
         striker.reward = victim.reward = 0.0
