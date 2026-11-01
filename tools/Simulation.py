@@ -496,6 +496,7 @@ GEAR_KINDS = ("bone_axe", "club", "stone_axe", "bone_armour", "wood_armour")
 GEAR_USES = 7
 FIRE_TURNS = 24  # a day, and another for each wood fed to it; a club lights one, a fire cooks what is carried, and cooked food never spoils
 FIRE_PANIC = 0.25  # the chance an animal panics, seeing a fire not its own or its herd's
+FIRE_COMFORT = 0.3  # the comfort of seeing a fire that is its own or its herd's, as an unfamiliar one frightens
 COOKED_FOOD = 1.5  # times as nourishing as raw
 SITE_TURNS = 100  # an unfinished shelter left this long falls away
 SHELTER_UNITS = 7  # of stone or wood, any mix, to finish a shelter; until then each takes a space of the square
@@ -507,6 +508,7 @@ CRAFTS = ("make_bone_axe", "make_bone_armour", "make_club", "make_wood_armour", 
 DISCOVERY_CHANCE = 0.02
 CRAFT_TRIES = 10
 CRAFT_THRILL = 1.0
+BUILD_THRILL = 1.0  # each stage of a shelter, k of SHELTER_UNITS, thrills BUILD_THRILL * k / SHELTER_UNITS; finishing it, twice BUILD_THRILL (times curiosity)
 DIG_CHANCE = 0.1  # that a dig finds a stone
 WEAPON_FORCE, STONE_FORCE, ARMOUR_FORCE = 2.0, 1.5, 2.0
 ARMOUR_LEAST = 2
@@ -2259,7 +2261,7 @@ class Simulation:
             for row, valued in zip(members, batch.values(np.array([plans[index][1] for index in members])).tolist()):
                 values[row] = valued
             batches.append((batch, members))
-        comforts = [self._comfort(agent, situation) for agent, _, _, situation in plans]
+        comforts = [self._comfort(agent, situation) + self._hearth(agent, situation) for agent, _, _, situation in plans]
         lessons: dict[int, tuple] = {}  # by plan: what came of its last choice, to learn from
         for index, ((agent, _, options, _), valued, comfort) in enumerate(zip(plans, values, comforts)):
             if agent.last_senses is not None and (FORCED_LESSONS or not agent.last_forced or agent.last_panicked):  # a panicked flight teaches
@@ -2722,6 +2724,11 @@ class Simulation:
         # A parent is glad of its own young close by, the more so the more empathetic.
         parental = PARENT_JOY * (0.5 + agent.feeling("empathy")) * min(3, situation.get("young_near", 0)) / 3
         return company - dread - unease - crowded + herding - exposed + parental
+
+    def _hearth(self, agent: Bitzkey, situation: dict) -> float:
+        """A fire of its own or its herd's is a comfort to see; one it doesn't know frightens it (see FIRE_PANIC)."""
+        fire = situation.get("fire")
+        return FIRE_COMFORT if fire and self._fire_friendly(agent, fire) else 0.0
 
     @staticmethod
     def _discount(agent: Bitzkey) -> float:
@@ -3446,10 +3453,15 @@ class Simulation:
         self.site_turns[cell] = self.turn
         self._wear_weapon(agent)
         agent.last_action = "built"
+        # Each stage thrills more than the last, the curious most; finishing the shelter, twice the thrill of a whole one.
+        inspiration = BUILD_THRILL * agent.feeling("curiosity")
         if self.sites[cell] >= SHELTER_UNITS:
             del self.sites[cell]
             self.shelters.add(cell)
+            agent.reward += 2 * inspiration
             agent.last_action = "finished a shelter"
+        else:
+            agent.reward += inspiration * self.sites[cell] / SHELTER_UNITS
 
     def _light_fire(self, agent: Bitzkey) -> None:
         """Of its club."""

@@ -12,7 +12,7 @@ from tools.Simulation import (Death, DAY_LENGTH, FULL_STAMINA, SPAWN_SPREAD, DEA
                               nearby_offsets)
 
 
-from tools.Simulation import EIGHT_TURN_DAYS
+from tools.Simulation import BUILD_THRILL, EIGHT_TURN_DAYS, FIRE_COMFORT
 
 def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, unless a test says so
     global _grown, _common, _grazers, _plenty
@@ -3587,12 +3587,33 @@ class MaterialTests(unittest.TestCase):
         simulation = Simulation(30, 30, 0, seed=1)
         builder = Bitzkey(1, encode_dna("omnivore", size=7), 5, 5)
         builder.carried_stone, builder.carried_wood, builder.weapon = 4, 3, 3
-        for _ in range(6):
+        builder.mind["curiosity"] = 7.0
+        thrill = BUILD_THRILL * builder.feeling("curiosity")
+        last = 0.0
+        for stage in range(6):
+            builder.reward = 0.0
             simulation._construct(builder)
+            self.assertAlmostEqual(builder.reward, thrill * (stage + 1) / 7)  # each stage thrills more
+            self.assertGreater(builder.reward, last)
+            last = builder.reward
         self.assertEqual(simulation.sites[(5, 5)], 6)
+        builder.reward = 0.0
         simulation._construct(builder)
+        self.assertAlmostEqual(builder.reward, 2 * thrill)  # finishing thrills twice the whole
         self.assertIn((5, 5), simulation.shelters)
         self.assertEqual(builder.load, 0)
+
+    def test_a_fire_of_its_own_comforts_and_a_strangers_does_not(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        lighter = Bitzkey(1, encode_dna("omnivore", size=3), 5, 5)
+        stranger = Bitzkey(2, encode_dna("predator", size=3), 20, 20)
+        lighter.weapon = 2
+        simulation._light_fire(lighter)
+        without = {"kin": 0, "others": 0, "threats": 0}
+        seen = {**without, "fire": (5, 5)}
+        self.assertAlmostEqual(simulation._hearth(lighter, seen), FIRE_COMFORT)
+        self.assertEqual(simulation._hearth(stranger, seen), 0.0)
+        self.assertEqual(simulation._hearth(lighter, without), 0.0)
 
     def test_the_tenth_try_at_a_craft_is_sure(self):
         simulation = Simulation(30, 30, 0, seed=1)
