@@ -505,7 +505,8 @@ FIRE_REACH = 2  # squares off, a fire shelters an animal from the cold
 # made to work: the chance rises with each try to certainty at CRAFT_TRIES, the sooner the cleverer. A failure spends
 # nothing, and is a small thrill of discovery to the curious.
 CRAFTS = ("make_bone_axe", "make_bone_armour", "make_club", "make_wood_armour", "make_stone_axe")
-DISCOVERY_CHANCE = 0.02
+DISCOVERY_CHANCE = 0.0005  # rare: a find is news, and a taught recipe spreads it
+DISCOVERY_JOY = 5.0  # the joy of first discovering a craft (times curiosity), so its finder comes to prize the materials
 CRAFT_TRIES = 10
 CRAFT_THRILL = 1.0
 CRAFT_JOY = 1.0  # a craft that works: a weapon's in full, armour's in half (times curiosity)
@@ -3537,6 +3538,7 @@ class Simulation:
         for craft, held in enumerate(holds):
             if held and not agent.crafts >> craft & 1 and self.random.random() < DISCOVERY_CHANCE * agent.intelligence * (2 if agent.species == "omnivore" else 1):
                 agent.crafts |= 1 << craft
+                agent.reward += DISCOVERY_JOY * agent.feeling("curiosity")
                 self._experience(agent, "discovery")
 
     def _make_gear(self, agent: Bitzkey, action: str) -> None:
