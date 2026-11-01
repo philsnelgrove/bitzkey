@@ -17,7 +17,7 @@ from tools.Genome import (BODY_TRAITS, MIND_TRAITS, NEURODIVERGENCE_MAX, NEURODI
 from tools.Simulation import Bitzkey
 
 # Heights, in design pixels, of the details: in full, and for a Bitzkey known only by its genome.
-DETAILS_HEIGHT = 382
+DETAILS_HEIGHT = 398
 GENOME_HEIGHT = 334
 # Each temperature's colour, from hot to very cold, for the map's zones and the details.
 TEMPERATURE_COLOURS = ((238, 160, 110), (175, 192, 172), (140, 185, 230), (200, 225, 250))
@@ -290,13 +290,16 @@ def draw_details(screen: pg.Surface, agent: Bitzkey, x: int, at: Callable[[float
     state = f"LAST ACTION: {agent.last_action.upper()}"
     if not agent.alive:
         state += f"     MEAT LEFT {agent.meat:.0f}"
-    elif agent.load:
-        state += f"     CARRYING {agent.carried_meat} MEAT, {agent.carried_fruit} FRUIT, ROOM FOR {agent.capacity}"
     _text(screen, state, (x, at(350)), (145, 164, 146), small)
+    next_line = 366  # the line for what follows
+    if agent.alive and agent.load:
+        _text(screen, f"CARRYING {agent.carried_meat} MEAT, {agent.carried_fruit} FRUIT, ROOM FOR {agent.capacity}", (x, at(next_line)),
+              (145, 164, 146), small)
+        next_line += 16
     if agent.odds:
         odds = sorted(agent.odds.items(), key=lambda item: -item[1])[:3]
         line = tr("CHANCES") + "  " + "   ".join(f"{tr(action)} {chance:.0%}" for action, chance in odds)  # each in the language shown
-        _text(screen, as_shown(line), (x, at(366)), (175, 192, 172), small)
+        _text(screen, as_shown(line), (x, at(next_line)), (175, 192, 172), small)
 
 
 def draw_tooltip(screen: pg.Surface, agent: Bitzkey, known: bool, mouse: tuple[int, int],

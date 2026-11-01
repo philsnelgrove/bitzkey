@@ -1418,11 +1418,11 @@ class BitzkeyApp:
         mouse = pg.mouse.get_pos()  # the mouse over a colour chit or a trait: a popup of it, drawn last
         self._word_popup = next((part for part, spot in enumerate(Inspector.LAST_SWATCHES) if spot and spot.collidepoint(mouse)), None)
         self._trait_popup = next((spot for rect, spot in Inspector.LAST_TRAITS if rect.collidepoint(mouse)), None)
-        self._text("C  copy as JSON      A  export      K  catalog", (x, UI(719)), (116, 139, 124), self.small)
+        self._text("C  copy as JSON      A  export      K  catalog", (x, UI(735)), (116, 139, 124), self.small)
         chosen = agent.identifier in self.export_list
         half = (width - UI(8)) // 2
-        self._add_button = pg.Rect(x, UI(737), half, UI(28))
-        self._catalog_button = pg.Rect(x + half + UI(8), UI(737), width - half - UI(8), UI(28))
+        self._add_button = pg.Rect(x, UI(753), half, UI(28))
+        self._catalog_button = pg.Rect(x + half + UI(8), UI(753), width - half - UI(8), UI(28))
         pg.draw.rect(self.screen, (44, 57, 52), self._catalog_button, border_radius=UI(5))
         draw_label(self.screen, UI.font("segoeui", 13, bold=True), "ADD TO CATALOG", (220, 229, 211), self._catalog_button)
         pg.draw.rect(self.screen, (44, 57, 52), self._add_button, border_radius=UI(5))
@@ -1442,12 +1442,26 @@ class BitzkeyApp:
     def _draw_bitzkey(self, agent: Bitzkey, point: tuple[int, int], radius: int, opacity: float = 1.0) -> None:
         draw_bitzkey(self.screen, agent.dna, point, radius, alive=agent.alive, opacity=opacity)
         size, (x, y) = max(2, radius * 3 // 5), point  # a small shield at its lower left, a small tool at its upper right
-        if agent.armour_worn:
-            pg.draw.rect(self.screen, (236, 226, 205) if agent.armour_worn == 1 else (122, 80, 44), (x - radius - size, y + radius * 3 // 5 - size, 2 * size, 3 * size // 2))
+        if agent.armour_worn:  # a shield: flat across the top, narrowing to a point below
+            cx, cy = x - radius, y + radius * 3 // 5
+            pg.draw.polygon(self.screen, (236, 226, 205) if agent.armour_worn == 1 else (122, 80, 44),
+                            [(cx - size, cy - size), (cx + size, cy - size), (cx + size, cy), (cx, cy + size), (cx - size, cy)])
         wields = agent.weapon or (4 if agent.carried_stone else 0)
-        if wields:
-            pg.draw.line(self.screen, (122, 80, 44) if wields == 2 else (236, 226, 205) if wields == 1 else (136, 138, 142),
-                         (x + radius - size, y - radius * 3 // 5 + size), (x + radius + size, y - radius * 3 // 5 - size), max(1, size // 2))
+        if not wields:
+            return
+        cx, cy = x + radius, y - radius * 3 // 5
+        colour = (122, 80, 44) if wields == 2 else (236, 226, 205) if wields == 1 else (136, 138, 142)
+
+        def at(along: float, across: float) -> tuple[int, int]:  # along the handle, foot (-1) to tip (1), and across it
+            return cx + round((along + across) * size), cy + round((across - along) * size)
+        if wields == 4:  # a stone carried: a pebble
+            pg.draw.circle(self.screen, colour, (cx, cy), max(2, size * 2 // 3))
+        elif wields == 2:  # a club: thin at the grip, heavy at the head
+            pg.draw.polygon(self.screen, colour, [at(-1, 0.12), at(1, 0.4), at(1, -0.4), at(-1, -0.12)])
+            pg.draw.circle(self.screen, colour, at(1, 0), max(2, size * 3 // 5))
+        else:  # an axe, of bone or stone: a handle, and a blade at its tip
+            pg.draw.line(self.screen, colour, at(-1, 0), at(0.9, 0), max(1, size // 2))
+            pg.draw.polygon(self.screen, colour, [at(0.45, 0), at(1, 0), at(1.15, -0.75), at(0.3, -0.75)])  # the blade flares from the haft
 
     def _corpse_opacity(self, agent: Bitzkey) -> float:
         """How visible a Bitzkey is: fully while alive, then fading as its corpse decays, gone
