@@ -390,6 +390,24 @@ class LessonLimitTests(unittest.TestCase):
         self.assertAlmostEqual(moved(5.0), 5 * moved(1.0), delta=0.02 * 5 * moved(1.0))
 
 
+class FlatSpotTests(unittest.TestCase):
+    def test_a_jammed_neuron_still_learns_by_the_flat_spot_and_not_at_all_without_it(self):
+        start = Brain.random(random.Random(6), 1, BASE_WIDTH)
+        start.layers[0][1][:] = 8  # every hidden neuron pinned at the top of its range
+        senses = [0.0] * len(SENSES)
+
+        def moved(flat):
+            with patch("tools.Brain.FLAT_SPOT", flat):
+                brain = start.copy()
+                before = brain.values(senses)[ACTIONS.index("eat")]
+                brain.learn(senses, ACTIONS.index("eat"), before + 20, 0.01)
+                return float(abs(brain.layers[0][1] - 8).sum())
+        plain, flat = moved(0.0), moved(0.1)
+        self.assertLess(plain, 1e-6)
+        self.assertGreater(flat, 1e-5)
+        self.assertGreater(flat, 1000 * plain)
+
+
 class MemoryTests(unittest.TestCase):
     """Memory neurons, as the C++ version's tests."""
 

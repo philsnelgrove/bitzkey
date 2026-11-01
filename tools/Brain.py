@@ -152,6 +152,7 @@ MAX_DEPTH = 4      # hidden layers: one for each point of inborn intellect, at l
 BASE_WIDTH = 38    # neurons in each hidden layer, up to an intellect of MAX_DEPTH
 WIDTH_STEP = 5     # neurons more in each layer for each point of intellect beyond MAX_DEPTH
 MAX_WIDTH = BASE_WIDTH + WIDTH_STEP * (TRAIT_MAX - MAX_DEPTH)
+FLAT_SPOT = 0.1  # added to each hidden neuron's slope when it learns, so one pinned at either end of tanh still learns a little
 LESSON_LIMIT = 2.0  # the most one lesson's error counts for, so a rare but large surprise teaches, but no lesson runs wild
 TEMPERATURE = 0.5  # loose enough that an action valued a little below the best is still tried
 MUTATION = 0.0
@@ -466,7 +467,7 @@ class Brain:
         self.output_weights[action] -= output_step * top
         for index in range(self.depth - 1, -1, -1):
             weights, biases = self.layers[index]
-            delta = gradient * (1 - activations[index + 1] * activations[index + 1])
+            delta = gradient * (1 - activations[index + 1] * activations[index + 1] + FLAT_SPOT)
             if index:
                 gradient = (weights * delta[:, None]).sum(axis=0)
             biases -= learning_rate * delta
@@ -499,7 +500,7 @@ class Brain:
         gradient = self.output_weights[action]
         for index in range(self.depth - 1, -1, -1):
             weights, _ = self.layers[index]
-            delta = gradient * (1 - activations[index + 1] * activations[index + 1])
+            delta = gradient * (1 - activations[index + 1] * activations[index + 1] + FLAT_SPOT)
             if index:
                 gradient = (weights * delta[:, None]).sum(axis=0)
             weight_trace, bias_trace = hidden[index]
@@ -532,7 +533,7 @@ class Brain:
         carried = np.zeros(MEMORY_NEURONS)
         for index in range(self.depth - 1, -1, -1):
             weights, _ = self.layers[index]
-            delta = gradient * (1 - activations[index + 1] * activations[index + 1])
+            delta = gradient * (1 - activations[index + 1] * activations[index + 1] + FLAT_SPOT)
             if index:
                 gradient = (weights * delta[:, None]).sum(axis=0)
             else:
@@ -554,7 +555,7 @@ class Brain:
             reached = np.zeros(MEMORY_NEURONS)
             for index in range(self.depth - 1, -1, -1):
                 weights, biases = self.layers[index]
-                delta = gradient * (1 - activations[index + 1] * activations[index + 1])
+                delta = gradient * (1 - activations[index + 1] * activations[index + 1] + FLAT_SPOT)
                 if index:
                     gradient = (weights * delta[:, None]).sum(axis=0)
                 elif step + 1 < len(past):
@@ -681,7 +682,7 @@ class BrainBatch:
         """Each hidden layer's delta, from the top down, for a gradient at the top, worked out from the weights as
         they stand: (layer, delta) pairs."""
         for index in range(len(self.weights) - 1, -1, -1):
-            delta = gradient * (1 - activations[index + 1] * activations[index + 1])
+            delta = gradient * (1 - activations[index + 1] * activations[index + 1] + FLAT_SPOT)
             if index:
                 gradient = np.matmul(delta[:, None, :], self.weights[index])[:, 0, :]
             yield index, delta
