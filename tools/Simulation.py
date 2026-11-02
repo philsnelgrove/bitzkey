@@ -21,7 +21,7 @@ import numpy as np
 import tools.Brain as brain_rules  # its rules, as they now stand
 from tools.Brain import (ACTIONS, ALERT_CALL, CALLS, FIRST_CALL, MEMORY_GATES, MEMORY_NEURONS, OUTPUTS, SENSES, SILENT, Brain, BrainBatch, call_output,
                          choice_odds, depth_for, gene_senses, make_senses, memory_after, width_for)
-from tools.Genome import (GENOME, SPECIES, TEMPERAMENT, TRAIT_MAX, body_word, color_from_word, cross, decode_nocturnal, dot_difference,
+from tools.Genome import (GENOME, SPECIES, TEMPERAMENT, TRAIT_MAX, body_word, color_from_word, colour_difference, cross, decode_nocturnal, dot_difference,
                           inherit_mind,
                           ring_difference, social_difference, social_word, BODY_MUTATION_CHANCE, COLD_TOLERANCE,
                           HEAT_TOLERANCE, MIND_MUTATION_CHANCE, TEMPERATURE_SHIFT, TEMPERATURES, decode_body, decode_climate,
@@ -357,11 +357,28 @@ MAP_NEARNESS = 0.01
 # As the C++ version's.
 ACQUAINTANCES = 8
 REGARD_LEARNING = 0.3
+# Regard of REGARD_STRONG or more either way makes a friend or an enemy, each effect half plus a trait. As the C++ version's.
+REGARD_STRONG = 0.5
+# Factions: up to FACTIONS body colours, each moved by FACTION_SHARE of every deed; a stranger is taken at its colour's
+# worth, within FACTION_WIDTH on the body ring. As the C++ version's.
+FACTIONS, FACTION_SHARE, FACTION_WIDTH = 8, 0.25, 0.05
+REGARD_COMFORT, GRUDGE_JOY, FRIEND_JOY = 0.5, 1.0, 1.0
+WITNESS_SHARE = 0.25  # how much a deed only seen counts, a blow only if the victim is of the witness's species
 # The diary: up to Diary entries (none at 0) of an animal's most vivid experiences, by how much came of them, fading by
 # Diary fading each turn since; each turn it re-learns from one, in turn. As the C++ version's.
 DIARY_ENTRIES = 8
 DIARY_FADING = 0.999
-BLOW_DEED, FEEDING_DEED, ALERT_DEED, MATING_DEED, TEACHING_DEED = -1.0, 1.0, 0.5, 0.5, 1.0
+BLOW_DEED, FEEDING_DEED, ALERT_DEED, MATING_DEED, TEACHING_DEED, CRAFT_DEED, FIRE_DEED = -1.0, 1.0, 0.5, 0.5, 1.0, 0.5, 0.5
+
+
+@dataclass
+class Faction:
+    """A colour it has a view of: the body word, how well it regards that kind, -1 to 1, and the turn of the last deed."""
+    ring: int
+    regard: float
+    last: int
+    danger: float = 0.0
+    skill: float = 0.0
 
 
 @dataclass
@@ -370,6 +387,8 @@ class Acquaintance:
     identifier: int
     regard: float
     last: int
+    danger: float = 0.0  # its reputation with this one, 0 to 1: a blow raises danger, any other deed lowers it
+    skill: float = 0.0   # crafting, teaching and lighting a fire raise it
 
 
 @dataclass
@@ -496,6 +515,7 @@ GEAR_KINDS = ("bone_axe", "club", "stone_axe", "bone_armour", "wood_armour")
 GEAR_USES = 7
 FIRE_TURNS = 24  # a day, and another for each wood fed to it; a club lights one, a fire cooks what is carried, and cooked food never spoils
 FIRE_PANIC = 0.25  # the chance an animal panics, seeing a fire not its own or its herd's
+FIRE_JOY = 2.0  # the sense of accomplishment in lighting a fire
 FIRE_COMFORT = 0.3  # the comfort of seeing a fire that is its own or its herd's, as an unfamiliar one frightens
 COOKED_FOOD = 1.5  # times as nourishing as raw
 SITE_TURNS = 100  # an unfinished shelter left this long falls away
@@ -927,6 +947,7 @@ class Bitzkey:
     past: list[list[float]] = field(default_factory=list)
     last_wrote: bool = False
     places: list[MapPlace] = field(default_factory=list)  # its mental map, in the order it first came to each place
+    factions: list[Faction] = field(default_factory=list)  # the colours it has a view of
     known: list[Acquaintance] = field(default_factory=list)  # those it knows, in the order it came to know them
     seen_success: float = 0.0  # a herd-mate's success it saw, fading turn by turn
     seen_failure: float = 0.0  # a herd-mate's failure it saw, the same
@@ -1514,7 +1535,7 @@ class Simulation:
     def _known_senses(self, agent: Bitzkey, caller: Bitzkey | None, sight: int) -> dict[str, float]:
         """Those it knows: the nearest within its sight, and whether it knows the loudest caller, as the C++ version."""
         found: dict[str, float] = {}
-        nearest, regard = None, 0.0
+        nearest, regard, danger, skill = None, 0.0, 0.0, 0.0
         for known in agent.known:
             other = self.find_agent(known.identifier)
             if caller is not None and known.identifier == caller.identifier:
@@ -1523,9 +1544,17 @@ class Simulation:
                 continue
             if nearest is None or (abs(other.x - agent.x) + abs(other.y - agent.y)
                                    < abs(nearest.x - agent.x) + abs(nearest.y - agent.y)):
-                nearest, regard = other, known.regard
+                nearest, regard, danger, skill = other, known.regard, known.danger, known.skill
+        if nearest is None and agent.factions:  # none it knows in sight: the nearest of a colour it has a view of
+            for other in self._nearby(agent, sight):
+                faction = self._faction_of(agent, other) if other is not agent and other.alive and other.brain is not None else None
+                if faction and (nearest is None or abs(other.x - agent.x) + abs(other.y - agent.y)
+                                < abs(nearest.x - agent.x) + abs(nearest.y - agent.y)):
+                    nearest, regard, danger, skill = other, faction.regard, faction.danger, faction.skill
+        if caller is not None and "caller_known" not in found:
+            found.update(caller_regard=self._regard_for(agent, caller))
         if nearest is not None:
-            found.update(known_closeness=self._closeness(agent, (nearest.x, nearest.y), sight), known_regard=regard,
+            found.update(known_closeness=self._closeness(agent, (nearest.x, nearest.y), sight), known_regard=regard, known_danger=danger, known_skill=skill,
                          known_east=max(-1.0, min(1.0, (nearest.x - agent.x) / sight)),
                          known_south=max(-1.0, min(1.0, (nearest.y - agent.y) / sight)))
         return found
@@ -1545,21 +1574,85 @@ class Simulation:
         if faded(weakest) < vividness:
             agent.diary[agent.diary.index(weakest)] = [memory, vividness, self.turn]
 
-    def _note_deed(self, agent: Bitzkey, other: Bitzkey, deed: float) -> None:
+    @staticmethod
+    def _note_reputation(one, kind: str, rate: float) -> None:
+        one.danger += rate * ((1.0 if kind == "harm" else 0.0) - one.danger)
+        if kind == "skill":
+            one.skill += rate * (1 - one.skill)
+
+    def _note_deed(self, agent: Bitzkey, other: Bitzkey, deed: float, weight: float = 1.0, kind: str = "plain", regarded: bool = True) -> None:
         """What `other` did to `agent`, worth `deed`, -1 to 1, noted in its regard for them."""
         known = agent.known
+        least = lambda one: (max(abs(one.regard), one.danger, one.skill), one.last)
         while len(known) > max(0, ACQUAINTANCES):
-            known.remove(min(known, key=lambda one: one.last))
+            known.remove(min(known, key=least))
+        if agent is not other:
+            self._note_faction(agent, other, deed, weight, kind, regarded)
         if ACQUAINTANCES <= 0 or agent is other:
             return
         found = next((one for one in known if one.identifier == other.identifier), None)
         if found is None:
             if len(known) >= ACQUAINTANCES:
-                known.remove(min(known, key=lambda one: one.last))
-            known.append(Acquaintance(other.identifier, deed, self.turn))
+                known.remove(min(known, key=least))
+            known.append(Acquaintance(other.identifier, deed * weight if regarded else 0.0, self.turn))
+            self._note_reputation(known[-1], kind, weight)
             return
-        found.regard += REGARD_LEARNING * (deed - found.regard)
+        if regarded:
+            found.regard += REGARD_LEARNING * weight * (deed - found.regard)
+        self._note_reputation(found, kind, REGARD_LEARNING * weight)
         found.last = self.turn
+
+    @staticmethod
+    def _faction_of(agent: Bitzkey, other: Bitzkey) -> Faction | None:
+        return next((one for one in agent.factions if colour_difference(one.ring, body_word(other.dna)) <= FACTION_WIDTH), None)
+
+    @classmethod
+    def _regard_for(cls, agent: Bitzkey, other: Bitzkey) -> float:
+        known = next((known for known in agent.known if known.identifier == other.identifier), None)
+        if known is not None:
+            return known.regard
+        faction = cls._faction_of(agent, other)
+        return faction.regard if faction else 0.0
+
+    def _note_faction(self, agent: Bitzkey, other: Bitzkey, deed: float, weight: float, kind: str, regarded: bool) -> None:
+        factions = agent.factions
+        least = lambda one: (max(abs(one.regard), one.danger, one.skill), one.last)
+        while len(factions) > max(0, FACTIONS):
+            factions.remove(min(factions, key=least))
+        if FACTIONS <= 0 or FACTION_SHARE <= 0:
+            return
+        found = self._faction_of(agent, other)
+        if found is not None:
+            if regarded:
+                found.regard += REGARD_LEARNING * weight * FACTION_SHARE * (deed - found.regard)
+            self._note_reputation(found, kind, REGARD_LEARNING * weight * FACTION_SHARE)
+            found.last = self.turn
+            return
+        if len(factions) >= FACTIONS:
+            factions.remove(min(factions, key=least))
+        factions.append(Faction(body_word(other.dna), deed * weight * FACTION_SHARE if regarded else 0.0, self.turn))
+        self._note_reputation(factions[-1], kind, weight * FACTION_SHARE)
+
+    @staticmethod
+    def _harm_felt(agent: Bitzkey, regard: float) -> float:
+        if regard <= -REGARD_STRONG:
+            return -GRUDGE_JOY * regard * (0.5 + agent.feeling("aggression"))
+        return -GRUDGE_JOY * regard * (0.5 + agent.feeling("empathy")) if regard >= REGARD_STRONG else 0.0
+
+    @staticmethod
+    def _help_felt(agent: Bitzkey, regard: float) -> float:
+        return FRIEND_JOY * regard * (0.5 + agent.feeling("empathy")) if regard >= REGARD_STRONG else 0.0
+
+    def _deed_seen(self, doer: Bitzkey, deed: float, target: Bitzkey | None = None, kind: str = "plain") -> None:
+        """A deed of `doer`'s, done to `target` if to anyone, noted by those who see it."""
+        if WITNESS_SHARE <= 0:
+            return
+        for other in self._nearby(doer, doer.sight):
+            if other is doer or other is target or not other.alive or other.brain is None:
+                continue
+            if abs(other.x - doer.x) + abs(other.y - doer.y) <= other.sight:
+                wronged = deed >= 0 or target is None or other.species == target.species  # a hunt is no wrong to a stranger, yet shows its danger
+                self._note_deed(other, doer, deed, WITNESS_SHARE, kind, wronged)
 
     def _map_senses(self, agent: Bitzkey) -> dict[str, float]:
         """Its mental map: the best place it remembers for food this season, the worst for danger, the best for comfort
@@ -2101,6 +2194,8 @@ class Simulation:
         agent.hunger += cost
         infant.hunger -= fed
         self._note_deed(infant, agent, FEEDING_DEED)
+        self._deed_seen(agent, FEEDING_DEED, infant)
+        agent.reward += self._help_felt(agent, self._regard_for(agent, infant))
 
     def _seed_corpse(self, corpse: Bitzkey) -> None:
         """A body rotted away leaves the seed of a new plant where it lay: a random plant genome, at home in the
@@ -2742,7 +2837,13 @@ class Simulation:
     def _hearth(self, agent: Bitzkey, situation: dict) -> float:
         """A fire of its own or its herd's is a comfort to see; one it doesn't know frightens it (see FIRE_PANIC)."""
         fire = situation.get("fire")
-        return FIRE_COMFORT if fire and self._fire_friendly(agent, fire) else 0.0
+        hearth = FIRE_COMFORT if fire and self._fire_friendly(agent, fire) else 0.0
+        regard = self._known_senses(agent, None, agent.sight).get("known_regard", 0.0)
+        if regard >= REGARD_STRONG:
+            return hearth + REGARD_COMFORT * regard * (0.5 + agent.feeling("trust"))
+        if regard <= -REGARD_STRONG:
+            return hearth + REGARD_COMFORT * regard * (0.5 + agent.fearfulness)
+        return hearth
 
     @staticmethod
     def _discount(agent: Bitzkey) -> float:
@@ -3162,6 +3263,8 @@ class Simulation:
             parent.reward += FEEDING_JOY * (0.5 + parent.feeling("empathy")) * min(100.0, child.hunger) / 100
             child.hunger = 0
             self._note_deed(child, parent, FEEDING_DEED)
+            self._deed_seen(parent, FEEDING_DEED, child)
+            parent.reward += self._help_felt(parent, self._regard_for(parent, child))
 
     @staticmethod
     def _first_chance(elder: Bitzkey, student: Bitzkey) -> bool:
@@ -3193,7 +3296,9 @@ class Simulation:
         student.crafts |= elder.crafts  # and what it can make, as far as it has got at each
         student.craft_tries = [max(pair) for pair in zip(student.craft_tries, elder.craft_tries)]
         elder.reward += TEACHING_JOY * (0.5 + elder.feeling("empathy"))
-        self._note_deed(student, elder, TEACHING_DEED)
+        self._note_deed(student, elder, TEACHING_DEED, 1.0, "skill")
+        self._deed_seen(elder, TEACHING_DEED, student, "skill")
+        elder.reward += self._help_felt(elder, self._regard_for(elder, student))
 
     def _alert(self, agent: Bitzkey, about: Bitzkey) -> None:
         """Alert its herd within its sight: a grazer to the hunter it sees, so they may flee it from
@@ -3201,8 +3306,11 @@ class Simulation:
         herd-mate heeds it only from TRUST_REACH times its trust times its own sight away, or nearer."""
         heeded = False
         for other in self._nearby(agent, agent.sight):
-            if (self._herd_mate(agent, other) and abs(other.x - agent.x) + abs(other.y - agent.y)
-                    <= TRUST_REACH * other.feeling("trust") * other.sight):
+            regard = self._regard_for(other, agent)
+            trust = other.feeling("trust")
+            belief = trust + regard * (0.5 + trust) if regard >= REGARD_STRONG else trust  # a friend's carries further
+            if (self._herd_mate(agent, other) and regard > -REGARD_STRONG and abs(other.x - agent.x) + abs(other.y - agent.y)
+                    <= TRUST_REACH * belief * other.sight):
                 heeded = True
                 self._note_deed(other, agent, ALERT_DEED)
                 if agent.species == "grazer":
@@ -3497,6 +3605,8 @@ class Simulation:
         self.fires[(agent.x, agent.y)] = (self.turn + FIRE_TURNS, agent.identifier)
         agent.weapon, agent.weapon_uses = NO_WEAPON, 0
         agent.last_action = "lit a fire"
+        agent.reward += FIRE_JOY
+        self._deed_seen(agent, FIRE_DEED, None, "skill")
 
     def _feed_fire(self, agent: Bitzkey, fire: tuple[int, int]) -> None:
         agent.carried_wood -= 1
@@ -3571,6 +3681,7 @@ class Simulation:
                 agent.carried_wood -= 1
             agent.weapon = STONE_AXE
         agent.reward += CRAFT_JOY * (0.5 if action in ("make_bone_armour", "make_wood_armour") else 1.0) * (0.5 + agent.feeling("curiosity"))
+        self._deed_seen(agent, CRAFT_DEED, None, "skill")
         if action not in ("make_bone_armour", "make_wood_armour"):
             agent.weapon_uses = 0
         agent.armour_uses = 0
@@ -3624,7 +3735,7 @@ class Simulation:
         victim.health -= damage
         agent.nourish(5, meat=True)
         agent.hunger += STRIKE_EFFORT * damage / agent.stomach  # the harder the blow, the more it costs
-        agent.reward += joy
+        agent.reward += joy + self._harm_felt(agent, self._regard_for(agent, victim))
         agent.last_action = "attacked"
         self._experience(agent, "hit")
         killed = not victim.alive
@@ -3702,7 +3813,8 @@ class Simulation:
         must flee instead. Its herd-mates close by are alarmed, and those alongside the striker may
         defend it."""
         victim.assailant = striker.identifier
-        self._note_deed(victim, striker, BLOW_DEED)
+        self._note_deed(victim, striker, BLOW_DEED, 1.0, "harm")
+        self._deed_seen(striker, BLOW_DEED, victim, "harm")
         victim.danger_memory = (victim.x, victim.y, self.turn)
         herd_near = 0
         for other in self._nearby(victim, 2):

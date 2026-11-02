@@ -733,7 +733,9 @@ class ExplorationTests(unittest.TestCase):
 
     def test_a_panicked_flight_teaches_though_forced_lessons_are_off(self):
         def lesson(panicked):
-            simulation = world(turn=240)
+            simulation = Simulation(width=100, height=100, population=0, seed=1)  # a brain that values fleeing as most do
+            simulation.grass.clear()
+            simulation.turn = 240
             grazer = simulation._add_agent(encode_dna("grazer", intellect=4), 20, 30)
             simulation._add_agent(encode_dna("predator"), 90, 90)
             senses, _, situation = simulation._sense(grazer)

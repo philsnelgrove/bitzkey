@@ -112,7 +112,7 @@ SENSES = (
     # Those it knows (see Simulation's Acquaintance): of the nearest it knows within its sight, how close, 1 beside it
     # falling to 0 at the edge of its sight, how well it regards it, -1 to 1, and which way it lies; and whether the
     # loudest caller it heard is one it knows, 1 or 0, and how well it regards it.
-    "known_closeness", "known_regard", "known_east", "known_south", "caller_known", "caller_regard",
+    "known_closeness", "known_regard", "known_east", "known_south", "caller_known", "caller_regard", "known_danger", "known_skill",
     "elder_age", "elder_closeness", "elder_east", "elder_south", "student_near",
     "load", "meat_carried", "fruit_carried", "meat_pile_closeness", "fruit_pile_closeness",
     "stone_carried", "bone_carried", "wood_carried", "stone_pile_closeness", "bone_pile_closeness", "wood_pile_closeness", "gear_pile_closeness", "fire_closeness", "fire_friendly", "wielding", "armoured", "foe_sheltered", "shelter_here",

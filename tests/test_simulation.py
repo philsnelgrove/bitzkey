@@ -3523,10 +3523,57 @@ class AcquaintanceTests(unittest.TestCase):
         senses = dict(zip(SENSES, world._sense(grazer)[0]))
         self.assertEqual((senses["caller_known"], senses["caller_regard"]), (1.0, sm.BLOW_DEED))
         with patch.object(sm, "ACQUAINTANCES", 2):
-            world._note_deed(grazer, world._add_agent(encode_dna("grazer"), 20, 20), sm.MATING_DEED)  # the longest ago forgotten
+            world._note_deed(grazer, world._add_agent(encode_dna("grazer"), 20, 20), sm.MATING_DEED)  # the one regarded least, either way, forgotten
         self.assertEqual(len(grazer.known), 2)
         self.assertNotIn(friendly.identifier, [one.identifier for one in grazer.known])
         self.assertEqual(world_from_bytes(world_bytes(world)).find_agent(grazer.identifier).known, grazer.known)
+
+    def test_an_enemy_is_a_pleasure_to_strike_and_a_friend_a_pain(self):
+        sm = simulation_module
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        agent = world._add_agent(encode_dna("grazer", sight=7), 10, 10)
+        other = world._add_agent(encode_dna("grazer", sight=7), 11, 10)
+        plain = world._hearth(agent, {})
+        agent.known.append(sm.Acquaintance(other.identifier, -0.8, 0))
+        self.assertAlmostEqual(world._hearth(agent, {}), plain - sm.REGARD_COMFORT * 0.8 * (0.5 + agent.fearfulness))
+        self.assertAlmostEqual(world._harm_felt(agent, -1.0), sm.GRUDGE_JOY * (0.5 + agent.feeling("aggression")))
+        self.assertAlmostEqual(world._help_felt(agent, 1.0), sm.FRIEND_JOY * (0.5 + agent.feeling("empathy")))
+        self.assertEqual(world._help_felt(agent, -1.0), 0.0)
+
+    def test_a_deed_colours_the_view_of_the_doers_faction(self):
+        from tools.WorldFile import world_bytes, world_from_bytes
+        sm = simulation_module
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        agent = world._add_agent(encode_dna("grazer", sight=7), 10, 10)
+        brute = world._add_agent(encode_dna("predator"), 11, 10)
+        same = world._add_agent(brute.dna, 13, 10)
+        world._index_cells()
+        world._note_deed(agent, brute, sm.BLOW_DEED)
+        self.assertEqual(world._regard_for(agent, brute), sm.BLOW_DEED)
+        self.assertAlmostEqual(world._regard_for(agent, same), sm.BLOW_DEED * sm.FACTION_SHARE)
+        self.assertEqual(world_from_bytes(world_bytes(world)).find_agent(agent.identifier).factions, agent.factions)
+
+    def test_a_deed_seen_counts_for_a_share_and_a_blow_only_against_ones_own_kind(self):
+        sm = simulation_module
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        doer = world._add_agent(encode_dna("omnivore", sight=7), 10, 10)
+        watcher = world._add_agent(encode_dna("grazer", sight=7), 12, 10)
+        kin = world._add_agent(encode_dna("grazer", sight=7), 11, 10)
+        stranger = world._add_agent(encode_dna("predator", sight=7), 10, 11)
+        world._index_cells()
+        world._deed_seen(doer, sm.BLOW_DEED, kin, "harm")
+        self.assertAlmostEqual(watcher.known[0].regard, sm.BLOW_DEED * sm.WITNESS_SHARE)
+        self.assertEqual(kin.known, [])
+        self.assertAlmostEqual(watcher.known[0].danger, sm.WITNESS_SHARE)
+        regard, danger = watcher.known[0].regard, watcher.known[0].danger
+        world._deed_seen(doer, sm.BLOW_DEED, stranger, "harm")
+        self.assertEqual(watcher.known[0].regard, regard)  # no wrong to it, yet it has seen what the doer can do
+        self.assertGreater(watcher.known[0].danger, danger)
+        world._note_deed(watcher, doer, sm.CRAFT_DEED, 1.0, "skill", False)
+        self.assertGreater(watcher.known[0].skill, 0)
+        reward = doer.reward
+        world._light_fire(doer)
+        self.assertAlmostEqual(doer.reward, reward + sm.FIRE_JOY)
 
 
 class MaterialTests(unittest.TestCase):
