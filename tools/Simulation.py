@@ -1997,6 +1997,18 @@ class Simulation:
                     dna = with_terrain(dna, "aquatic" if wet else "terrestrial")
                     size = max(1, GRAZER_SPAWN_GROUP) if SPECIES[kind] == "grazer" else self.random.randint(*SPAWN_GROUP)
                     self._spawn_group(dna, size, native=True, biome=biome)
+        if plants or not self.has_sea:
+            return
+        for rows in self._zones():  # the avian and amphibious live on land and sea alike: in every temperature zone
+            home = zone_temperature(rows[0], self.height)
+            for terrain in ("avian", "amphibious"):
+                for _ in range(BIOME_GROUPS):
+                    for name in ("omnivore", "predator", "grazer"):
+                        dna = make_dna(SPECIES.index(name), self.random)
+                        dna = dna & ~(0x3 << TEMPERATURE_SHIFT) | home << TEMPERATURE_SHIFT
+                        dna = with_terrain(dna, terrain)
+                        size = max(1, GRAZER_SPAWN_GROUP) if name == "grazer" else self.random.randint(*SPAWN_GROUP)
+                        self._spawn_group(dna, size, native=True, rows=rows)
 
     def _home_rows(self, home: int) -> list[int]:
         """The rows a group's centre may fall in whose usual temperature is `home`, or nearest it:
