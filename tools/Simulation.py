@@ -166,6 +166,13 @@ COMPANY_JOY = 0.1
 CURIOSITY_JOY = 0.15   # pleasure of setting off in a direction, scaled by curiosity
 CURIOUS_EXPLORATION = 0.1  # the chance, times its curiosity, that an animal tries any of its options at random rather
                             # than as its brain values them, so no option goes untried for good
+# Boredom, 0..1: rising as an animal keeps to what it did lately, easing as it does what it hasn't for BOREDOM_HORIZON turns.
+# It is felt, unpleasant, and may turn any choice into another, the longest undone the likeliest.
+BOREDOM_HORIZON = 200
+BOREDOM_RISE = 0.02
+BOREDOM_RELIEF = 0.25
+BOREDOM_DRIVE = 0.2
+BOREDOM_UNEASE = 0.2
 RESTLESS_CURIOSITY = 0.5  # the chance, times a half and its curiosity, that an animal whose brain chose to rest (not made
                           # to) does any of its other options instead; in peril, neither, but as its brain chooses
 # Moving costs food. A walk, a single cell, saves this share of the turn's burn, as resting does; going
@@ -919,6 +926,8 @@ class Bitzkey:
     carried_stone: int = 0  # and the materials
     carried_bone: int = 0
     carried_wood: int = 0
+    boredom: float = 0.0  # see BOREDOM_RISE
+    last_tried: dict = field(default_factory=dict)  # the turn after it last chose each action
     carried_seed: int = 0  # kept from raw fruit it ate, up to its capacity, and no weight to it
     crafts: int = 0  # a bit for each craft it has discovered
     craft_tries: list[int] = field(default_factory=lambda: [0] * 5)  # how often it has tried each
@@ -2453,11 +2462,21 @@ class Simulation:
                     if roll < 0:
                         choice = option
                         break
-                restlessness = RESTLESS_CURIOSITY * (0.5 + curiosity)
-                if not peril and ACTIONS[choice] == "rest" and len(options) > 1 and restless < restlessness:
-                    # Restless, it does any of its other options instead of resting.
-                    others = [option for option in options if ACTIONS[option] != "rest"]
-                    choice = others[min(len(others) - 1, int(restless / restlessness * len(others)))]
+                # Restless, or bored of whatever it chose, it does another of its options, the likelier the longer since
+                # it last did it; a hungry animal is never bored off its meal.
+                restlessness = (RESTLESS_CURIOSITY * (0.5 + curiosity) if ACTIONS[choice] == "rest" else 0.0) + BOREDOM_DRIVE * agent.boredom
+                if not peril and not self._hungry_meal(agent, choice) and len(options) > 1 and restless < restlessness:
+                    others = [option for option in options if option != choice]
+                    pick = restless / restlessness * sum(0.01 + self._novelty(agent, option) for option in others)
+                    for option in others:
+                        choice = option
+                        pick -= 0.01 + self._novelty(agent, option)
+                        if pick < 0:
+                            break
+            if not peril and len(options) > 1:  # the same few things weary it; something long undone, or a needed meal, refreshes it
+                fresh = 1.0 if self._hungry_meal(agent, choice) else self._novelty(agent, choice)
+                agent.boredom = max(0.0, min(1.0, agent.boredom + BOREDOM_RISE * (1.0 - fresh) - BOREDOM_RELIEF * fresh))
+                agent.last_tried[ACTIONS[choice]] = self.turn + 1
             action = ACTIONS[choice]
             if not situation.get("panic") and not situation.get("frozen"):  # a panicked flight, or freezing, was no choice
                 self.insights.record(agent.species, agent.profile, (ACTIONS[option] for option in options), action)
@@ -2487,7 +2506,7 @@ class Simulation:
             agent.last_panicked = bool(situation.get("panic"))
             agent.last_wellbeing = self._wellbeing(agent)
             agent.last_comfort = comfort
-            agent.reward = 0.0
+            agent.reward = -BOREDOM_UNEASE * agent.boredom
             agent.assailant = None  # the chance to strike back, or need to flee, passes with this turn's choice
             agent.panicked = False
             agent.alarm = agent.herd_assailant = agent.kill_alert = None
@@ -2764,7 +2783,7 @@ class Simulation:
             gear_pile_closeness=self._closeness(agent, gear_pile, sight), fire_closeness=self._closeness(agent, fire, sight), fire_friendly=float(fire is not None and self._fire_friendly(agent, fire)),
             wielding=float(self._gear_force(agent) > 1), armoured=float(agent.armour_worn != 0),
             foe_sheltered=float(any(foe is not None and self._safe_inside(foe) for foe in (target, defend_target))),
-            arable_here=float((agent.x, agent.y) in self.arable), seed_carried=float(agent.carried_seed > 0),
+            arable_here=float((agent.x, agent.y) in self.arable), boredom=agent.boredom, seed_carried=float(agent.carried_seed > 0),
             shelter_here=1.0 if (agent.x, agent.y) in self.shelters else self.sites.get((agent.x, agent.y), 0) / SHELTER_UNITS,
             kill_closeness=self._closeness(agent, kill and (kill.x, kill.y), sight),
             plant_closeness=self._closeness(agent, flora and (flora.x, flora.y), sight),
@@ -3076,6 +3095,15 @@ class Simulation:
         if agent.aloft_at_sea and agent.exhausted:
             agent.health = 0
             self._die(agent, "drowned")  # too tired to stay aloft, with nowhere to land
+
+    def _novelty(self, agent: Bitzkey, option: int) -> float:
+        """How fresh an option is to an animal: 1 if untried or BOREDOM_HORIZON turns past, 0 if just done."""
+        tried = agent.last_tried.get(ACTIONS[option], 0)
+        return min(1.0, (self.turn + 1 - tried) / BOREDOM_HORIZON) if tried else 1.0
+
+    @staticmethod
+    def _hungry_meal(agent: Bitzkey, option: int) -> bool:
+        return agent.hunger >= 50 and ACTIONS[option] in ("eat", "forage", "browse", "uproot", "scavenge", "feast", "eat_pile", "eat_carried", "eat_seed")
 
     def _do(self, agent: Bitzkey, action: str, situation: dict) -> None:
         if agent.species != "plant":

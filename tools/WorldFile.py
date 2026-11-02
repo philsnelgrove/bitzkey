@@ -214,7 +214,7 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "carried_meat": agent.carried_meat, "carried_fruit": agent.carried_fruit, "weapon": agent.weapon, "armour": agent.armour_worn, "weapon_uses": agent.weapon_uses, "armour_uses": agent.armour_uses,
         "infant_taught": agent.infant_taught, "crafts": agent.crafts, "craft_tries": agent.craft_tries, "cooked_meat": agent.cooked_meat, "cooked_fruit": agent.cooked_fruit,
         "carried_stone": agent.carried_stone,
-        "carried_bone": agent.carried_bone, "carried_wood": agent.carried_wood, "carried_seed": agent.carried_seed, "died_turn": agent.died_turn, "assailant": agent.assailant,
+        "carried_bone": agent.carried_bone, "carried_wood": agent.carried_wood, "carried_seed": agent.carried_seed, "boredom": float(agent.boredom), "last_tried": [agent.last_tried.get(action, 0) for action in ACTIONS], "died_turn": agent.died_turn, "assailant": agent.assailant,
         "panicked": agent.panicked, "primal_fear": agent.primal_fear, "rivalry": float(agent.rivalry),
         "own_rivalry": float(agent.own_rivalry), "hunts_grazers": agent.hunts_grazers,
         "hunts_omnivores": agent.hunts_omnivores, "hunts_predators": agent.hunts_predators, "guarded": agent.guarded,
@@ -298,6 +298,9 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
     agent.carried_bone = int(record.get("carried_bone", 0))
     agent.carried_wood = int(record.get("carried_wood", 0))
     agent.carried_seed = int(record.get("carried_seed", 0))
+    agent.boredom = float(record.get("boredom", 0.0))  # none in an older world
+    if len(record.get("last_tried", ())) == len(ACTIONS):
+        agent.last_tried = {action: int(turn) for action, turn in zip(ACTIONS, record["last_tried"]) if turn}
     agent.last_senses = numbers.senses(record["last_senses"])
     agent.last_choice = numbers.action(agent.last_choice)
     if agent.last_choice < 0:  # an action no longer had: nothing to learn from it

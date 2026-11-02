@@ -258,6 +258,10 @@ _TABLE: dict[str, list[tuple]] = {
          "options at random rather than as its brain values them", 0.0, 1.0, 0.01),
         ("FATAL_LESSON", "Fatal lesson", "how many times as hard a herd-mate's death teaches those who see it what it last did",
          1.0, 20.0, 0.5),
+        ("BOREDOM_RISE", "Boredom rise", "how much boredom a turn of doing what it did lately adds, out of 1", 0.0, 0.2, 0.005),
+        ("BOREDOM_RELIEF", "Boredom relief", "how much boredom doing something long undone takes away", 0.0, 1.0, 0.05),
+        ("BOREDOM_DRIVE", "Boredom drive", "the chance, at full boredom, that an animal not in peril does another option instead, the longest undone the likeliest", 0.0, 1.0, 0.05),
+        ("BOREDOM_UNEASE", "Boredom unease", "how unpleasant a turn of full boredom is", 0.0, 2.0, 0.05),
         ("RESTLESS_CURIOSITY", "Restless curiosity", "the chance, times a half and its curiosity, that an animal whose brain "
          "chose to rest (not made to) does any of its other options instead; none in peril (a hunter or threat near, struck, "
          "or starving)", 0.0, 1.0, 0.05),

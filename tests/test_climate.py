@@ -697,7 +697,7 @@ if __name__ == "__main__":
 class ExplorationTests(unittest.TestCase):
     def test_a_curious_animal_tries_its_options_at_random_now_and_then(self):
         def choices(curiosity, exploration):
-            with patch.multiple("tools.Simulation", CURIOUS_EXPLORATION=exploration, RESTLESS_CURIOSITY=0.0),                     patch("tools.Brain.TEMPERATURE", 0.01):
+            with patch.multiple("tools.Simulation", CURIOUS_EXPLORATION=exploration, RESTLESS_CURIOSITY=0.0, BOREDOM_DRIVE=0.0),                     patch("tools.Brain.TEMPERATURE", 0.01):
                 simulation = world(turn=240)
                 grazer = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM), 20, 30)
                 simulation._add_agent(encode_dna("predator"), 90, 90)
@@ -714,7 +714,7 @@ class ExplorationTests(unittest.TestCase):
 
     def test_an_animal_whose_brain_chooses_to_rest_is_restless_instead_unless_in_peril(self):
         def rests(restless, starving):
-            with patch.multiple("tools.Simulation", CURIOUS_EXPLORATION=0.0, RESTLESS_CURIOSITY=restless), \
+            with patch.multiple("tools.Simulation", CURIOUS_EXPLORATION=0.0, RESTLESS_CURIOSITY=restless, BOREDOM_DRIVE=0.0), \
                     patch("tools.Brain.TEMPERATURE", 0.01):
                 simulation = world(turn=240)
                 grazer = simulation._add_agent(encode_dna("grazer", temperature=MEDIUM), 20, 30)
