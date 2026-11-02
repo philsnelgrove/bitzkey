@@ -151,6 +151,18 @@ class FeelingTests(unittest.TestCase):
 
 
 class EffectTests(unittest.TestCase):
+    def test_the_feeble_old_grow_patient_and_curious_and_infants_curious(self):
+        simulation = world()
+        grazer = simulation._add_agent(encode_dna("grazer"), 30, 30)
+        grazer.mind["curiosity"] = grazer.mind["patience"] = 0
+        grazer.age = int(grazer.lifespan / 2)
+        self.assertEqual((grazer.feeling("curiosity"), grazer.feeling("patience")), (0.0, 0.0))
+        grazer.age = int(grazer.lifespan) - 1
+        self.assertEqual((grazer.feeling("curiosity"), grazer.feeling("patience")), (1.0, 1.0))
+        with patch("tools.Simulation.FEEBLE_YOUTH", 1 / 30):  # the tests otherwise have no infants
+            grazer.age = 0
+            self.assertEqual((grazer.feeling("curiosity"), grazer.feeling("patience")), (1.0, 0.0))
+
     def setUp(self):  # exposure's harm measured at the harsher rate climate began with
         harsh = patch("tools.Simulation.CLIMATE_DAMAGE", 0.1)
         harsh.start()

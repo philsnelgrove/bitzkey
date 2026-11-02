@@ -1147,8 +1147,14 @@ class Bitzkey:
         return min(self.feeling("empathy"), self.feeling("patience"))
 
     def feeling(self, trait: str) -> float:
-        """A temperament trait, as it is now, as a share of its full range."""
-        return share(self.mind[trait])
+        """A temperament trait, as it is now, as a share of its full range. The feeble are drawn out of themselves, the old
+        thrice as patient and twice as curious and infants twice as curious, each of a half plus the trait, up to 1."""
+        value = share(self.mind[trait])
+        if trait == "curiosity" and self.feeble:
+            return min(1.0, 2.0 * (0.5 + value))
+        if trait == "patience" and self.feeble and not self.infant:
+            return min(1.0, 3.0 * (0.5 + value))
+        return value
 
     @property
     def max_health(self) -> float:
