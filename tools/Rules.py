@@ -385,6 +385,8 @@ _TABLE: dict[str, list[tuple]] = {
         ("FIRE_PANIC", "Fire panic", "chance an animal panics, seeing a fire not its own or its herd's", 0.0, 1.0, 0.05),
         ("FIRE_JOY", "Fire joy", "the sense of accomplishment in lighting a fire, beside the comfort of it", 0.0, 5.0, 0.1),
         ("FIRE_COMFORT", "Fire comfort", "comfort in sight of a fire that is its own or its herd's", 0.0, 2.0, 0.05),
+        ("SEED_FOOD", "Seed food", "how much of a fruit's portion a seed feeds", 0.0, 1.0, 0.05),
+        ("PLANTING_JOY", "Planting joy", "the gladness of planting a seed; more if curious", 0.0, 5.0, 0.1),
         ("DIG_CHANCE", "Dig chance", "chance that digging finds a stone", 0.0, 1.0, 0.05),
         ("COOKED_FOOD", "Cooked food", "times as nourishing as raw", 1.0, 5.0, 0.1),
         ("KILL_MEAL", "Kill meal", "hunger a kill sates", 0, 200, 5),

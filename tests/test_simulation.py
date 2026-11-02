@@ -3540,6 +3540,24 @@ class AcquaintanceTests(unittest.TestCase):
         self.assertAlmostEqual(world._help_felt(agent, 1.0), sm.FRIEND_JOY * (0.5 + agent.feeling("empathy")))
         self.assertEqual(world._help_felt(agent, -1.0), 0.0)
 
+    def test_fruit_leaves_a_seed_and_a_tool_works_temperate_land(self):
+        sm = simulation_module
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        temperate = next(y for y in range(40) if sm.zone_temperature(y, 40) == sm.MEDIUM)
+        hot = next(y for y in range(40) if sm.zone_temperature(y, 40) == sm.HOT)
+        farmer = world._add_agent(encode_dna("omnivore", size=3), 5, temperate)
+        nomad = world._add_agent(encode_dna("omnivore", size=3), 5, hot)
+        farmer.weapon = nomad.weapon = sm.CLUB
+        world._dig(farmer)
+        world._dig(nomad)
+        self.assertEqual(world.arable, {(5, temperate)})
+        farmer.carried_fruit = 1
+        world._eat_carried(farmer)
+        self.assertEqual(farmer.carried_seed, 1)
+        seeds = len(world.seeds)
+        world._plant_seed(farmer)
+        self.assertEqual((len(world.seeds), farmer.carried_seed), (seeds + 1, 0))
+
     def test_a_deed_colours_the_view_of_the_doers_faction(self):
         from tools.WorldFile import world_bytes, world_from_bytes
         sm = simulation_module

@@ -231,9 +231,9 @@ class EffectTests(unittest.TestCase):
         self.assertEqual((away.last_action, at_home.last_action), ("overheated", "starved"))
 
     def test_tolerance_is_rare_in_the_starting_genomes(self):
-        simulation = Simulation(width=100, height=100, population=600, seed=5)
-        flags = [flag for agent in simulation.agents for flag in agent.climate[1:]]
-        self.assertAlmostEqual(sum(flags) / len(flags), 0.1, delta=0.06)  # groups share their genomes, so it swings
+        flags = [flag for seed in range(5, 10) for agent in Simulation(width=100, height=100, population=600, seed=seed).agents
+                 for flag in agent.climate[1:]]
+        self.assertAlmostEqual(sum(flags) / len(flags), 0.1, delta=0.05)  # groups share their genomes, so a world alone swings
 
     def test_winter_turns_a_home_zone_hostile_and_the_cold_can_kill(self):
         simulation = world(turn=134)  # by turn 135, next, the north's winter has set in

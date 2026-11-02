@@ -256,7 +256,7 @@ COURT_LEARNING = 1.0
 # panicking or frozen); 0 learns only from the turns it chose what to do.
 FORCED_LESSONS = 0
 KILL_FOOD = frozenset(ACTIONS.index(action) for action in ("hunt", "attack", "feast"))
-PLANT_FOOD = frozenset(ACTIONS.index(action) for action in ("eat", "forage", "browse", "uproot", "eat_pile", "eat_carried"))
+PLANT_FOOD = frozenset(ACTIONS.index(action) for action in ("eat", "forage", "browse", "uproot", "eat_pile", "eat_carried", "eat_seed"))
 
 
 def lesson_weight(choice: int, outcome: float) -> float:
@@ -533,6 +533,8 @@ CRAFT_JOY = 1.0  # a craft that works: a weapon's in full, armour's in half (hal
 TOOL_JOY = 2.0  # the harm a weapon added to a blow, as a share of its victim's health
 ARMOUR_JOY = 2.0  # the harm its armour took off a blow, as a share of its health
 BUILD_THRILL = 1.0  # each stage of a shelter, k of SHELTER_UNITS, thrills BUILD_THRILL * k / SHELTER_UNITS; finishing it, twice BUILD_THRILL (times curiosity)
+# Agriculture: raw fruit eaten leaves a seed, eaten or planted in worked land; digging works only the medium zone. As the C++ version's.
+SEED_FOOD, PLANTING_JOY = 0.1, 1.0
 DIG_CHANCE = 0.1  # that a dig finds a stone
 WEAPON_FORCE, STONE_FORCE, ARMOUR_FORCE = 2.0, 1.5, 2.0
 ARMOUR_LEAST = 2
@@ -917,6 +919,7 @@ class Bitzkey:
     carried_stone: int = 0  # and the materials
     carried_bone: int = 0
     carried_wood: int = 0
+    carried_seed: int = 0  # kept from raw fruit it ate, up to its capacity, and no weight to it
     crafts: int = 0  # a bit for each craft it has discovered
     craft_tries: list[int] = field(default_factory=lambda: [0] * 5)  # how often it has tried each
     weapon: int = 0  # what it wields and wears, and how often each has been used
@@ -1455,6 +1458,7 @@ class Simulation:
         self.stones_scattered = False
         self.sites: dict[tuple[int, int], int] = {}  # units in each unfinished shelter
         self.shelters: set[tuple[int, int]] = set()
+        self.arable: set[tuple[int, int]] = set()  # worked land
         self.site_turns: dict[tuple[int, int], int] = {}  # the turn each site was last built on
         self.cooked_meat_piles: dict[tuple[int, int], int] = {}
         self.cooked_fruit_piles: dict[tuple[int, int], int] = {}
@@ -2695,6 +2699,11 @@ class Simulation:
             available.add("construct")
         if agent.weapon == CLUB and not self.sea(agent.x, agent.y):
             available.add("light_fire")
+        if agent.carried_seed:
+            if agent.browsing > 0:
+                available.add("eat_seed")
+            if (agent.x, agent.y) in self.arable:
+                available.add("plant_seed")
         if beside_fire and agent.carried_wood:
             available.add("feed_fire")
         if beside_fire and agent.carried_meat + agent.carried_fruit:
@@ -2755,6 +2764,7 @@ class Simulation:
             gear_pile_closeness=self._closeness(agent, gear_pile, sight), fire_closeness=self._closeness(agent, fire, sight), fire_friendly=float(fire is not None and self._fire_friendly(agent, fire)),
             wielding=float(self._gear_force(agent) > 1), armoured=float(agent.armour_worn != 0),
             foe_sheltered=float(any(foe is not None and self._safe_inside(foe) for foe in (target, defend_target))),
+            arable_here=float((agent.x, agent.y) in self.arable), seed_carried=float(agent.carried_seed > 0),
             shelter_here=1.0 if (agent.x, agent.y) in self.shelters else self.sites.get((agent.x, agent.y), 0) / SHELTER_UNITS,
             kill_closeness=self._closeness(agent, kill and (kill.x, kill.y), sight),
             plant_closeness=self._closeness(agent, flora and (flora.x, flora.y), sight),
@@ -3184,6 +3194,10 @@ class Simulation:
             self._cut(agent, situation["flora"])
         elif action == "dig":
             self._dig(agent)
+        elif action == "eat_seed":
+            self._eat_seed(agent)
+        elif action == "plant_seed":
+            self._plant_seed(agent)
         elif action == "construct":
             self._construct(agent)
         elif action == "light_fire":
@@ -3457,6 +3471,8 @@ class Simulation:
             return
         self._add_to_pile(piles, pile, -1)
         cooked = piles is self.cooked_meat_piles or piles is self.cooked_fruit_piles
+        if piles is self.fruit_piles:
+            self._keep_seed(agent)
         agent.nourish((meat if eats_meat else fruit) * (COOKED_FOOD if cooked else 1.0), meat=eats_meat)
         agent.last_action = "ate from a pile"
 
@@ -3474,6 +3490,7 @@ class Simulation:
             agent.cooked_fruit -= 1
         else:
             agent.carried_fruit -= 1
+            self._keep_seed(agent)
         agent.nourish(meat if eats_meat else fruit, meat=eats_meat)
         agent.last_action = "ate what it carried"
 
@@ -3562,10 +3579,31 @@ class Simulation:
         agent.last_action = "cut down a plant"
         self._die(plant, "cut down", agent, "cutting")
 
+    def _keep_seed(self, agent: Bitzkey) -> None:
+        if agent.carried_seed < agent.capacity:
+            agent.carried_seed += 1
+
+    def _eat_seed(self, agent: Bitzkey) -> None:
+        agent.carried_seed -= 1
+        agent.nourish(FRUIT_PORTION * SEED_FOOD * agent.browsing, meat=False)
+        agent.last_action = "ate a seed"
+
+    def _plant_seed(self, agent: Bitzkey) -> None:
+        """A plant at home where it is sown, sprouting as any seed does."""
+        agent.carried_seed -= 1
+        dna = make_dna(SPECIES.index("plant"), self.random)
+        dna = dna & ~(0x3 << TEMPERATURE_SHIFT) | zone_temperature(agent.y, self.height) << TEMPERATURE_SHIFT
+        self.seeds.append((agent.x, agent.y, with_terrain(dna, "terrestrial"), 0, self.turn))
+        agent.reward += PLANTING_JOY * (0.5 + agent.feeling("curiosity"))
+        agent.last_action = "planted a seed"
+        self._deed_seen(agent, CRAFT_DEED, None, "skill")
+
     def _dig(self, agent: Bitzkey) -> None:
         """An axe or club finds a stone in the ground, carried or left here."""
         self._wear_weapon(agent)
         agent.last_action = "dug"
+        if zone_temperature(agent.y, self.height) == MEDIUM:  # only temperate land can be worked
+            self.arable.add((agent.x, agent.y))
         if self.random.random() >= DIG_CHANCE:
             return
         if agent.load < agent.capacity:
