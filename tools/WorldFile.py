@@ -370,7 +370,7 @@ def world_bytes(simulation: Simulation) -> bytes:
         "death_tally": _tally_record(simulation.death_tally),
         "random": {"mt": list(internal[:624]), "index": internal[624], "gauss_next": gauss_next},
         "grass": [simulation.grass.get((x, y), 0) for y in range(simulation.height) for x in range(simulation.width)],
-        "materials": [[x, y, kind + 2, piles[(x, y)], simulation.pile_turns.get((x, y, "wood"), 0) if kind == 2 else 0] for y in range(simulation.height) for x in range(simulation.width)
+        "materials": [[x, y, kind + 2, piles[(x, y)], simulation.pile_turns.get((x, y, ("bone", "wood")[kind - 1]), 0) if kind else 0] for y in range(simulation.height) for x in range(simulation.width)
                       for kind, piles in enumerate((simulation.stone_piles, simulation.bone_piles, simulation.wood_piles))
                       if (x, y) in piles]
                      + [[x, y, kind, count, simulation.gear_wear.get((x, y, name), 0)] for kind, name in enumerate(GEAR_KINDS, 5)
@@ -510,8 +510,8 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
             simulation.gear_wear[(x, y, GEAR_KINDS[kind - 5])] = dropped
             continue
         (simulation.stone_piles, simulation.bone_piles, simulation.wood_piles)[kind - 2][(x, y)] = count
-        if kind == 4:
-            simulation.pile_turns[(x, y, "wood")] = dropped
+        if kind >= 3:
+            simulation.pile_turns[(x, y, "bone" if kind == 3 else "wood")] = dropped
     for x, y, units, standing, *built in record.get("shelters", ()):
         if units:
             simulation.sites[(x, y)] = units

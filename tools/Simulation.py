@@ -486,7 +486,7 @@ GRASS_MEAL = 18        # hunger a tuft of grass sates: about a tenth of a middle
 # A plant is eaten in portions, a bite each: every bite sates PLANT_MEAL hunger (and PLANT_MEAL_FOR_SIZE more for the
 # largest, none by default) and takes PLANT_BITE of its health, so a plant's food is in proportion to its size.
 PLANT_MEAL = 70
-WOOD_LASTS = 10.0  # times as long as a pile of food a pile of wood lasts
+WOOD_LASTS = 10.0  # times as long as a pile of food a pile of wood or bone lasts
 # What an animal may wield and wear: a tool of bone or wood breaks after GEAR_USES, a stone axe never; a stone carried
 # and nothing else wielded strikes STONE_FORCE times as hard, an axe or club WEAPON_FORCE. A bone axe or club can't go
 # with armour. Armour counts as at least ARMOUR_LEAST of the trait's points, doubled.
@@ -2040,7 +2040,7 @@ class Simulation:
                 agent.meat = max(0.0, agent.meat - agent.rot)  # no longer fresh by next turn: it rots
         if self._any_piles:
             self._spoil_piles()
-            self._rot_wood()
+            self._rot_materials()
         for agent in self.agents:  # bodies rotted away, not eaten to the last portion, may feed a new plant
             if (agent.died_turn is not None and self.turn - agent.died_turn >= CORPSE_TURNS and agent.species != "plant"
                     and agent.portions > 0 and CORPSE_PLANT and self.random.random() < CORPSE_PLANT):
@@ -3250,16 +3250,17 @@ class Simulation:
             for cell in [cell for cell in piles if cell not in self.shelters and self.turn - self.pile_turns.get((*cell, meat), 0) >= life]:
                 del piles[cell]
 
-    def _rot_wood(self) -> None:
+    def _rot_materials(self) -> None:
         for cell in [cell for cell in self.sites if self.turn - self.site_turns.get(cell, 0) >= SITE_TURNS]:
             del self.sites[cell]
         life = PILE_LASTS * CORPSE_TURNS * WOOD_LASTS
-        for cell in [cell for cell in self.wood_piles if cell not in self.shelters and self.turn - self.pile_turns.get((*cell, "wood"), 0) >= life]:
-            del self.wood_piles[cell]
+        for piles, kind in ((self.bone_piles, "bone"), (self.wood_piles, "wood")):
+            for cell in [cell for cell in piles if cell not in self.shelters and self.turn - self.pile_turns.get((*cell, kind), 0) >= life]:
+                del piles[cell]
 
     def _add_to_pile(self, piles: dict[tuple[int, int], int], cell: tuple[int, int], portions: int) -> None:
         if portions > 0:
-            self.pile_turns[(*cell, "wood" if piles is self.wood_piles else piles is self.meat_piles)] = self.turn
+            self.pile_turns[(*cell, "wood" if piles is self.wood_piles else "bone" if piles is self.bone_piles else piles is self.meat_piles)] = self.turn
         left = piles.get(cell, 0) + portions
         if left > 0:
             piles[cell] = left

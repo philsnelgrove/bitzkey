@@ -358,7 +358,7 @@ _TABLE: dict[str, list[tuple]] = {
         ("MEAT_PORTION", "Meat portion", "hunger a portion of meat from a pile sates, times how well the eater digests carrion", 0, 2000, 5),
         ("FRUIT_PORTION", "Fruit portion", "hunger a portion of fruit from a pile sates, times the eater's share of the food in plants", 0, 500, 5),
         ("PILE_LASTS", "Pile life", "times as long as a corpse a pile lasts, since food was last dropped on it", 0.0, 20.0, 0.5),
-        ("WOOD_LASTS", "Wood life", "times as long as a pile of food a pile of wood lasts, unless sheltered", 0.0, 100.0, 1.0),
+        ("WOOD_LASTS", "Wood life", "times as long as a pile of food a pile of wood or bone lasts, unless sheltered", 0.0, 100.0, 1.0),
         ("STONE_SCATTER_PER", "Stone scatter", "squares to each stone scattered, once in a world's life", 10, 1000, 10),
         ("DISCOVERY_CHANCE", "Discovery chance", "chance each turn, times intelligence, of discovering a craft whose materials it holds", 0.0, 1.0, 0.0001),
         ("CRAFT_TRIES", "Craft attempts", "tries by which a craft is sure to work", 1, 50, 1),

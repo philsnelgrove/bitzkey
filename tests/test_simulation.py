@@ -3602,6 +3602,14 @@ class MaterialTests(unittest.TestCase):
         self.assertAlmostEqual(builder.reward, 2 * thrill)  # finishing thrills twice the whole
         self.assertIn((5, 5), simulation.shelters)
         self.assertEqual(builder.load, 0)
+        simulation._add_to_pile(simulation.bone_piles, (5, 5), 2)  # nor does a shelter let bone or wood rot
+        simulation._add_to_pile(simulation.wood_piles, (5, 5), 2)
+        simulation._add_to_pile(simulation.bone_piles, (7, 7), 2)
+        with patch.object(simulation_module, "WOOD_LASTS", 0):
+            simulation._rot_materials()
+        self.assertEqual(simulation.bone_piles[(5, 5)], 2)
+        self.assertEqual(simulation.wood_piles[(5, 5)], 2)
+        self.assertNotIn((7, 7), simulation.bone_piles)
 
     def test_a_fire_of_its_own_comforts_and_a_strangers_does_not(self):
         simulation = Simulation(30, 30, 0, seed=1)
