@@ -526,16 +526,17 @@ class SimulationTests(unittest.TestCase):
         self.simulation._index_cells()
         with patch.object(Simulation, "_comfort", return_value=0.4), \
                 patch.object(Simulation, "_act"), patch.object(Simulation, "_learn_batch") as learn, \
-                patch("tools.Simulation.RESTING_UNEASE", 0.0):  # comfort alone, whatever it chose
+                patch("tools.Simulation.RESTING_UNEASE", 0.0), patch("tools.Simulation.SURPRISE_JOY", 0.0), \
+                patch("tools.Simulation.FORESIGHT_LEARNING", 0.0):  # comfort alone, whatever it chose
             self.simulation._think(grazer)  # its first decision: nothing to learn from yet
             self.assertEqual(learn.call_args.args[1], [None])
             self.assertEqual(grazer.last_comfort, 0.4)
             grazer.last_wellbeing = self.simulation._wellbeing(grazer)
-            held = list(grazer.held)  # what its memory held as it sensed, before its choice wrote it
+            held, boredom = list(grazer.held), grazer.boredom  # what it held and felt as it sensed, before its choice changed them
             self.simulation._think(grazer)  # just as comfortable: no success or failure in that
         (agent, target, outcome, _), = learn.call_args.args[1]  # the batch's one lesson: (agent, target, outcome, call target)
         self.assertIs(agent, grazer)
-        grazer.held = held
+        grazer.held, grazer.boredom = held, boredom
         values = grazer.brain.values(self.simulation._sense(grazer)[0])
         best = max(values[option] for option in self.simulation._sense(grazer)[1])
         self.assertAlmostEqual(target, Simulation._discount(grazer) * best)

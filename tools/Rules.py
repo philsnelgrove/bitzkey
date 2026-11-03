@@ -262,6 +262,9 @@ _TABLE: dict[str, list[tuple]] = {
         ("BOREDOM_RELIEF", "Boredom relief", "how much boredom doing something long undone takes away", 0.0, 1.0, 0.05),
         ("BOREDOM_DRIVE", "Boredom drive", "the chance, at full boredom, that an animal not in peril does another option instead, the longest undone the likeliest", 0.0, 1.0, 0.05),
         ("BOREDOM_UNEASE", "Boredom unease", "how unpleasant a turn of full boredom is", 0.0, 2.0, 0.05),
+        ("FORESIGHT_LEARNING", "Foresight learning", "how fast a brain learns what its next turn will do to its hunger, health, stamina and food, as a share of its learning rate; 0 stops it, and surprise with it", 0.0, 2.0, 0.05),
+        ("SURPRISE_JOY", "Surprise joy", "how pleasant a turn wholly unlike what it foresaw is, times a half and its curiosity; 0 turns the feeling off", 0.0, 2.0, 0.05),
+        ("IMAGINATION", "Imagination", "how much what it imagines would come of its likeliest options sways its choice: the better it foresees an option leaving it, the likelier; 0 stops it imagining, and surprise with it", 0.0, 5.0, 0.1),
         ("RESTLESS_CURIOSITY", "Restless curiosity", "the chance, times a half and its curiosity, that an animal whose brain "
          "chose to rest (not made to) does any of its other options instead; none in peril (a hunter or threat near, struck, "
          "or starving)", 0.0, 1.0, 0.05),

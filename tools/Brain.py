@@ -32,9 +32,14 @@ MEMORY_NEURONS = 8
 MEMORY_GATES = len(ACTIONS) + len(CALLS)  # the first gate's output, then each neuron's in turn,
 MEMORY_VALUES = MEMORY_GATES + MEMORY_NEURONS  # then the first value to write, and each neuron's
 MAX_MEMORY_STEPS = 4  # the furthest back Memory steps may reach
-# A brain's outputs by name: its actions, then silence and the calls, then its memory's gates and values to write.
+# Foresight: last of all its outputs, what a brain expects of its next turn, each by how much it will change, about -1 to
+# 1. As the C++ version's.
+FORESEEN = ("foresee_hunger", "foresee_health", "foresee_stamina", "foresee_food")
+FORESIGHT = MEMORY_VALUES + MEMORY_NEURONS  # the first of them
+# A brain's outputs by name: its actions, then silence and the calls, then its memory's gates and values to write, then
+# what it foresees.
 OUTPUTS = (ACTIONS + CALLS + tuple(f"memory_gate_{neuron}" for neuron in range(1, MEMORY_NEURONS + 1))
-           + tuple(f"memory_value_{neuron}" for neuron in range(1, MEMORY_NEURONS + 1)))
+           + tuple(f"memory_value_{neuron}" for neuron in range(1, MEMORY_NEURONS + 1)) + FORESEEN)
 
 
 def call_output(call: int) -> int:
@@ -122,9 +127,14 @@ SENSES = (
     "home_temperature", "heat_tolerance", "cold_tolerance",  # its climate genes: home 0 hot to 1 very cold, flags 0 or 1
     "swims", "walks", "flies",  # its terrain: whether it may go into the sea and onto the land, 0 or 1, and whether it flies
     "nocturnal",  # its activity gene: 1 nocturnal, 0 diurnal
+    # Imagining: the action it pictures itself taking, a -1 or 1 for each bit of its number, or all 0 when it pictures
+    # nothing. Only its foresight is taught with them set. As the C++ version's.
+    "imagined_1", "imagined_2", "imagined_3", "imagined_4", "imagined_5", "imagined_6",
 )
 INPUT_SIZE = len(SENSES)
 MEMORY_SENSE = SENSES.index("memory_1")  # the first sense of what the memory held
+IMAGINED_SENSE = SENSES.index("imagined_1")
+IMAGINED_BITS = 6
 # The senses as a brain reads them: each that runs 0..1 centred, read as -1..1, so that a lesson moves a neuron's weights
 # both ways (senses never below 0 push all its weights the same way, lesson after lesson, until the neuron jams at its
 # limit, the same whatever it senses, and learns no more); those already running -1..1 read as they are. As the C++
@@ -133,7 +143,8 @@ SIGNED_SENSES = frozenset(("latitude", "warmth", "warmth_north", "warmth_south",
                            *(f"heard_call_{call}_{way}" for call in range(1, 6) for way in ("east", "south")),
                            *(f"memory_{neuron}" for neuron in range(1, 9)),
                            *(f"map_{kind}_{way}" for kind in ("food", "danger", "comfort") for way in ("east", "south")),
-                           "known_regard", "known_east", "known_south", "caller_regard", "elder_east", "elder_south"))
+                           "known_regard", "known_east", "known_south", "caller_regard", "elder_east", "elder_south",
+                           *(f"imagined_{bit}" for bit in range(1, IMAGINED_BITS + 1))))
 _READ_SCALE = np.array([1.0 if name in SIGNED_SENSES else 2.0 for name in SENSES])
 _READ_SHIFT = np.array([0.0 if name in SIGNED_SENSES else -1.0 for name in SENSES])
 
@@ -182,6 +193,11 @@ def width_for(intellect: int) -> int:
     """How many neurons each of its hidden layers has: BASE_WIDTH, and WIDTH_STEP more for each point of
     intellect beyond MAX_DEPTH."""
     return BASE_WIDTH + WIDTH_STEP * max(0, intellect - MAX_DEPTH)
+
+
+def imagining(senses: Sequence[float], action: int) -> list[float]:
+    """The same senses, picturing itself taking `action`."""
+    return [*senses[:IMAGINED_SENSE], *(1.0 if action >> bit & 1 else -1.0 for bit in range(IMAGINED_BITS))]
 
 
 def make_senses(**values: float) -> list[float]:

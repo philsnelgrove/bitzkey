@@ -19,8 +19,8 @@ from pathlib import Path
 import numpy as np
 
 import tools.Brain as brain_rules  # its rules, as they now stand
-from tools.Brain import (ACTIONS, ALERT_CALL, CALLS, FIRST_CALL, MEMORY_GATES, MEMORY_NEURONS, OUTPUTS, SENSES, SILENT, Brain, BrainBatch, call_output,
-                         choice_odds, depth_for, gene_senses, make_senses, memory_after, width_for)
+from tools.Brain import (ACTIONS, ALERT_CALL, CALLS, FIRST_CALL, FORESEEN, FORESIGHT, MEMORY_GATES, MEMORY_NEURONS, OUTPUTS, SENSES, SILENT, Brain, BrainBatch, call_output,
+                         choice_odds, depth_for, gene_senses, imagining, make_senses, memory_after, width_for)
 from tools.Genome import (GENOME, SPECIES, TEMPERAMENT, TRAIT_MAX, body_word, color_from_word, colour_difference, cross, decode_nocturnal, dot_difference,
                           inherit_mind,
                           ring_difference, social_difference, social_word, BODY_MUTATION_CHANCE, COLD_TOLERANCE,
@@ -173,6 +173,15 @@ BOREDOM_RISE = 0.02
 BOREDOM_RELIEF = 0.25
 BOREDOM_DRIVE = 0.2
 BOREDOM_UNEASE = 0.2
+# Foresight: a brain learns what its next turn will bring at this share of its learning rate, one foreseen thing a turn
+# in rotation. How far what came differs from what it foresaw is its surprise, felt as a small pleasure.
+FORESIGHT_LEARNING = 0.5
+SURPRISE_JOY = 0.2
+# Imagining: an animal awake and in no peril asks its brain what would come of its IMAGINED_OPTIONS best-valued options,
+# and those it foresees leaving it better off gain on the others by this much for each whole unit.
+IMAGINATION = 0.5
+IMAGINED_OPTIONS = 3
+FORESIGHT_SCALE = 10  # hunger, health and stamina change by hundredths a turn: foreseen at this many times that
 RESTLESS_CURIOSITY = 0.5  # the chance, times a half and its curiosity, that an animal whose brain chose to rest (not made
                           # to) does any of its other options instead; in peril, neither, but as its brain chooses
 # Moving costs food. A walk, a single cell, saves this share of the turn's burn, as resting does; going
@@ -245,6 +254,28 @@ REPLAY_PER_INTELLECT = 2
 # What an animal learns toward is held between -VALUE_LIMIT and VALUE_LIMIT, so that a brain's overestimates, fed back
 # into what it learns, can't run away with its values; 0: no limit. As the C++ version's.
 VALUE_LIMIT = 50.0
+
+
+def food_near(species: str, sense: Mapping[str, float]) -> float:
+    """The food it senses, by what it eats: 0 none near, to 1 beside it."""
+    food = 0.0
+    if species != "predator":
+        food = max(sense["grass_here"], sense["grass_closeness"], sense["plant_closeness"])
+    if species != "grazer":
+        food = max(food, sense["prey_closeness"], sense["kill_closeness"], sense["carrion_closeness"])
+    return food
+
+
+def foreseen_worth(sight: Sequence[float]) -> float:
+    """How much better off a brain foresees itself, all counting alike."""
+    return sight[1] + sight[2] + sight[3] - sight[0]
+
+
+def what_changed(species: str, before: Sequence[float], now: Sequence[float]) -> list[float]:
+    """What a turn did to what a brain foresees, as it foresees it."""
+    was, is_now = dict(zip(SENSES, before)), dict(zip(SENSES, now))
+    scaled = [max(-1.0, min(1.0, FORESIGHT_SCALE * (is_now[name] - was[name]))) for name in ("hunger", "health", "stamina")]
+    return [*scaled, food_near(species, is_now) - food_near(species, was)]
 
 
 def limited_value(target: float) -> float:
@@ -927,6 +958,8 @@ class Bitzkey:
     carried_bone: int = 0
     carried_wood: int = 0
     boredom: float = 0.0  # see BOREDOM_RISE
+    expected: list[float] | None = None  # what it foresaw of what it last chose, if it imagined it
+    surprise: float = 0.0  # how far its last turn differed from what it foresaw, about 0..1
     last_tried: dict = field(default_factory=dict)  # the turn after it last chose each action
     carried_seed: int = 0  # kept from raw fruit it ate, up to its capacity, and no weight to it
     crafts: int = 0  # a bit for each craft it has discovered
@@ -1710,12 +1743,7 @@ class Simulation:
             place = MapPlace(column, row, self.turn)
             places.append(place)
         sense = dict(zip(SENSES, senses))
-        food = 0.0
-        if agent.species != "predator":
-            food = max(sense["grass_here"], sense["grass_closeness"], sense["plant_closeness"])
-        if agent.species != "grazer":
-            food = max(food, sense["prey_closeness"], sense["kill_closeness"], sense["carrion_closeness"])
-        found = {"food": food, "danger": max(sense["threat_closeness"], sense["assailant_near"]),
+        found = {"food": food_near(agent.species, sense), "danger": max(sense["threat_closeness"], sense["assailant_near"]),
                  "comfort": 1 - sense["climate_discomfort"]}
         quarter = season(self.turn)
         for kind, value in found.items():
@@ -2403,6 +2431,7 @@ class Simulation:
             batches.append((batch, members))
         comforts = [self._comfort(agent, situation) + self._hearth(agent, situation) for agent, _, _, situation in plans]
         lessons: dict[int, tuple] = {}  # by plan: what came of its last choice, to learn from
+        changes: dict[int, list[float]] = {}  # by plan: what came, to teach what it foresaw
         for index, ((agent, _, options, _), valued, comfort) in enumerate(zip(plans, values, comforts)):
             if agent.last_senses is not None and (FORCED_LESSONS or not agent.last_forced or agent.last_panicked):  # a panicked flight teaches
                 # What came of its last choice: whatever raised its health (fullness counting with it) or
@@ -2413,6 +2442,10 @@ class Simulation:
                 # no choice.
                 if ACTIONS[agent.last_choice] == "rest" and not agent.last_forced:
                     reward -= RESTING_UNEASE * plans[index][3].get("exposure", 0.0)
+                changes[index] = what_changed(agent.species, agent.last_senses, plans[index][1])
+                if agent.expected is not None and FORESIGHT_LEARNING > 0:  # what came, against what it imagined
+                    agent.surprise = sum(abs(change - max(-1.0, min(1.0, foreseen))) for change, foreseen in zip(changes[index], agent.expected)) / len(FORESEEN)
+                    reward += SURPRISE_JOY * (0.5 + agent.feeling("curiosity")) * agent.surprise
                 best_call = max(valued[call_output(call)] for call in (SILENT, *plans[index][3]["calls"]))
                 lessons[index] = (limited_value(reward + self._discount(agent) * max(valued[option] for option in options)),
                                   reward, limited_value(reward + self._discount(agent) * best_call))  # within the Value limit
@@ -2420,6 +2453,9 @@ class Simulation:
                     self._experience(agent, "lesson")
         for batch, members in batches:
             self._learn_batch(batch, [(plans[index][0], *lessons[index]) if index in lessons else None for index in members])
+            for index, change in changes.items():
+                if index in members and FORESIGHT_LEARNING > 0:
+                    self._foresee(plans[index][0], change)
             for index in members:  # what each values beyond the Value limit, taught back to it
                 self._rein_in(plans[index][0], plans[index][1], values[index])
         actions = []
@@ -2450,6 +2486,12 @@ class Simulation:
                 options = [ACTIONS.index("rest")] + [option for option in options if ACTIONS[option] in ("defend", "flee")]
             hungriest = max((min(100.0, child.hunger) for child in situation.get("young", ())), default=0.0)  # of its infants about it
             valued = add_instincts(agent, valued, options, agent.hunger, hungriest)
+            sights = self._imagine(agent, senses, options, calls_valued, situation) if not idle[index] else {}
+            if sights:  # each against the others, so imagining favours none of them over the rest of its options
+                mean = sum(foreseen_worth(sight) for sight in sights.values()) / len(sights)
+                valued = list(valued)
+                for option, sight in sights.items():
+                    valued[option] += IMAGINATION * (foreseen_worth(sight) - mean)
             odds = choice_odds(valued, options)
             roll = self.random.random()
             explore = self.random.random()
@@ -2506,6 +2548,7 @@ class Simulation:
             agent.last_wrote = not idle[index]
             if not idle[index]:
                 agent.held = memory_after(calls_valued, agent.held)
+            agent.expected = sights.get(choice)
             agent.last_senses = senses
             agent.last_choice = choice
             agent.last_forced = len(options) == 1
@@ -2932,6 +2975,21 @@ class Simulation:
         if count:
             agent.memories.append((agent.last_senses, agent.last_choice, target, weight))
             del agent.memories[:-count]
+
+    def _foresee(self, agent: Bitzkey, change: Sequence[float]) -> None:
+        """One thing it foresaw, taught what came: one lesson a turn, whichever thing's turn it is, as the C++ version's."""
+        thing = self.turn % len(FORESEEN)
+        rate = self._learning_rate(agent) * FORESIGHT_LEARNING
+        if rate > 0:
+            agent.brain.learn(imagining(agent.last_senses, agent.last_choice), FORESIGHT + thing, change[thing], rate)
+
+    def _imagine(self, agent: Bitzkey, senses: Sequence[float], options: Sequence[int], valued: Sequence[float], situation: dict) -> dict[int, list[float]]:
+        """What it foresees would come of each of its best-valued options, if it is free to think."""
+        if (IMAGINATION <= 0 or FORESIGHT_LEARNING <= 0 or len(options) < 2 or agent.exhausted or (SLEEP and self.resting_time(agent))
+                or situation["hunter"] or situation["threats"] or situation["assailant"] or agent.hunger >= 100):
+            return {}
+        best = sorted(options, key=lambda option: -valued[option])[:IMAGINED_OPTIONS]
+        return {option: list(agent.brain.values(imagining(senses, option))[FORESIGHT:FORESIGHT + len(FORESEEN)]) for option in best}
 
     def _rein_in(self, agent: Bitzkey, senses: Sequence[float], valued: Sequence[float]) -> None:
         """Any choice or call its brain now values beyond the Value limit, taught back to the limit: the lessons it learns
