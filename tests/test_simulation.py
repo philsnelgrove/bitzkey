@@ -2437,6 +2437,7 @@ class SocialBackgroundTests(unittest.TestCase):
             with patch.object(Simulation, "_act"):
                 self.simulation._think(loner)
             loner.last_senses = None  # nothing learnt between the two
+            loner.last_tried = {}  # nor anything tried, which would raise the hope for the rest
             odds.append(loner.odds["herd"])
         self.assertGreater(odds[1], odds[0])
 
@@ -3707,6 +3708,20 @@ class MaterialTests(unittest.TestCase):
         before = simulation._regard_for(lighter, friend)
         simulation._share_hearths([(lighter, None, None, {"fire": (5, 5)}), (friend, None, None, {"fire": (5, 5)})])
         self.assertGreater(simulation._regard_for(lighter, friend), before)
+
+    def test_an_option_never_taken_is_hoped_for_as_well_as_the_average_until_tried(self):
+        from tools.Simulation import hope_for_untried
+        animal = Bitzkey(1, encode_dna("omnivore"), 5, 5)
+        eat, rest, feed = ACTIONS.index("eat"), ACTIONS.index("rest"), ACTIONS.index("feed_fire")
+        valued = [0.0] * len(ACTIONS)
+        valued[eat], valued[rest], valued[feed] = 20.0, 10.0, -3.0
+        self.assertEqual(hope_for_untried(animal, valued, [eat, rest, feed])[feed], -3.0)  # nothing tried yet
+        animal.last_tried = {"eat": 1, "rest": 1}
+        hoped = hope_for_untried(animal, valued, [eat, rest, feed])
+        self.assertAlmostEqual(hoped[feed], 15.0)
+        self.assertEqual(hoped[eat], 20.0)
+        animal.last_tried["feed_fire"] = 2
+        self.assertEqual(hope_for_untried(animal, valued, [eat, rest, feed])[feed], -3.0)
 
     def test_defending_a_herd_mate_bonds_the_defended_most_and_the_defender_too(self):
         simulation = Simulation(30, 30, 0, seed=1)

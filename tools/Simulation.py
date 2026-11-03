@@ -173,6 +173,7 @@ BOREDOM_RISE = 0.02
 BOREDOM_RELIEF = 0.25
 BOREDOM_DRIVE = 0.2
 BOREDOM_UNEASE = 0.2
+UNTRIED_HOPE = 1.0  # see hope_for_untried
 # Foresight: a brain learns what its next turn will bring at this share of its learning rate, one foreseen thing a turn
 # in rotation. How far what came differs from what it foresaw is its surprise, felt as a small pleasure.
 FORESIGHT_LEARNING = 0.5
@@ -1397,6 +1398,26 @@ class Death(NamedTuple):
     age_days: int = -1  # how many days it lived; -1 unknown
 
 
+def hope_for_untried(agent: Bitzkey, valued: list[float], options: list[int]) -> list[float]:
+    """Hope for what it has never done: an option it has never taken in its life valued at least at UNTRIED_HOPE of the
+    average of those it has, since a brain learns an action's worth only by taking it, and one never taken stays valued at
+    next to nothing. As the C++ version's."""
+    if UNTRIED_HOPE <= 0:
+        return valued
+    tried = [valued[option] for option in options if agent.last_tried.get(ACTIONS[option], 0)]
+    if not tried:  # nothing to hope by: all is new to it
+        return valued
+    total = 0.0
+    for value in tried:  # summed in order, as the C++ version's
+        total += value
+    hoped = UNTRIED_HOPE * total / len(tried)
+    valued = list(valued)
+    for option in options:
+        if not agent.last_tried.get(ACTIONS[option], 0):
+            valued[option] = max(valued[option], hoped)
+    return valued
+
+
 def add_instincts(agent: Bitzkey, valued: list[float], options: list[int], hunger: float, hungriest_young: float) -> list[float]:
     """Its instincts, on top of what its brain values its `options` at: to hunt and feast, the mating call, a scavenger's
     craving, loyalty to its herd, an infant's to its kind, and a parent's to feed its young (the hungriest that hungry).
@@ -2494,6 +2515,7 @@ class Simulation:
                 options = [ACTIONS.index("rest")] + [option for option in options if ACTIONS[option] in ("defend", "flee")]
             hungriest = max((min(100.0, child.hunger) for child in situation.get("young", ())), default=0.0)  # of its infants about it
             valued = add_instincts(agent, valued, options, agent.hunger, hungriest)
+            valued = hope_for_untried(agent, valued, options)
             sights = self._imagine(agent, senses, options, calls_valued, situation) if not idle[index] else {}
             if sights:  # each against the others, so imagining favours none of them over the rest of its options
                 mean = sum(foreseen_worth(sight) for sight in sights.values()) / len(sights)
