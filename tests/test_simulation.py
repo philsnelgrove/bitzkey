@@ -3689,6 +3689,37 @@ class MaterialTests(unittest.TestCase):
         self.assertEqual(simulation._hearth(stranger, seen), 0.0)
         self.assertEqual(simulation._hearth(lighter, without), 0.0)
 
+    def test_feeding_a_fire_pays_a_friends_fire_welcomes_and_a_fire_shared_bonds(self):
+        from tools.Simulation import FIRE_FEED_JOY
+        simulation = Simulation(30, 30, 0, seed=1)
+        lighter = simulation._add_agent(encode_dna("omnivore", size=3), 5, 5)
+        friend = simulation._add_agent(encode_dna("omnivore", size=3), 6, 5)
+        simulation._index_cells()
+        lighter.weapon, lighter.carried_wood = 2, 1
+        simulation._light_fire(lighter)
+        lighter.reward = 0.0
+        simulation._feed_fire(lighter, (5, 5))
+        self.assertAlmostEqual(lighter.reward, FIRE_FEED_JOY)
+        self.assertFalse(simulation._fire_friendly(friend, (5, 5)))  # omnivores live alone: a stranger's fire
+        for _ in range(20):
+            simulation._note_deed(friend, lighter, 1.0)
+        self.assertTrue(simulation._fire_friendly(friend, (5, 5)))  # a friend's welcomes
+        before = simulation._regard_for(lighter, friend)
+        simulation._share_hearths([(lighter, None, None, {"fire": (5, 5)}), (friend, None, None, {"fire": (5, 5)})])
+        self.assertGreater(simulation._regard_for(lighter, friend), before)
+
+    def test_defending_a_herd_mate_bonds_the_defended_most_and_the_defender_too(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        victim = simulation._add_agent(encode_dna("grazer"), 5, 10)
+        defender = simulation._add_agent(encode_dna("grazer"), 6, 10)
+        attacker = simulation._add_agent(encode_dna("predator", size=7), 7, 10)
+        simulation._index_cells()
+        victim.assailant = attacker.identifier
+        simulation._defend(defender, attacker, for_herd=True)
+        grateful, bonded = simulation._regard_for(victim, defender), simulation._regard_for(defender, victim)
+        self.assertGreater(bonded, 0.0)
+        self.assertGreater(grateful, bonded)
+
     def test_a_craft_that_works_a_weapons_harm_and_armours_saving_are_each_a_joy(self):
         simulation = Simulation(30, 30, 0, seed=1)
         crafter = Bitzkey(1, encode_dna("omnivore", size=3), 5, 5)

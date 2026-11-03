@@ -407,6 +407,13 @@ WITNESS_SHARE = 0.25  # how much a deed only seen counts, a blow only if the vic
 DIARY_ENTRIES = 8
 DIARY_FADING = 0.999
 BLOW_DEED, FEEDING_DEED, ALERT_DEED, MATING_DEED, TEACHING_DEED, CRAFT_DEED, FIRE_DEED = -1.0, 1.0, 0.5, 0.5, 1.0, 0.5, 0.5
+# Shared moments: a fire enjoyed together, and a herd-mate defended. Each moves regard as a deed of these worths, at
+# SHARED_BOND of a deed's weight between those who share it; the one defended takes its defender's deed at full weight.
+HEARTH_DEED, DEFENCE_DEED = 1.0, 1.0
+HEARTH_REACH = 2  # steps from a fire to share it
+HEARTH_COMPANY = 6  # the most at one fire who bond, the first in the turn's order
+SHARED_BOND = 0.2
+FIRE_FEED_JOY = 1.0  # the satisfaction of feeding a fire, so it burns on
 
 
 @dataclass
@@ -2430,6 +2437,7 @@ class Simulation:
                 values[row] = valued
             batches.append((batch, members))
         comforts = [self._comfort(agent, situation) + self._hearth(agent, situation) for agent, _, _, situation in plans]
+        self._share_hearths(plans)
         lessons: dict[int, tuple] = {}  # by plan: what came of its last choice, to learn from
         changes: dict[int, list[float]] = {}  # by plan: what came, to teach what it foresaw
         for index, ((agent, _, options, _), valued, comfort) in enumerate(zip(plans, values, comforts)):
@@ -3705,12 +3713,13 @@ class Simulation:
         agent.last_action = "dug up a stone"
 
     def _fire_friendly(self, agent: Bitzkey, fire: tuple[int, int]) -> bool:
-        """Lit by it or a herd-mate."""
+        """Lit by it, a herd-mate or a friend: a friend's fire welcomes as a herd's does, so that those who live alone
+        may share one."""
         lighter = self.fires[fire][1]
         if lighter == agent.identifier:
             return True
         other = self.find_agent(lighter)
-        return other is not None and self._herd_mate(agent, other)
+        return other is not None and (self._herd_mate(agent, other) or self._regard_for(agent, other) >= REGARD_STRONG)
 
     def _warmed_by_fire(self, agent: Bitzkey, here: int) -> bool:
         if not self.fires or here <= agent.climate[0]:  # only against the cold
@@ -3755,6 +3764,40 @@ class Simulation:
         until, lighter = self.fires[fire]
         self.fires[fire] = (until + FIRE_TURNS, lighter)
         agent.last_action = "fed a fire"
+        agent.reward += FIRE_FEED_JOY
+        self._deed_seen(agent, FIRE_DEED, None, "skill")  # keeping a fire is thought well of, as lighting one is
+
+    def _share_hearths(self, plans: list) -> None:
+        """Those beside a fire of their own or their herd's, together: each thinks the better of the others, a little each
+        turn. As the C++ version's."""
+        if SHARED_BOND <= 0:
+            return
+        hearths: dict[tuple[int, int], list[Bitzkey]] = {}
+        for agent, _, _, situation in plans:
+            fire = situation.get("fire")
+            if fire is None or not agent.alive or agent.brain is None or abs(agent.x - fire[0]) + abs(agent.y - fire[1]) > HEARTH_REACH:
+                continue
+            if not self._fire_friendly(agent, fire):
+                continue
+            company = hearths.setdefault(fire, [])
+            if len(company) < HEARTH_COMPANY:
+                company.append(agent)
+        for fire in sorted(hearths):  # by column, then row, as the C++ version's map
+            for one in hearths[fire]:
+                for other in hearths[fire]:
+                    if one is not other:
+                        self._note_deed(one, other, HEARTH_DEED, SHARED_BOND)
+
+    def _bond_in_defence(self, defender: Bitzkey, assailant: Bitzkey) -> None:
+        """The herd-mates it struck back for think the better of it, and it of them, having stood together; those who saw
+        it, too."""
+        for other in self._nearby(defender, 2):
+            if other is defender or not other.alive or other.brain is None or other.assailant != assailant.identifier or not self._herd_mate(defender, other):
+                continue
+            self._note_deed(other, defender, DEFENCE_DEED)
+            if SHARED_BOND > 0:
+                self._note_deed(defender, other, DEFENCE_DEED, SHARED_BOND)
+        self._deed_seen(defender, DEFENCE_DEED, assailant)
 
     def _cook(self, agent: Bitzkey) -> None:
         """What it carries, raw, carried on cooked."""
@@ -3941,6 +3984,7 @@ class Simulation:
                              * (1 - 0.75 * agent.feeling("tolerance")))  # as attacking is
             if for_herd:
                 agent.reward += HERD_DEFEND_JOY * agent.herd_instinct
+                self._bond_in_defence(agent, assailant)
             agent.last_action = "defended"
             self._experience(agent, "defended")
         if not assailant.alive:
