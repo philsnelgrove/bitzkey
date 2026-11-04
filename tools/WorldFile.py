@@ -214,7 +214,7 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "carried_meat": agent.carried_meat, "carried_fruit": agent.carried_fruit, "weapon": agent.weapon, "armour": agent.armour_worn, "weapon_uses": agent.weapon_uses, "armour_uses": agent.armour_uses,
         "infant_taught": agent.infant_taught, "crafts": agent.crafts, "craft_tries": agent.craft_tries, "cooked_meat": agent.cooked_meat, "cooked_fruit": agent.cooked_fruit,
         "carried_stone": agent.carried_stone,
-        "carried_bone": agent.carried_bone, "carried_wood": agent.carried_wood, "carried_seed": agent.carried_seed, "boredom": float(agent.boredom), "expected": agent.expected, "last_tried": [agent.last_tried.get(action, 0) for action in ACTIONS], "died_turn": agent.died_turn, "assailant": agent.assailant,
+        "carried_bone": agent.carried_bone, "carried_wood": agent.carried_wood, "carried_seed": agent.carried_seed, "boredom": float(agent.boredom), "shelter_known": float(agent.shelter_known), "expected": agent.expected, "last_tried": [agent.last_tried.get(action, 0) for action in ACTIONS], "died_turn": agent.died_turn, "assailant": agent.assailant,
         "panicked": agent.panicked, "primal_fear": agent.primal_fear, "rivalry": float(agent.rivalry),
         "own_rivalry": float(agent.own_rivalry), "hunts_grazers": agent.hunts_grazers,
         "hunts_omnivores": agent.hunts_omnivores, "hunts_predators": agent.hunts_predators, "guarded": agent.guarded,
@@ -299,6 +299,7 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
     agent.carried_wood = int(record.get("carried_wood", 0))
     agent.carried_seed = int(record.get("carried_seed", 0))
     agent.boredom = float(record.get("boredom", 0.0))  # none in an older world
+    agent.shelter_known = float(record.get("shelter_known", 0.0))
     agent.expected = record.get("expected")  # nor this
     if len(record.get("last_tried", ())) == len(ACTIONS):
         agent.last_tried = {action: int(turn) for action, turn in zip(ACTIONS, record["last_tried"]) if turn}
@@ -386,7 +387,7 @@ def world_bytes(simulation: Simulation) -> bytes:
                      + [[x, y, kind, count, 0] for kind, piles in ((10, simulation.cooked_meat_piles), (11, simulation.cooked_fruit_piles))
                         for (x, y), count in sorted(piles.items())],
         "arable": sorted(y * simulation.width + x for x, y in simulation.arable),
-        "shelters": [[x, y, simulation.sites.get((x, y), 0), int((x, y) in simulation.shelters), simulation.site_turns.get((x, y), 0)] for y in range(simulation.height) for x in range(simulation.width)
+        "shelters": [[x, y, simulation.sites.get((x, y), 0), int((x, y) in simulation.shelters), simulation.site_turns.get((x, y), 0), simulation.site_stone.get((x, y), 0)] for y in range(simulation.height) for x in range(simulation.width)
                      if (x, y) in simulation.sites or (x, y) in simulation.shelters],
         "fires": [[x, y, until, lighter] for (x, y), (until, lighter) in sorted(simulation.fires.items(), key=lambda fire: (fire[0][1], fire[0][0])) if until > simulation.turn],
         "stones_scattered": simulation.stones_scattered,
@@ -526,6 +527,7 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
         if units:
             simulation.sites[(x, y)] = units
             simulation.site_turns[(x, y)] = built[0] if built else record["turn"]  # built now, in a world saved before they fell
+            simulation.site_stone[(x, y)] = built[1] if len(built) > 1 else 0  # all wood, in a world saved before
         if standing:
             simulation.shelters.add((x, y))
     simulation.fires = {(x, y): (until, lighter) for x, y, until, lighter in record.get("fires", ())}

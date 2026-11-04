@@ -3678,6 +3678,28 @@ class MaterialTests(unittest.TestCase):
         self.assertEqual(simulation.wood_piles[(5, 5)], 2)
         self.assertNotIn((7, 7), simulation.bone_piles)
 
+    def test_a_shelter_comforts_its_rester_who_longs_to_build_and_a_fallen_site_leaves_piles(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        rester = Bitzkey(1, encode_dna("omnivore", size=7), 5, 5)
+        builder = Bitzkey(2, encode_dna("omnivore", size=7), 9, 9)
+        simulation.shelters.add((5, 5))
+        bare = {"kin": 0, "others": 0, "threats": 0}
+        sheltered = {**bare, "spared": 0.5, "inside": 2}
+        self.assertAlmostEqual(simulation._hearth(rester, sheltered) - simulation._hearth(rester, bare),
+                               0.5 * simulation_module.PROTECTION_JOY + simulation_module.SHELTER_COMFORT)
+        simulation._act(rester, "rest", {})
+        self.assertAlmostEqual(rester.shelter_known, 1 / DAY_LENGTH)  # a turn inside, remembered
+        builder.carried_stone, builder.carried_wood, builder.weapon = 1, 1, 3
+        builder.shelter_known = 1.0  # one who knows a shelter is thrilled to build, whatever its curiosity
+        simulation._construct(builder)
+        self.assertAlmostEqual(builder.reward, BUILD_THRILL * (builder.feeling("curiosity") + simulation_module.SHELTER_LONGING) / 7)
+        simulation._construct(builder)
+        with patch.object(simulation_module, "SITE_TURNS", 0):
+            simulation._rot_materials()  # left unfinished, it falls in, and its stone and wood lie in piles
+        self.assertNotIn((9, 9), simulation.sites)
+        self.assertEqual(simulation.stone_piles[(9, 9)], 1)
+        self.assertEqual(simulation.wood_piles[(9, 9)], 1)
+
     def test_a_fire_of_its_own_comforts_and_a_strangers_does_not(self):
         simulation = Simulation(30, 30, 0, seed=1)
         lighter = Bitzkey(1, encode_dna("omnivore", size=3), 5, 5)

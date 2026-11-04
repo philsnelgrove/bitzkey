@@ -564,7 +564,7 @@ FIRE_PANIC = 0.25  # the chance an animal panics, seeing a fire not its own or i
 FIRE_JOY = 2.0  # the sense of accomplishment in lighting a fire
 FIRE_COMFORT = 0.3  # the comfort of seeing a fire that is its own or its herd's, as an unfamiliar one frightens
 COOKED_FOOD = 1.5  # times as nourishing as raw
-SITE_TURNS = 100  # an unfinished shelter left this long falls away
+SITE_TURNS = 100  # an unfinished shelter left this long falls in, leaving its stone and wood in piles
 SHELTER_UNITS = 7  # of stone or wood, any mix, to finish a shelter; until then each takes a space of the square
 FIRE_REACH = 2  # squares off, a fire shelters an animal from the cold
 # A craft must first be discovered, the more likely each turn the cleverer the animal holding its materials, and then
@@ -578,7 +578,14 @@ CRAFT_THRILL = 1.0
 CRAFT_JOY = 1.0  # a craft that works: a weapon's in full, armour's in half (half plus curiosity)
 TOOL_JOY = 2.0  # the harm a weapon added to a blow, as a share of its victim's health
 ARMOUR_JOY = 2.0  # the harm its armour took off a blow, as a share of its health
-BUILD_THRILL = 1.0  # each stage of a shelter, k of SHELTER_UNITS, thrills BUILD_THRILL * k / SHELTER_UNITS; finishing it, twice BUILD_THRILL (times curiosity)
+BUILD_THRILL = 1.0  # each stage of a shelter, k of SHELTER_UNITS, thrills BUILD_THRILL * k / SHELTER_UNITS; finishing it, twice BUILD_THRILL (times curiosity, plus SHELTER_LONGING times its shelter memory)
+# A finished shelter keeps the weather off whoever stands in it, hot or cold. Resting inside is a comfort
+# (SHELTER_COMFORT, half standing in one), and each turn of it is remembered, to a full memory after a day, so that
+# one who has known a shelter longs to build one (SHELTER_LONGING). Whatever keeps the weather off, a shelter, a
+# fire, or an infant's parent close by, is felt as relief, by as much unease as it spares (PROTECTION_JOY).
+SHELTER_COMFORT = 0.3
+SHELTER_LONGING = 1.0
+PROTECTION_JOY = 1.0
 # Agriculture: raw fruit eaten leaves a seed, eaten or planted in worked land; digging works only the medium zone. As the C++ version's.
 SEED_FOOD, PLANTING_JOY = 0.1, 1.0
 DIG_CHANCE = 0.1  # that a dig finds a stone
@@ -966,6 +973,7 @@ class Bitzkey:
     carried_bone: int = 0
     carried_wood: int = 0
     boredom: float = 0.0  # see BOREDOM_RISE
+    shelter_known: float = 0.0  # its memory of resting in a shelter, 0 to 1 after a day of it (see SHELTER_LONGING)
     expected: list[float] | None = None  # what it foresaw of what it last chose, if it imagined it
     surprise: float = 0.0  # how far its last turn differed from what it foresaw, about 0..1
     last_tried: dict = field(default_factory=dict)  # the turn after it last chose each action
@@ -1536,6 +1544,7 @@ class Simulation:
         self.shelters: set[tuple[int, int]] = set()
         self.arable: set[tuple[int, int]] = set()  # worked land
         self.site_turns: dict[tuple[int, int], int] = {}  # the turn each site was last built on
+        self.site_stone: dict[tuple[int, int], int] = {}  # how many of a site's units are stone, the rest wood
         self.cooked_meat_piles: dict[tuple[int, int], int] = {}
         self.cooked_fruit_piles: dict[tuple[int, int], int] = {}
         self.fires: dict[tuple[int, int], tuple[int, int]] = {}  # each lit square's: the turn it goes out, who lit it
@@ -2157,7 +2166,8 @@ class Simulation:
                 agent.last_wellbeing += max(0.0, agent.health) / agent.max_health - share_before  # is no lesson
             plant = agent.species == "plant"
             here = self._climate[agent.y]
-            steps = 0.0 if self.sheltered(agent) or self._warmed_by_fire(agent, here) else agent.climate_steps(here)  # a sheltered infant feels no weather
+            covered = self.sheltered(agent) or (agent.x, agent.y) in self.shelters or self._warmed_by_fire(agent, here)  # a sheltered infant, or one in a shelter, feels no weather
+            steps = 0.0 if covered else agent.climate_steps(here)
             hungrier = steps > 0 and (not plant or here < agent.climate[0])  # out of its temperature; a plant, too hot
             share = agent.exposure_share(here)  # less for the hardy
             # The extra food it needs rises with the weather's turning, to the full amount a step away.
@@ -2919,6 +2929,9 @@ class Simulation:
                      "alert_to": alert_to, "revisit": agent.food_memory and agent.food_memory[:2],
                      "student": students[0] if students else None,
                      "calls": [SILENT, *([ALERT_CALL] if alert_to is not None else []), *range(FIRST_CALL, len(CALLS))]}
+        situation["inside"] = (2 if ACTIONS[agent.last_choice] == "rest" else 1) if (agent.x, agent.y) in self.shelters else 0
+        if situation["exposure"] > 0 and (situation["inside"] or self.sheltered(agent) or self._warmed_by_fire(agent, here)):
+            situation["spared"], situation["exposure"] = situation["exposure"], 0.0  # kept from the weather, it feels none, only relief
         return senses, [ACTIONS.index(action) for action in ACTIONS if action in available], situation
 
     def _wellbeing(self, agent: Bitzkey) -> float:
@@ -2955,9 +2968,11 @@ class Simulation:
         return company - dread - unease - crowded + herding - exposed + parental
 
     def _hearth(self, agent: Bitzkey, situation: dict) -> float:
-        """A fire of its own or its herd's is a comfort to see; one it doesn't know frightens it (see FIRE_PANIC)."""
+        """A fire of its own or its herd's is a comfort to see; one it doesn't know frightens it (see FIRE_PANIC).
+        Kept from the weather, it is glad of what keeps it; and a shelter is a comfort to rest in, whatever the weather."""
         fire = situation.get("fire")
         hearth = FIRE_COMFORT if fire and self._fire_friendly(agent, fire) else 0.0
+        hearth += PROTECTION_JOY * situation.get("spared", 0.0) + SHELTER_COMFORT * situation.get("inside", 0) / 2
         regard = self._known_senses(agent, None, agent.sight).get("known_regard", 0.0)
         if regard >= REGARD_STRONG:
             return hearth + REGARD_COMFORT * regard * (0.5 + agent.feeling("trust"))
@@ -3231,6 +3246,8 @@ class Simulation:
             agent.hunger = max(0, agent.hunger - agent.burn / 2)  # burns less, but eases no hunger
             agent.heal(0.015)
             agent.last_action = "rested"
+            if (agent.x, agent.y) in self.shelters:  # a turn inside, remembered: it learns what a shelter is for
+                agent.shelter_known = min(1.0, agent.shelter_known + 1.0 / DAY_LENGTH)
         elif action == "court":
             # Toward where it saw its suitor; the suitor itself is looked at only if it was seen within sight (the mating
             # call reaches further), as one further off can't come within reach this turn. As the C++ version.
@@ -3508,7 +3525,9 @@ class Simulation:
 
     def _rot_materials(self) -> None:
         for cell in [cell for cell in self.sites if self.turn - self.site_turns.get(cell, 0) >= SITE_TURNS]:
-            del self.sites[cell]
+            units, stone = self.sites.pop(cell), self.site_stone.pop(cell, 0)  # fallen in, its stone and wood lie where it stood
+            self._add_to_pile(self.stone_piles, cell, stone)
+            self._add_to_pile(self.wood_piles, cell, units - stone)
         life = PILE_LASTS * CORPSE_TURNS * WOOD_LASTS
         for piles, kind in ((self.bone_piles, "bone"), (self.wood_piles, "wood")):
             for cell in [cell for cell in piles if cell not in self.shelters and self.turn - self.pile_turns.get((*cell, kind), 0) >= life]:
@@ -3754,19 +3773,22 @@ class Simulation:
 
     def _construct(self, agent: Bitzkey) -> None:
         """A unit of what it carries, stone first, into the shelter on its square."""
+        cell = (agent.x, agent.y)
         if agent.carried_stone:
             agent.carried_stone -= 1
+            self.site_stone[cell] = self.site_stone.get(cell, 0) + 1
         else:
             agent.carried_wood -= 1
-        cell = (agent.x, agent.y)
         self.sites[cell] = self.sites.get(cell, 0) + 1
         self.site_turns[cell] = self.turn
         self._wear_weapon(agent)
         agent.last_action = "built"
         # Each stage thrills more than the last, the curious most; finishing the shelter, twice the thrill of a whole one.
-        inspiration = BUILD_THRILL * agent.feeling("curiosity")
+        # One who has rested in a shelter knows what it builds, and longs for it whatever its curiosity.
+        inspiration = BUILD_THRILL * (agent.feeling("curiosity") + SHELTER_LONGING * agent.shelter_known)
         if self.sites[cell] >= SHELTER_UNITS:
             del self.sites[cell]
+            self.site_stone.pop(cell, None)
             self.shelters.add(cell)
             agent.reward += 2 * inspiration
             agent.last_action = "finished a shelter"
