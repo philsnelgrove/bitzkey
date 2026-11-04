@@ -122,6 +122,7 @@ SPAWN_AT_HOME = 1     # 1: a group appears in rows whose usual temperature is it
 HISTORY_PREFIX = "bitzkey-history-"  # their names start so
 STALE_HISTORY_HOURS = 24  # one left this long by a run that never closed it is cleared away
 CORPSE_FERTILITY = 2   # grass grows this many times as fast on and around a corpse
+FIRE_STONES = 2  # carried stones that strike a fire, and are kept
 WATERED_REACH = 7  # steps from water within which hot land grows grass and can be tilled
 CORPSE_TURNS = 90  # under four days
 CORPSE_PLANT = 0.1     # chance an animal's body that rots away entirely leaves the seed of a new plant where it lay
@@ -2853,7 +2854,7 @@ class Simulation:
         beside_fire = fire is not None and abs(fire[0] - agent.x) + abs(fire[1] - agent.y) <= 1
         if agent.weapon and agent.carried_stone + agent.carried_wood and (agent.x, agent.y) not in self.shelters and not self.sea(agent.x, agent.y):
             available.add("construct")
-        if agent.weapon == CLUB and not self.sea(agent.x, agent.y):
+        if (agent.weapon == CLUB or agent.carried_stone >= FIRE_STONES) and not self.sea(agent.x, agent.y):
             available.add("light_fire")
         if agent.carried_seed:
             if agent.browsing > 0:
@@ -3844,9 +3845,10 @@ class Simulation:
             agent.reward += inspiration * self.sites[cell] / SHELTER_UNITS
 
     def _light_fire(self, agent: Bitzkey) -> None:
-        """Of its club."""
+        """Struck from two stones it carries, which it keeps, or of its club, spent."""
         self.fires[(agent.x, agent.y)] = (self.turn + FIRE_TURNS, agent.identifier)
-        agent.weapon, agent.weapon_uses = NO_WEAPON, 0
+        if agent.carried_stone < FIRE_STONES:
+            agent.weapon, agent.weapon_uses = NO_WEAPON, 0
         agent.last_action = "lit a fire"
         agent.reward += FIRE_JOY
         self._deed_seen(agent, FIRE_DEED, None, "skill")

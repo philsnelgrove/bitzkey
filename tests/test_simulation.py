@@ -3662,6 +3662,14 @@ class MaterialTests(unittest.TestCase):
         simulation._dig(digger)
         self.assertEqual((digger.carried_stone, digger.weapon_uses), (1, 1))
 
+    def test_two_stones_strike_a_fire_and_are_kept(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        striker = Bitzkey(1, encode_dna("omnivore", size=3), 5, 5)
+        striker.weapon, striker.carried_stone = 2, simulation_module.FIRE_STONES
+        simulation._light_fire(striker)
+        self.assertEqual(simulation.fires[(5, 5)][0], simulation.turn + simulation_module.FIRE_TURNS)
+        self.assertEqual((striker.carried_stone, striker.weapon), (simulation_module.FIRE_STONES, 2))  # both kept
+
     def test_a_fire_lasts_a_day_fed_for_longer_and_cooks(self):
         simulation = Simulation(30, 30, 0, seed=1)
         lighter = Bitzkey(1, encode_dna("omnivore", size=3), 5, 5)
