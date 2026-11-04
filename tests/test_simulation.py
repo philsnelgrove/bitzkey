@@ -3567,7 +3567,7 @@ class AcquaintanceTests(unittest.TestCase):
 
         doer.x = 12
         world._index_cells()
-        agent.known[0].skill, agent.known[0].regard = 0.3, 0.0
+        agent.known[0].skill, agent.known[0].regard = 0.0, 0.0
         stranger.known.append(sm.Acquaintance(doer.identifier, 0.0, 0, skill=0.9))
         with patch.object(sm, "WATCH_LEARNING", 1.0):
             world._deed_seen(doer, sm.CRAFT_DEED, None, "skill", 1)
@@ -3576,6 +3576,13 @@ class AcquaintanceTests(unittest.TestCase):
             agent.known[0].skill = 0.9
             world._deed_seen(doer, sm.CRAFT_DEED, None, "skill", 1)
             self.assertTrue(agent.crafts & 2)
+        crafter = world._add_agent(agent.dna, 14, 10)
+        world._index_cells()
+        world._deed_seen(crafter, sm.CRAFT_DEED, None, "skill")
+        world._deed_seen(crafter, sm.CRAFT_DEED, None, "skill")
+        seen = next(one for one in agent.known if one.identifier == crafter.identifier)
+        self.assertGreaterEqual(seen.skill, sm.SKILL_HELD)  # two crafts seen are enough to be held skilled
+        self.assertLess(seen.regard, sm.REGARD_STRONG)  # though no friend for it
 
     def test_hot_land_near_water_grows_grass_as_temperate_land_does_and_can_be_tilled(self):
         sm = simulation_module

@@ -405,6 +405,8 @@ REGARD_STRONG = 0.5
 FACTIONS, FACTION_SHARE, FACTION_WIDTH = 8, 0.25, 0.05
 REGARD_COMFORT, GRUDGE_JOY, FRIEND_JOY = 0.5, 1.0, 1.0
 WITNESS_SHARE = 0.25  # how much a deed only seen counts, a blow only if the victim is of the witness's species
+# A deed of skill seen counts SKILL_WITNESS of its weight toward how skilled the doer is held, as the C++ version's.
+SKILL_WITNESS = 1.0
 # The diary: up to Diary entries (none at 0) of an animal's most vivid experiences, by how much came of them, fading by
 # Diary fading each turn since; each turn it re-learns from one, in turn. As the C++ version's.
 DIARY_ENTRIES = 8
@@ -1763,6 +1765,8 @@ class Simulation:
             if abs(other.x - doer.x) + abs(other.y - doer.y) <= other.sight:
                 wronged = deed >= 0 or target is None or other.species == target.species  # a hunt is no wrong to a stranger, yet shows its danger
                 self._note_deed(other, doer, deed, WITNESS_SHARE, kind, wronged)
+                if kind == "skill" and SKILL_WITNESS > WITNESS_SHARE:  # the rest, on skill alone
+                    self._note_deed(other, doer, 0.0, SKILL_WITNESS - WITNESS_SHARE, kind, False)
                 if (craft >= 0 and not other.crafts >> craft & 1 and self._same_kind(other, doer)
                         and self._skill_held(other, doer) >= SKILL_HELD and self.random.random() < WATCH_LEARNING):
                     other.crafts |= 1 << craft  # a craft watched done by one it holds skilled, learnt from the watching
