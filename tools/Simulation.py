@@ -588,6 +588,17 @@ BUILD_THRILL = 1.0  # each stage of a shelter, k of SHELTER_UNITS, thrills BUILD
 SHELTER_COMFORT = 0.3
 SHELTER_LONGING = 1.0
 PROTECTION_JOY = 1.0
+# Leadership, as the C++ version's. One it holds skilled close by is a comfort (SKILL_COMFORT, more if curious), and a
+# craft seen done by one of its kind it holds skilled may be learnt from the watching (WATCH_LEARNING). A student within
+# ELDER_REACH steps of the elder who taught it is glad of it (ELDER_COMFORT, more if trusting). With danger in sight, a
+# friend or one it holds skilled within FOLLOW_REACH steps spares it FOLLOW_SAFETY of its dread, felt as relief.
+SKILL_HELD = 0.5  # the skill at which another is held skilled
+SKILL_COMFORT = 0.5
+WATCH_LEARNING = 0.1
+ELDER_COMFORT = 0.5
+ELDER_REACH = 3
+FOLLOW_SAFETY = 0.5
+FOLLOW_REACH = 2
 # Agriculture: raw fruit eaten leaves a seed, eaten or planted in worked land; digging works only the medium zone. As the C++ version's.
 SEED_FOOD, PLANTING_JOY = 0.1, 1.0
 DIG_CHANCE = 0.1  # that a dig finds a stone
@@ -1646,7 +1657,7 @@ class Simulation:
             found.update(caller_regard=self._regard_for(agent, caller))
         if nearest is not None:
             found.update(known_closeness=self._closeness(agent, (nearest.x, nearest.y), sight), known_regard=regard, known_danger=danger, known_skill=skill,
-                         known_east=max(-1.0, min(1.0, (nearest.x - agent.x) / sight)),
+                         known_steps=abs(nearest.x - agent.x) + abs(nearest.y - agent.y), known_east=max(-1.0, min(1.0, (nearest.x - agent.x) / sight)),
                          known_south=max(-1.0, min(1.0, (nearest.y - agent.y) / sight)))
         return found
 
@@ -1705,6 +1716,14 @@ class Simulation:
         faction = cls._faction_of(agent, other)
         return faction.regard if faction else 0.0
 
+    @classmethod
+    def _skill_held(cls, agent: Bitzkey, other: Bitzkey) -> float:
+        known = next((known for known in agent.known if known.identifier == other.identifier), None)
+        if known is not None:
+            return known.skill
+        faction = cls._faction_of(agent, other)
+        return faction.skill if faction else 0.0
+
     def _note_faction(self, agent: Bitzkey, other: Bitzkey, deed: float, weight: float, kind: str, regarded: bool) -> None:
         factions = agent.factions
         least = lambda one: (max(abs(one.regard), one.danger, one.skill), one.last)
@@ -1734,7 +1753,7 @@ class Simulation:
     def _help_felt(agent: Bitzkey, regard: float) -> float:
         return FRIEND_JOY * regard * (0.5 + agent.feeling("empathy")) if regard >= REGARD_STRONG else 0.0
 
-    def _deed_seen(self, doer: Bitzkey, deed: float, target: Bitzkey | None = None, kind: str = "plain") -> None:
+    def _deed_seen(self, doer: Bitzkey, deed: float, target: Bitzkey | None = None, kind: str = "plain", craft: int = -1) -> None:
         """A deed of `doer`'s, done to `target` if to anyone, noted by those who see it."""
         if WITNESS_SHARE <= 0:
             return
@@ -1744,6 +1763,9 @@ class Simulation:
             if abs(other.x - doer.x) + abs(other.y - doer.y) <= other.sight:
                 wronged = deed >= 0 or target is None or other.species == target.species  # a hunt is no wrong to a stranger, yet shows its danger
                 self._note_deed(other, doer, deed, WITNESS_SHARE, kind, wronged)
+                if (craft >= 0 and not other.crafts >> craft & 1 and self._same_kind(other, doer)
+                        and self._skill_held(other, doer) >= SKILL_HELD and self.random.random() < WATCH_LEARNING):
+                    other.crafts |= 1 << craft  # a craft watched done by one it holds skilled, learnt from the watching
 
     def _map_senses(self, agent: Bitzkey) -> dict[str, float]:
         """Its mental map: the best place it remembers for food this season, the worst for danger, the best for comfort
@@ -2702,6 +2724,7 @@ class Simulation:
         young = len(own_young)
         kind = [other for other in self._nearby(agent, sight) if other is not agent and other.alive and self._same_kind(agent, other)]
         oldest = max(kind, key=lambda other: other.age, default=None)  # the oldest of its kind in sight
+        teacher = next((other for other in kind if other.identifier == agent.taught_by), None)  # the elder who taught it
         students = [other for other in kind
                     if abs(other.x - agent.x) + abs(other.y - agent.y) <= 1 and self._willing_student(agent, other)]
         here = self._climate[agent.y]
@@ -2959,7 +2982,7 @@ class Simulation:
             **heard,
             **{f"memory_{neuron + 1}": held for neuron, held in enumerate(agent.held)},
             **self._map_senses(agent),
-            **self._known_senses(agent, caller, sight),
+            **{name: value for name, value in self._known_senses(agent, caller, sight).items() if name != "known_steps"},
             student_near=min(3, len(students)) / 3,
             **({} if oldest is None else {
                 "elder_age": min(1.0, oldest.age / YEAR_LENGTH), "elder_closeness": self._closeness(agent, (oldest.x, oldest.y), sight),
@@ -2968,7 +2991,8 @@ class Simulation:
             **{trait: agent.feeling(trait) for trait in TEMPERAMENT},
             **agent.genes,
         )
-        situation = {"mate": mate, "nurseries": nurseries, "young_near": young, "young": own_young, "prey": target, "threat": threat,
+        situation = {"teacher_steps": -1 if teacher is None else abs(teacher.x - agent.x) + abs(teacher.y - agent.y),
+                     "mate": mate, "nurseries": nurseries, "young_near": young, "young": own_young, "prey": target, "threat": threat,
                      "threats": len(threats), "quarry": quarry, "hunter": hunter, "suitor": suitor, "suitor_at": suitor and (suitor.x, suitor.y),
                      "grass": grass, "grass_here": grass_here, "carrion": carrion, "kill": kill, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
                      "others": others, "defend_target": defend_target, "for_herd": assailant is None,
@@ -3001,8 +3025,7 @@ class Simulation:
         herd_near = min(3, situation.get("herd_near", 0)) / 3
         company_around = min(3.0, situation["kin"] + tolerance * situation["others"])
         company = COMPANY_JOY * agent.feeling("sociability") * company_around / 3
-        dread = (FEAR_DREAD * agent.fearfulness * (1 - 0.5 * tolerance) * min(2, situation["threats"]) / 2
-                 * (1 - HERD_SAFETY * instinct * herd_near))
+        dread = Simulation._dread(agent, situation)
         unease = UNEASE * (1 - tolerance) * min(3, situation["others"]) / 3
         crowded = (RIVAL_UNEASE * (1 - 0.5 * tolerance) * situation.get("rivalry", 0.0)
                    * (1 + DOMINANCE_EASE * (1 - 2 * agent.feeling("dominance"))))  # the submissive feel it most
@@ -3016,13 +3039,30 @@ class Simulation:
         parental = PARENT_JOY * (0.5 + agent.feeling("empathy")) * min(3, situation.get("young_near", 0)) / 3
         return company - dread - unease - crowded + herding - exposed + parental
 
+    @staticmethod
+    def _dread(agent: Bitzkey, situation: dict) -> float:
+        """Hunters close by frighten the fearful, less so the tolerant and those among their herd."""
+        tolerance = agent.feeling("tolerance")
+        herd_near = min(3, situation.get("herd_near", 0)) / 3
+        return (FEAR_DREAD * agent.fearfulness * (1 - 0.5 * tolerance) * min(2, situation["threats"]) / 2
+                * (1 - HERD_SAFETY * agent.herd_instinct * herd_near))
+
     def _hearth(self, agent: Bitzkey, situation: dict) -> float:
         """A fire of its own or its herd's is a comfort to see; one it doesn't know frightens it (see FIRE_PANIC).
         Kept from the weather, it is glad of what keeps it; and a shelter is a comfort to rest in, whatever the weather."""
         fire = situation.get("fire")
         hearth = FIRE_COMFORT if fire and self._fire_friendly(agent, fire) else 0.0
         hearth += PROTECTION_JOY * situation.get("spared", 0.0) + SHELTER_COMFORT * situation.get("inside", 0) / 2
-        regard = self._known_senses(agent, None, agent.sight).get("known_regard", 0.0)
+        known = self._known_senses(agent, None, agent.sight)
+        regard, skill, steps = known.get("known_regard", 0.0), known.get("known_skill", 0.0), known.get("known_steps", -1)
+        # Leadership: one it holds skilled close by, the elder who taught it, and, with danger in sight, one to follow,
+        # whose sparing of its dread is felt as relief.
+        if skill >= SKILL_HELD:
+            hearth += SKILL_COMFORT * skill * (0.5 + agent.feeling("curiosity"))
+        if 0 <= situation.get("teacher_steps", -1) <= ELDER_REACH:
+            hearth += ELDER_COMFORT * (0.5 + agent.feeling("trust"))
+        if 0 <= steps <= FOLLOW_REACH and (regard >= REGARD_STRONG or skill >= SKILL_HELD):
+            hearth += (1 + PROTECTION_JOY) * FOLLOW_SAFETY * self._dread(agent, situation)
         if regard >= REGARD_STRONG:
             return hearth + REGARD_COMFORT * regard * (0.5 + agent.feeling("trust"))
         if regard <= -REGARD_STRONG:
@@ -3960,7 +4000,7 @@ class Simulation:
                 agent.carried_wood -= 1
             agent.weapon = STONE_AXE
         agent.reward += CRAFT_JOY * (0.5 if action in ("make_bone_armour", "make_wood_armour") else 1.0) * (0.5 + agent.feeling("curiosity"))
-        self._deed_seen(agent, CRAFT_DEED, None, "skill")
+        self._deed_seen(agent, CRAFT_DEED, None, "skill", craft)
         if action not in ("make_bone_armour", "make_wood_armour"):
             agent.weapon_uses = 0
         agent.armour_uses = 0

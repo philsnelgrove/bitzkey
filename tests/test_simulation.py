@@ -3542,6 +3542,41 @@ class AcquaintanceTests(unittest.TestCase):
         self.assertAlmostEqual(world._help_felt(agent, 1.0), sm.FRIEND_JOY * (0.5 + agent.feeling("empathy")))
         self.assertEqual(world._help_felt(agent, -1.0), 0.0)
 
+    def test_one_held_skilled_comforts_and_is_copied_a_teacher_anchors_and_one_to_follow_spares_dread(self):
+        sm = simulation_module
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        agent = world._add_agent(encode_dna("omnivore", sight=7), 10, 10)
+        doer = world._add_agent(agent.dna, 12, 10)
+        stranger = world._add_agent(encode_dna("grazer", sight=7), 11, 11)
+        world._index_cells()
+        plain = world._hearth(agent, {"threats": 0})
+        agent.known.append(sm.Acquaintance(doer.identifier, 0.0, 0, skill=0.8))
+        self.assertAlmostEqual(world._hearth(agent, {"threats": 0}), plain + sm.SKILL_COMFORT * 0.8 * (0.5 + agent.feeling("curiosity")))
+        agent.known[0].skill = 0.3
+        self.assertAlmostEqual(world._hearth(agent, {"threats": 0}), plain)  # not held skilled
+        self.assertAlmostEqual(world._hearth(agent, {"threats": 0, "teacher_steps": sm.ELDER_REACH}),
+                               plain + sm.ELDER_COMFORT * (0.5 + agent.feeling("trust")))
+        self.assertAlmostEqual(world._hearth(agent, {"threats": 0, "teacher_steps": sm.ELDER_REACH + 1}), plain)
+        agent.mind["fear"] = 9.0
+        agent.known[0].regard = 0.8
+        danger = {"threats": 2}
+        beside = world._hearth(agent, danger)
+        doer.x = 10 + sm.FOLLOW_REACH + 1
+        world._index_cells()
+        self.assertGreater(beside, world._hearth(agent, danger))  # a friend beside it with danger in sight
+
+        doer.x = 12
+        world._index_cells()
+        agent.known[0].skill, agent.known[0].regard = 0.3, 0.0
+        stranger.known.append(sm.Acquaintance(doer.identifier, 0.0, 0, skill=0.9))
+        with patch.object(sm, "WATCH_LEARNING", 1.0):
+            world._deed_seen(doer, sm.CRAFT_DEED, None, "skill", 1)
+            self.assertFalse(agent.crafts & 2)  # not yet held skilled
+            self.assertFalse(stranger.crafts & 2)  # not of its kind
+            agent.known[0].skill = 0.9
+            world._deed_seen(doer, sm.CRAFT_DEED, None, "skill", 1)
+            self.assertTrue(agent.crafts & 2)
+
     def test_hot_land_near_water_grows_grass_as_temperate_land_does_and_can_be_tilled(self):
         sm = simulation_module
         world = Simulation(width=80, height=80, population=0, seed=5, ocean=30)
