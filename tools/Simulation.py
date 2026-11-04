@@ -122,6 +122,7 @@ SPAWN_AT_HOME = 1     # 1: a group appears in rows whose usual temperature is it
 HISTORY_PREFIX = "bitzkey-history-"  # their names start so
 STALE_HISTORY_HOURS = 24  # one left this long by a run that never closed it is cleared away
 CORPSE_FERTILITY = 2   # grass grows this many times as fast on and around a corpse
+WATERED_REACH = 7  # steps from water within which hot land grows grass and can be tilled
 CORPSE_TURNS = 90  # under four days
 CORPSE_PLANT = 0.1     # chance an animal's body that rots away entirely leaves the seed of a new plant where it lay
 BREED_RESERVE = 0  # hunger a parent must still have spare after paying to breed
@@ -1912,13 +1913,46 @@ class Simulation:
         day = self.turn % YEAR_LENGTH / YEAR_LENGTH  # 0 at the year's start, nearly 1 at its end
         return {"time_of_year_a": abs(2 * day - 1), "time_of_year_b": abs(2 * ((day + 0.25) % 1.0) - 1)}
 
+    def _find_watered(self) -> None:
+        """Hot land within WATERED_REACH steps of the sea, by steps across the squares (the map wraps east to west)."""
+        self._watered: set[tuple[int, int]] = set()
+        self._watered_rows = [0] * self.height
+        self._watered_for = (WATERED_REACH, len(self.sea_map))
+        if not self.sea_map or WATERED_REACH <= 0:
+            return
+        steps = {(index % self.width, index // self.width): 0 for index, under in enumerate(self.sea_map) if under}
+        frontier = list(steps)
+        for x, y in frontier:  # grows as it goes
+            if steps[(x, y)] >= WATERED_REACH:
+                continue
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                near = ((x + dx) % self.width, y + dy)
+                if 0 <= near[1] < self.height and near not in steps:
+                    steps[near] = steps[(x, y)] + 1
+                    frontier.append(near)
+        for (x, y), step in steps.items():
+            if step > 0 and zone_temperature(y, self.height) == HOT:
+                self._watered.add((x, y))
+                self._watered_rows[y] += 1
+
+    def watered(self, x: int, y: int) -> bool:
+        """Hot land near enough water: it grows grass as if medium, and can be tilled."""
+        return (x, y) in self._watered
+
+    def growth_at(self, x: int, y: int) -> float:
+        return 1.0 if (x, y) in self._watered else self._growth[y]
+
     def _update_climate(self) -> None:
         """Each row's temperature this turn, and how well grass grows in it: fully where it is
-        medium, less the further it has turned from medium, and not at all a step away."""
+        medium, less the further it has turned from medium, and not at all a step away; but always
+        fully on hot land near water."""
+        if getattr(self, "_watered_for", None) != (WATERED_REACH, len(self.sea_map)):  # found again for a new reach, or a sea laid since
+            self._find_watered()
         self._climate = [temperature_at(y, self.height, self.turn) for y in range(self.height)]
         self._growth = [max(0.0, 1 - abs(temperature - MEDIUM)) for temperature in self._climate]
-        self._grass_rows = [y for y, growth in enumerate(self._growth) if growth > 0]
-        self._grass_reach = list(accumulate(self._growth[y] for y in self._grass_rows))
+        rows = [growth + (1 - growth) * self._watered_rows[y] / self.width for y, growth in enumerate(self._growth)]
+        self._grass_rows = [y for y, row in enumerate(rows) if row > 0]
+        self._grass_reach = list(accumulate(rows[y] for y in self._grass_rows))
 
     def _starting_groups(self, population: int) -> tuple[list[int], list[int]]:
         """Each group's species at random, then its size: GRAZER_SPAWN_GROUP for grazers, so that the hunters' prey
@@ -2307,7 +2341,7 @@ class Simulation:
         taking their turns in step. While a row turns away from medium, only some of its cells die
         back, more as it turns further: each cell whose fixed threshold its shortfall passes."""
         for (x, y), tufts in list(self.grass.items()):
-            if (1 - self._growth[y] > dieback_threshold(x, y)
+            if ((x, y) not in self._watered and 1 - self._growth[y] > dieback_threshold(x, y)
                     and (x + y * self.width + self.turn) % GRASS_DIEBACK == 0):
                 if tufts > 1:
                     self.grass[(x, y)] = tufts - 1
@@ -2355,8 +2389,22 @@ class Simulation:
                    for dx in (-1, 0, 1) for dy in (-1, 0, 1) if 0 <= corpse.y + dy < self.height}
         for _ in range(tufts):
             x = self.random.randrange(self.width)
-            at = bisect.bisect_right(reach, self.random.random() * reach[-1])
-            cell = (x, rows[min(at, len(rows) - 1)])
+            aim = self.random.random() * reach[-1]
+            at = min(bisect.bisect_right(reach, aim), len(rows) - 1)
+            y = rows[at]
+            if self._growth[y] < 1 and self._watered_rows[y]:
+                # A row part watered: each square by how well it grows, found from where the draw fell in the row, so
+                # the sea draws nothing more from the world's stream.
+                left = (aim - (reach[at - 1] if at else 0.0)) * self.width
+                for across in range(self.width):
+                    grows = self.growth_at(across, y)
+                    if grows <= 0:
+                        continue
+                    x = across
+                    left -= grows
+                    if left < 0:
+                        break
+            cell = (x, y)
             self.grass[cell] = self.grass.get(cell, 0) + (CORPSE_FERTILITY if cell in fertile else 1)
 
     def _take_census(self) -> None:
@@ -3743,7 +3791,7 @@ class Simulation:
         """An axe or club finds a stone in the ground, carried or left here."""
         self._wear_weapon(agent)
         agent.last_action = "dug"
-        if zone_temperature(agent.y, self.height) == MEDIUM:  # only temperate land can be worked
+        if zone_temperature(agent.y, self.height) == MEDIUM or self.watered(agent.x, agent.y):  # only temperate land, or hot land near water, can be worked
             self.arable.add((agent.x, agent.y))
         if self.random.random() >= DIG_CHANCE:
             return
@@ -4722,7 +4770,7 @@ class Simulation:
             tufts = 0
             for dx, dy in nearby_offsets(FORAGE_RADIUS):
                 if 0 <= x + dx < self.width and 0 <= y + dy < self.height and self._can_enter(agent, (x + dx, y + dy)):
-                    cells += growth[y + dy]
+                    cells += 1.0 if (x + dx, y + dy) in self._watered else growth[y + dy]
                     tufts += grass.get((x + dx, y + dy), 0)
             growing = self.width * self._grass_reach[-1] if self._grass_rows else 0.0
             regrowth = cells * self.grass_regrowth / growing * GRASS_OUTLOOK if growing else 0.0

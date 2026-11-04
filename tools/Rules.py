@@ -48,6 +48,7 @@ _TABLE: dict[str, list[tuple]] = {
     "World": [
         ("GRASS_REGROWTH", "Grass regrowth", "share of the starting grass that grows back each turn", 0, 0.1, 0.001),
         ("CORPSE_FERTILITY", "Corpse fertility", "grass grows this many times as fast on and around a corpse", 1, 10, 1),
+        ("WATERED_REACH", "Watered land", "steps from water within which hot land grows grass and can be tilled; 0: none", 0, 20, 1),
         ("CORPSE_TURNS", "Corpse turns", "turns a corpse lasts while its meat rots away", 1, 1500, 5),
         ("CORPSE_PLANT", "Corpse plant", "chance an animal's body that rots away entirely leaves the seed of a new plant", 0.0, 1.0, 0.05),
         ("CELL_SPACE", "Square space", "spaces in a square; a Bitzkey takes 1 + its size, and none is born, moves or spawns "

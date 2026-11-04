@@ -3542,6 +3542,29 @@ class AcquaintanceTests(unittest.TestCase):
         self.assertAlmostEqual(world._help_felt(agent, 1.0), sm.FRIEND_JOY * (0.5 + agent.feeling("empathy")))
         self.assertEqual(world._help_felt(agent, -1.0), 0.0)
 
+    def test_hot_land_near_water_grows_grass_as_temperate_land_does_and_can_be_tilled(self):
+        sm = simulation_module
+        world = Simulation(width=80, height=80, population=0, seed=5, ocean=30)
+        reach = sm.WATERED_REACH
+
+        def near_water(x, y):
+            return any(world.sea((x + dx) % 80, y + dy) for dy in range(-reach, reach + 1)
+                       for dx in range(abs(dy) - reach, reach - abs(dy) + 1))
+        expected = {(x, y) for y in range(80) for x in range(80)
+                    if sm.zone_temperature(y, 80) == HOT and not world.sea(x, y) and near_water(x, y)}
+        self.assertTrue(expected)
+        self.assertEqual(world._watered, expected)
+        shore = min(expected)
+        self.assertEqual(world.growth_at(*shore), 1.0)
+        self.assertIn(shore[1], world._grass_rows)
+        farmer = world._add_agent(encode_dna("omnivore", size=3), *shore)
+        farmer.weapon = sm.CLUB
+        world._dig(farmer)
+        self.assertIn(shore, world.arable)
+        with patch.object(sm, "WATERED_REACH", 0):
+            world._update_climate()
+            self.assertFalse(world.watered(*shore))  # none, by the rule
+
     def test_fruit_leaves_a_seed_and_a_tool_works_temperate_land(self):
         sm = simulation_module
         world = Simulation(width=40, height=40, population=0, seed=3)
