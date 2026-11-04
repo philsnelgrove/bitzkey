@@ -1343,9 +1343,10 @@ class BitzkeyApp:
                 point = (card.left + UI(10) + radius + RING_WIDTH, card.top + (height + UI(20)) // 2)
                 draw_bitzkey(self.screen, agent.dna, point, radius)
                 x = point[0] + radius + UI(12)
-                self._text(f"#{agent.identifier:03d}  {agent.species}", (x, point[1] - UI(16)), (231, 236, 222),
-                           self.small)
-                self._text(said, (x, point[1] + UI(2)), (149, 170, 150), self.small)
+                self._text(f"#{agent.identifier:03d}", (x, point[1] - UI(24)), (231, 236, 222), self.small)
+                kind = f"{tr(agent.terrain)} {tr(agent.species)}"  # its own line, so a long name fits
+                self._text(fit_text(self.small, kind, card.right - x - UI(6)), (x, point[1] - UI(8)), (231, 236, 222), self.small)
+                self._text(said, (x, point[1] + UI(8)), (149, 170, 150), self.small)
                 self._exemplar_cards.append((card, agent.identifier))
 
     def _draw_exemplar_menu(self) -> None:
