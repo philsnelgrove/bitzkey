@@ -3773,6 +3773,53 @@ class MaterialTests(unittest.TestCase):
         self.assertEqual(simulation.stone_piles[(9, 9)], 1)
         self.assertEqual(simulation.wood_piles[(9, 9)], 1)
 
+    def test_a_road_takes_three_turns_clears_its_square_joins_shelters_and_is_easy_going(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        builder = simulation._add_agent(encode_dna("omnivore", size=7), 4, 5)
+        plant = simulation._add_agent(encode_dna("plant"), 5, 5)
+        simulation._index_cells()
+        simulation.shelters |= {(3, 5), (7, 5)}
+        builder.weapon = 3
+        builder.mind["curiosity"] = 7.0
+        inspiration = simulation_module.ROAD_THRILL * builder.feeling("curiosity")
+
+        def lay(x):  # a whole section at x, 5; the reward of its last turn
+            builder.x = x
+            simulation._index_cells()
+            for turn in range(1, simulation_module.ROAD_TURNS):
+                builder.reward = 0.0
+                simulation._build_road(builder)
+                self.assertAlmostEqual(builder.reward, inspiration * turn / simulation_module.ROAD_TURNS)
+                self.assertNotIn((x, 5), simulation.roads)
+            builder.reward = 0.0
+            simulation._build_road(builder)
+            self.assertIn((x, 5), simulation.roads)
+            return builder.reward
+
+        simulation.grass[(5, 5)] = 3
+        self.assertAlmostEqual(lay(4), 2 * inspiration)  # beside one shelter only
+        self.assertAlmostEqual(lay(5), 2 * inspiration)
+        self.assertNotIn((5, 5), simulation.grass)  # cleared
+        self.assertFalse(plant.alive)
+        self.assertAlmostEqual(lay(6), 2 * inspiration + simulation_module.ROAD_LINK_JOY * (0.5 + builder.feeling("curiosity")))  # the two joined
+        self.assertEqual(builder.last_action, "joined shelters by road")
+
+        walker = simulation._add_agent(encode_dna("omnivore", size=7), 4, 5)
+        rambler = simulation._add_agent(encode_dna("omnivore", size=7), 4, 8)
+        simulation._index_cells()
+        simulation._act(walker, "walk_east", {})
+        simulation._act(rambler, "walk_east", {})
+        self.assertEqual(walker.x, 5)
+        self.assertGreater(walker.stamina, rambler.stamina)  # half a step's cost by road
+        self.assertAlmostEqual(walker.road_known, 1 / DAY_LENGTH)  # remembered
+        self.assertEqual(rambler.road_known, 0.0)
+        walker.road_known, walker.weapon = 1.0, 3  # one who knows roads longs to lay them, whatever its curiosity
+        walker.mind["curiosity"] = 0.0
+        walker.x, walker.y = 9, 9
+        walker.reward = 0.0
+        simulation._build_road(walker)
+        self.assertAlmostEqual(walker.reward, simulation_module.ROAD_THRILL * (walker.feeling("curiosity") + simulation_module.ROAD_LONGING) / simulation_module.ROAD_TURNS)
+
     def test_a_fire_of_its_own_comforts_and_a_strangers_does_not(self):
         simulation = Simulation(30, 30, 0, seed=1)
         lighter = Bitzkey(1, encode_dna("omnivore", size=3), 5, 5)

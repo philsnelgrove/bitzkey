@@ -589,6 +589,17 @@ BUILD_THRILL = 1.0  # each stage of a shelter, k of SHELTER_UNITS, thrills BUILD
 # fire, or an infant's parent close by, is felt as relief, by as much unease as it spares (PROTECTION_JOY).
 SHELTER_COMFORT = 0.3
 SHELTER_LONGING = 1.0
+# Roads, as the C++ version's: one with a stone axe lays a section of road on its square in ROAD_TURNS turns of hard work
+# (ROAD_FATIGUE each), clearing it of grass, plants and worked land. Each turn thrills as building does (ROAD_THRILL),
+# a section joining two shelters by road more (ROAD_LINK_JOY). A step from a road square costs ROAD_EASE of one, is
+# remembered to a full memory after a day of them, and pleases the more (ROAD_JOY), as laying more does (ROAD_LONGING).
+ROAD_TURNS = 3
+ROAD_FATIGUE = 60.0
+ROAD_THRILL = 1.0
+ROAD_LINK_JOY = 3.0
+ROAD_EASE = 0.5
+ROAD_JOY = 0.3
+ROAD_LONGING = 1.0
 PROTECTION_JOY = 1.0
 # Leadership, as the C++ version's. One it holds skilled close by is a comfort (SKILL_COMFORT, more if curious), and a
 # craft seen done by one of its kind it holds skilled may be learnt from the watching (WATCH_LEARNING). A student within
@@ -989,6 +1000,7 @@ class Bitzkey:
     carried_wood: int = 0
     boredom: float = 0.0  # see BOREDOM_RISE
     shelter_known: float = 0.0  # its memory of resting in a shelter, 0 to 1 after a day of it (see SHELTER_LONGING)
+    road_known: float = 0.0  # its memory of going by road, 0 to 1 after a day of it (see ROAD_LONGING)
     expected: list[float] | None = None  # what it foresaw of what it last chose, if it imagined it
     surprise: float = 0.0  # how far its last turn differed from what it foresaw, about 0..1
     last_tried: dict = field(default_factory=dict)  # the turn after it last chose each action
@@ -1558,6 +1570,8 @@ class Simulation:
         self.sites: dict[tuple[int, int], int] = {}  # units in each unfinished shelter
         self.shelters: set[tuple[int, int]] = set()
         self.arable: set[tuple[int, int]] = set()  # worked land
+        self.roads: set[tuple[int, int]] = set()
+        self.road_work: dict[tuple[int, int], int] = {}  # turns laid on each unfinished road
         self.site_turns: dict[tuple[int, int], int] = {}  # the turn each site was last built on
         self.site_stone: dict[tuple[int, int], int] = {}  # how many of a site's units are stone, the rest wood
         self.cooked_meat_piles: dict[tuple[int, int], int] = {}
@@ -2881,6 +2895,9 @@ class Simulation:
         beside_fire = fire is not None and abs(fire[0] - agent.x) + abs(fire[1] - agent.y) <= 1
         if agent.weapon and agent.carried_stone + agent.carried_wood and (agent.x, agent.y) not in self.shelters and not self.sea(agent.x, agent.y):
             available.add("construct")
+        square = (agent.x, agent.y)
+        if agent.weapon == STONE_AXE and square not in self.roads and square not in self.shelters and square not in self.sites and not self.sea(*square):
+            available.add("build_road")
         if (agent.weapon == CLUB or agent.carried_stone >= FIRE_STONES) and not self.sea(agent.x, agent.y):
             available.add("light_fire")
         if agent.carried_seed:
@@ -2948,7 +2965,7 @@ class Simulation:
             gear_pile_closeness=self._closeness(agent, gear_pile, sight), fire_closeness=self._closeness(agent, fire, sight), fire_friendly=float(fire is not None and self._fire_friendly(agent, fire)),
             wielding=float(self._gear_force(agent) > 1), armoured=float(agent.armour_worn != 0),
             foe_sheltered=float(any(foe is not None and self._safe_inside(foe) for foe in (target, defend_target))),
-            arable_here=float((agent.x, agent.y) in self.arable), boredom=agent.boredom, seed_carried=float(agent.carried_seed > 0),
+            arable_here=float((agent.x, agent.y) in self.arable), boredom=agent.boredom, road_here=1.0 if (agent.x, agent.y) in self.roads else self.road_work.get((agent.x, agent.y), 0) / ROAD_TURNS, seed_carried=float(agent.carried_seed > 0),
             shelter_here=1.0 if (agent.x, agent.y) in self.shelters else self.sites.get((agent.x, agent.y), 0) / SHELTER_UNITS,
             kill_closeness=self._closeness(agent, kill and (kill.x, kill.y), sight),
             plant_closeness=self._closeness(agent, flora and (flora.x, flora.y), sight),
@@ -3288,9 +3305,17 @@ class Simulation:
             agent.stamina = min(FULL_STAMINA, agent.stamina + rest_recovery())
             return
         # Tired by what it did: each square it went (flying, the more so), each blow struck, and keeping aloft over the sea.
-        cost = ACTION_FATIGUE + (len(agent.trail) - passed) * STEP_FATIGUE * (FLIGHT_FATIGUE if agent.terrain == "avian" else 1.0)
+        # A step from a road square costs ROAD_EASE of one, and is remembered and enjoyed the more, the more it is known.
+        by_road = sum(1 for cell in agent.trail[passed:] if tuple(cell) in self.roads)
+        cells = len(agent.trail) - passed - by_road * (1 - ROAD_EASE)
+        if by_road:
+            agent.road_known = min(1.0, agent.road_known + by_road / DAY_LENGTH)
+            agent.reward += ROAD_JOY * agent.road_known
+        cost = ACTION_FATIGUE + cells * STEP_FATIGUE * (FLIGHT_FATIGUE if agent.terrain == "avian" else 1.0)
         if agent.last_action in ("attacked", "pounced", "defended"):
             cost += STRIKE_FATIGUE
+        if agent.last_action in ("laid road", "finished a road", "joined shelters by road"):
+            cost += ROAD_FATIGUE
         if agent.aloft_at_sea:
             cost += HOVER_FATIGUE
         agent.stamina = max(0.0, agent.stamina - agent.fatigue(cost))
@@ -3432,6 +3457,8 @@ class Simulation:
             self._plant_seed(agent)
         elif action == "construct":
             self._construct(agent)
+        elif action == "build_road":
+            self._build_road(agent)
         elif action == "light_fire":
             self._light_fire(agent)
         elif action == "feed_fire":
@@ -3887,6 +3914,59 @@ class Simulation:
             agent.last_action = "finished a shelter"
         else:
             agent.reward += inspiration * self.sites[cell] / SHELTER_UNITS
+
+    def _build_road(self, agent: Bitzkey) -> None:
+        """A turn's work on the road on its square."""
+        cell = (agent.x, agent.y)
+        self._wear_weapon(agent)
+        agent.last_action = "laid road"
+        # As building a shelter: each turn thrills more than the last, the curious and those who know roads most.
+        inspiration = ROAD_THRILL * (agent.feeling("curiosity") + ROAD_LONGING * agent.road_known)
+        self.road_work[cell] = self.road_work.get(cell, 0) + 1
+        if self.road_work[cell] < ROAD_TURNS:
+            agent.reward += inspiration * self.road_work[cell] / ROAD_TURNS
+            return
+        # Finished, clear of grass, worked land and plants. Did it join shelters no road joined before? So it did if
+        # the shelters beside the whole road now outnumber those beside any one road it joined, or beside it alone.
+        seen: set[tuple[int, int]] = set()
+        before = 0
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                near = ((agent.x + dx) % self.width, agent.y + dy)
+                if near in self.roads and near not in seen:
+                    before = max(before, len(self._road_shelters(near, seen)))
+        del self.road_work[cell]
+        self.roads.add(cell)
+        self.grass.pop(cell, None)
+        self.arable.discard(cell)
+        for plant in list(self._cells.get(cell, ())):
+            if plant.species == "plant" and plant.alive:
+                plant.health = 0
+                self._die(plant, "cleared for a road", agent, "laying road")
+        joined = len(self._road_shelters(cell, set()))
+        alone = sum(((agent.x + dx) % self.width, agent.y + dy) in self.shelters for dy in (-1, 0, 1) for dx in (-1, 0, 1))
+        agent.reward += 2 * inspiration
+        agent.last_action = "finished a road"
+        if joined >= 2 and joined > max(before, alone):
+            agent.reward += ROAD_LINK_JOY * (0.5 + agent.feeling("curiosity"))
+            agent.last_action = "joined shelters by road"
+
+    def _road_shelters(self, start: tuple[int, int], seen: set[tuple[int, int]]) -> set[tuple[int, int]]:
+        """The shelters beside the road joined to the one at start (diagonals too), each road square reached added to seen."""
+        shelters: set[tuple[int, int]] = set()
+        seen.add(start)
+        open_ = [start]
+        while open_:
+            x, y = open_.pop()
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    near = ((x + dx) % self.width, y + dy)
+                    if near in self.shelters:
+                        shelters.add(near)
+                    if near in self.roads and near not in seen:
+                        seen.add(near)
+                        open_.append(near)
+        return shelters
 
     def _light_fire(self, agent: Bitzkey) -> None:
         """Struck from two stones it carries, which it keeps, or of its club, spent."""
