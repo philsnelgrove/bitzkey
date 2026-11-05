@@ -594,6 +594,7 @@ SHELTER_LONGING = 1.0
 # a section joining two shelters by road more (ROAD_LINK_JOY). A step from a road square costs ROAD_EASE of one, is
 # remembered to a full memory after a day of them, and pleases the more (ROAD_JOY), as laying more does (ROAD_LONGING).
 ROAD_TURNS = 3
+ROAD_STONES = 2  # carried stones a section needs to be worked on, laid into it when it is finished
 ROAD_FATIGUE = 60.0
 ROAD_THRILL = 1.0
 ROAD_LINK_JOY = 3.0
@@ -2896,7 +2897,7 @@ class Simulation:
         if agent.weapon and agent.carried_stone + agent.carried_wood and (agent.x, agent.y) not in self.shelters and not self.sea(agent.x, agent.y):
             available.add("construct")
         square = (agent.x, agent.y)
-        if agent.weapon == STONE_AXE and square not in self.roads and square not in self.shelters and square not in self.sites and not self.sea(*square):
+        if agent.weapon == STONE_AXE and agent.carried_stone >= ROAD_STONES and square not in self.roads and square not in self.shelters and square not in self.sites and not self.sea(*square):
             available.add("build_road")
         if (agent.weapon == CLUB or agent.carried_stone >= FIRE_STONES) and not self.sea(agent.x, agent.y):
             available.add("light_fire")
@@ -3937,6 +3938,7 @@ class Simulation:
                     before = max(before, len(self._road_shelters(near, seen)))
         del self.road_work[cell]
         self.roads.add(cell)
+        agent.carried_stone -= ROAD_STONES
         self.grass.pop(cell, None)
         self.arable.discard(cell)
         for plant in list(self._cells.get(cell, ())):

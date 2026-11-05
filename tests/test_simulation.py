@@ -3792,10 +3792,13 @@ class MaterialTests(unittest.TestCase):
                 self.assertAlmostEqual(builder.reward, inspiration * turn / simulation_module.ROAD_TURNS)
                 self.assertNotIn((x, 5), simulation.roads)
             builder.reward = 0.0
+            stone = builder.carried_stone
             simulation._build_road(builder)
             self.assertIn((x, 5), simulation.roads)
+            self.assertEqual(builder.carried_stone, stone - simulation_module.ROAD_STONES)  # laid into it
             return builder.reward
 
+        builder.carried_stone = 3 * simulation_module.ROAD_STONES
         simulation.grass[(5, 5)] = 3
         self.assertAlmostEqual(lay(4), 2 * inspiration)  # beside one shelter only
         self.assertAlmostEqual(lay(5), 2 * inspiration)
