@@ -214,7 +214,7 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "carried_meat": agent.carried_meat, "carried_fruit": agent.carried_fruit, "weapon": agent.weapon, "armour": agent.armour_worn, "weapon_uses": agent.weapon_uses, "armour_uses": agent.armour_uses,
         "infant_taught": agent.infant_taught, "crafts": agent.crafts, "craft_tries": agent.craft_tries, "cooked_meat": agent.cooked_meat, "cooked_fruit": agent.cooked_fruit,
         "carried_stone": agent.carried_stone,
-        "carried_bone": agent.carried_bone, "carried_wood": agent.carried_wood, "carried_seed": agent.carried_seed, "boredom": float(agent.boredom), "shelter_known": float(agent.shelter_known), "road_known": float(agent.road_known), "cooked_known": float(agent.cooked_known), "hide": agent.hide, "hide_armour": float(agent.hide_armour), "skinned": agent.skinned, "thefts": agent.thefts, "meat_lean": float(agent.meat_lean), "expected": agent.expected, "last_tried": [agent.last_tried.get(action, 0) for action in ACTIONS], "died_turn": agent.died_turn, "assailant": agent.assailant,
+        "carried_bone": agent.carried_bone, "carried_wood": agent.carried_wood, "carried_seed": agent.carried_seed, "boredom": float(agent.boredom), "shelter_known": float(agent.shelter_known), "road_known": float(agent.road_known), "cooked_known": float(agent.cooked_known), "plenty": float(agent.plenty), "plenty_known": float(agent.plenty_known), "hide": agent.hide, "hide_armour": float(agent.hide_armour), "skinned": agent.skinned, "thefts": agent.thefts, "meat_lean": float(agent.meat_lean), "expected": agent.expected, "last_tried": [agent.last_tried.get(action, 0) for action in ACTIONS], "died_turn": agent.died_turn, "assailant": agent.assailant,
         "panicked": agent.panicked, "primal_fear": agent.primal_fear, "rivalry": float(agent.rivalry),
         "own_rivalry": float(agent.own_rivalry), "hunts_grazers": agent.hunts_grazers,
         "hunts_omnivores": agent.hunts_omnivores, "hunts_predators": agent.hunts_predators, "guarded": agent.guarded,
@@ -302,6 +302,8 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
     agent.shelter_known = float(record.get("shelter_known", 0.0))
     agent.road_known = float(record.get("road_known", 0.0))  # none in an older world
     agent.cooked_known = float(record.get("cooked_known", 0.0))
+    agent.plenty = float(record.get("plenty", 0.0))
+    agent.plenty_known = float(record.get("plenty_known", -1.0))
     agent.hide = int(record.get("hide", 0))
     agent.hide_armour = float(record.get("hide_armour", 0.0))
     agent.skinned = bool(record.get("skinned", False))
@@ -406,7 +408,8 @@ def world_bytes(simulation: Simulation) -> bytes:
                    simulation.pile_turns.get((x, y, False), 0) if (x, y) in simulation.fruit_piles else 0]
                   for y in range(simulation.height) for x in range(simulation.width)
                   if (x, y) in simulation.meat_piles or (x, y) in simulation.fruit_piles],
-        "seeds": [[x, y, _genome(dna), generation, sown] for x, y, dna, generation, sown in simulation.seeds],
+        "seeds": [[x, y, _genome(dna), generation, sown] + ([simulation.sowers[(x, y, sown)]] if (x, y, sown) in simulation.sowers else [])
+                  for x, y, dna, generation, sown in simulation.seeds],
         "insights": [[*key, offered, simulation.insights.chosen.get(key, 0.0)]
                      for key, offered in simulation.insights.offered.items()]
                     + [[*key, 0.0, chosen] for key, chosen in simulation.insights.chosen.items()
@@ -553,7 +556,8 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
     simulation.stones_scattered = record.get("stones_scattered", False)
     simulation.scatter_stones()  # a world saved before stones has them now, the once
     simulation.seeds = [(x, y, convert_v3(int(dna, 16)) if before_terrain else int(dna, 16), generation, sown)
-                        for x, y, dna, generation, sown in record["seeds"]]
+                        for x, y, dna, generation, sown, *_ in record["seeds"]]
+    simulation.sowers = {(seed[0], seed[1], seed[4]): seed[5] for seed in record["seeds"] if len(seed) > 5}  # none in an older world
     simulation.insights.offered = {}
     simulation.insights.chosen = {}
     for species, trait, level, action, offered, chosen in record["insights"]:

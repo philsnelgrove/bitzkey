@@ -191,6 +191,10 @@ _TABLE: dict[str, list[tuple]] = {
          "more if empathetic", 0.0, 5.0, 0.05),
         ("PREGNANT_REMORSE", "Pregnant remorse", "how much a hunter regrets killing a mother carrying young; more if "
          "empathetic", 0.0, 10.0, 0.1),
+        ("HUNTER_RESTRAINT", "Hunter's restraint", "unease of a kill where few others of its prey are left in its sight: in full with none, none with four or more", 0.0, 10.0, 0.1),
+        ("LAST_BITE", "Last-bite unease", "unease of eating grass or a plant and leaving none of either in its sight", 0.0, 10.0, 0.1),
+        ("SOWER_PRIDE", "Sower's pride", "gladness of seeing a seed it sowed sprout, within its sight", 0.0, 10.0, 0.1),
+        ("FAMINE_LESSON", "Famine lesson", "how much of a sudden death's lesson a herd-mate's starving teaches those who see it; 0 for none", 0.0, 1.0, 0.05),
         ("PARENT_GRIEF", "Parent grief", "how much a parent grieves when one of its infants dies, wherever; more if "
          "empathetic", 0.0, 10.0, 0.1),
         ("RESTING_UNEASE", "Resting unease", "unease, each turn, of having chosen to rest out of its temperature, two steps "

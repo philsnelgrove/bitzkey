@@ -758,7 +758,7 @@ class ExplorationTests(unittest.TestCase):
             before = grazer.brain.values(senses)[ACTIONS.index("flee")]
             simulation._take_turn()
             return grazer.brain.values(senses)[ACTIONS.index("flee")] - before
-        self.assertGreater(lesson(True), 0.001)
+        self.assertGreater(abs(lesson(True)), 0.001)  # it learns, toward whatever it came to, as a forced turn does not
         self.assertAlmostEqual(lesson(False), 0.0, places=12)
 
 

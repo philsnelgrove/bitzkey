@@ -210,6 +210,15 @@ PARENT_GRIEF = 2.0
 # A hunter that kills a mother carrying young feels remorse, by half again and up to one and a half times as much
 # with its empathy: a lesson, not a law.
 PREGNANT_REMORSE = 1.0
+# Lessons of restraint, felt, not laws. A hunter that kills where few others of its prey are left in its sight is
+# uneasy (HUNTER_RESTRAINT, in full with none left, none with PREY_PLENTY or more). One that eats grass or a plant and
+# leaves none of either in its sight is uneasy (LAST_BITE). One whose sown seed sprouts within its sight is proud
+# (SOWER_PRIDE). A herd-mate's starving teaches those who see it FAMINE_LESSON of what a sudden death does.
+PREY_PLENTY = 4
+HUNTER_RESTRAINT, LAST_BITE, SOWER_PRIDE, FAMINE_LESSON = 1.0, 0.5, 1.0, 1.0
+# A sense of plenty: the food within FORAGE_RADIUS (prey for a hunter; plants and grassy squares for a grazer, and
+# both for an omnivore) against its memory of it there, which follows the food over about a day: 0.5 as remembered,
+# toward 1 for more and 0 for less.
 # Society: an animal sees what happens to its herd-mates (its pack, for a predator) within its sight. A
 # herd-mate's kill is a success, its death (but of old age) a failure; the witness learns from it as
 # if it had made the herd-mate's last choice itself, and feels it, by its empathy times its intellect.
@@ -1036,6 +1045,8 @@ class Bitzkey:
     skinned: bool = False  # a body whose hide has been taken
     regarded: float = 0.0  # how well those who know it regard it, on average, as of this turn
     thefts: int = 0  # possessions it has stolen
+    plenty: float = 0.0  # the food about it as of its last survey (see FORAGE_RADIUS)
+    plenty_known: float = -1.0  # its memory of that food, following it over about a day; below 0 before its first survey
     cooked_known: float = 0.0  # its taste for cooked food, a fifth for each cooked portion eaten, to 1 (see COOKED_JOY)
     meat_lean: float = 0.0  # a grazer's lean toward meat from marrow eaten, 0 to 1; at 1 it turns omnivore
     expected: list[float] | None = None  # what it foresaw of what it last chose, if it imagined it
@@ -1584,6 +1595,7 @@ class Simulation:
         # Seeds waiting where they fell for the temperature they can grow in: (x, y, genome,
         # generation, turn sown).
         self.seeds: list[tuple[int, int, int, int, int]] = []
+        self.sowers: dict[tuple[int, int, int], int] = {}  # the animal that sowed each seed, by its x, y and turn sown
         self._climate: list[float] = []
         self._growth: list[float] = []      # each row's share of medium, where grass grows
         self._band_of_row: list[int] = []   # the climate band each row lies in, top to bottom
@@ -2678,9 +2690,14 @@ class Simulation:
                     and self.suits(decode_terrain(dna), (x, y)) and self._room_for_seedling((x, y))):
                 self._sprout(dna, (x, y), generation)
                 self.fertilized.discard((x, y))  # the bone spent on it
+                sower = self.find_agent(self.sowers.pop((x, y, sown), -1)) if SOWER_PRIDE > 0 and (x, y, sown) in self.sowers else None
+                if sower is not None and sower.alive and abs(sower.x - x) + abs(sower.y - y) <= sower.sight:
+                    sower.reward += SOWER_PRIDE  # its sower, seeing it come up, is proud of it
             else:
                 waiting.append(seed)
         self.seeds = waiting
+        kept = {(x, y, sown) for x, y, _, _, sown in waiting}
+        self.sowers = {key: sower for key, sower in self.sowers.items() if key in kept}
 
     def _sow(self, tufts: int) -> None:
         """Scatter new grass at random where it is medium, the only temperature it grows in, and less
@@ -2961,7 +2978,10 @@ class Simulation:
 
     def _survey(self, agent: Bitzkey) -> None:
         """A hunter's view of its territory: how crowded with rivals, and whether its prey are common
-        enough to hunt."""
+        enough to hunt; and for any animal, the food about it against its memory of it."""
+        if agent.species != "plant":
+            agent.plenty = self._food_about(agent)
+            agent.plenty_known = agent.plenty if agent.plenty_known < 0 else agent.plenty_known + (agent.plenty - agent.plenty_known) / DAY_LENGTH
         if agent.species in TERRITORY:
             agent.rivalry, agent.own_rivalry = self._territory(agent)
             agent.hunts_grazers, agent.hunts_omnivores = self._prey_switching(agent)
@@ -3274,7 +3294,7 @@ class Simulation:
             gear_pile_closeness=self._closeness(agent, gear_pile, sight), fire_closeness=self._closeness(agent, fire, sight), fire_friendly=float(fire is not None and self._fire_friendly(agent, fire)),
             wielding=float(self._gear_force(agent) > 1), armoured=float(agent.armour_worn != 0),
             foe_sheltered=float(any(foe is not None and self._safe_inside(foe) for foe in (target, defend_target))),
-            arable_here=float((agent.x, agent.y) in self.arable), boredom=agent.boredom, hide_worn=agent.hide / 3, regarded=agent.regarded, envy=min(1.0, envied), fighting=float(self._fight_of(agent.identifier) is not None), foe_closeness=foe_closeness, cooking_smell=self._cooking_smell(agent, sight), fertilized_here=float((agent.x, agent.y) in self.fertilized), road_here=1.0 if (agent.x, agent.y) in self.roads else self.road_work.get((agent.x, agent.y), 0) / ROAD_TURNS, seed_carried=float(agent.carried_seed > 0),
+            arable_here=float((agent.x, agent.y) in self.arable), boredom=agent.boredom, hide_worn=agent.hide / 3, regarded=agent.regarded, envy=min(1.0, envied), fighting=float(self._fight_of(agent.identifier) is not None), foe_closeness=foe_closeness, cooking_smell=self._cooking_smell(agent, sight), food_plenty=agent.plenty / (agent.plenty + max(0.0, agent.plenty_known)) if agent.plenty + agent.plenty_known > 0 else 0.5, fertilized_here=float((agent.x, agent.y) in self.fertilized), road_here=1.0 if (agent.x, agent.y) in self.roads else self.road_work.get((agent.x, agent.y), 0) / ROAD_TURNS, seed_carried=float(agent.carried_seed > 0),
             shelter_here=1.0 if (agent.x, agent.y) in self.shelters else self.sites.get((agent.x, agent.y), 0) / SHELTER_UNITS,
             kill_closeness=self._closeness(agent, kill and (kill.x, kill.y), sight),
             plant_closeness=self._closeness(agent, flora and (flora.x, flora.y), sight),
@@ -3554,6 +3574,10 @@ class Simulation:
             # A hunter that killed a mother carrying young feels remorse for it.
             if killer.alive and killer.brain is not None:
                 killer.reward -= PREGNANT_REMORSE * (0.5 + killer.feeling("empathy"))
+        if killer is not None and HUNTER_RESTRAINT > 0 and agent.species != "plant" and killer.alive and killer.brain is not None and self._is_prey(killer, agent):
+            # A hunter that kills where few others of its prey are left in its sight is uneasy for it.
+            left = sum(1 for other in self._nearby(killer, killer.sight) if other is not agent and other.alive and self._is_prey(killer, other))
+            killer.reward -= HUNTER_RESTRAINT * max(0.0, 1.0 - left / PREY_PLENTY)
         if agent.infant:  # its parents grieve, wherever they are, and learn from it what came before
             for identifier in (agent.mother, agent.father):
                 parent = self.find_agent(identifier) if identifier >= 0 else None
@@ -3563,6 +3587,8 @@ class Simulation:
         # doing. Its own brain learns nothing from it, as it goes with it.
         if agent.brain is not None and agent.last_senses is not None and cause not in SLOW_DEATHS:
             self._witness(agent, -DEATH_PENALTY)
+        elif agent.brain is not None and agent.last_senses is not None and cause == "starved" and FAMINE_LESSON > 0:
+            self._witness(agent, -DEATH_PENALTY * FAMINE_LESSON)  # a famine's lesson
         agent.brain = None
         agent.memories = []
         agent.diary = []
@@ -3670,6 +3696,7 @@ class Simulation:
             if agent.last_action == "foraged":
                 self._experience(agent, "foraged_meal")
             agent.last_action = "ate"
+            self._last_bite(agent)
         elif action == "forage":
             self._move_toward(agent, *situation["grass"])
             agent.last_action = "foraged"
@@ -3861,6 +3888,7 @@ class Simulation:
             self._die(plant, "eaten", agent, "browsing")
         elif plant.physique("weapons") > 0:
             self._defend(plant, agent)  # a plant can't flee, but an armed one strikes back
+        self._last_bite(agent)
 
     def _uproot(self, agent: Bitzkey, plant: Bitzkey) -> None:
         """A starving grazer, with food scarce about it, tears into a plant beside it, recovering from
@@ -3878,6 +3906,29 @@ class Simulation:
             self._die(plant, "uprooted", agent, "uprooting")
         elif plant.physique("weapons") > 0:
             self._defend(plant, agent)
+        self._last_bite(agent)
+
+    def _food_about(self, agent: Bitzkey) -> float:
+        """Its food within FORAGE_RADIUS, for its sense of plenty."""
+        hunts, grazes = agent.species in ("predator", "omnivore"), agent.species != "predator"
+        food = sum(1 for other in self._nearby(agent, FORAGE_RADIUS)
+                   if (hunts and self._is_prey(agent, other)) or (grazes and other.species == "plant"))
+        if grazes:
+            for dx in range(-FORAGE_RADIUS, FORAGE_RADIUS + 1):
+                reach = FORAGE_RADIUS - abs(dx)
+                food += sum(1 for dy in range(-reach, reach + 1) if self.grass.get((agent.x + dx, agent.y + dy), 0) > 0)
+        return float(food)
+
+    def _food_in_sight(self, agent: Bitzkey) -> bool:
+        """Any grass or living plant within its sight."""
+        if self.grass.get((agent.x, agent.y), 0) > 0 or self._nearest_grass(agent, agent.sight) is not None:
+            return True
+        return any(other.species == "plant" for other in self._nearby(agent, agent.sight))
+
+    def _last_bite(self, agent: Bitzkey) -> None:
+        """Uneasy if what it ate left no grass or plant in its sight."""
+        if LAST_BITE > 0 and not self._food_in_sight(agent):
+            agent.reward -= LAST_BITE
 
     def _feed_young(self, parent: Bitzkey, young: list[Bitzkey]) -> None:
         """Its infants within its sight fed full, at no cost to it, and it glad of it, the more the hungrier they were."""
@@ -4225,6 +4276,7 @@ class Simulation:
         dna = make_dna(SPECIES.index("plant"), self.random)
         dna = dna & ~(0x3 << TEMPERATURE_SHIFT) | zone_temperature(agent.y, self.height) << TEMPERATURE_SHIFT
         self.seeds.append((agent.x, agent.y, with_terrain(dna, "terrestrial"), 0, self.turn))
+        self.sowers[(agent.x, agent.y, self.turn)] = agent.identifier
         agent.reward += PLANTING_JOY * (0.5 + agent.feeling("curiosity"))
         agent.last_action = "planted a seed"
         self._deed_seen(agent, CRAFT_DEED, None, "skill")

@@ -1868,7 +1868,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(grazer.meat, 0)  # a starved body leaves nothing to eat
         self.assertIsNone(grazer.brain)
         self.assertNotEqual(before, herd_mate.brain)
-        self.assertEqual(herd_mate.seen_failure, 0)  # a slow death: no choice of its own to see fail
+        self.assertGreater(herd_mate.seen_failure, 0)  # a slow death, but a famine: its herd learns from it (Famine lesson)
 
         plant = simulation._add_agent(encode_dna("plant", fertility=7), 20, 20)
         plant.hunger = 30
@@ -2546,6 +2546,8 @@ class RestAndRemorseTests(unittest.TestCase):
         hunter = simulation._add_agent(encode_dna("predator"), 6, 5)
         hunter.reward = 0.0
         self.assertTrue(first.womb)
+        restraint, simulation_module.HUNTER_RESTRAINT = simulation_module.HUNTER_RESTRAINT, 0.0  # remorse alone here
+        self.addCleanup(setattr, simulation_module, "HUNTER_RESTRAINT", restraint)
         simulation._die(first, "killed", hunter, "hunting")
         self.assertAlmostEqual(hunter.reward, -PREGNANT_REMORSE * (0.5 + hunter.feeling("empathy")))
         hunter.reward = 0.0
@@ -2850,7 +2852,7 @@ class RewardAuditTests(unittest.TestCase):
 
     def test_a_slow_death_is_not_seen_by_the_herd_and_the_dying_brain_learns_nothing(self):
         dna = encode_dna("grazer", intellect=7, empathy=7)
-        for cause, blamed in (("starved", False), ("froze", False), ("old age", False), ("exhausted", True)):
+        for cause, blamed in (("starved", True), ("froze", False), ("old age", False), ("exhausted", True)):
             dying = self.simulation._add_agent(dna, 5, 5)
             self.simulation._index_cells()
             self.simulation._think(dying)
@@ -2858,8 +2860,8 @@ class RewardAuditTests(unittest.TestCase):
                 self.simulation._die(dying, cause)
             self.assertFalse(learns.called)  # its brain goes with it
             self.assertEqual(witnessed.called, blamed)
-            if blamed:
-                self.assertEqual(witnessed.call_args.args[1], -DEATH_PENALTY)
+            if blamed:  # a starving, by its famine lesson
+                self.assertEqual(witnessed.call_args.args[1], -DEATH_PENALTY * (simulation_module.FAMINE_LESSON if cause == "starved" else 1.0))
 
     def test_growing_out_of_infancy_or_into_old_age_is_no_lesson(self):
         from tools.Simulation import AGEING
@@ -3891,6 +3893,37 @@ class MaterialTests(unittest.TestCase):
         simulation._index_cells()
         self.assertEqual(simulation._envy_of(seer), 0.0)
         self.assertAlmostEqual(simulation._envy_of(skinner), 1.0)
+
+    def test_lessons_of_restraint_a_kill_where_prey_are_few_the_last_bite_a_sown_seed_and_a_sense_of_plenty(self):
+        simulation = Simulation(30, 40, 0, seed=1)
+        hunter = simulation._add_agent(encode_dna("predator", sight=0), 10, 20)
+        victim = simulation._add_agent(encode_dna("grazer"), 11, 20)
+        other = simulation._add_agent(encode_dna("grazer"), 12, 20)
+        simulation._index_cells()
+        hunter.reward = 0.0
+        simulation._die(victim, "killed", hunter, "hunting")  # one other left of four
+        self.assertAlmostEqual(hunter.reward, -simulation_module.HUNTER_RESTRAINT * 0.75)
+        hunter.reward = 0.0
+        simulation._die(other, "killed", hunter, "hunting")  # none left
+        self.assertAlmostEqual(hunter.reward, -simulation_module.HUNTER_RESTRAINT)
+
+        grazer = simulation._add_agent(encode_dna("grazer"), 20, 20)
+        simulation._index_cells()
+        grazer.reward = 0.0
+        simulation._last_bite(grazer)
+        self.assertAlmostEqual(grazer.reward, 0.0 if simulation._food_in_sight(grazer) else -simulation_module.LAST_BITE)
+
+        simulation._survey(grazer)
+        self.assertAlmostEqual(grazer.plenty_known, grazer.plenty)  # its first reading is its memory
+        grazer.plenty_known = 2 * grazer.plenty + 2  # it remembers more than it finds
+        before = grazer.plenty_known
+        senses = simulation._sense(grazer)[0]
+        self.assertLess(senses[SENSES.index("food_plenty")], 0.5)
+        self.assertLess(grazer.plenty_known, before)  # the memory follows the food
+
+        grazer.carried_seed = 1
+        simulation._plant_seed(grazer)
+        self.assertEqual(simulation.sowers[(grazer.x, grazer.y, simulation.turn)], grazer.identifier)
 
     def test_cooked_food_is_a_growing_delight_raw_a_letdown_once_known_cooking_a_pleasure_and_smelt_afar(self):
         simulation = Simulation(30, 40, 0, seed=1)
