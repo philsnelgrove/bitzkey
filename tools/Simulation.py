@@ -1026,6 +1026,7 @@ class Bitzkey:
     hide_armour: float = 0.0  # the armour the hide adds
     skinned: bool = False  # a body whose hide has been taken
     regarded: float = 0.0  # how well those who know it regard it, on average, as of this turn
+    thefts: int = 0  # possessions it has stolen
     expected: list[float] | None = None  # what it foresaw of what it last chose, if it imagined it
     surprise: float = 0.0  # how far its last turn differed from what it foresaw, about 0..1
     last_tried: dict = field(default_factory=dict)  # the turn after it last chose each action
@@ -1847,6 +1848,7 @@ class Simulation:
         if self._value_of(owner, possession) <= self._value_of(agent, possession):
             return
         self._hand_over(owner, agent, possession)
+        agent.thefts += 1
         self._deed_seen(agent, 0.0, owner, "theft")
         self._note_deed(owner, agent, -1.0, 2 * THEFT_DISREGARD, "plain", True)  # twice the wrong, to its victim
         if self.random.random() < max(owner.feeling("aggression"), owner.feeling("dominance")):
