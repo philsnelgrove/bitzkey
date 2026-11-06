@@ -3892,6 +3892,25 @@ class MaterialTests(unittest.TestCase):
         self.assertEqual(simulation._envy_of(seer), 0.0)
         self.assertAlmostEqual(simulation._envy_of(skinner), 1.0)
 
+    def test_a_grazer_eating_marrow_edges_toward_meat_until_it_turns_omnivore_in_its_genes_too(self):
+        simulation = Simulation(10, 40, 0, seed=1)
+        grazer = simulation._add_agent(encode_dna("grazer", size=3, carrion=7), 2, 20)
+        simulation._index_cells()
+        self.assertEqual(grazer.species, "grazer")
+        grazer.carried_stone = 1
+        meals = round(1 / simulation_module.MARROW_LEAN)
+        for _ in range(meals - 1):
+            grazer.carried_bone = 1
+            simulation._eat_marrow(grazer)
+        self.assertEqual(grazer.species, "grazer")
+        self.assertAlmostEqual(grazer.meat_lean, (meals - 1) * simulation_module.MARROW_LEAN)
+        grazer.carried_bone = 1
+        simulation._eat_marrow(grazer)
+        self.assertEqual((grazer.species, decode_body(grazer.dna)["species"], grazer.meat_lean), ("omnivore", "omnivore", 0.0))  # its young too
+        grazer.carried_bone = 1
+        simulation._eat_marrow(grazer)
+        self.assertEqual(grazer.meat_lean, 0.0)  # only grazers lean
+
     def test_crushed_bone_gives_a_scavenger_marrow_or_fertilizes_worked_land(self):
         simulation = Simulation(10, 40, 0, seed=1)
         temperate = max(y for y in range(40) if simulation_module.zone_temperature(y, 40) == simulation_module.MEDIUM)

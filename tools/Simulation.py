@@ -620,7 +620,9 @@ SEED_FOOD, PLANTING_JOY = 0.1, 1.0
 # Bone crushed, as the C++ version's: with a stone carried, a club or a stone axe, a bone it carries or one from a pile on
 # its square; a scavenger eats its marrow, a portion of meat as from a pile, or, on worked land, it is fed to the soil,
 # which sprouts the next seed there in half PLANT_GESTATION, a pleasure as planting is (FERTILIZING_JOY, times curiosity).
-FERTILIZING_JOY = 1.0
+# Each marrow meal edges a grazer MARROW_LEAN toward meat; at the full of it, it gives in: an omnivore, in its genes
+# too, so its young are born omnivores.
+FERTILIZING_JOY, MARROW_LEAN = 1.0, 0.05
 # Clothing, as the C++ version's: with a bone or stone axe, one skins a fresh body for the better of its own hide and any it
 # wore, if better than its own (SKINNING_JOY). A hide keeps out HIDE_WARMTH steps of cold and adds HIDE_ARMOUR_SHARE of its
 # body's armour. An omnivore's hide is a warrior's garb, a predator's a mark of prestige: each turn all who see it move
@@ -1027,6 +1029,7 @@ class Bitzkey:
     skinned: bool = False  # a body whose hide has been taken
     regarded: float = 0.0  # how well those who know it regard it, on average, as of this turn
     thefts: int = 0  # possessions it has stolen
+    meat_lean: float = 0.0  # a grazer's lean toward meat from marrow eaten, 0 to 1; at 1 it turns omnivore
     expected: list[float] | None = None  # what it foresaw of what it last chose, if it imagined it
     surprise: float = 0.0  # how far its last turn differed from what it foresaw, about 0..1
     last_tried: dict = field(default_factory=dict)  # the turn after it last chose each action
@@ -4257,6 +4260,16 @@ class Simulation:
         self._crush_bone(agent)
         agent.nourish(MEAT_PORTION * agent.digestion, True)
         agent.last_action = "ate marrow"
+        if agent.species != "grazer" or MARROW_LEAN <= 0:
+            return
+        agent.meat_lean = min(1.0, agent.meat_lean + MARROW_LEAN)
+        if agent.meat_lean < 1.0 - 1e-9:
+            return
+        shift = 32  # the species trait is the ring's first; the species is it mod 4
+        agent.dna = (agent.dna & ~(0x3 << shift)) | (2 << shift)  # omnivore
+        for name in [name for name in vars(agent) if isinstance(getattr(type(agent), name, None), cached_property)]:
+            del agent.__dict__[name]  # all it is, worked out again from its genes
+        agent.meat_lean = 0.0
 
     def _fertilize(self, agent: Bitzkey) -> None:
         self._crush_bone(agent)
