@@ -1876,8 +1876,10 @@ class Simulation:
         going, won = [], []  # victories judged once the fight is over, so none sees a fight in them
         for fight in self.fights:
             thief, victim = self.find_agent(fight[0]), self.find_agent(fight[1])
-            if thief is None or victim is None or not thief.alive or not victim.alive or fight in going:
+            if thief is None or victim is None or not thief.alive or not victim.alive:
                 continue
+            if any(identifier in (kept[0], kept[1]) for kept in going for identifier in (fight[0], fight[1])):
+                continue  # one fight at a time: any other it is in is dropped
             beaten = lambda one: one.health <= one.max_health / 2 or one.last_action in ("fled", "panicked")
             loser = victim if beaten(victim) else thief if beaten(thief) else None
             if loser is None:

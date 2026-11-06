@@ -3830,6 +3830,20 @@ class MaterialTests(unittest.TestCase):
         self.assertEqual((owner.hide, onlooker.hide), (sm.SPECIES.index("grazer"), 0))
         self.assertGreater(simulation._regard_for(owner, onlooker), 0)
 
+    def test_fights_are_settled_one_at_a_time_for_each(self):
+        sm = simulation_module
+        simulation = Simulation(30, 30, 0, seed=1)
+        taker, owner, other = (simulation._add_agent(encode_dna("omnivore", size=3), x, 5) for x in (5, 6, 7))
+        simulation._index_cells()
+        simulation._fights_begun = [[taker.identifier, owner.identifier, sm.WEAPON_POSSESSION, False],
+                                    [taker.identifier, other.identifier, sm.WEAPON_POSSESSION, False],
+                                    [other.identifier, owner.identifier, sm.HIDE_POSSESSION, False]]
+        simulation._settle_fights()
+        self.assertEqual(len(simulation.fights), 1)  # the rest dropped
+        owner.health = owner.max_health / 2
+        simulation._settle_fights()
+        self.assertEqual(simulation.fights, [])
+
     def test_a_hide_warms_armours_and_draws_regard_fleeing_in_it_is_a_lie_and_the_envious_want_it(self):
         sm = simulation_module
         simulation = Simulation(30, 30, 0, seed=1)
