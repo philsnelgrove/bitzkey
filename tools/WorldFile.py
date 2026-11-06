@@ -214,7 +214,7 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "carried_meat": agent.carried_meat, "carried_fruit": agent.carried_fruit, "weapon": agent.weapon, "armour": agent.armour_worn, "weapon_uses": agent.weapon_uses, "armour_uses": agent.armour_uses,
         "infant_taught": agent.infant_taught, "crafts": agent.crafts, "craft_tries": agent.craft_tries, "cooked_meat": agent.cooked_meat, "cooked_fruit": agent.cooked_fruit,
         "carried_stone": agent.carried_stone,
-        "carried_bone": agent.carried_bone, "carried_wood": agent.carried_wood, "carried_seed": agent.carried_seed, "boredom": float(agent.boredom), "shelter_known": float(agent.shelter_known), "road_known": float(agent.road_known), "expected": agent.expected, "last_tried": [agent.last_tried.get(action, 0) for action in ACTIONS], "died_turn": agent.died_turn, "assailant": agent.assailant,
+        "carried_bone": agent.carried_bone, "carried_wood": agent.carried_wood, "carried_seed": agent.carried_seed, "boredom": float(agent.boredom), "shelter_known": float(agent.shelter_known), "road_known": float(agent.road_known), "hide": agent.hide, "hide_armour": float(agent.hide_armour), "skinned": agent.skinned, "expected": agent.expected, "last_tried": [agent.last_tried.get(action, 0) for action in ACTIONS], "died_turn": agent.died_turn, "assailant": agent.assailant,
         "panicked": agent.panicked, "primal_fear": agent.primal_fear, "rivalry": float(agent.rivalry),
         "own_rivalry": float(agent.own_rivalry), "hunts_grazers": agent.hunts_grazers,
         "hunts_omnivores": agent.hunts_omnivores, "hunts_predators": agent.hunts_predators, "guarded": agent.guarded,
@@ -245,7 +245,7 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
                                                                   float(place.danger[quarter]), float(place.comfort[quarter])))]
                    for place in agent.places],
         "factions": [[one.ring, float(one.regard), one.last, float(one.danger), float(one.skill)] for one in agent.factions],  # each [body word, regard, last]
-        "known": [[one.identifier, float(one.regard), one.last, float(one.danger), float(one.skill)] for one in agent.known],  # each [identifier, regard, last]
+        "known": [[one.identifier, float(one.regard), one.last, float(one.danger), float(one.skill), float(one.garb), one.liar] for one in agent.known],  # each [identifier, regard, last]
     }
 
 
@@ -301,6 +301,9 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
     agent.boredom = float(record.get("boredom", 0.0))  # none in an older world
     agent.shelter_known = float(record.get("shelter_known", 0.0))
     agent.road_known = float(record.get("road_known", 0.0))  # none in an older world
+    agent.hide = int(record.get("hide", 0))
+    agent.hide_armour = float(record.get("hide_armour", 0.0))
+    agent.skinned = bool(record.get("skinned", False))
     agent.expected = record.get("expected")  # nor this
     if len(record.get("last_tried", ())) == len(ACTIONS):
         agent.last_tried = {action: int(turn) for action, turn in zip(ACTIONS, record["last_tried"]) if turn}
@@ -323,7 +326,7 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
                     for entry in record.get("places", [])]
     agent.factions = [world.Faction(int(entry[0]), float(entry[1]), int(entry[2]), *map(float, entry[3:5]))  # none, in a world saved before
                       for entry in record.get("factions", [])]
-    agent.known = [world.Acquaintance(int(entry[0]), float(entry[1]), int(entry[2]), *map(float, entry[3:5]))  # none, in a world saved before
+    agent.known = [world.Acquaintance(int(entry[0]), float(entry[1]), int(entry[2]), *map(float, entry[3:6]), *map(bool, entry[6:7]))  # none, in a world saved before
                    for entry in record.get("known", [])]
     agent.odds = {str(action): float(chance) for action, chance in record["odds"].items() if action in ACTIONS}
     return agent
@@ -388,6 +391,8 @@ def world_bytes(simulation: Simulation) -> bytes:
                      + [[x, y, kind, count, 0] for kind, piles in ((10, simulation.cooked_meat_piles), (11, simulation.cooked_fruit_piles))
                         for (x, y), count in sorted(piles.items())],
         "arable": sorted(y * simulation.width + x for x, y in simulation.arable),
+        "fertilized": sorted(y * simulation.width + x for x, y in simulation.fertilized),
+        "fights": [list(fight) for fight in simulation.fights],
         "roads": [[y * simulation.width + x, simulation.road_work.get((x, y), 0), int((x, y) in simulation.roads)] for x, y in sorted(simulation.roads | set(simulation.road_work), key=lambda c: (c[1], c[0]))],
         "shelters": [[x, y, simulation.sites.get((x, y), 0), int((x, y) in simulation.shelters), simulation.site_turns.get((x, y), 0), simulation.site_stone.get((x, y), 0)] for y in range(simulation.height) for x in range(simulation.width)
                      if (x, y) in simulation.sites or (x, y) in simulation.shelters],
@@ -525,6 +530,8 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
         if kind >= 3:
             simulation.pile_turns[(x, y, "bone" if kind == 3 else "wood")] = dropped
     simulation.arable = {(cell % simulation.width, cell // simulation.width) for cell in record.get("arable", ())}  # none in an older world
+    simulation.fights = [[int(a), int(b), int(c), bool(d)] for a, b, c, d in record.get("fights", ())]  # none in an older world
+    simulation.fertilized = {(cell % simulation.width, cell // simulation.width) for cell in record.get("fertilized", ())}  # none in an older world
     simulation.roads, simulation.road_work = set(), {}
     for cell, work, standing in record.get("roads", ()):  # none in an older world
         if work:

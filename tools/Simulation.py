@@ -439,6 +439,8 @@ class Acquaintance:
     last: int
     danger: float = 0.0  # its reputation with this one, 0 to 1: a blow raises danger, any other deed lowers it
     skill: float = 0.0   # crafting, teaching and lighting a fire raise it
+    garb: float = 0.0    # the regard its garb has won from this one
+    liar: bool = False   # seen fleeing a fight in a garb, so its garb wins nothing more
 
 
 @dataclass
@@ -615,6 +617,24 @@ FOLLOW_SAFETY = 0.5
 FOLLOW_REACH = 2
 # Agriculture: raw fruit eaten leaves a seed, eaten or planted in worked land; digging works only the medium zone. As the C++ version's.
 SEED_FOOD, PLANTING_JOY = 0.1, 1.0
+# Bone crushed, as the C++ version's: with a stone carried, a club or a stone axe, a bone it carries or one from a pile on
+# its square; a scavenger eats its marrow, a portion of meat as from a pile, or, on worked land, it is fed to the soil,
+# which sprouts the next seed there in half PLANT_GESTATION, a pleasure as planting is (FERTILIZING_JOY, times curiosity).
+FERTILIZING_JOY = 1.0
+# Clothing, as the C++ version's: with a bone or stone axe, one skins a fresh body for the better of its own hide and any it
+# wore, if better than its own (SKINNING_JOY). A hide keeps out HIDE_WARMTH steps of cold and adds HIDE_ARMOUR_SHARE of its
+# body's armour. An omnivore's hide is a warrior's garb, a predator's a mark of prestige: each turn all who see it move
+# their regard toward WARRIOR_GARB or PRESTIGE_GARB at GARB_REGARD of a deed's weight; a wearer seen fleeing a fight
+# loses what its garb won, and LIE_DISREGARD times as much again. The moody or dominant (above ENVY_LEVEL) envy better
+# possessions: uneasy at them (ENVY_UNEASE), glad of gaining better (ENVY_JOY), and drawn to the best-provided mate.
+SKINNING_JOY, HIDE_WARMTH, HIDE_ARMOUR_SHARE = 1.0, 1.0, 0.5
+WARRIOR_GARB, PRESTIGE_GARB, GARB_REGARD, LIE_DISREGARD = 0.5, 1.0, 0.05, 1.0
+ENVY_LEVEL, ENVY_UNEASE, ENVY_JOY = 0.6, 0.5, 1.0
+# Foes, victory, cowardice, gifts and theft, as the C++ version's (see there). A fight over a possession lasts until one
+# flees or falls to half its health; those who see it hold the taker a foe meanwhile, or a friend if its victim is theirs.
+FOE_LEVEL, VICTORY_REGARD, FOE_DEFEAT_REGARD, COWARD_DISREGARD = 0.5, 0.3, 0.3, 0.3
+GIVE_LEVEL, GIVE_JOY, TAKE_LEVEL, THEFT_DISREGARD = 0.7, 0.5, 0.7, 0.5
+HIDE_POSSESSION, WEAPON_POSSESSION, ARMOUR_POSSESSION = 0, 1, 2
 DIG_CHANCE = 0.1  # that a dig finds a stone
 WEAPON_FORCE, STONE_FORCE, ARMOUR_FORCE = 2.0, 1.5, 2.0
 ARMOUR_LEAST = 2
@@ -1002,6 +1022,10 @@ class Bitzkey:
     boredom: float = 0.0  # see BOREDOM_RISE
     shelter_known: float = 0.0  # its memory of resting in a shelter, 0 to 1 after a day of it (see SHELTER_LONGING)
     road_known: float = 0.0  # its memory of going by road, 0 to 1 after a day of it (see ROAD_LONGING)
+    hide: int = 0  # the hide it wears, by the index of the species it came from, 0 none; a body keeps it
+    hide_armour: float = 0.0  # the armour the hide adds
+    skinned: bool = False  # a body whose hide has been taken
+    regarded: float = 0.0  # how well those who know it regard it, on average, as of this turn
     expected: list[float] | None = None  # what it foresaw of what it last chose, if it imagined it
     surprise: float = 0.0  # how far its last turn differed from what it foresaw, about 0..1
     last_tried: dict = field(default_factory=dict)  # the turn after it last chose each action
@@ -1135,7 +1159,9 @@ class Bitzkey:
         return decode_climate(self.dna)
 
     def climate_steps(self, here: float) -> float:
-        """How many steps a temperature is from home, part steps while the weather turns."""
+        """How many steps a temperature is from home, part steps while the weather turns; a hide keeps out HIDE_WARMTH of cold."""
+        if self.hide and here > self.climate[0]:
+            return max(0.0, here - self.climate[0] - HIDE_WARMTH)
         return abs(here - self.climate[0])
 
     def exposure_share(self, here: float) -> float:
@@ -1572,6 +1598,9 @@ class Simulation:
         self.shelters: set[tuple[int, int]] = set()
         self.arable: set[tuple[int, int]] = set()  # worked land
         self.roads: set[tuple[int, int]] = set()
+        self.fertilized: set[tuple[int, int]] = set()  # worked land fed crushed bone, until a seed sprouts there
+        self.fights: list[list] = []  # each [taker, owner, possession, taken], changed only between turns
+        self._fights_begun: list[list] = []
         self.road_work: dict[tuple[int, int], int] = {}  # turns laid on each unfinished road
         self.site_turns: dict[tuple[int, int], int] = {}  # the turn each site was last built on
         self.site_stone: dict[tuple[int, int], int] = {}  # how many of a site's units are stone, the rest wood
@@ -1725,13 +1754,146 @@ class Simulation:
     def _faction_of(agent: Bitzkey, other: Bitzkey) -> Faction | None:
         return next((one for one in agent.factions if colour_difference(one.ring, body_word(other.dna)) <= FACTION_WIDTH), None)
 
+    def _regard_for(self, agent: Bitzkey, other: Bitzkey) -> float:
+        """While it fights to take from another, those who see the fight hold it a foe, or a friend if its victim is theirs."""
+        fight = self._fight_of(other.identifier)
+        if fight is not None and fight[0] == other.identifier and agent.identifier != fight[1]:
+            victim = self.find_agent(fight[1])
+            if victim is not None and victim.alive and abs(victim.x - agent.x) + abs(victim.y - agent.y) <= agent.sight:
+                return 1.0 if self._raw_regard_for(agent, victim) <= -self._foe_level(agent) else -1.0
+        return self._raw_regard_for(agent, other)
+
     @classmethod
-    def _regard_for(cls, agent: Bitzkey, other: Bitzkey) -> float:
+    def _raw_regard_for(cls, agent: Bitzkey, other: Bitzkey) -> float:
         known = next((known for known in agent.known if known.identifier == other.identifier), None)
         if known is not None:
             return known.regard
         faction = cls._faction_of(agent, other)
         return faction.regard if faction else 0.0
+
+    def _fight_of(self, identifier: int) -> list | None:
+        """The fight it is in, if any: [taker, owner, possession, taken]."""
+        return next((fight for fight in self.fights if identifier in (fight[0], fight[1])), None)
+
+    @staticmethod
+    def _foe_level(agent: Bitzkey) -> float:
+        return FOE_LEVEL * (0.5 + 0.5 * (agent.feeling("empathy") + agent.feeling("sociability")))
+
+    def _is_friend(self, agent: Bitzkey, other: Bitzkey) -> bool:
+        return self._regard_for(agent, other) >= REGARD_STRONG
+
+    def _is_foe(self, agent: Bitzkey, other: Bitzkey) -> bool:
+        return self._regard_for(agent, other) <= -self._foe_level(agent)
+
+    @staticmethod
+    def _value_of(agent: Bitzkey, possession: int) -> int:
+        if possession == HIDE_POSSESSION:
+            return agent.hide
+        if possession == WEAPON_POSSESSION:
+            return 2 if agent.weapon == STONE_AXE else 1 if agent.weapon else 0
+        return 1 if agent.armour_worn else 0
+
+    @classmethod
+    def _better_possession(cls, taker: Bitzkey, owner: Bitzkey) -> int | None:
+        """The kind of possession owner has most better than taker's, if any."""
+        best, most = None, 0
+        for possession in (HIDE_POSSESSION, WEAPON_POSSESSION, ARMOUR_POSSESSION):
+            more = cls._value_of(owner, possession) - cls._value_of(taker, possession)
+            if more > most:
+                best, most = possession, more
+        return best
+
+    def _hand_over(self, giver: Bitzkey, taker: Bitzkey, possession: int) -> None:
+        """What the taker had of it falls where it stands."""
+        def drop_weapon(one: Bitzkey) -> None:
+            if one.weapon:
+                self._drop_gear((one.x, one.y), GEAR_KINDS[one.weapon - 1], one.weapon_uses)
+            one.weapon, one.weapon_uses = NO_WEAPON, 0
+
+        def drop_armour(one: Bitzkey) -> None:
+            if one.armour_worn:
+                self._drop_gear((one.x, one.y), GEAR_KINDS[one.armour_worn + 2], one.armour_uses)
+            one.armour_worn, one.armour_uses = NO_ARMOUR, 0
+
+        if possession == HIDE_POSSESSION:
+            taker.hide, taker.hide_armour = giver.hide, giver.hide_armour
+            giver.hide, giver.hide_armour = 0, 0.0
+        elif possession == WEAPON_POSSESSION:
+            drop_weapon(taker)
+            taker.weapon, taker.weapon_uses = giver.weapon, giver.weapon_uses
+            giver.weapon, giver.weapon_uses = NO_WEAPON, 0
+            if taker.weapon != STONE_AXE:
+                drop_armour(taker)  # a bone axe or club goes with no armour
+        else:
+            drop_armour(taker)
+            taker.armour_worn, taker.armour_uses = giver.armour_worn, giver.armour_uses
+            giver.armour_worn, giver.armour_uses = NO_ARMOUR, 0
+            if taker.weapon in (BONE_AXE, CLUB):
+                drop_weapon(taker)
+
+    def _demand(self, agent: Bitzkey, owner: Bitzkey, possession: int) -> None:
+        agent.last_action = "demanded"
+        if self._value_of(owner, possession) <= self._value_of(agent, possession):
+            return
+        if self.random.random() < max(owner.feeling("aggression"), owner.feeling("dominance")):  # it fights for it
+            self._fights_begun.append([agent.identifier, owner.identifier, possession, False])
+            agent.last_action = "began a fight"
+            return
+        self._hand_over(owner, agent, possession)
+        agent.last_action = "was yielded"
+
+    def _steal(self, agent: Bitzkey, owner: Bitzkey, possession: int) -> None:
+        agent.last_action = "stole"
+        if self._value_of(owner, possession) <= self._value_of(agent, possession):
+            return
+        self._hand_over(owner, agent, possession)
+        self._deed_seen(agent, 0.0, owner, "theft")
+        self._note_deed(owner, agent, -1.0, 2 * THEFT_DISREGARD, "plain", True)  # twice the wrong, to its victim
+        if self.random.random() < max(owner.feeling("aggression"), owner.feeling("dominance")):
+            self._fights_begun.append([agent.identifier, owner.identifier, possession, True])
+
+    def _give(self, agent: Bitzkey, friend: Bitzkey, possession: int) -> None:
+        agent.last_action = "gave"
+        if self._value_of(agent, possession) <= self._value_of(friend, possession):
+            return
+        self._hand_over(agent, friend, possession)
+        self._note_deed(friend, agent, 1.0, 1.0, "plain", True)  # a gift, a kindness
+        agent.reward += GIVE_JOY * (0.5 + max(agent.feeling("empathy"), agent.feeling("sociability")))
+
+    def _brawl(self, agent: Bitzkey, opponent: Bitzkey) -> None:
+        """A turn of the fight: closer, or a blow."""
+        if abs(opponent.x - agent.x) + abs(opponent.y - agent.y) > 1:
+            self._move_toward(agent, opponent.x, opponent.y)
+            agent.last_action = "closed in"
+            return
+        self._attack(agent, opponent, "fighting")
+        agent.last_action = "fought"
+
+    def _settle_fights(self) -> None:
+        """After the turn: new fights begun, and those won, fled or ended, settled."""
+        self.fights.extend(self._fights_begun)
+        self._fights_begun = []
+        going, won = [], []  # victories judged once the fight is over, so none sees a fight in them
+        for fight in self.fights:
+            thief, victim = self.find_agent(fight[0]), self.find_agent(fight[1])
+            if thief is None or victim is None or not thief.alive or not victim.alive or fight in going:
+                continue
+            beaten = lambda one: one.health <= one.max_health / 2 or one.last_action in ("fled", "panicked")
+            loser = victim if beaten(victim) else thief if beaten(thief) else None
+            if loser is None:
+                if abs(thief.x - victim.x) + abs(thief.y - victim.y) <= max(thief.sight, victim.sight):
+                    going.append(fight)
+                continue
+            winner = thief if loser is victim else victim
+            if loser is victim and not fight[3]:
+                self._hand_over(victim, thief, fight[2])
+            if loser is thief and fight[3] and self._value_of(thief, fight[2]) > self._value_of(victim, fight[2]):
+                self._hand_over(thief, victim, fight[2])
+            won.append((winner, loser))
+        self.fights = going
+        for winner, loser in won:
+            self._deed_seen(winner, 0.0, loser, "victory")
+            winner.last_action = "won a fight"
 
     @classmethod
     def _skill_held(cls, agent: Bitzkey, other: Bitzkey) -> float:
@@ -1778,6 +1940,24 @@ class Simulation:
             if other is doer or other is target or not other.alive or other.brain is None:
                 continue
             if abs(other.x - doer.x) + abs(other.y - doer.y) <= other.sight:
+                if kind in ("garb", "lie"):
+                    self._garb_seen(other, doer, deed, kind == "lie")
+                    continue
+                if kind == "victory":  # for a friend's, against a foe's, and the more over a foe
+                    if self._is_friend(other, doer):
+                        self._note_deed(other, doer, 1.0, VICTORY_REGARD, "plain", True)
+                    elif self._is_foe(other, doer):
+                        self._note_deed(other, doer, -1.0, VICTORY_REGARD, "plain", True)
+                    if target is not None and self._is_foe(other, target):
+                        self._note_deed(other, doer, 1.0, FOE_DEFEAT_REGARD, "plain", True)
+                    continue
+                if kind == "coward":
+                    if self._is_friend(other, doer) or self._is_foe(other, doer):
+                        self._note_deed(other, doer, -1.0, COWARD_DISREGARD, "plain", True)
+                    continue
+                if kind == "theft":  # a wrong, unless done to a foe
+                    self._note_deed(other, doer, 1.0 if target is not None and self._is_foe(other, target) else -1.0, THEFT_DISREGARD, "plain", True)
+                    continue
                 wronged = deed >= 0 or target is None or other.species == target.species  # a hunt is no wrong to a stranger, yet shows its danger
                 self._note_deed(other, doer, deed, WITNESS_SHARE, kind, wronged)
                 if kind == "skill" and SKILL_WITNESS > WITNESS_SHARE:  # the rest, on skill alone
@@ -1785,6 +1965,60 @@ class Simulation:
                 if (craft >= 0 and not other.crafts >> craft & 1 and self._same_kind(other, doer)
                         and self._skill_held(other, doer) >= SKILL_HELD and self.random.random() < WATCH_LEARNING):
                     other.crafts |= 1 << craft  # a craft watched done by one it holds skilled, learnt from the watching
+
+    def _garb_seen(self, seer: Bitzkey, wearer: Bitzkey, garb: float, lie: bool) -> None:
+        """What one sees of another's garb: its regard won, or, fleeing in it, lost as a liar's."""
+        found = next((one for one in seer.known if one.identifier == wearer.identifier), None)
+        if lie:
+            if found is not None and found.garb > 0:
+                found.regard = max(-1.0, found.regard - (1 + LIE_DISREGARD) * found.garb)
+                found.garb, found.liar = 0.0, True
+            return
+        if found is not None and found.liar:
+            return  # a liar's garb wins nothing
+        before = found.regard if found is not None else 0.0
+        self._note_deed(seer, wearer, garb, GARB_REGARD, "plain", True)
+        found = next((one for one in seer.known if one.identifier == wearer.identifier), None)
+        if found is not None:
+            found.garb += found.regard - before
+
+    @staticmethod
+    def _hide_from(corpse: Bitzkey) -> int:
+        return max(SPECIES.index(corpse.species), corpse.hide)
+
+    @staticmethod
+    def _garb_of(hide: int) -> float:
+        return PRESTIGE_GARB if hide == SPECIES.index("predator") else WARRIOR_GARB if hide == SPECIES.index("omnivore") else 0.0
+
+    @staticmethod
+    def _possessions(agent: Bitzkey) -> float:
+        """Its possessions, for envy: its hide, tool and armour."""
+        return agent.hide / 3 + (1.0 if agent.weapon == STONE_AXE else 0.5 if agent.weapon else 0.0) + (0.5 if agent.armour_worn else 0.0)
+
+    @staticmethod
+    def _envy_of(agent: Bitzkey) -> float:
+        """How envious it is: 0 at Envy level or below, 1 at the most."""
+        if agent.species == "plant" or ENVY_LEVEL >= 1:
+            return 0.0
+        drive = max(agent.feeling("moodiness"), agent.feeling("dominance"))
+        return (drive - ENVY_LEVEL) / (1 - ENVY_LEVEL) if drive > ENVY_LEVEL else 0.0
+
+    def _skin(self, agent: Bitzkey, corpse: Bitzkey) -> None:
+        """Takes the better of a fresh body's hide and the one it wore."""
+        self._move_toward(agent, corpse.x, corpse.y)
+        if abs(corpse.x - agent.x) + abs(corpse.y - agent.y) > 1 or corpse.skinned or not self._fresh(corpse):
+            agent.last_action = "sought a body"
+            return
+        corpse.skinned = True
+        self._wear_weapon(agent)
+        agent.last_action = "skinned a body"
+        hide = self._hide_from(corpse)
+        if hide <= agent.hide:
+            return  # no better than its own
+        agent.hide_armour = corpse.hide_armour if corpse.hide > SPECIES.index(corpse.species) else HIDE_ARMOUR_SHARE * corpse.physique("armour")
+        agent.hide = hide
+        agent.reward += SKINNING_JOY * (0.5 + agent.feeling("curiosity")) * hide / 3
+        self._deed_seen(agent, CRAFT_DEED, None, "skill")
 
     def _map_senses(self, agent: Bitzkey) -> dict[str, float]:
         """Its mental map: the best place it remembers for food this season, the worst for danger, the best for comfort
@@ -2412,9 +2646,10 @@ class Simulation:
             x, y, dna, generation, sown = seed
             if self.turn - sown >= viable:
                 continue
-            if (self.turn - sown >= PLANT_GESTATION and abs(self._climate[y] - decode_climate(dna)[0]) < 0.5
+            if (self.turn - sown >= (PLANT_GESTATION // 2 if (x, y) in self.fertilized else PLANT_GESTATION) and abs(self._climate[y] - decode_climate(dna)[0]) < 0.5
                     and self.suits(decode_terrain(dna), (x, y)) and self._room_for_seedling((x, y))):
                 self._sprout(dna, (x, y), generation)
+                self.fertilized.discard((x, y))  # the bone spent on it
             else:
                 waiting.append(seed)
         self.seeds = waiting
@@ -2693,6 +2928,7 @@ class Simulation:
         for agent, action, situation in actions:  # each in turn, in the world as those before it left it
             if agent.alive:
                 self._act(agent, action, situation)
+        self._settle_fights()
         self._learn_witnessed()
 
     def _survey(self, agent: Bitzkey) -> None:
@@ -2711,8 +2947,10 @@ class Simulation:
             self._survey(agent)
         neighbors = self._nearby(agent, 1)
         # Close enough to breed with: the most dominant willing partner, the first found on a tie.
+        # An envious one wants the best-provided mate too.
+        envy = self._envy_of(agent)
         mate = max((other for other in self._nearby(agent, MATE_REACH) if self._compatible(agent, other) and other.can_breed),
-                   key=lambda other: other.mind["dominance"], default=None)
+                   key=lambda other: other.mind["dominance"] + TRAIT_MAX * envy * self._possessions(other), default=None)
         nurseries = self._free_cells_near(agent)
         prey = [other for other in neighbors if self._is_prey(agent, other)]
         threats = [other for other in neighbors if self._is_prey(other, agent)]
@@ -2897,6 +3135,42 @@ class Simulation:
         if agent.weapon and agent.carried_stone + agent.carried_wood and (agent.x, agent.y) not in self.shelters and not self.sea(agent.x, agent.y):
             available.add("construct")
         square = (agent.x, agent.y)
+        if self._can_crush(agent):
+            if agent.scavenger > 0 and MEAT_PORTION * agent.digestion > 0:
+                available.add("eat_marrow")
+            if square in self.arable and square not in self.fertilized:
+                available.add("fertilize")
+        if (agent.weapon in (BONE_AXE, STONE_AXE) and dressable is not None and dressable.species != "plant" and not dressable.skinned
+                and self._fresh(dressable) and self._hide_from(dressable) > agent.hide):
+            available.add("skin")
+        envied = 0.0  # how much better the best possessions it sees are than its own
+        if envy > 0:
+            mine = self._possessions(agent)
+            envied = max([self._possessions(other) - mine for other in self._nearby(agent, sight) if other is not agent and other.alive and other.species != "plant"], default=0.0)
+            envied = max(0.0, envied)
+        # The nearest foe in sight; possessions to claim from those beside it, or to give a friend beside it.
+        foes = [abs(other.x - agent.x) + abs(other.y - agent.y) for other in self._nearby(agent, sight)
+                if other is not agent and other.alive and other.species != "plant" and self._is_foe(agent, other)]
+        foe_closeness = 1.0 - (min(foes) - 1) / max(1, sight) if foes else 0.0
+        claim_from = claim = gift_to = gift = None
+        taker = max(agent.feeling("aggression"), agent.feeling("dominance")) > TAKE_LEVEL and self._fight_of(agent.identifier) is None
+        giver = max(agent.feeling("empathy"), agent.feeling("sociability")) > GIVE_LEVEL
+        if taker or giver:
+            for other in neighbors:
+                if other is agent or not other.alive or other.species == "plant" or other.infant:
+                    continue
+                if taker and claim_from is None and self._fight_of(other.identifier) is None:
+                    better = self._better_possession(agent, other)
+                    if better is not None:
+                        claim_from, claim = other, better
+                if giver and gift_to is None and self._is_friend(agent, other):
+                    better = self._better_possession(other, agent)
+                    if better is not None:
+                        gift_to, gift = other, better
+        if claim_from is not None:
+            available |= {"demand", "steal"}
+        if gift_to is not None:
+            available.add("give")
         if agent.weapon == STONE_AXE and agent.carried_stone >= ROAD_STONES and square not in self.roads and square not in self.shelters and square not in self.sites and not self.sea(*square):
             available.add("build_road")
         if (agent.weapon == CLUB or agent.carried_stone >= FIRE_STONES) and not self.sea(agent.x, agent.y):
@@ -2966,7 +3240,7 @@ class Simulation:
             gear_pile_closeness=self._closeness(agent, gear_pile, sight), fire_closeness=self._closeness(agent, fire, sight), fire_friendly=float(fire is not None and self._fire_friendly(agent, fire)),
             wielding=float(self._gear_force(agent) > 1), armoured=float(agent.armour_worn != 0),
             foe_sheltered=float(any(foe is not None and self._safe_inside(foe) for foe in (target, defend_target))),
-            arable_here=float((agent.x, agent.y) in self.arable), boredom=agent.boredom, road_here=1.0 if (agent.x, agent.y) in self.roads else self.road_work.get((agent.x, agent.y), 0) / ROAD_TURNS, seed_carried=float(agent.carried_seed > 0),
+            arable_here=float((agent.x, agent.y) in self.arable), boredom=agent.boredom, hide_worn=agent.hide / 3, regarded=agent.regarded, envy=min(1.0, envied), fighting=float(self._fight_of(agent.identifier) is not None), foe_closeness=foe_closeness, fertilized_here=float((agent.x, agent.y) in self.fertilized), road_here=1.0 if (agent.x, agent.y) in self.roads else self.road_work.get((agent.x, agent.y), 0) / ROAD_TURNS, seed_carried=float(agent.carried_seed > 0),
             shelter_here=1.0 if (agent.x, agent.y) in self.shelters else self.sites.get((agent.x, agent.y), 0) / SHELTER_UNITS,
             kill_closeness=self._closeness(agent, kill and (kill.x, kill.y), sight),
             plant_closeness=self._closeness(agent, flora and (flora.x, flora.y), sight),
@@ -3013,7 +3287,7 @@ class Simulation:
             **{trait: agent.feeling(trait) for trait in TEMPERAMENT},
             **agent.genes,
         )
-        situation = {"teacher_steps": -1 if teacher is None else abs(teacher.x - agent.x) + abs(teacher.y - agent.y),
+        situation = {"envy": envied, "claim_from": claim_from, "claim": claim, "gift_to": gift_to, "gift": gift, "teacher_steps": -1 if teacher is None else abs(teacher.x - agent.x) + abs(teacher.y - agent.y),
                      "mate": mate, "nurseries": nurseries, "young_near": young, "young": own_young, "prey": target, "threat": threat,
                      "threats": len(threats), "quarry": quarry, "hunter": hunter, "suitor": suitor, "suitor_at": suitor and (suitor.x, suitor.y),
                      "grass": grass, "grass_here": grass_here, "carrion": carrion, "kill": kill, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
@@ -3085,6 +3359,7 @@ class Simulation:
             hearth += ELDER_COMFORT * (0.5 + agent.feeling("trust"))
         if 0 <= steps <= FOLLOW_REACH and (regard >= REGARD_STRONG or skill >= SKILL_HELD):
             hearth += (1 + PROTECTION_JOY) * FOLLOW_SAFETY * self._dread(agent, situation)
+        hearth -= ENVY_UNEASE * self._envy_of(agent) * situation.get("envy", 0.0)
         if regard >= REGARD_STRONG:
             return hearth + REGARD_COMFORT * regard * (0.5 + agent.feeling("trust"))
         if regard <= -REGARD_STRONG:
@@ -3233,6 +3508,8 @@ class Simulation:
         """Record a death, with what killed it and what the killer was doing. The body becomes carrion holding
         the energy it had left: a starved body leaves nothing, and a killed one half, as the killer has already
         eaten. Dying of old age is not held against the brain's last choice."""
+        if killer is not None and killer.species != "plant" and agent.species != "plant":
+            self._deed_seen(killer, 0.0, agent, "victory")
         self.death_records[agent.identifier] = Death(cause, agent.species, self.turn,
                                                      None if killer is None else killer.identifier,
                                                      None if killer is None else killer.species, activity,
@@ -3297,11 +3574,22 @@ class Simulation:
             if agent.call == ALERT_CALL and situation["alert_to"] is not None:
                 self._alert(agent, situation["alert_to"])
         passed = len(agent.trail)
-        self._do(agent, action, situation)
+        had = self._possessions(agent)
+        fight = self._fight_of(agent.identifier) if action != "flee" else None
+        opponent = self.find_agent(fight[1] if fight[0] == agent.identifier else fight[0]) if fight else None
+        if opponent is not None and opponent.alive:
+            self._brawl(agent, opponent)  # in a fight, it fights, unless it flees
+        else:
+            self._do(agent, action, situation)
         if agent.last_action in FED:
             agent.food_memory = (agent.x, agent.y, self.turn)
         if not agent.alive:
             return
+        gained = self._possessions(agent) - had
+        if gained > 0:
+            agent.reward += ENVY_JOY * self._envy_of(agent) * gained  # the envious, glad of better
+        if self._garb_of(agent.hide) > 0:
+            self._deed_seen(agent, self._garb_of(agent.hide), None, "garb")  # its garb, seen
         if agent.last_action == "rested":
             agent.stamina = min(FULL_STAMINA, agent.stamina + rest_recovery())
             return
@@ -3460,6 +3748,18 @@ class Simulation:
             self._construct(agent)
         elif action == "build_road":
             self._build_road(agent)
+        elif action == "skin":
+            self._skin(agent, situation["dressable"])
+        elif action == "demand":
+            self._demand(agent, situation["claim_from"], situation["claim"])
+        elif action == "steal":
+            self._steal(agent, situation["claim_from"], situation["claim"])
+        elif action == "give":
+            self._give(agent, situation["gift_to"], situation["gift"])
+        elif action == "eat_marrow":
+            self._eat_marrow(agent)
+        elif action == "fertilize":
+            self._fertilize(agent)
         elif action == "light_fire":
             self._light_fire(agent)
         elif action == "feed_fire":
@@ -3500,6 +3800,11 @@ class Simulation:
                 agent.reward += CURIOSITY_JOY * agent.feeling("curiosity")
             agent.last_action = went
         elif action == "flee":
+            if situation["hunter"] and self._garb_of(agent.hide) > 0:
+                self._deed_seen(agent, 0.0, None, "lie")  # a warrior's garb, running from a fight
+            assailant = situation.get("assailant")
+            if self._fight_of(agent.identifier) is not None or (assailant is not None and self._same_kind(agent, assailant)):
+                self._deed_seen(agent, 0.0, None, "coward")  # fleeing a fight, or one of its own kind
             if situation["hunter"]:
                 self._move_away(agent, situation["hunter"])
             else:
@@ -3805,11 +4110,12 @@ class Simulation:
 
     @staticmethod
     def _gear_toughness(agent: Bitzkey) -> float:
-        """Its toughness with what it wears."""
+        """Its toughness with what it wears: a hide, on top of all else."""
+        clothed = agent.toughness + (1 - SIZE_IN_MIGHT) * agent.hide_armour
         if not agent.armour_worn:
-            return agent.toughness
+            return min(1.0, clothed)
         natural = agent.physique("armour")
-        return agent.toughness + (1 - SIZE_IN_MIGHT) * (ARMOUR_FORCE * max(natural, ARMOUR_LEAST / TRAIT_MAX) - natural)
+        return min(1.0, clothed + (1 - SIZE_IN_MIGHT) * (ARMOUR_FORCE * max(natural, ARMOUR_LEAST / TRAIT_MAX) - natural))
 
     @staticmethod
     def _gear_force(agent: Bitzkey) -> float:
@@ -3916,6 +4222,32 @@ class Simulation:
         else:
             agent.reward += inspiration * self.sites[cell] / SHELTER_UNITS
 
+    def _can_crush(self, agent: Bitzkey) -> bool:
+        """A bone to hand and something to crush it with."""
+        return (agent.weapon in (CLUB, STONE_AXE) or agent.carried_stone > 0) and (agent.carried_bone > 0 or self.bone_piles.get((agent.x, agent.y), 0) > 0)
+
+    def _crush_bone(self, agent: Bitzkey) -> None:
+        """Spends the bone it carries, or else one from the pile on its square."""
+        if agent.carried_bone:
+            agent.carried_bone -= 1
+        else:
+            cell = (agent.x, agent.y)
+            self.bone_piles[cell] -= 1
+            if not self.bone_piles[cell]:
+                del self.bone_piles[cell]
+
+    def _eat_marrow(self, agent: Bitzkey) -> None:
+        self._crush_bone(agent)
+        agent.nourish(MEAT_PORTION * agent.digestion, True)
+        agent.last_action = "ate marrow"
+
+    def _fertilize(self, agent: Bitzkey) -> None:
+        self._crush_bone(agent)
+        self.fertilized.add((agent.x, agent.y))
+        agent.reward += FERTILIZING_JOY * (0.5 + agent.feeling("curiosity"))
+        agent.last_action = "fertilized the land"
+        self._deed_seen(agent, CRAFT_DEED, None, "skill")
+
     def _build_road(self, agent: Bitzkey) -> None:
         """A turn's work on the road on its square."""
         cell = (agent.x, agent.y)
@@ -3941,6 +4273,7 @@ class Simulation:
         agent.carried_stone -= ROAD_STONES
         self.grass.pop(cell, None)
         self.arable.discard(cell)
+        self.fertilized.discard(cell)
         for plant in list(self._cells.get(cell, ())):
             if plant.species == "plant" and plant.alive:
                 plant.health = 0
@@ -4155,7 +4488,7 @@ class Simulation:
             agent.nourish(meal, meat=True)
             agent.reward += 2 * joy
             self._witness(agent, meal / agent.stomach / 100)  # its pack sees it succeed: the fullness it gained
-            if self._rival_weight(agent, victim) > 0:  # one fewer rival for the feeding ground
+            if self._rival_weight(agent, victim) > 0 or self._is_foe(agent, victim):  # one fewer rival for the feeding ground
                 agent.reward += RIVAL_KILL_JOY * agent.rivalry * (1 - 0.5 * agent.feeling("tolerance"))
             self._experience(agent, "kill")
         pain = EMPATHY_PAIN * (2 if killed else 1)
@@ -4370,6 +4703,16 @@ class Simulation:
                                     for y in range(self.height)])
 
     def _index_cells(self) -> None:
+        held: dict[int, list[float]] = {}  # how well each is regarded by the living who know it
+        for one in self.agents:
+            if one.alive:
+                for known in one.known:
+                    entry = held.setdefault(known.identifier, [0.0, 0])
+                    entry[0] += known.regard
+                    entry[1] += 1
+        for one in self.agents:
+            entry = held.get(one.identifier)
+            one.regarded = entry[0] / entry[1] if entry else 0.0
         self._any_piles = bool(self.meat_piles or self.fruit_piles or self.stone_piles or self.bone_piles or self.wood_piles
                                or any(self.gear_piles.values()) or self.cooked_meat_piles or self.cooked_fruit_piles)
         self._cells = {}
@@ -5007,7 +5350,7 @@ class Simulation:
         rivals = own = 0.0
         for other in self._nearby(hunter, hunter.sight):
             pack = PACK_RIVALRY if hunter.species == "predator" and self._herd_mate(hunter, other) else 1.0
-            rivals += self._rival_weight(hunter, other) * pack
+            rivals += max(self._rival_weight(hunter, other), 1.0 if other is not hunter and self._is_foe(hunter, other) else 0.0) * pack  # a foe, by nature a rival
             own += (other.species == hunter.species) * pack
         return tuple(strength * min(1.0, max(0.0, count - tolerated) / TERRITORY_RAMP) for count in (rivals, own))
 

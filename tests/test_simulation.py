@@ -3100,18 +3100,17 @@ class ScavengerTests(unittest.TestCase):
             simulation._struck(middling, striker)
         self.assertTrue(scavenger.panicked)  # always breaks, like an omnivore
         self.assertFalse(middling.panicked)
-        hunter = simulation._add_agent(encode_dna("predator", carrion=7, sight=3), 5, 5)
         simulation._add_agent(encode_dna("grazer"), 5, 8)
-        simulation._index_cells()
-        hunter.brain = Brain.random(random.Random(1))
         odds = []
-        for aversion in (0.0, 1.0):
-            hunter.x, hunter.y = 5, 5
+        for aversion in (0.0, 1.0):  # a fresh hunter each time, as one thinking twice remembers the first
+            hunter = simulation._add_agent(encode_dna("predator", carrion=7, sight=3), 5, 5)
+            hunter.brain = Brain.random(random.Random(1))
             simulation._index_cells()
             simulation.random.seed(1)
             with patch("tools.Simulation.CARRION_AVERSION", aversion), patch.object(Simulation, "_act"):
                 simulation._think_all([hunter])
             odds.append(hunter.odds["hunt"])
+            simulation.agents.remove(hunter)
         self.assertLess(odds[1], odds[0])  # it naturally shies from hunting
 
 
@@ -3772,6 +3771,145 @@ class MaterialTests(unittest.TestCase):
         self.assertNotIn((9, 9), simulation.sites)
         self.assertEqual(simulation.stone_piles[(9, 9)], 1)
         self.assertEqual(simulation.wood_piles[(9, 9)], 1)
+
+    def test_possessions_are_demanded_fought_over_stolen_and_given_and_foes_victory_and_cowardice_move_regard(self):
+        sm = simulation_module
+        simulation = Simulation(30, 30, 0, seed=1)
+        taker = simulation._add_agent(encode_dna("omnivore", size=3), 5, 5)
+        owner = simulation._add_agent(encode_dna("omnivore", size=3), 6, 5)
+        onlooker = simulation._add_agent(encode_dna("omnivore", size=3), 5, 6)
+        simulation._index_cells()
+        for one in (taker, owner, onlooker):
+            for trait in ("aggression", "dominance", "empathy", "sociability"):
+                one.mind[trait] = 0.0
+        self.assertAlmostEqual(Simulation._foe_level(onlooker), 0.5 * sm.FOE_LEVEL)
+        onlooker.known.append(sm.Acquaintance(owner.identifier, -0.9, 0))
+        self.assertTrue(simulation._is_foe(onlooker, owner))
+        onlooker.known[-1].regard = 0.0
+
+        owner.hide, owner.weapon = sm.SPECIES.index("predator"), sm.STONE_AXE
+        self.assertEqual(Simulation._better_possession(taker, owner), sm.HIDE_POSSESSION)
+        simulation._demand(taker, owner, sm.HIDE_POSSESSION)  # asked, a meek owner yields
+        self.assertEqual((taker.hide, owner.hide), (sm.SPECIES.index("predator"), 0))
+        owner.mind["aggression"] = 7.0  # a fierce owner fights
+        simulation._demand(taker, owner, sm.WEAPON_POSSESSION)
+        simulation._settle_fights()  # the fight begun
+        self.assertEqual(len(simulation.fights), 1)
+        self.assertEqual(simulation._regard_for(onlooker, taker), -1.0)  # a foe while it fights to take
+        taker.mind["aggression"] = 7.0
+        simulation._act(taker, "rest", {})  # in a fight, it fights
+        self.assertEqual(taker.last_action, "fought")
+        owner.health = owner.max_health / 2  # beaten
+        simulation._settle_fights()
+        self.assertEqual(simulation.fights, [])
+        self.assertEqual((taker.weapon, owner.weapon), (sm.STONE_AXE, sm.NO_WEAPON))
+
+        held = lambda by: next((one.regard for one in by.known if one.identifier == taker.identifier), 0.0)
+        owner.health = owner.max_health
+        owner.armour_worn = sm.WOOD_ARMOUR
+        before = held(onlooker)
+        simulation._steal(taker, owner, sm.ARMOUR_POSSESSION)  # a theft seen
+        self.assertEqual(taker.armour_worn, sm.WOOD_ARMOUR)
+        self.assertLess(held(onlooker), before)
+        self.assertLess(held(owner), held(onlooker))  # twice the wrong to its victim
+        simulation._settle_fights()
+        self.assertEqual(len(simulation.fights), 1)  # it fights to get it back
+        taker.last_action = "fled"  # the thief runs
+        simulation._settle_fights()
+        self.assertEqual(owner.armour_worn, sm.WOOD_ARMOUR)  # and gives it up
+
+        seen = next(one for one in onlooker.known if one.identifier == taker.identifier)
+        seen.regard = sm.REGARD_STRONG  # a friend
+        simulation._deed_seen(taker, 0.0, None, "coward")
+        self.assertLess(seen.regard, sm.REGARD_STRONG)
+
+        onlooker.mind["empathy"] = 7.0  # a kind one gives a friend what it lacks
+        onlooker.known.append(sm.Acquaintance(owner.identifier, sm.REGARD_STRONG, 0))
+        onlooker.hide = sm.SPECIES.index("grazer")
+        simulation._give(onlooker, owner, sm.HIDE_POSSESSION)
+        self.assertEqual((owner.hide, onlooker.hide), (sm.SPECIES.index("grazer"), 0))
+        self.assertGreater(simulation._regard_for(owner, onlooker), 0)
+
+    def test_a_hide_warms_armours_and_draws_regard_fleeing_in_it_is_a_lie_and_the_envious_want_it(self):
+        sm = simulation_module
+        simulation = Simulation(30, 30, 0, seed=1)
+        skinner = simulation._add_agent(encode_dna("grazer", size=3), 5, 5)
+        seer = simulation._add_agent(encode_dna("grazer", size=3), 6, 5)
+        body = simulation._add_agent(encode_dna("predator", size=3, armour=6), 5, 6)
+        simulation._index_cells()
+        simulation._die(body, "killed")
+        skinner.weapon = sm.STONE_AXE
+        bare = Simulation._gear_toughness(skinner)
+        simulation._skin(skinner, body)
+        self.assertEqual(skinner.hide, sm.SPECIES.index("predator"))
+        self.assertAlmostEqual(skinner.hide_armour, sm.HIDE_ARMOUR_SHARE * body.physique("armour"))
+        self.assertTrue(body.skinned)
+        self.assertAlmostEqual(Simulation._gear_toughness(skinner), bare + (1 - sm.SIZE_IN_MIGHT) * skinner.hide_armour)
+        home = skinner.climate[0]
+        self.assertEqual(skinner.climate_steps(home + 1), 0)  # a step colder, kept out
+        self.assertAlmostEqual(skinner.climate_steps(home + 2), 1.0)
+        self.assertAlmostEqual(skinner.climate_steps(home - 1), 1.0)  # but not heat
+        simulation._skin(seer, body)
+        self.assertEqual(seer.hide, 0)  # already skinned
+        self.assertEqual(len(seer.known), 1)  # it saw the skinning, a craft
+        skilled = seer.known[0].regard
+        for _ in range(5):
+            simulation._deed_seen(skinner, sm.PRESTIGE_GARB, None, "garb")
+        won = seer.known[0].regard - skilled
+        self.assertGreater(won, 0)
+        self.assertAlmostEqual(seer.known[0].garb, won)
+        simulation._index_cells()
+        self.assertAlmostEqual(skinner.regarded, skilled + won)
+        simulation._deed_seen(skinner, 0.0, None, "lie")  # seen fleeing a fight in it
+        self.assertAlmostEqual(seer.known[0].regard, skilled - sm.LIE_DISREGARD * won)
+        self.assertTrue(seer.known[0].liar)
+        simulation._deed_seen(skinner, sm.PRESTIGE_GARB, None, "garb")
+        self.assertAlmostEqual(seer.known[0].regard, skilled - sm.LIE_DISREGARD * won)  # a liar's garb wins nothing
+        seer.mind["dominance"], seer.mind["moodiness"] = 7.0, 0.0
+        self.assertAlmostEqual(Simulation._envy_of(seer), 1.0)
+        self.assertGreater(Simulation._possessions(skinner), Simulation._possessions(seer))
+        bare = {"kin": 0, "others": 0, "threats": 0}
+        self.assertAlmostEqual(simulation._hearth(seer, bare) - simulation._hearth(seer, {**bare, "envy": 1.0}), sm.ENVY_UNEASE)
+        seer.mind["dominance"] = 0.0
+        self.assertEqual(Simulation._envy_of(seer), 0.0)
+
+    def test_crushed_bone_gives_a_scavenger_marrow_or_fertilizes_worked_land(self):
+        simulation = Simulation(10, 40, 0, seed=1)
+        temperate = max(y for y in range(40) if simulation_module.zone_temperature(y, 40) == simulation_module.MEDIUM)
+        scavenger = simulation._add_agent(encode_dna("omnivore", size=3, carrion=7), 2, temperate)
+        farmer = simulation._add_agent(encode_dna("omnivore", size=3, carrion=0), 6, temperate)
+        simulation._index_cells()
+        self.assertGreater(scavenger.scavenger, 0)
+        scavenger.carried_bone = 1
+        self.assertFalse(simulation._can_crush(scavenger))  # nothing to crush it with
+        scavenger.carried_stone = 1
+        self.assertTrue(simulation._can_crush(scavenger))
+        scavenger.hunger = 90.0
+        simulation._eat_marrow(scavenger)
+        self.assertEqual((scavenger.carried_bone, scavenger.carried_stone), (0, 1))  # the stone kept
+        self.assertLess(scavenger.hunger, 90.0)
+        simulation.bone_piles[(2, temperate)] = 1  # or a bone from the pile it stands on
+        simulation._eat_marrow(scavenger)
+        self.assertNotIn((2, temperate), simulation.bone_piles)
+
+        farmer.weapon, farmer.carried_bone = 2, 1
+        simulation.arable |= {(6, temperate), (2, temperate)}
+        farmer.reward = 0.0
+        simulation._fertilize(farmer)
+        self.assertIn((6, temperate), simulation.fertilized)
+        self.assertEqual(farmer.carried_bone, 0)
+        self.assertAlmostEqual(farmer.reward, simulation_module.FERTILIZING_JOY * (0.5 + farmer.feeling("curiosity")))
+        farmer.carried_seed = scavenger.carried_seed = 1
+        simulation._plant_seed(farmer)  # fed with bone
+        simulation._plant_seed(scavenger)  # not
+        simulation.agents = [plant for plant in simulation.agents if plant not in (farmer, scavenger)]  # out of the way
+        simulation._index_cells()
+        simulation.turn += simulation_module.PLANT_GESTATION // 2
+        simulation._germinate()
+        waiting = {(seed[0], seed[1]) for seed in simulation.seeds}
+        self.assertNotIn((6, temperate), waiting)  # sprouted in half the time
+        self.assertNotIn((6, temperate), simulation.fertilized)  # the bone spent on it
+        self.assertIn((2, temperate), waiting)
 
     def test_a_road_takes_three_turns_clears_its_square_joins_shelters_and_is_easy_going(self):
         simulation = Simulation(30, 30, 0, seed=1)
