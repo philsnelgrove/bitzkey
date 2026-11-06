@@ -3892,6 +3892,44 @@ class MaterialTests(unittest.TestCase):
         self.assertEqual(simulation._envy_of(seer), 0.0)
         self.assertAlmostEqual(simulation._envy_of(skinner), 1.0)
 
+    def test_cooked_food_is_a_growing_delight_raw_a_letdown_once_known_cooking_a_pleasure_and_smelt_afar(self):
+        simulation = Simulation(30, 40, 0, seed=1)
+        eater = simulation._add_agent(encode_dna("omnivore", size=3, sight=0), 5, 20)
+        simulation._index_cells()
+        eater.hunger, eater.reward = 90.0, 0.0
+        Simulation._taste(eater, False)  # raw, knowing nothing better
+        self.assertEqual(eater.reward, 0.0)
+        eater.cooked_meat = 1
+        simulation._eat_carried(eater)  # a cooked portion eaten tastes
+        self.assertAlmostEqual(eater.cooked_known, simulation_module.COOKED_TASTE)
+        eater.reward = 0.0
+        Simulation._taste(eater, True)
+        self.assertAlmostEqual(eater.reward, simulation_module.COOKED_JOY * (0.5 + 2 * simulation_module.COOKED_TASTE))
+        eater.reward = 0.0
+        Simulation._taste(eater, False)
+        self.assertAlmostEqual(eater.reward, -simulation_module.RAW_DISTASTE * 2 * simulation_module.COOKED_TASTE)  # now a letdown
+
+        simulation.meat_piles[(6, 20)] = 1  # raw and cooked beside it: the cooked first
+        simulation.cooked_meat_piles[(6, 20)] = 1
+        simulation._index_cells()
+        situation = simulation._sense(eater)[2]
+        simulation._eat_pile(eater, situation)
+        self.assertNotIn((6, 20), simulation.cooked_meat_piles)
+        self.assertEqual(simulation.meat_piles.get((6, 20)), 1)
+
+        sight = eater.sight
+        simulation.cooked_meat_piles[(5 + sight + 2, 20)] = 1  # beyond sight, within smell
+        simulation._index_cells()
+        situation = simulation._sense(eater)[2]
+        self.assertGreater(simulation._cooking_smell(eater, sight), 0.0)
+        self.assertLess(simulation._cooking_smell(eater, sight), 1.0)
+        self.assertEqual(situation["eat_meat"], (6, 20))  # the raw in sight before cooked only smelt
+
+        eater.carried_meat, eater.reward = 1, 0.0
+        simulation._cook(eater, (5, 21))
+        self.assertAlmostEqual(eater.reward, simulation_module.COOK_JOY * (0.5 + 3 * simulation_module.COOKED_TASTE))
+        self.assertEqual(simulation.cooked_on[(5, 21)], simulation.turn)
+
     def test_a_grazer_eating_marrow_edges_toward_meat_until_it_turns_omnivore_in_its_genes_too(self):
         simulation = Simulation(10, 40, 0, seed=1)
         grazer = simulation._add_agent(encode_dna("grazer", size=3, carrion=7), 2, 20)
@@ -3929,6 +3967,9 @@ class MaterialTests(unittest.TestCase):
         simulation.bone_piles[(2, temperate)] = 1  # or a bone from the pile it stands on
         simulation._eat_marrow(scavenger)
         self.assertNotIn((2, temperate), simulation.bone_piles)
+        fed = scavenger.hunger
+        simulation._eat_marrow(scavenger)  # as when another took the last bone first this turn
+        self.assertEqual((scavenger.last_action, scavenger.hunger), ("found no bone", fed))
 
         farmer.weapon, farmer.carried_bone = 2, 1
         simulation.arable |= {(6, temperate), (2, temperate)}

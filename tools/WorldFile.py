@@ -214,7 +214,7 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "carried_meat": agent.carried_meat, "carried_fruit": agent.carried_fruit, "weapon": agent.weapon, "armour": agent.armour_worn, "weapon_uses": agent.weapon_uses, "armour_uses": agent.armour_uses,
         "infant_taught": agent.infant_taught, "crafts": agent.crafts, "craft_tries": agent.craft_tries, "cooked_meat": agent.cooked_meat, "cooked_fruit": agent.cooked_fruit,
         "carried_stone": agent.carried_stone,
-        "carried_bone": agent.carried_bone, "carried_wood": agent.carried_wood, "carried_seed": agent.carried_seed, "boredom": float(agent.boredom), "shelter_known": float(agent.shelter_known), "road_known": float(agent.road_known), "hide": agent.hide, "hide_armour": float(agent.hide_armour), "skinned": agent.skinned, "thefts": agent.thefts, "meat_lean": float(agent.meat_lean), "expected": agent.expected, "last_tried": [agent.last_tried.get(action, 0) for action in ACTIONS], "died_turn": agent.died_turn, "assailant": agent.assailant,
+        "carried_bone": agent.carried_bone, "carried_wood": agent.carried_wood, "carried_seed": agent.carried_seed, "boredom": float(agent.boredom), "shelter_known": float(agent.shelter_known), "road_known": float(agent.road_known), "cooked_known": float(agent.cooked_known), "hide": agent.hide, "hide_armour": float(agent.hide_armour), "skinned": agent.skinned, "thefts": agent.thefts, "meat_lean": float(agent.meat_lean), "expected": agent.expected, "last_tried": [agent.last_tried.get(action, 0) for action in ACTIONS], "died_turn": agent.died_turn, "assailant": agent.assailant,
         "panicked": agent.panicked, "primal_fear": agent.primal_fear, "rivalry": float(agent.rivalry),
         "own_rivalry": float(agent.own_rivalry), "hunts_grazers": agent.hunts_grazers,
         "hunts_omnivores": agent.hunts_omnivores, "hunts_predators": agent.hunts_predators, "guarded": agent.guarded,
@@ -301,6 +301,7 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
     agent.boredom = float(record.get("boredom", 0.0))  # none in an older world
     agent.shelter_known = float(record.get("shelter_known", 0.0))
     agent.road_known = float(record.get("road_known", 0.0))  # none in an older world
+    agent.cooked_known = float(record.get("cooked_known", 0.0))
     agent.hide = int(record.get("hide", 0))
     agent.hide_armour = float(record.get("hide_armour", 0.0))
     agent.skinned = bool(record.get("skinned", False))
@@ -398,7 +399,7 @@ def world_bytes(simulation: Simulation) -> bytes:
         "roads": [[y * simulation.width + x, simulation.road_work.get((x, y), 0), int((x, y) in simulation.roads)] for x, y in sorted(simulation.roads | set(simulation.road_work), key=lambda c: (c[1], c[0]))],
         "shelters": [[x, y, simulation.sites.get((x, y), 0), int((x, y) in simulation.shelters), simulation.site_turns.get((x, y), 0), simulation.site_stone.get((x, y), 0)] for y in range(simulation.height) for x in range(simulation.width)
                      if (x, y) in simulation.sites or (x, y) in simulation.shelters],
-        "fires": [[x, y, until, lighter] for (x, y), (until, lighter) in sorted(simulation.fires.items(), key=lambda fire: (fire[0][1], fire[0][0])) if until > simulation.turn],
+        "fires": [[x, y, until, lighter, simulation.cooked_on.get((x, y), -world.DAY_LENGTH - 1)] for (x, y), (until, lighter) in sorted(simulation.fires.items(), key=lambda fire: (fire[0][1], fire[0][0])) if until > simulation.turn],
         "stones_scattered": simulation.stones_scattered,
         "piles": [[x, y, simulation.meat_piles.get((x, y), 0), simulation.fruit_piles.get((x, y), 0),
                    simulation.pile_turns.get((x, y, True), 0) if (x, y) in simulation.meat_piles else 0,
@@ -547,7 +548,8 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
             simulation.site_stone[(x, y)] = built[1] if len(built) > 1 else 0  # all wood, in a world saved before
         if standing:
             simulation.shelters.add((x, y))
-    simulation.fires = {(x, y): (until, lighter) for x, y, until, lighter in record.get("fires", ())}
+    simulation.fires = {(fire[0], fire[1]): (fire[2], fire[3]) for fire in record.get("fires", ())}
+    simulation.cooked_on = {(fire[0], fire[1]): fire[4] for fire in record.get("fires", ()) if len(fire) > 4}  # none in an older world
     simulation.stones_scattered = record.get("stones_scattered", False)
     simulation.scatter_stones()  # a world saved before stones has them now, the once
     simulation.seeds = [(x, y, convert_v3(int(dna, 16)) if before_terrain else int(dna, 16), generation, sown)

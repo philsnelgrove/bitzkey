@@ -570,6 +570,13 @@ FIRE_PANIC = 0.25  # the chance an animal panics, seeing a fire not its own or i
 FIRE_JOY = 2.0  # the sense of accomplishment in lighting a fire
 FIRE_COMFORT = 0.3  # the comfort of seeing a fire that is its own or its herd's, as an unfamiliar one frightens
 COOKED_FOOD = 1.5  # times as nourishing as raw
+# The taste for cooked food: each cooked portion eaten adds a fifth to its taste for it (cooked_known, 0 to 1), and is a
+# delight (COOKED_JOY, times a half and the taste). Once it knows that taste, a raw portion, from a pile or carried, is
+# a letdown (RAW_DISTASTE times the taste), and cooking a pleasure (COOK_JOY, times a half and the taste). Cooked food,
+# and a fire cooked on within the day, are smelt SMELL_REACH times as far as it sees; cooked food smelt is food sought,
+# and in sight it is taken before raw.
+COOKED_TASTE = 0.2
+COOKED_JOY, RAW_DISTASTE, COOK_JOY, SMELL_REACH = 1.0, 0.5, 0.5, 2.0
 SITE_TURNS = 100  # an unfinished shelter left this long falls in, leaving its stone and wood in piles
 SHELTER_UNITS = 7  # of stone or wood, any mix, to finish a shelter; until then each takes a space of the square
 FIRE_REACH = 2  # squares off, a fire shelters an animal from the cold
@@ -1029,6 +1036,7 @@ class Bitzkey:
     skinned: bool = False  # a body whose hide has been taken
     regarded: float = 0.0  # how well those who know it regard it, on average, as of this turn
     thefts: int = 0  # possessions it has stolen
+    cooked_known: float = 0.0  # its taste for cooked food, a fifth for each cooked portion eaten, to 1 (see COOKED_JOY)
     meat_lean: float = 0.0  # a grazer's lean toward meat from marrow eaten, 0 to 1; at 1 it turns omnivore
     expected: list[float] | None = None  # what it foresaw of what it last chose, if it imagined it
     surprise: float = 0.0  # how far its last turn differed from what it foresaw, about 0..1
@@ -1612,6 +1620,7 @@ class Simulation:
         self.cooked_meat_piles: dict[tuple[int, int], int] = {}
         self.cooked_fruit_piles: dict[tuple[int, int], int] = {}
         self.fires: dict[tuple[int, int], tuple[int, int]] = {}  # each lit square's: the turn it goes out, who lit it
+        self.cooked_on: dict[tuple[int, int], int] = {}  # the turn each square's fire was last cooked on
         self.gear_piles: dict[str, dict[tuple[int, int], int]] = {kind: {} for kind in GEAR_KINDS}
         self.gear_wear: dict[tuple[int, int, str], int] = {}  # the wear in each pile, shared out as it is taken
         self._any_piles = False  # as last indexed, so that an empty map isn't searched
@@ -3018,7 +3027,11 @@ class Simulation:
                 hunter = alarm_source  # the herd's alarm: flight from whatever struck a herd-mate, or it was alerted to
         seen_kill = kill
         meat_pile = self._nearest_pile(agent, sight, self.meat_piles) if self._any_piles else None
-        eat_meat = meat_pile or (self._nearest_pile(agent, sight, self.cooked_meat_piles) if self._any_piles else None)
+        # cooked food in sight first, then raw, then cooked food smelt beyond sight
+        reach = min(MAX_SIGHT, max(sight, round(sight * SMELL_REACH)))
+        seen = lambda cell: cell is not None and abs(cell[0] - agent.x) + abs(cell[1] - agent.y) <= sight
+        cooked_meat = self._nearest_pile(agent, reach, self.cooked_meat_piles) if self._any_piles else None
+        eat_meat = cooked_meat if seen(cooked_meat) else meat_pile or cooked_meat
         fire = None
         if self.fires:
             sx, sy = self.tie_side(agent)
@@ -3149,7 +3162,8 @@ class Simulation:
             available.add("drop_meat")
         if agent.carried_fruit + agent.cooked_fruit:
             available.add("drop_fruit")
-        eat_fruit = fruit_pile or (self._nearest_pile(agent, sight, self.cooked_fruit_piles) if self._any_piles else None)
+        cooked_fruit = self._nearest_pile(agent, reach, self.cooked_fruit_piles) if self._any_piles else None
+        eat_fruit = cooked_fruit if seen(cooked_fruit) else fruit_pile or cooked_fruit
         beside_fire = fire is not None and abs(fire[0] - agent.x) + abs(fire[1] - agent.y) <= 1
         if agent.weapon and agent.carried_stone + agent.carried_wood and (agent.x, agent.y) not in self.shelters and not self.sea(agent.x, agent.y):
             available.add("construct")
@@ -3260,7 +3274,7 @@ class Simulation:
             gear_pile_closeness=self._closeness(agent, gear_pile, sight), fire_closeness=self._closeness(agent, fire, sight), fire_friendly=float(fire is not None and self._fire_friendly(agent, fire)),
             wielding=float(self._gear_force(agent) > 1), armoured=float(agent.armour_worn != 0),
             foe_sheltered=float(any(foe is not None and self._safe_inside(foe) for foe in (target, defend_target))),
-            arable_here=float((agent.x, agent.y) in self.arable), boredom=agent.boredom, hide_worn=agent.hide / 3, regarded=agent.regarded, envy=min(1.0, envied), fighting=float(self._fight_of(agent.identifier) is not None), foe_closeness=foe_closeness, fertilized_here=float((agent.x, agent.y) in self.fertilized), road_here=1.0 if (agent.x, agent.y) in self.roads else self.road_work.get((agent.x, agent.y), 0) / ROAD_TURNS, seed_carried=float(agent.carried_seed > 0),
+            arable_here=float((agent.x, agent.y) in self.arable), boredom=agent.boredom, hide_worn=agent.hide / 3, regarded=agent.regarded, envy=min(1.0, envied), fighting=float(self._fight_of(agent.identifier) is not None), foe_closeness=foe_closeness, cooking_smell=self._cooking_smell(agent, sight), fertilized_here=float((agent.x, agent.y) in self.fertilized), road_here=1.0 if (agent.x, agent.y) in self.roads else self.road_work.get((agent.x, agent.y), 0) / ROAD_TURNS, seed_carried=float(agent.carried_seed > 0),
             shelter_here=1.0 if (agent.x, agent.y) in self.shelters else self.sites.get((agent.x, agent.y), 0) / SHELTER_UNITS,
             kill_closeness=self._closeness(agent, kill and (kill.x, kill.y), sight),
             plant_closeness=self._closeness(agent, flora and (flora.x, flora.y), sight),
@@ -3785,7 +3799,7 @@ class Simulation:
         elif action == "feed_fire":
             self._feed_fire(agent, situation["fire"])
         elif action == "cook":
-            self._cook(agent)
+            self._cook(agent, situation["fire"])
         elif action == "take_gear":
             self._take_gear(agent, situation["gear_pile"], situation["gear_kind"])
         elif action == "drop_weapon":
@@ -4049,9 +4063,9 @@ class Simulation:
         fruit = FRUIT_PORTION * agent.browsing if situation["eat_fruit"] else 0.0
         eats_meat = meat >= fruit
         pile = situation["eat_meat"] if eats_meat else situation["eat_fruit"]
-        piles = self.meat_piles if eats_meat else self.fruit_piles
+        piles = self.cooked_meat_piles if eats_meat else self.cooked_fruit_piles  # the cooked first
         if piles.get(pile, 0) <= 0:
-            piles = self.cooked_meat_piles if eats_meat else self.cooked_fruit_piles
+            piles = self.meat_piles if eats_meat else self.fruit_piles
         self._move_toward(agent, *pile)
         if abs(pile[0] - agent.x) + abs(pile[1] - agent.y) > 1 or piles.get(pile, 0) <= 0:
             agent.last_action = "sought a pile"
@@ -4061,13 +4075,42 @@ class Simulation:
         if piles is self.fruit_piles:
             self._keep_seed(agent)
         agent.nourish((meat if eats_meat else fruit) * (COOKED_FOOD if cooked else 1.0), meat=eats_meat)
+        self._taste(agent, cooked)
         agent.last_action = "ate from a pile"
+
+    @staticmethod
+    def _taste(agent: Bitzkey, cooked: bool) -> None:
+        """The delight of a cooked portion, or the letdown of a raw one once it knows better."""
+        if not cooked:
+            agent.reward -= RAW_DISTASTE * agent.cooked_known
+            return
+        agent.cooked_known = min(1.0, agent.cooked_known + COOKED_TASTE)
+        agent.reward += COOKED_JOY * (0.5 + agent.cooked_known)
+
+    def _cooking_smell(self, agent: Bitzkey, sight: int) -> float:
+        """Closeness of the nearest cooking smelt, cooked food or a fire cooked on within the day; 0 none."""
+        if not self._any_piles and not self.fires:
+            return 0.0
+        reach = min(MAX_SIGHT, max(sight, round(sight * SMELL_REACH)))
+
+        def smells(cell: tuple[int, int]) -> bool:
+            return (self.cooked_meat_piles.get(cell, 0) > 0 or self.cooked_fruit_piles.get(cell, 0) > 0
+                    or (self.fires.get(cell, (0,))[0] > self.turn and self.cooked_on.get(cell, -DAY_LENGTH - 1) + DAY_LENGTH > self.turn))
+        if smells((agent.x, agent.y)):
+            return 1.0
+        sx, sy = self.tie_side(agent)
+        for dx, dy in SEEN_WITHIN[reach]:
+            cell = (agent.x + sx * dx, agent.y + sy * dy)
+            if smells(cell):
+                return self._closeness(agent, cell, reach)
+        return 0.0
 
     def _eat_carried(self, agent: Bitzkey) -> None:
         """A portion of whichever it carries would fill it more."""
         meat = MEAT_PORTION * agent.digestion * (COOKED_FOOD if agent.cooked_meat else 1.0) if agent.carried_meat + agent.cooked_meat else 0.0
         fruit = FRUIT_PORTION * agent.browsing * (COOKED_FOOD if agent.cooked_fruit else 1.0) if agent.carried_fruit + agent.cooked_fruit else 0.0
         eats_meat = meat >= fruit
+        self._taste(agent, bool(agent.cooked_meat if eats_meat else agent.cooked_fruit))
         if eats_meat:  # the cooked first
             if agent.cooked_meat:
                 agent.cooked_meat -= 1
@@ -4246,18 +4289,23 @@ class Simulation:
         """A bone to hand and something to crush it with."""
         return (agent.weapon in (CLUB, STONE_AXE) or agent.carried_stone > 0) and (agent.carried_bone > 0 or self.bone_piles.get((agent.x, agent.y), 0) > 0)
 
-    def _crush_bone(self, agent: Bitzkey) -> None:
-        """Spends the bone it carries, or else one from the pile on its square."""
+    def _crush_bone(self, agent: Bitzkey) -> bool:
+        """Spends the bone it carries, or else one from the pile on its square; False if another took the last first."""
+        cell = (agent.x, agent.y)
         if agent.carried_bone:
             agent.carried_bone -= 1
-        else:
-            cell = (agent.x, agent.y)
+        elif self.bone_piles.get(cell, 0) > 0:
             self.bone_piles[cell] -= 1
             if not self.bone_piles[cell]:
                 del self.bone_piles[cell]
+        else:
+            agent.last_action = "found no bone"
+            return False
+        return True
 
     def _eat_marrow(self, agent: Bitzkey) -> None:
-        self._crush_bone(agent)
+        if not self._crush_bone(agent):
+            return
         agent.nourish(MEAT_PORTION * agent.digestion, True)
         agent.last_action = "ate marrow"
         if agent.species != "grazer" or MARROW_LEAN <= 0:
@@ -4272,7 +4320,8 @@ class Simulation:
         agent.meat_lean = 0.0
 
     def _fertilize(self, agent: Bitzkey) -> None:
-        self._crush_bone(agent)
+        if not self._crush_bone(agent):
+            return
         self.fertilized.add((agent.x, agent.y))
         agent.reward += FERTILIZING_JOY * (0.5 + agent.feeling("curiosity"))
         agent.last_action = "fertilized the land"
@@ -4382,7 +4431,7 @@ class Simulation:
                 self._note_deed(defender, other, DEFENCE_DEED, SHARED_BOND)
         self._deed_seen(defender, DEFENCE_DEED, assailant)
 
-    def _cook(self, agent: Bitzkey) -> None:
+    def _cook(self, agent: Bitzkey, fire: tuple[int, int] | None = None) -> None:
         """What it carries, raw, carried on cooked."""
         if agent.carried_meat:
             agent.carried_meat -= 1
@@ -4390,6 +4439,9 @@ class Simulation:
         else:
             agent.carried_fruit -= 1
             agent.cooked_fruit += 1
+        if fire is not None:
+            self.cooked_on[fire] = self.turn
+        agent.reward += COOK_JOY * (0.5 + agent.cooked_known)
         agent.last_action = "cooked"
 
     def _take_cooked(self, agent: Bitzkey, pile: tuple[int, int], meat: bool) -> None:
