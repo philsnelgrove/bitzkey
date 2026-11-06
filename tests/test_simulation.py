@@ -499,7 +499,7 @@ class SimulationTests(unittest.TestCase):
         grazer.hunger = 50
         self.assertNotIn(ACTIONS.index("uproot"), simulation._sense(grazer)[1])  # not starving
         grazer.hunger = 85
-        plant.cooldown = 5  # still recovering from a bite: it can't be browsed, but it can be uprooted
+        plant.fruit = 0  # picked bare: it can't be browsed, but it can be uprooted
         options, situation = simulation._sense(grazer)[1:]
         self.assertIn(ACTIONS.index("uproot"), options)
         self.assertNotIn(ACTIONS.index("browse"), options)
@@ -1723,8 +1723,8 @@ class NewTraitTests(unittest.TestCase):
         self.simulation._defend(defender, assailant)
         self.assertEqual(self.simulation.death_records[assailant.identifier].activity, "defending")
         plant.health = 0.1
-        self.simulation._browse(browser, plant)
-        self.assertEqual(self.simulation.death_records[plant.identifier][3:6], (browser.identifier, "grazer", "browsing"))
+        self.simulation._uproot(browser, plant)  # picking fruit kills no plant; uprooting may
+        self.assertEqual(self.simulation.death_records[plant.identifier][3:6], (browser.identifier, "grazer", "uprooting"))
 
     def test_a_partner_two_cells_away_is_close_enough_to_breed_with(self):
         first = self.simulation._add_agent(encode_dna("predator"), 4, 4)
@@ -2274,34 +2274,20 @@ class NewTraitTests(unittest.TestCase):
 
         self.assertEqual(grazer.hunger, 90 - 1.25 * (PLANT_MEAL + PLANT_MEAL_FOR_SIZE) / 2)  # the largest plant, a quarter more
         # to a grazer, into a double stomach
-        self.assertEqual(plant.health, plant.max_health - 15)
+        self.assertEqual(plant.health, plant.max_health)  # a fruit picked, the plant unhurt
+        self.assertEqual(Simulation.fruit_left(plant), Simulation.fruit_capacity(plant) - 1)
 
-    def test_a_bitten_plant_is_left_alone_until_it_recovers(self):
-        plant = self.simulation._add_agent(encode_dna("plant", size=7), 5, 5)
+    def test_a_plant_picked_bare_is_left_alone_and_picking_never_kills_it(self):
+        plant = self.simulation._add_agent(encode_dna("plant", size=0), 5, 5)  # 60 health: four fruit
         grazer = self.simulation._add_agent(encode_dna("grazer", sight=7), 5, 6)
         self.simulation._index_cells()
-
-        self.simulation._browse(grazer, plant)
-        self.assertNotIn(ACTIONS.index("browse"), self.simulation._sense(grazer)[1])
-        self.simulation._browse(grazer, plant)  # arriving at a recovering plant gets nothing
-        self.assertEqual((plant.health, grazer.last_action), (plant.max_health - 15, "sought plants"))
-
-        self.simulation.agents.remove(grazer)  # left alone while it recovers
-        for _ in range(8):
-            self.simulation._take_turn()
-        self.assertEqual(plant.cooldown, 0)
-
-    def test_enough_bites_kill_a_plant_which_leaves_no_meat(self):
-        plant = self.simulation._add_agent(encode_dna("plant", size=0), 5, 5)  # 60 health, 15 a bite
-        grazer = self.simulation._add_agent(encode_dna("grazer"), 5, 6)
-        self.simulation._index_cells()
-
-        for _ in range(4):
-            plant.cooldown = 0  # as if it had recovered between bites
+        for _ in range(Simulation.fruit_capacity(plant)):
             self.simulation._browse(grazer, plant)
-
-        self.assertFalse(plant.alive)
-        self.assertEqual((plant.last_action, plant.meat), ("eaten", 0.0))
+        self.assertTrue(plant.alive)
+        self.assertEqual((plant.health, Simulation.fruit_left(plant)), (plant.max_health, 0))
+        self.assertNotIn(ACTIONS.index("browse"), self.simulation._sense(grazer)[1])
+        self.simulation._browse(grazer, plant)  # arriving at a bare plant gets nothing
+        self.assertEqual(grazer.last_action, "sought plants")
 
     def test_well_fed_plants_seed_their_own_kind_nearby(self):
         plant = self.simulation._add_agent(encode_dna("plant", fertility=7, size=3, temperature=HOT), 5, 5)
@@ -3893,6 +3879,70 @@ class MaterialTests(unittest.TestCase):
         simulation._index_cells()
         self.assertEqual(simulation._envy_of(seer), 0.0)
         self.assertAlmostEqual(simulation._envy_of(skinner), 1.0)
+
+    def test_a_plants_fruit_is_picked_unhurt_while_it_has_any_and_grows_back_one_a_morning(self):
+        simulation = Simulation(30, 40, 0, seed=1)
+        plant = simulation._add_agent(encode_dna("plant", size=7), 10, 20)
+        grazer = simulation._add_agent(encode_dna("grazer"), 11, 20)
+        simulation._index_cells()
+        full = Simulation.fruit_capacity(plant)
+        self.assertEqual(full, int(plant.max_health / simulation_module.PLANT_BITE))
+        health = plant.health
+        for _ in range(full):
+            grazer.hunger = 90.0
+            simulation._browse(grazer, plant)
+            self.assertEqual(grazer.last_action, "browsed")
+        self.assertEqual(plant.health, health)  # unhurt
+        self.assertEqual(Simulation.fruit_left(plant), 0)
+        simulation._browse(grazer, plant)
+        self.assertEqual(grazer.last_action, "sought plants")  # none left to pick
+        mornings = [x for x in range(simulation.width) if simulation.dawn(x)]
+        self.assertTrue(all(not simulation.night(x) for x in mornings))
+
+    def test_each_species_esteems_its_own_culture_seen_among_its_kind_twice_from_family(self):
+        simulation = Simulation(30, 40, 0, seed=1)
+        sower, seer, sibling = (simulation._add_agent(encode_dna("grazer"), x, 20) for x in (10, 11, 12))
+        sower.mother = sibling.mother = 999
+        simulation._index_cells()
+        simulation._culture_seen(seer, sower, "sowing")
+        self.assertAlmostEqual(Simulation._raw_regard_for(seer, sower), simulation_module.CULTURE_REGARD)
+        simulation._culture_seen(seer, sower, "craft")  # not a grazer's
+        self.assertAlmostEqual(Simulation._raw_regard_for(seer, sower), simulation_module.CULTURE_REGARD)
+        simulation._culture_seen(sibling, sower, "sowing")
+        self.assertAlmostEqual(Simulation._raw_regard_for(sibling, sower), 2 * simulation_module.CULTURE_REGARD)
+        self.assertTrue(Simulation._family(sower, sibling))
+        self.assertFalse(Simulation._family(sower, seer))
+
+    def test_a_hunter_senses_its_pack_beside_its_prey_and_striking_alongside_one_gladdens_it(self):
+        simulation = Simulation(30, 40, 0, seed=1)
+        hunter_dna = encode_dna("predator", empathy=7, patience=7)
+        hunter = simulation._add_agent(hunter_dna, 10, 20)
+        prey = simulation._add_agent(encode_dna("grazer", size=7), 11, 20)
+        simulation._index_cells()
+        flanked = SENSES.index("prey_flanked")
+        self.assertEqual(simulation._sense(hunter)[0][flanked], 0.0)
+        hunter.reward = 0.0
+        simulation._attack(hunter, prey, "hunting")
+        alone = hunter.reward
+        mate = simulation._add_agent(hunter_dna, 12, 20)  # the pack-mate on the far side
+        simulation._index_cells()
+        self.assertTrue(simulation._herd_mate(hunter, mate))
+        self.assertAlmostEqual(simulation._sense(hunter)[0][flanked], 0.5)
+        prey.health = prey.max_health
+        hunter.reward = 0.0
+        simulation._attack(hunter, prey, "hunting")
+        self.assertAlmostEqual(hunter.reward - alone, simulation_module.JOINED_HUNT_JOY * (0.5 + hunter.herd_instinct), delta=0.05)
+
+        rival = simulation._add_agent(encode_dna("predator", size=7), 15, 25)  # a rival, in a fight with it
+        flanker = simulation._add_agent(hunter_dna, 16, 25)  # and a pack-mate beside the rival
+        hunter.x, hunter.y = 14, 25
+        simulation._die(prey, "killed")  # no prey left: only the rival
+        simulation._index_cells()
+        simulation.fights.append([hunter.identifier, rival.identifier, 1, False])
+        senses, _, situation = simulation._sense(hunter)
+        self.assertIsNone(situation.get("quarry"))
+        self.assertTrue(simulation._herd_mate(hunter, flanker))
+        self.assertAlmostEqual(senses[flanked], 0.5)  # its pack beside its opponent
 
     def test_a_child_is_held_at_half_how_its_parents_are_until_judged_by_its_own_deeds(self):
         from tools.Simulation import Acquaintance

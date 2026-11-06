@@ -514,6 +514,10 @@ def solitary(species: str) -> bool:
 HERD_SAFETY = 0.6      # how much three herd-mates close by calm fear and steady morale
 HERD_DEFEND_JOY = 0.5  # pleasure of striking back at whatever struck a herd-mate alongside
 PACK_BONUS = 0.5       # extra force of a blow at prey that a herd-mate is also alongside
+# Pack tactics: an animal senses how many of its pack are already beside the one it would strike, prey it would strike
+# or is after, else its opponent in a fight, else a rival it would take from (prey flanked), and any blow struck
+# alongside one is a pleasure (JOINED_HUNT_JOY, times a half and its herd instinct), as it is harder (PACK_BONUS).
+JOINED_HUNT_JOY = 0.5
 # Predators whose ring colours differ by no more than this are one kind: they hunt together, and breed
 # together as readily as other animals do with this much less difference.
 KIND_DIFFERENCE = 0.25
@@ -654,6 +658,12 @@ ENVY_LEVEL, ENVY_UNEASE, ENVY_JOY = 0.75, 0.5, 1.0  # the levels are shares of i
 # Foes, victory, cowardice, gifts and theft, as the C++ version's (see there). A fight over a possession lasts until one
 # flees or falls to half its health; those who see it hold the taker a foe meanwhile, or a friend if its victim is theirs.
 FOE_LEVEL, VICTORY_REGARD, FOE_DEFEAT_REGARD, COWARD_DISREGARD = 0.5, 0.3, 0.3, 0.3
+# Cultures: what each species esteems, seen done by one of its own kind, over and above the deed's own worth, by
+# CULTURE_REGARD, twice it from family (parent, child or sibling) and, for a predator, from its pack. Predators esteem
+# victories; omnivores, crafting and building (shelters and roads); grazers, sowing and fruit picked from a plant
+# without uprooting it.
+CULTURE_REGARD = 0.3
+CULTURES = {"predator": "victory", "omnivore": "craft", "grazer": "sowing"}
 GIVE_LEVEL, GIVE_JOY, TAKE_LEVEL, THEFT_DISREGARD = 0.75, 0.5, 0.75, 0.5
 HIDE_POSSESSION, WEAPON_POSSESSION, ARMOUR_POSSESSION = 0, 1, 2
 DIG_CHANCE = 0.1  # that a dig finds a stone
@@ -669,7 +679,10 @@ PILE_LASTS = 3.0  # times as long as a corpse a pile lasts, since food was last 
 PLANT_MEAL_FOR_SIZE = 0
 PLANT_BITE = 15        # health a plant loses to each bite
 PLANT_REGROWTH = 0.02  # share of its health pool a plant regrows each turn
-PLANT_RECOVERY = 24    # turns after a bite before a plant can be bitten again: a day
+PLANT_RECOVERY = 24    # turns after it is uprooted from before a plant can be torn into again: a day
+# Fruit: a plant holds a fruit for each PLANT_BITE of its health pool (at least one). Picking or browsing one leaves the
+# plant unhurt; it may be picked while it has any, and from the morning after it is no longer full it grows one back
+# each morning, until full.
 # A desperate grazer, starving with food scarce about it, may uproot a plant beside it: it eats this
 # many times a bite's meal, and tears this much of the plant's health away, recovering or not.
 UPROOT_HUNGER = 80     # starving: hunger at least this
@@ -1027,6 +1040,7 @@ class Bitzkey:
     wet: bool = False  # in the sea, as the world keeps it while it moves
     age: int = 0
     cooldown: int = 0
+    fruit: int = -1  # a plant's fruit left to pick; below 0 while it is full (see fruit_left)
     last_action: str = "new"
     brain: Brain | None = None
     generation: int = 0
@@ -1709,6 +1723,19 @@ class Simulation:
         """Whether a column lies in the night now: half the map, moving west a whole turn round each day."""
         return (x - self.night_start()) % self.width < self.width // 2
 
+    def dawn(self, x: int) -> bool:
+        """Whether night ended at this column this turn."""
+        before = int(-((self.turn - 1) % DAY_LENGTH) * self.width / DAY_LENGTH) % self.width
+        return self.turn > 0 and (x - before) % self.width < self.width // 2 and not self.night(x)
+
+    @staticmethod
+    def fruit_capacity(plant: Bitzkey) -> int:
+        return max(1, int(plant.max_health / max(1.0, PLANT_BITE)))
+
+    @classmethod
+    def fruit_left(cls, plant: Bitzkey) -> int:
+        return cls.fruit_capacity(plant) if plant.fruit < 0 else plant.fruit
+
     def _known_senses(self, agent: Bitzkey, caller: Bitzkey | None, sight: int) -> dict[str, float]:
         """Those it knows: the nearest within its sight, and whether it knows the loudest caller, as the C++ version."""
         found: dict[str, float] = {}
@@ -1986,14 +2013,31 @@ class Simulation:
     def _help_felt(agent: Bitzkey, regard: float) -> float:
         return FRIEND_JOY * regard * (0.5 + agent.feeling("empathy")) if regard >= REGARD_STRONG else 0.0
 
-    def _deed_seen(self, doer: Bitzkey, deed: float, target: Bitzkey | None = None, kind: str = "plain", craft: int = -1) -> None:
+    @staticmethod
+    def _family(one: Bitzkey, other: Bitzkey) -> bool:
+        """Parent, child or sibling."""
+        return (one.mother == other.identifier or one.father == other.identifier or other.mother == one.identifier
+                or other.father == one.identifier or (one.mother >= 0 and one.mother == other.mother) or (one.father >= 0 and one.father == other.father))
+
+    def _culture_seen(self, seer: Bitzkey, doer: Bitzkey, culture: str) -> None:
+        """The esteem its kind's culture gives a deed seen done by one of its kind."""
+        if CULTURE_REGARD <= 0 or seer.species != doer.species or CULTURES.get(seer.species) != culture:
+            return
+        close = self._family(seer, doer) or (seer.species == "predator" and self._herd_mate(seer, doer))
+        self._note_deed(seer, doer, 1.0, CULTURE_REGARD * (2.0 if close else 1.0), "plain", True)
+
+    def _deed_seen(self, doer: Bitzkey, deed: float, target: Bitzkey | None = None, kind: str = "plain", craft: int = -1, culture: str | None = None) -> None:
         """A deed of `doer`'s, done to `target` if to anyone, noted by those who see it."""
-        if WITNESS_SHARE <= 0:
+        if WITNESS_SHARE <= 0 and CULTURE_REGARD <= 0:
             return
         for other in self._nearby(doer, doer.sight):
             if other is doer or other is target or not other.alive or other.brain is None:
                 continue
             if abs(other.x - doer.x) + abs(other.y - doer.y) <= other.sight:
+                if culture is not None or kind == "victory":
+                    self._culture_seen(other, doer, "victory" if kind == "victory" else culture)
+                if kind == "culture":
+                    continue
                 if kind in ("garb", "lie"):
                     self._garb_seen(other, doer, deed, kind == "lie")
                     continue
@@ -2581,6 +2625,10 @@ class Simulation:
                     agent.last_action = "withering"
                     continue
                 agent.health = min(agent.max_health, agent.health + agent.max_health * PLANT_REGROWTH)
+                if agent.fruit >= 0 and self.dawn(agent.x):  # a fruit a morning, until full
+                    agent.fruit += 1
+                    if agent.fruit >= self.fruit_capacity(agent):
+                        agent.fruit = -1
                 agent.last_action = "photosynthesized"
                 self._seed(agent)
                 continue
@@ -3319,7 +3367,7 @@ class Simulation:
             gear_pile_closeness=self._closeness(agent, gear_pile, sight), fire_closeness=self._closeness(agent, fire, sight), fire_friendly=float(fire is not None and self._fire_friendly(agent, fire)),
             wielding=float(self._gear_force(agent) > 1), armoured=float(agent.armour_worn != 0),
             foe_sheltered=float(any(foe is not None and self._safe_inside(foe) for foe in (target, defend_target))),
-            arable_here=float((agent.x, agent.y) in self.arable), boredom=agent.boredom, hide_worn=agent.hide / 3, regarded=agent.regarded, envy=min(1.0, envied), fighting=float(self._fight_of(agent.identifier) is not None), foe_closeness=foe_closeness, cooking_smell=self._cooking_smell(agent, sight), food_plenty=agent.plenty / (agent.plenty + max(0.0, agent.plenty_known)) if agent.plenty + agent.plenty_known > 0 else 0.5, fertilized_here=float((agent.x, agent.y) in self.fertilized), road_here=1.0 if (agent.x, agent.y) in self.roads else self.road_work.get((agent.x, agent.y), 0) / ROAD_TURNS, seed_carried=float(agent.carried_seed > 0),
+            arable_here=float((agent.x, agent.y) in self.arable), boredom=agent.boredom, hide_worn=agent.hide / 3, regarded=agent.regarded, envy=min(1.0, envied), fighting=float(self._fight_of(agent.identifier) is not None), foe_closeness=foe_closeness, cooking_smell=self._cooking_smell(agent, sight), prey_flanked=self._flanked(agent, target or quarry or self._opponent(agent) or claim_from), food_plenty=agent.plenty / (agent.plenty + max(0.0, agent.plenty_known)) if agent.plenty + agent.plenty_known > 0 else 0.5, fertilized_here=float((agent.x, agent.y) in self.fertilized), road_here=1.0 if (agent.x, agent.y) in self.roads else self.road_work.get((agent.x, agent.y), 0) / ROAD_TURNS, seed_carried=float(agent.carried_seed > 0),
             shelter_here=1.0 if (agent.x, agent.y) in self.shelters else self.sites.get((agent.x, agent.y), 0) / SHELTER_UNITS,
             kill_closeness=self._closeness(agent, kill and (kill.x, kill.y), sight),
             plant_closeness=self._closeness(agent, flora and (flora.x, flora.y), sight),
@@ -3898,20 +3946,17 @@ class Simulation:
             agent.last_action = "panicked" if situation.get("panic") else "fled"
 
     def _browse(self, agent: Bitzkey, plant: Bitzkey) -> None:
-        """Go to the plant and, once alongside, take a bite: far more filling than grass, and more
-        so from a bigger plant. Each bite wounds the plant, and enough of them kill it. A bitten
-        plant can't be bitten again until it has recovered."""
+        """Go to the plant and, once alongside, eat a fruit: far more filling than grass, and more
+        so from a bigger plant. The plant is unhurt, and may be picked while it has fruit."""
         self._move_toward(agent, plant.x, plant.y)
-        if not plant.alive or abs(plant.x - agent.x) + abs(plant.y - agent.y) > 1 or plant.cooldown:
+        if not plant.alive or abs(plant.x - agent.x) + abs(plant.y - agent.y) > 1 or self.fruit_left(plant) <= 0:
             agent.last_action = "sought plants"
             return
         agent.nourish((PLANT_MEAL + PLANT_MEAL_FOR_SIZE * plant.physique("size")) * agent.browsing * self._plant_yield(plant))
-        plant.health -= PLANT_BITE
-        plant.cooldown = PLANT_RECOVERY
+        plant.fruit = self.fruit_left(plant) - 1  # a fruit picked, the plant unhurt
         agent.last_action = "browsed"
-        if not plant.alive:
-            self._die(plant, "eaten", agent, "browsing")
-        elif plant.physique("weapons") > 0:
+        self._deed_seen(agent, 0.0, None, "culture", culture="sowing")  # fruit picked without uprooting
+        if plant.physique("weapons") > 0:
             self._defend(plant, agent)  # a plant can't flee, but an armed one strikes back
         self._last_bite(agent)
 
@@ -3932,6 +3977,22 @@ class Simulation:
         elif plant.physique("weapons") > 0:
             self._defend(plant, agent)
         self._last_bite(agent)
+
+    def _opponent(self, agent: Bitzkey) -> Bitzkey | None:
+        """The one it is fighting over a possession, if any."""
+        fight = self._fight_of(agent.identifier)
+        if fight is None:
+            return None
+        other = self.find_agent(fight[1] if fight[0] == agent.identifier else fight[0])
+        return other if other is not None and other.alive else None
+
+    def _flanked(self, agent: Bitzkey, target: Bitzkey | None) -> float:
+        """Its pack beside the one it would strike: prey, its opponent in a fight, or a rival it would take from."""
+        return 0.0 if target is None else min(2, self._pack_beside(agent, target)) / 2
+
+    def _pack_beside(self, agent: Bitzkey, prey: Bitzkey) -> int:
+        """Its pack-mates beside the prey, but itself."""
+        return sum(1 for other in self._nearby(prey, 1) if other is not agent and self._herd_mate(agent, other))
 
     def _food_about(self, agent: Bitzkey) -> float:
         """Its food within FORAGE_RADIUS, for its sense of plenty."""
@@ -4118,18 +4179,19 @@ class Simulation:
             return
         if not tears:
             self._move_toward(agent, plant.x, plant.y)
-        if not plant.alive or far(plant.x, plant.y) > 1 or (not tears and plant.cooldown):
+        if not plant.alive or far(plant.x, plant.y) > 1 or (not tears and self.fruit_left(plant) <= 0):
             agent.last_action = "sought plants"
             return
-        plant.health -= UPROOT_BITE if tears else PLANT_BITE
-        plant.cooldown = PLANT_RECOVERY
+        if tears:
+            plant.health -= UPROOT_BITE
+            plant.cooldown = PLANT_RECOVERY
+        else:
+            plant.fruit = self.fruit_left(plant) - 1  # a fruit picked, the plant unhurt
+            self._deed_seen(agent, 0.0, None, "culture", culture="sowing")
         agent.carried_fruit += 1
         agent.last_action = "took fruit"
         if not plant.alive:
-            if tears:
-                self._die(plant, "uprooted", agent, "uprooting")
-            else:
-                self._die(plant, "eaten", agent, "browsing")
+            self._die(plant, "uprooted", agent, "uprooting")
         elif plant.physique("weapons") > 0:
             self._defend(plant, agent)
 
@@ -4304,7 +4366,7 @@ class Simulation:
         self.sowers[(agent.x, agent.y, self.turn)] = agent.identifier
         agent.reward += PLANTING_JOY * (0.5 + agent.feeling("curiosity"))
         agent.last_action = "planted a seed"
-        self._deed_seen(agent, CRAFT_DEED, None, "skill")
+        self._deed_seen(agent, CRAFT_DEED, None, "skill", culture="sowing")
 
     def _dig(self, agent: Bitzkey) -> None:
         """An axe or club finds a stone in the ground, carried or left here."""
@@ -4340,6 +4402,7 @@ class Simulation:
 
     def _construct(self, agent: Bitzkey) -> None:
         """A unit of what it carries, stone first, into the shelter on its square."""
+        self._deed_seen(agent, 0.0, None, "culture", culture="craft")
         cell = (agent.x, agent.y)
         if agent.carried_stone:
             agent.carried_stone -= 1
@@ -4408,6 +4471,7 @@ class Simulation:
         """A turn's work on the road on its square."""
         cell = (agent.x, agent.y)
         self._wear_weapon(agent)
+        self._deed_seen(agent, 0.0, None, "culture", culture="craft")
         agent.last_action = "laid road"
         # As building a shelter: each turn thrills more than the last, the curious and those who know roads most.
         inspiration = ROAD_THRILL * (agent.feeling("curiosity") + ROAD_LONGING * agent.road_known)
@@ -4578,7 +4642,7 @@ class Simulation:
                 agent.carried_wood -= 1
             agent.weapon = STONE_AXE
         agent.reward += CRAFT_JOY * (0.5 if action in ("make_bone_armour", "make_wood_armour") else 1.0) * (0.5 + agent.feeling("curiosity"))
-        self._deed_seen(agent, CRAFT_DEED, None, "skill", craft)
+        self._deed_seen(agent, CRAFT_DEED, None, "skill", craft, "craft")
         if action not in ("make_bone_armour", "make_wood_armour"):
             agent.weapon_uses = 0
         agent.armour_uses = 0
@@ -4629,6 +4693,7 @@ class Simulation:
         self._wear_armour(victim)
         if any(self._herd_mate(agent, other) for other in self._nearby(victim, 1) if other is not agent):
             damage *= 1 + PACK_BONUS * agent.herd_instinct  # hunting as a pack
+            agent.reward += JOINED_HUNT_JOY * (0.5 + agent.herd_instinct)  # and glad of it
         victim.health -= damage
         agent.nourish(5, meat=True)
         agent.hunger += STRIKE_EFFORT * damage / agent.stomach  # the harder the blow, the more it costs
@@ -5239,7 +5304,7 @@ class Simulation:
                     continue
                 elif hunter is None and self._is_prey(other, agent):
                     hunter = other
-                elif browses and flora is None and other.species == "plant" and not other.cooldown and agent.can_be(other.wet):
+                elif browses and flora is None and other.species == "plant" and self.fruit_left(other) > 0 and agent.can_be(other.wet):
                     flora = other
                 elif courts and suitor is None and other.can_breed and self._compatible(agent, other):
                     suitor = other
