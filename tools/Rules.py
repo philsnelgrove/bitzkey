@@ -342,6 +342,7 @@ _TABLE: dict[str, list[tuple]] = {
         ("ACQUAINTANCES", "Acquaintances", "others an animal remembers by what they did to it, the one it dealt with longest ago forgotten for a new one; 0: none",
          0, 16, 1),
         ("REGARD_LEARNING", "Regard learning", "how far each deed moves an animal's regard for the doer toward the deed's worth", 0.0, 1.0, 0.05),
+        ("INHERITED_REGARD", "Inherited regard", "share of how one holds a child's parents, regard and reputation, it holds the child at until it judges it by its own deeds", 0.0, 1.0, 0.05),
         ("SHARED_BOND", "Shared bond", "how much shared moments, a fire enjoyed together or a herd-mate defended, move regard, as a share of a deed's weight; 0 for none", 0.0, 1.0, 0.05),
         ("SKILL_COMFORT", "Skill comfort", "ease near one it holds skilled, more if curious; 0 for none", 0.0, 2.0, 0.05),
         ("WATCH_LEARNING", "Watch learning", "chance that a craft seen done by one of its kind it holds skilled is learnt from the watching; 0 for none", 0.0, 1.0, 0.01),

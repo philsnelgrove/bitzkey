@@ -3894,6 +3894,22 @@ class MaterialTests(unittest.TestCase):
         self.assertEqual(simulation._envy_of(seer), 0.0)
         self.assertAlmostEqual(simulation._envy_of(skinner), 1.0)
 
+    def test_a_child_is_held_at_half_how_its_parents_are_until_judged_by_its_own_deeds(self):
+        from tools.Simulation import Acquaintance
+        simulation = Simulation(30, 40, 0, seed=1)
+        dna = encode_dna("grazer")
+        seer, mother, father, child, stranger = (simulation._add_agent(dna, x, 20) for x in (5, 6, 7, 8, 9))
+        child.mother, child.father = mother.identifier, father.identifier
+        simulation._index_cells()
+        seer.known = [Acquaintance(mother.identifier, 0.8, 0, danger=0.2, skill=0.6), Acquaintance(father.identifier, 0.4, 0, skill=0.2)]
+        share = simulation_module.INHERITED_REGARD
+        self.assertAlmostEqual(Simulation._raw_regard_for(seer, child), share * 0.6)  # half the mean of the two
+        self.assertAlmostEqual(Simulation._skill_held(seer, child), share * 0.4)
+        self.assertEqual(Simulation._raw_regard_for(seer, stranger), 0.0)
+        simulation._note_deed(seer, child, 1.0, 1.0)  # its own deed, from where its parents left it
+        start = share * 0.6
+        self.assertAlmostEqual(Simulation._raw_regard_for(seer, child), start + simulation_module.REGARD_LEARNING * (1.0 - start))
+
     def test_lessons_of_restraint_a_kill_where_prey_are_few_the_last_bite_a_sown_seed_and_a_sense_of_plenty(self):
         simulation = Simulation(30, 40, 0, seed=1)
         hunter = simulation._add_agent(encode_dna("predator", sight=0), 10, 20)

@@ -407,6 +407,9 @@ MAP_NEARNESS = 0.01
 # As the C++ version's.
 ACQUAINTANCES = 8
 REGARD_LEARNING = 0.3
+# A child is held, by one that has not yet judged it by its own deeds, at INHERITED_REGARD of how that one holds its
+# parents (those of the two it knows, averaged): their regard, and their reputation for danger and skill.
+INHERITED_REGARD = 0.5
 # Regard of REGARD_STRONG or more either way makes a friend or an enemy, each effect half plus a trait. As the C++ version's.
 REGARD_STRONG = 0.5
 # Factions: up to FACTIONS body colours, each moved by FACTION_SHARE of every deed; a stranger is taken at its colour's
@@ -1766,11 +1769,15 @@ class Simulation:
             return
         found = next((one for one in known if one.identifier == other.identifier), None)
         if found is None:
+            held = self._inherited(agent, other, self.turn)  # a child first met as its parents' child
             if len(known) >= ACQUAINTANCES:
                 known.remove(min(known, key=least))
-            known.append(Acquaintance(other.identifier, deed * weight if regarded else 0.0, self.turn))
-            self._note_reputation(known[-1], kind, weight)
-            return
+            if held is None:
+                known.append(Acquaintance(other.identifier, deed * weight if regarded else 0.0, self.turn))
+                self._note_reputation(known[-1], kind, weight)
+                return
+            known.append(held)
+            found = held
         if regarded:
             found.regard += REGARD_LEARNING * weight * (deed - found.regard)
         self._note_reputation(found, kind, REGARD_LEARNING * weight)
@@ -1794,8 +1801,23 @@ class Simulation:
         known = next((known for known in agent.known if known.identifier == other.identifier), None)
         if known is not None:
             return known.regard
+        held = cls._inherited(agent, other)
+        if held is not None:
+            return held.regard
         faction = cls._faction_of(agent, other)
         return faction.regard if faction else 0.0
+
+    @staticmethod
+    def _inherited(agent: Bitzkey, other: Bitzkey, turn: int = 0) -> Acquaintance | None:
+        """How it holds another through its parents, at INHERITED_REGARD of how it holds them; None if it knows neither."""
+        if INHERITED_REGARD <= 0 or (other.mother < 0 and other.father < 0):
+            return None
+        parents = [known for known in agent.known if known.identifier in (other.mother, other.father)]
+        if not parents:
+            return None
+        share = INHERITED_REGARD / len(parents)
+        return Acquaintance(other.identifier, share * sum(one.regard for one in parents), turn,
+                            danger=share * sum(one.danger for one in parents), skill=share * sum(one.skill for one in parents))
 
     def _fight_of(self, identifier: int) -> list | None:
         """The fight it is in, if any: [taker, owner, possession, taken]."""
@@ -1929,6 +1951,9 @@ class Simulation:
         known = next((known for known in agent.known if known.identifier == other.identifier), None)
         if known is not None:
             return known.skill
+        held = cls._inherited(agent, other)
+        if held is not None:
+            return held.skill
         faction = cls._faction_of(agent, other)
         return faction.skill if faction else 0.0
 
