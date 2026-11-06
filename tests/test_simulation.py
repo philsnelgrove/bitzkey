@@ -3880,12 +3880,17 @@ class MaterialTests(unittest.TestCase):
         simulation._deed_seen(skinner, sm.PRESTIGE_GARB, None, "garb")
         self.assertAlmostEqual(seer.known[0].regard, skilled - sm.LIE_DISREGARD * won)  # a liar's garb wins nothing
         seer.mind["dominance"], seer.mind["moodiness"] = 7.0, 0.0
-        self.assertAlmostEqual(Simulation._envy_of(seer), 1.0)
+        skinner.mind["dominance"] = skinner.mind["moodiness"] = 0.0
+        simulation._index_cells()  # envy goes by rank within its kind: the moodier or more dominant of the two
+        self.assertAlmostEqual(simulation._envy_of(seer), 1.0)
+        self.assertEqual(simulation._envy_of(skinner), 0.0)
         self.assertGreater(Simulation._possessions(skinner), Simulation._possessions(seer))
         bare = {"kin": 0, "others": 0, "threats": 0}
         self.assertAlmostEqual(simulation._hearth(seer, bare) - simulation._hearth(seer, {**bare, "envy": 1.0}), sm.ENVY_UNEASE)
-        seer.mind["dominance"] = 0.0
-        self.assertEqual(Simulation._envy_of(seer), 0.0)
+        seer.mind["dominance"], skinner.mind["dominance"] = 0.0, 7.0
+        simulation._index_cells()
+        self.assertEqual(simulation._envy_of(seer), 0.0)
+        self.assertAlmostEqual(simulation._envy_of(skinner), 1.0)
 
     def test_crushed_bone_gives_a_scavenger_marrow_or_fertilizes_worked_land(self):
         simulation = Simulation(10, 40, 0, seed=1)

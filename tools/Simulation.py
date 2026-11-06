@@ -629,11 +629,11 @@ FERTILIZING_JOY = 1.0
 # possessions: uneasy at them (ENVY_UNEASE), glad of gaining better (ENVY_JOY), and drawn to the best-provided mate.
 SKINNING_JOY, HIDE_WARMTH, HIDE_ARMOUR_SHARE = 1.0, 1.0, 0.5
 WARRIOR_GARB, PRESTIGE_GARB, GARB_REGARD, LIE_DISREGARD = 0.5, 1.0, 0.05, 1.0
-ENVY_LEVEL, ENVY_UNEASE, ENVY_JOY = 0.6, 0.5, 1.0
+ENVY_LEVEL, ENVY_UNEASE, ENVY_JOY = 0.75, 0.5, 1.0  # the levels are shares of its kind, ranked each turn
 # Foes, victory, cowardice, gifts and theft, as the C++ version's (see there). A fight over a possession lasts until one
 # flees or falls to half its health; those who see it hold the taker a foe meanwhile, or a friend if its victim is theirs.
 FOE_LEVEL, VICTORY_REGARD, FOE_DEFEAT_REGARD, COWARD_DISREGARD = 0.5, 0.3, 0.3, 0.3
-GIVE_LEVEL, GIVE_JOY, TAKE_LEVEL, THEFT_DISREGARD = 0.7, 0.5, 0.7, 0.5
+GIVE_LEVEL, GIVE_JOY, TAKE_LEVEL, THEFT_DISREGARD = 0.75, 0.5, 0.75, 0.5
 HIDE_POSSESSION, WEAPON_POSSESSION, ARMOUR_POSSESSION = 0, 1, 2
 DIG_CHANCE = 0.1  # that a dig finds a stone
 WEAPON_FORCE, STONE_FORCE, ARMOUR_FORCE = 2.0, 1.5, 2.0
@@ -1601,6 +1601,7 @@ class Simulation:
         self.roads: set[tuple[int, int]] = set()
         self.fertilized: set[tuple[int, int]] = set()  # worked land fed crushed bone, until a seed sprouts there
         self.fights: list[list] = []  # each [taker, owner, possession, taken], changed only between turns
+        self._cuts: dict[str, tuple[float, float, float]] = {}  # each species' envy, take and give cuts, ranked each turn
         self._fights_begun: list[list] = []
         self.road_work: dict[tuple[int, int], int] = {}  # turns laid on each unfinished road
         self.site_turns: dict[tuple[int, int], int] = {}  # the turn each site was last built on
@@ -1999,18 +2000,29 @@ class Simulation:
         """Its possessions, for envy: its hide, tool and armour."""
         return agent.hide / 3 + (1.0 if agent.weapon == STONE_AXE else 0.5 if agent.weapon else 0.0) + (0.5 if agent.armour_worn else 0.0)
 
-    @staticmethod
-    def _envy_of(agent: Bitzkey) -> float:
-        """How envious it is: 0 at Envy level or below, 1 at the most."""
+    def _envy_of(self, agent: Bitzkey) -> float:
+        """How envious it is: 0 at or below its kind's envy cut, 1 at the most."""
         if agent.species == "plant" or ENVY_LEVEL >= 1:
             return 0.0
-        drive = max(agent.feeling("moodiness"), agent.feeling("dominance"))
-        return (drive - ENVY_LEVEL) / (1 - ENVY_LEVEL) if drive > ENVY_LEVEL else 0.0
+        drive, cut = self._envy_drive(agent), self._cuts.get(agent.species, (2.0, 2.0, 2.0))[0]
+        return (drive - cut) / max(1e-9, 1 - cut) if drive > cut else 0.0
+
+    @staticmethod
+    def _envy_drive(agent: Bitzkey) -> float:
+        return max(agent.feeling("moodiness"), agent.feeling("dominance"))
+
+    @staticmethod
+    def _take_drive(agent: Bitzkey) -> float:
+        return max(agent.feeling("aggression"), agent.feeling("dominance"))
+
+    @staticmethod
+    def _give_drive(agent: Bitzkey) -> float:
+        return max(agent.feeling("empathy"), agent.feeling("sociability"))
 
     def _skin(self, agent: Bitzkey, corpse: Bitzkey) -> None:
         """Takes the better of a fresh body's hide and the one it wore."""
         self._move_toward(agent, corpse.x, corpse.y)
-        if abs(corpse.x - agent.x) + abs(corpse.y - agent.y) > 1 or corpse.skinned or not self._fresh(corpse):
+        if abs(corpse.x - agent.x) + abs(corpse.y - agent.y) > 1 or corpse.skinned or corpse.alive:
             agent.last_action = "sought a body"
             return
         corpse.skinned = True
@@ -3145,7 +3157,7 @@ class Simulation:
             if square in self.arable and square not in self.fertilized:
                 available.add("fertilize")
         if (agent.weapon in (BONE_AXE, STONE_AXE) and dressable is not None and dressable.species != "plant" and not dressable.skinned
-                and self._fresh(dressable) and self._hide_from(dressable) > agent.hide):
+                and self._hide_from(dressable) > agent.hide):
             available.add("skin")
         envied = 0.0  # how much better the best possessions it sees are than its own
         if envy > 0:
@@ -3157,8 +3169,9 @@ class Simulation:
                 if other is not agent and other.alive and other.species != "plant" and self._is_foe(agent, other)]
         foe_closeness = 1.0 - (min(foes) - 1) / max(1, sight) if foes else 0.0
         claim_from = claim = gift_to = gift = None
-        taker = max(agent.feeling("aggression"), agent.feeling("dominance")) > TAKE_LEVEL and self._fight_of(agent.identifier) is None
-        giver = max(agent.feeling("empathy"), agent.feeling("sociability")) > GIVE_LEVEL
+        cuts = self._cuts.get(agent.species, (2.0, 2.0, 2.0))
+        taker = TAKE_LEVEL < 1 and self._take_drive(agent) > cuts[1] and self._fight_of(agent.identifier) is None
+        giver = GIVE_LEVEL < 1 and self._give_drive(agent) > cuts[2]
         if taker or giver:
             for other in neighbors:
                 if other is agent or not other.alive or other.species == "plant" or other.infant:
@@ -4717,6 +4730,15 @@ class Simulation:
         for one in self.agents:
             entry = held.get(one.identifier)
             one.regarded = entry[0] / entry[1] if entry else 0.0
+        drives: dict[str, list[list[float]]] = {}  # each species' cuts for envy, taking and giving, at those levels of its living, ranked
+        for one in self.agents:
+            if one.alive and one.species != "plant":
+                these = drives.setdefault(one.species, [[], [], []])
+                these[0].append(self._envy_drive(one))
+                these[1].append(self._take_drive(one))
+                these[2].append(self._give_drive(one))
+        cut = lambda values, level: sorted(values)[int(max(0.0, min(1.0, level)) * (len(values) - 1))]
+        self._cuts = {kind: (cut(these[0], ENVY_LEVEL), cut(these[1], TAKE_LEVEL), cut(these[2], GIVE_LEVEL)) for kind, these in drives.items()}
         self._any_piles = bool(self.meat_piles or self.fruit_piles or self.stone_piles or self.bone_piles or self.wood_piles
                                or any(self.gear_piles.values()) or self.cooked_meat_piles or self.cooked_fruit_piles)
         self._cells = {}
