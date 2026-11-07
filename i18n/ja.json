@@ -1839,5 +1839,9 @@
 "War morale": "戦争の士気",
 "gladness of a war clearly being won, and unease as much of one clearly being lost, each turn": "毎ターン、明らかに勝っている戦争の喜びと、明らかに負けている戦争の同じだけの不安",
 "War nerve": "戦争の胆力",
-"how much less likely to panic a war clearly being won leaves its side, and more the losing side": "明らかに勝っている戦争が味方をどれだけパニックしにくくし、負けている側をどれだけしやすくするか"
+"how much less likely to panic a war clearly being won leaves its side, and more the losing side": "明らかに勝っている戦争が味方をどれだけパニックしにくくし、負けている側をどれだけしやすくするか",
+"Standing joy": "立場の喜び",
+"pleasure of being held a friend by those about it, in full with three or more, times a half and its dominance": "周りの者に友とみなされる喜び。3頭以上で最大。0.5に支配性を足したものを掛ける",
+"Follow comfort": "付き従う安らぎ",
+"ease near the member of its own colour group in sight it esteems most, times that esteem and closeness, and a half plus its trust and sociability together": "視界にいる自分の色の集団で最も評価する者のそばにいる安らぎ。その評価と近さ、そして0.5に信頼と社交性を合わせたものを掛ける"
 }

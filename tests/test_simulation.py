@@ -4346,3 +4346,21 @@ class LandTests(unittest.TestCase):
         self.assertEqual(loaded.lands, simulation.lands)
         self.assertEqual(next(iter(loaded.realms.values())).patches, next(iter(simulation.realms.values())).patches)
         self.assertEqual(max(agent.mark for agent in loaded.living), simulation_module.PRESTIGE_MARK_KIND)
+
+    def test_an_animal_senses_its_standout_is_at_ease_near_it_and_glad_to_be_held_a_friend(self):
+        sm = simulation_module
+        simulation = Simulation(12, 12, 0, seed=3)
+        follower = simulation._add_agent(encode_dna("omnivore", size=3), 5, 5)
+        esteemed = simulation._add_agent(encode_dna("omnivore", size=3), 6, 6)
+        stranger = simulation._add_agent(encode_dna("omnivore", size=3), 4, 5)
+        simulation._index_cells()
+        senses, _, alone = simulation._sense(follower)
+        self.assertEqual(senses[SENSES.index("standout_esteem")], 0.0)  # none esteemed above none
+        follower.known += [sm.Acquaintance(esteemed.identifier, 0.8, 0), sm.Acquaintance(stranger.identifier, 0.2, 0)]
+        esteemed.known.append(sm.Acquaintance(follower.identifier, 0.9, 0))
+        senses, _, situation = simulation._sense(follower)
+        self.assertAlmostEqual(senses[SENSES.index("standout_esteem")], 0.8)  # the one it esteems most
+        self.assertGreater(senses[SENSES.index("standout_closeness")], 0.0)
+        self.assertGreater(senses[SENSES.index("standout_east")], 0.0)
+        self.assertAlmostEqual(situation["admired"], 1 / 3)  # one about it holds it a friend
+        self.assertGreater(Simulation._comfort(follower, situation), Simulation._comfort(follower, alone))

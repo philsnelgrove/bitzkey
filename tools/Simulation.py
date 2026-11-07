@@ -687,6 +687,9 @@ WARRIOR_MARK, PRESTIGE_MARK, MARK_REGARD, MARK_DREAD = 0.5, 1.0, 0.05, 0.3
 LAND_PATCH, LAND_SIZE, LAND_HOLD, LAND_MEMORY, LAND_TURNS, WAR_KILLS = 8, 12, 3, 5, 24, 3
 LAND_HEALING, LAND_DEFENCE, LAND_HERD, LAND_COMFORT, TRESPASS_REGARD = 1.0, 0.25, 0.5, 0.1, 0.02
 TRESPASS_GROWTH, LAND_RALLY, WAR_ENMITY, WAR_MORALE, WAR_NERVE = 0.25, 0.75, 0.1, 0.1, 0.25
+# Standing, as the C++ version's: no one is made a leader. An animal is glad of how many about it hold it a friend
+# (STANDING_JOY), and at ease near its standout, the member of its own group in sight it esteems most (FOLLOW_COMFORT).
+STANDING_JOY, FOLLOW_COMFORT = 0.2, 0.2
 HIDE_POSSESSION, WEAPON_POSSESSION, ARMOUR_POSSESSION = 0, 1, 2
 DIG_CHANCE = 0.1  # that a dig finds a stone
 WEAPON_FORCE, STONE_FORCE, ARMOUR_FORCE = 2.0, 1.5, 2.0
@@ -2229,6 +2232,27 @@ class Simulation:
         senses["mark_seen"] = best_mark / 2
         return senses, land, war
 
+    def _standing(self, agent: Bitzkey, sight: int) -> tuple[dict[str, float], float, float]:
+        """Its standing: who about it hold it a friend, a third each to 1; and its standout, the one of its own colour group
+        (its species, with none) in sight it esteems most, as senses, and its esteem times closeness for its comfort."""
+        admirers, standout, best = 0, None, 0.0
+        for other in self._nearby(agent, sight):
+            if other.species != agent.species:
+                continue
+            if abs(other.x - agent.x) + abs(other.y - agent.y) <= other.sight and self._regard_for(other, agent) >= REGARD_STRONG:
+                admirers += 1
+            if agent.realm >= 0 and other.realm != agent.realm:
+                continue
+            esteem = min(1.0, self._regard_for(agent, other))
+            if esteem > best:
+                best, standout = esteem, other
+        if standout is None:
+            return {}, min(3, admirers) / 3, 0.0
+        near = self._closeness(agent, (standout.x, standout.y), sight)
+        return ({"standout_esteem": best, "standout_closeness": near,
+                 "standout_east": max(-1.0, min(1.0, (standout.x - agent.x) / max(1, sight))),
+                 "standout_south": max(-1.0, min(1.0, (standout.y - agent.y) / max(1, sight)))}, min(3, admirers) / 3, best * near)
+
     def _trespass(self, agent: Bitzkey) -> None:
         """A turn in another's land: thought the worse of by those of it who see it from their land, the more each turn."""
         if not self._trespassing(agent):
@@ -3617,6 +3641,7 @@ class Simulation:
 
         heard, caller = self._heard(agent)
         lands, land, war = self._land_senses(agent, sight)
+        standing, admired, standout = self._standing(agent, sight)
         senses = make_senses(
             hunger=min(1.0, agent.hunger / 100),
             health=max(0.0, agent.health / agent.max_health),
@@ -3695,6 +3720,7 @@ class Simulation:
                 "elder_east": max(-1.0, min(1.0, (oldest.x - agent.x) / sight)),
                 "elder_south": max(-1.0, min(1.0, (oldest.y - agent.y) / sight))}),
             **lands,
+            **standing,
             **{trait: agent.feeling(trait) for trait in TEMPERAMENT},
             **agent.genes,
         )
@@ -3710,6 +3736,7 @@ class Simulation:
                      "student": students[0] if students else None,
                      "calls": [SILENT, *([ALERT_CALL] if alert_to is not None else []), *range(FIRST_CALL, len(CALLS))]}
         situation["land"], situation["war"] = land, war
+        situation["admired"], situation["standout"] = admired, standout
         situation["inside"] = (2 if ACTIONS[agent.last_choice] == "rest" else 1) if (agent.x, agent.y) in self.shelters else 0
         if situation["exposure"] > 0 and (situation["inside"] or self.sheltered(agent) or self._warmed_by_fire(agent, here)):
             situation["spared"], situation["exposure"] = situation["exposure"], 0.0  # kept from the weather, it feels none, only relief
@@ -3746,7 +3773,10 @@ class Simulation:
         # A parent is glad of its own young close by, the more so the more empathetic.
         parental = PARENT_JOY * (0.5 + agent.feeling("empathy")) * min(3, situation.get("young_near", 0)) / 3
         # At ease in its own land and uneasy away from it; glad of a war clearly being won, and troubled by one being lost.
-        belonging = LAND_COMFORT * situation.get("land", 0.0) + WAR_MORALE * situation.get("war", 0.0)
+        belonging = (LAND_COMFORT * situation.get("land", 0.0) + WAR_MORALE * situation.get("war", 0.0)
+                     # glad to be held a friend by those about it, and at ease near the one it esteems most
+                     + STANDING_JOY * (0.5 + agent.feeling("dominance")) * situation.get("admired", 0.0)
+                     + FOLLOW_COMFORT * (0.5 + 0.5 * (agent.feeling("trust") + agent.feeling("sociability"))) * situation.get("standout", 0.0))
         return company - dread - unease - crowded + herding - exposed + parental + belonging
 
     @staticmethod
