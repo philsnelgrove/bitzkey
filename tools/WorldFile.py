@@ -214,7 +214,7 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "carried_meat": agent.carried_meat, "carried_fruit": agent.carried_fruit, "weapon": agent.weapon, "armour": agent.armour_worn, "weapon_uses": agent.weapon_uses, "armour_uses": agent.armour_uses,
         "infant_taught": agent.infant_taught, "crafts": agent.crafts, "craft_tries": agent.craft_tries, "cooked_meat": agent.cooked_meat, "cooked_fruit": agent.cooked_fruit,
         "carried_stone": agent.carried_stone,
-        "carried_bone": agent.carried_bone, "carried_wood": agent.carried_wood, "carried_seed": agent.carried_seed, "boredom": float(agent.boredom), "shelter_known": float(agent.shelter_known), "road_known": float(agent.road_known), "cooked_known": float(agent.cooked_known), "plenty": float(agent.plenty), "plenty_known": float(agent.plenty_known), "hide": agent.hide, "hide_armour": float(agent.hide_armour), "skinned": agent.skinned, "thefts": agent.thefts, "meat_lean": float(agent.meat_lean), "expected": agent.expected, "last_tried": [agent.last_tried.get(action, 0) for action in ACTIONS], "died_turn": agent.died_turn, "assailant": agent.assailant,
+        "carried_bone": agent.carried_bone, "carried_wood": agent.carried_wood, "carried_seed": agent.carried_seed, "boredom": float(agent.boredom), "shelter_known": float(agent.shelter_known), "road_known": float(agent.road_known), "cooked_known": float(agent.cooked_known), "plenty": float(agent.plenty), "plenty_known": float(agent.plenty_known), "hide": agent.hide, "hide_armour": float(agent.hide_armour), "skinned": agent.skinned, "thefts": agent.thefts, "mark": agent.mark, "realm": agent.realm, "trespass": agent.trespass, "meat_lean": float(agent.meat_lean), "expected": agent.expected, "last_tried": [agent.last_tried.get(action, 0) for action in ACTIONS], "died_turn": agent.died_turn, "assailant": agent.assailant,
         "panicked": agent.panicked, "primal_fear": agent.primal_fear, "rivalry": float(agent.rivalry),
         "own_rivalry": float(agent.own_rivalry), "hunts_grazers": agent.hunts_grazers,
         "hunts_omnivores": agent.hunts_omnivores, "hunts_predators": agent.hunts_predators, "guarded": agent.guarded,
@@ -309,6 +309,9 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
     agent.hide_armour = float(record.get("hide_armour", 0.0))
     agent.skinned = bool(record.get("skinned", False))
     agent.thefts = int(record.get("thefts", 0))
+    agent.mark = int(record.get("mark", 0))  # none, in an older world
+    agent.realm = int(record.get("realm", -1))
+    agent.trespass = int(record.get("trespass", 0))
     agent.meat_lean = float(record.get("meat_lean", 0.0))
     agent.expected = record.get("expected")  # nor this
     if len(record.get("last_tried", ())) == len(ACTIONS):
@@ -399,6 +402,10 @@ def world_bytes(simulation: Simulation) -> bytes:
         "arable": sorted(y * simulation.width + x for x, y in simulation.arable),
         "fertilized": sorted(y * simulation.width + x for x, y in simulation.fertilized),
         "fights": [list(fight) for fight in simulation.fights],
+        "lands": {"patch": simulation.land_patch, "columns": simulation.land_columns, "squares": len(simulation.lands), "next_realm": simulation.next_realm,
+                  "realms": [[identifier, SPECIES.index(realm.species), realm.ring, realm.members] for identifier, realm in sorted(simulation.realms.items())],
+                  "claims": [[patch, realm, hold] for patch, land in enumerate(simulation.lands) for realm, hold in land if realm >= 0],
+                  "wars": [list(war) for war in simulation.wars]},
         "roads": [[y * simulation.width + x, simulation.road_work.get((x, y), 0), int((x, y) in simulation.roads)] for x, y in sorted(simulation.roads | set(simulation.road_work), key=lambda c: (c[1], c[0]))],
         "shelters": [[x, y, simulation.sites.get((x, y), 0), int((x, y) in simulation.shelters), simulation.site_turns.get((x, y), 0), simulation.site_stone.get((x, y), 0)] for y in range(simulation.height) for x in range(simulation.width)
                      if (x, y) in simulation.sites or (x, y) in simulation.shelters],
@@ -538,6 +545,18 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
             simulation.pile_turns[(x, y, "bone" if kind == 3 else "wood")] = dropped
     simulation.arable = {(cell % simulation.width, cell // simulation.width) for cell in record.get("arable", ())}  # none in an older world
     simulation.fights = [[int(a), int(b), int(c), bool(d)] for a, b, c, d in record.get("fights", ())]  # none in an older world
+    simulation.realms, simulation.lands, simulation.wars = {}, [], []
+    if "lands" in record:  # none, in a world saved before lands: counted afresh
+        lands = record["lands"]
+        simulation.land_patch, simulation.land_columns, simulation.next_realm = int(lands["patch"]), int(lands["columns"]), int(lands["next_realm"])
+        simulation.lands = [[[-1, 0.0], [-1, 0.0]] for _ in range(int(lands["squares"]))]
+        for identifier, species, ring, members in lands["realms"]:
+            simulation.realms[int(identifier)] = world.Realm(int(identifier), SPECIES[int(species)], int(ring), int(members))
+        for patch, realm, hold in lands["claims"]:
+            land = simulation.lands[int(patch)]
+            land[0 if land[0][0] < 0 else 1] = [int(realm), float(hold)]
+        simulation.wars = [[int(value) for value in war] for war in lands["wars"]]
+        simulation._index_realm_patches()
     simulation.fertilized = {(cell % simulation.width, cell // simulation.width) for cell in record.get("fertilized", ())}  # none in an older world
     simulation.roads, simulation.road_work = set(), {}
     for cell, work, standing in record.get("roads", ()):  # none in an older world

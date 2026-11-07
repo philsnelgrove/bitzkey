@@ -4232,3 +4232,117 @@ class MaterialTests(unittest.TestCase):
         crafter.craft_tries[2] = 9
         simulation._make_gear(crafter, "make_club")
         self.assertEqual((crafter.weapon, crafter.carried_wood), (2, 1))
+
+
+class LandTests(unittest.TestCase):
+    def setUp(self):
+        sm = simulation_module
+        self.saved = (sm.LAND_SIZE, sm.LAND_HOLD, sm.LAND_PATCH, sm.WAR_KILLS)
+        sm.LAND_SIZE, sm.LAND_HOLD, sm.LAND_PATCH, sm.WAR_KILLS = 3, 2, 8, 2
+
+    def tearDown(self):
+        sm = simulation_module
+        sm.LAND_SIZE, sm.LAND_HOLD, sm.LAND_PATCH, sm.WAR_KILLS = self.saved
+
+    def test_a_defeat_earns_a_mark_of_the_victor_kept_for_life_esteemed_and_dreaded_by_foes(self):
+        sm = simulation_module
+        simulation = Simulation(12, 12, 0, seed=3)
+        victor = simulation._add_agent(encode_dna("predator", size=3), 5, 5)
+        omnivore = simulation._add_agent(encode_dna("omnivore", size=3), 6, 5)
+        predator = simulation._add_agent(encode_dna("predator", size=3), 7, 5)
+        grazer = simulation._add_agent(encode_dna("grazer", size=3), 5, 7)
+        friend = simulation._add_agent(encode_dna("grazer", size=3), 4, 5)
+        foe = simulation._add_agent(encode_dna("grazer", size=3), 5, 4)
+        simulation._index_cells()
+        self.assertEqual(victor.mark, sm.NO_MARK)
+        omnivore.health = 0
+        simulation._die(omnivore, "killed", victor)
+        self.assertEqual(victor.mark, sm.WARRIOR_MARK_KIND)  # the warrior's, for an omnivore
+        predator.health = 0
+        simulation._die(predator, "killed", victor)
+        self.assertEqual(victor.mark, sm.PRESTIGE_MARK_KIND)  # prestige, for a predator
+        grazer.health = 0
+        simulation._die(grazer, "killed", victor)
+        self.assertEqual(victor.mark, sm.PRESTIGE_MARK_KIND)  # kept: a lesser defeat takes nothing away
+        foe.known.append(sm.Acquaintance(victor.identifier, -0.9, 0))
+        self.assertTrue(simulation._is_foe(foe, victor))
+        reward = foe.reward
+        simulation._deed_seen(victor, simulation._mark_worth(victor.mark), None, "mark")
+        self.assertGreater(simulation._regard_for(friend, victor), 0.0)  # esteemed
+        held = next(one for one in foe.known if one.identifier == victor.identifier)
+        self.assertAlmostEqual(held.regard, -0.9)  # a foe esteems it no more
+        self.assertGreater(held.danger, 0.0)  # but holds it the more dangerous
+        self.assertLess(foe.reward, reward)  # and dreads it
+        simulation._deed_seen(victor, 0.0, None, "coward")
+        self.assertEqual(victor.mark, sm.PRESTIGE_MARK_KIND)  # never lost
+
+    def test_a_colour_group_claims_its_land_defends_it_and_goes_to_war_over_contested_land(self):
+        sm = simulation_module
+        simulation = Simulation(24, 24, 0, seed=3)
+        red = encode_dna("omnivore", size=3)
+        blue = red ^ (0xFFFF0000 << 32)
+        reds = [simulation._add_agent(red, x, y) for x, y in ((2, 2), (3, 2), (2, 3))]
+        outsider = simulation._add_agent(blue, 3, 3)
+        simulation._index_cells()
+        simulation._count_lands()
+        realm = reds[0].realm
+        self.assertGreaterEqual(realm, 0)
+        self.assertEqual(reds[1].realm, realm)
+        self.assertNotEqual(outsider.realm, realm)  # another colour, another group
+        self.assertTrue(simulation._claims(simulation._claims_at(7, 7), realm))  # the whole square, to its edge
+        self.assertFalse(simulation._claims(simulation._claims_at(8, 8), realm))
+        self.assertTrue(simulation._in_own_land(reds[0]))
+        self.assertTrue(simulation._trespassing(outsider))
+        self.assertAlmostEqual(simulation._land_guard(reds[0], outsider), 1 - sm.LAND_DEFENCE)
+        self.assertEqual(simulation._land_guard(reds[0], reds[1]), 1.0)
+        self.assertAlmostEqual(simulation._nerve(reds[0], outsider), 1 - sm.LAND_RALLY)
+        self.assertAlmostEqual(simulation._land_herd(reds[0]), 1 + sm.LAND_HERD)
+        senses, _, situation = simulation._sense(reds[0])
+        self.assertEqual(senses[SENSES.index("own_land")], 1.0)
+        self.assertGreater(senses[SENSES.index("trespasser")], 0.0)
+        self.assertEqual(situation["land"], 1.0)
+        self.assertEqual(simulation._sense(outsider)[0][SENSES.index("foreign_land")], 1.0)
+
+        simulation._trespass(outsider)  # thought the worse of each turn it stays, the more each turn
+        first = simulation._regard_for(reds[0], outsider)
+        self.assertLess(first, 0.0)
+        for _ in range(20):
+            simulation._trespass(outsider)
+        self.assertLess(simulation._regard_for(reds[0], outsider), first)
+        self.assertTrue(simulation._is_foe(reds[0], outsider))  # until it is a foe
+        self.assertTrue(simulation._drives_out(reds[0], outsider))  # to be struck down in the land
+        self.assertFalse(simulation._drives_out(reds[0], reds[1]))
+
+        blues = [simulation._add_agent(blue, x, y) for x, y in ((4, 3), (3, 4))]  # a second group, in strength: war
+        simulation._index_cells()
+        simulation._count_lands()
+        enemy = outsider.realm
+        self.assertEqual(simulation.realms[enemy].members, 3)
+        self.assertTrue(simulation._claims(simulation._claims_at(2, 2), enemy))
+        self.assertEqual(len(simulation.wars), 1)
+        self.assertEqual(simulation._war_standing(realm), 0)  # too few deaths yet to tell
+        for blue_one, red_one in zip(blues, reds):
+            blue_one.health = 0
+            simulation._die(blue_one, "killed", red_one)
+        self.assertEqual(simulation._war_standing(realm), 1)  # clearly winning
+        self.assertEqual(simulation._war_standing(enemy), -1)  # clearly losing
+        self.assertGreater(simulation._nerve(outsider, outsider), 1.0)  # and shaken by it, where it can't rally
+        for _ in range(sm.LAND_MEMORY):
+            simulation._count_lands()
+        self.assertFalse(simulation._claims(simulation._claims_at(2, 2), enemy))  # the loser gives it up
+        self.assertEqual(simulation.wars, [])  # and the war is over
+        self.assertTrue(simulation._claims(simulation._claims_at(2, 2), realm))
+
+    def test_lands_and_marks_are_saved_and_loaded_back(self):
+        from tools import WorldFile
+        simulation = Simulation(24, 24, 0, seed=3)
+        for x, y in ((2, 2), (3, 2), (2, 3)):
+            simulation._add_agent(encode_dna("omnivore", size=3), x, y)
+        simulation._index_cells()
+        simulation._count_lands()
+        simulation.living[0].mark = simulation_module.PRESTIGE_MARK_KIND
+        loaded = WorldFile.world_from_bytes(WorldFile.world_bytes(simulation))
+        self.assertEqual(sorted(loaded.realms), sorted(simulation.realms))
+        self.assertEqual(loaded.lands, simulation.lands)
+        self.assertEqual(next(iter(loaded.realms.values())).patches, next(iter(simulation.realms.values())).patches)
+        self.assertEqual(max(agent.mark for agent in loaded.living), simulation_module.PRESTIGE_MARK_KIND)

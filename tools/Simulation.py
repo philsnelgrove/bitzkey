@@ -444,6 +444,17 @@ class Faction:
 
 
 @dataclass
+class Realm:
+    """A colour group (see LAND_SIZE): its species, colour (the mean of its members' body words), members as of the
+    last count, and the land squares it claims (kept from the lands, not saved)."""
+    identifier: int
+    species: str
+    ring: int
+    members: int = 0
+    patches: list[int] = field(default_factory=list)
+
+
+@dataclass
 class Acquaintance:
     """One it knows: who, how well it regards them, -1 to 1, and the turn they last dealt with it."""
     identifier: int
@@ -665,6 +676,17 @@ FOE_LEVEL, VICTORY_REGARD, FOE_DEFEAT_REGARD, COWARD_DISREGARD = 0.5, 0.3, 0.3, 
 CULTURE_REGARD = 0.3
 CULTURES = {"predator": "victory", "omnivore": "craft", "grazer": "sowing"}
 GIVE_LEVEL, GIVE_JOY, TAKE_LEVEL, THEFT_DISREGARD = 0.75, 0.5, 0.75, 0.5
+# Marks of the victor, as the C++ version's: defeating an omnivore earns the mark of the warrior, a predator the mark of
+# prestige, kept for life; each turn all who see it and don't hold it a foe move their regard toward WARRIOR_MARK or
+# PRESTIGE_MARK at MARK_REGARD of a deed's weight, and a foe holds it the more dangerous and dreads it (MARK_DREAD).
+NO_MARK, WARRIOR_MARK_KIND, PRESTIGE_MARK_KIND = 0, 1, 2
+WARRIOR_MARK, PRESTIGE_MARK, MARK_REGARD, MARK_DREAD = 0.5, 1.0, 0.05, 0.3
+# Lands, as the C++ version's (see there): colour groups of LAND_SIZE or more claim the squares of LAND_PATCH cells they
+# stand in, counted every LAND_TURNS turns; in its own land an animal heals, defends and herds better, rallies, and is at
+# ease; trespassers are thought the worse of, the more each turn; two claimants make war.
+LAND_PATCH, LAND_SIZE, LAND_HOLD, LAND_MEMORY, LAND_TURNS, WAR_KILLS = 8, 12, 3, 5, 24, 3
+LAND_HEALING, LAND_DEFENCE, LAND_HERD, LAND_COMFORT, TRESPASS_REGARD = 1.0, 0.25, 0.5, 0.1, 0.02
+TRESPASS_GROWTH, LAND_RALLY, WAR_ENMITY, WAR_MORALE, WAR_NERVE = 0.25, 0.75, 0.1, 0.1, 0.25
 HIDE_POSSESSION, WEAPON_POSSESSION, ARMOUR_POSSESSION = 0, 1, 2
 DIG_CHANCE = 0.1  # that a dig finds a stone
 WEAPON_FORCE, STONE_FORCE, ARMOUR_FORCE = 2.0, 1.5, 2.0
@@ -1062,6 +1084,9 @@ class Bitzkey:
     skinned: bool = False  # a body whose hide has been taken
     regarded: float = 0.0  # how well those who know it regard it, on average, as of this turn
     thefts: int = 0  # possessions it has stolen
+    mark: int = 0  # the best mark of the victor it has earned
+    realm: int = -1  # its colour group, as of the last count; -1 for none yet
+    trespass: int = 0  # turns it has stood in another group's land without a break
     plenty: float = 0.0  # the food about it as of its last survey (see FORAGE_RADIUS)
     plenty_known: float = -1.0  # its memory of that food, following it over about a day; below 0 before its first survey
     cooked_known: float = 0.0  # its taste for cooked food, a fifth for each cooked portion eaten, to 1 (see COOKED_JOY)
@@ -1641,6 +1666,11 @@ class Simulation:
         self.roads: set[tuple[int, int]] = set()
         self.fertilized: set[tuple[int, int]] = set()  # worked land fed crushed bone, until a seed sprouts there
         self.fights: list[list] = []  # each [taker, owner, possession, taken], changed only between turns
+        self.realms: dict[int, Realm] = {}  # the colour groups, by identifier
+        self.lands: list[list[list]] = []  # each land square's two claims, [group, hold], row by row; empty with no lands
+        self.land_patch, self.land_columns = 0, 0
+        self.wars: list[list[int]] = []  # each [first, second, first_kills, second_kills, since]
+        self.next_realm = 0
         self._cuts: dict[str, tuple[float, float, float]] = {}  # each species' envy, take and give cuts, ranked each turn
         self._fights_begun: list[list] = []
         self.road_work: dict[tuple[int, int], int] = {}  # turns laid on each unfinished road
@@ -1971,6 +2001,7 @@ class Simulation:
         self.fights = going
         for winner, loser in won:
             self._deed_seen(winner, 0.0, loser, "victory")
+            self._earn_mark(winner, loser)
             winner.last_action = "won a fight"
 
     @classmethod
@@ -2041,6 +2072,9 @@ class Simulation:
                 if kind in ("garb", "lie"):
                     self._garb_seen(other, doer, deed, kind == "lie")
                     continue
+                if kind == "mark":
+                    self._mark_seen(other, doer, deed)
+                    continue
                 if kind == "victory":  # for a friend's, against a foe's, and the more over a foe
                     if self._is_friend(other, doer):
                         self._note_deed(other, doer, 1.0, VICTORY_REGARD, "plain", True)
@@ -2079,6 +2113,251 @@ class Simulation:
         found = next((one for one in seer.known if one.identifier == wearer.identifier), None)
         if found is not None:
             found.garb += found.regard - before
+
+    def _mark_seen(self, seer: Bitzkey, bearer: Bitzkey, worth: float) -> None:
+        """What one sees of another's mark of the victor: regard toward its worth, or, for a foe, danger and dread."""
+        if not self._is_foe(seer, bearer):
+            self._note_deed(seer, bearer, worth, MARK_REGARD, "plain", True)
+            return
+        self._note_deed(seer, bearer, 0.0, MARK_REGARD * worth, "harm", False)  # a foe's mark: the more dangerous, and dreaded
+        seer.reward -= MARK_DREAD * worth * (0.5 + seer.fearfulness)
+
+    @staticmethod
+    def _mark_worth(mark: int) -> float:
+        return PRESTIGE_MARK if mark == PRESTIGE_MARK_KIND else WARRIOR_MARK if mark == WARRIOR_MARK_KIND else 0.0
+
+    @staticmethod
+    def _earn_mark(victor: Bitzkey, defeated: Bitzkey) -> None:
+        """The mark a defeat of `defeated` earns, if better than the victor's own."""
+        if victor.species == "plant":
+            return
+        earned = PRESTIGE_MARK_KIND if defeated.species == "predator" else WARRIOR_MARK_KIND if defeated.species == "omnivore" else NO_MARK
+        victor.mark = max(victor.mark, earned)
+
+    def _claims_at(self, x: int, y: int) -> list[list] | None:
+        if not self.lands or not (0 <= x < self.width and 0 <= y < self.height):
+            return None
+        return self.lands[y // self.land_patch * self.land_columns + x // self.land_patch]
+
+    @staticmethod
+    def _claims(land: list[list], realm: int) -> bool:
+        return realm >= 0 and (land[0][0] == realm or land[1][0] == realm)
+
+    def _in_own_land(self, agent: Bitzkey) -> bool:
+        land = self._claims_at(agent.x, agent.y) if agent.realm >= 0 else None
+        return land is not None and self._claims(land, agent.realm)
+
+    def _trespassing(self, agent: Bitzkey) -> bool:
+        """In a land with a claimant other than its own group."""
+        land = None if agent.species == "plant" else self._claims_at(agent.x, agent.y)
+        return land is not None and any(claim[0] >= 0 and claim[0] != agent.realm for claim in land)
+
+    def _war_standing(self, realm: int, enemy: int = -1) -> int:
+        """How its group's war with `enemy` goes, or all its wars together: 1 clearly winning, -1 clearly losing, 0 neither."""
+        if realm < 0:
+            return 0
+        standing = 0
+        for first, second, first_kills, second_kills, _ in self.wars:
+            if realm not in (first, second) or (enemy >= 0 and enemy not in (first, second)):
+                continue
+            ours, theirs = (first_kills, second_kills) if first == realm else (second_kills, first_kills)
+            if ours + theirs < max(1, WAR_KILLS):
+                continue
+            if 3 * ours >= 2 * (ours + theirs):
+                standing += 1
+            elif 3 * ours <= ours + theirs:
+                standing -= 1
+        return max(-1, min(1, standing))
+
+    def _drives_out(self, hunter: Bitzkey, other: Bitzkey) -> bool:
+        """Whether a hunter standing in its own land may strike a trespasser there that it holds a foe."""
+        if hunter.species not in ("omnivore", "predator") or other.species == "plant":
+            return False
+        if hunter.realm < 0 or other.realm == hunter.realm or other.guarded or not self.within_reach(hunter, other):
+            return False
+        there = self._claims_at(other.x, other.y)
+        return there is not None and self._claims(there, hunter.realm) and self._in_own_land(hunter) and self._is_foe(hunter, other)
+
+    def _preys_on(self, hunter: Bitzkey, other: Bitzkey) -> bool:
+        return self._is_prey(hunter, other) or self._drives_out(hunter, other)
+
+    def _land_guard(self, struck: Bitzkey, striker: Bitzkey) -> float:
+        """The share of a blow from an outsider that lands on one in its own land."""
+        return 1 - LAND_DEFENCE if striker.realm != struck.realm and self._in_own_land(struck) else 1.0
+
+    def _land_herd(self, agent: Bitzkey) -> float:
+        return 1 + LAND_HERD if self._in_own_land(agent) else 1.0
+
+    def _nerve(self, agent: Bitzkey, foe: Bitzkey | None) -> float:
+        """How much of its panic, or primal fear, is left it: LAND_RALLY of it overcome defending its own land from an
+        outsider, and WAR_NERVE less, or more, clearly winning or losing."""
+        rallied = self._in_own_land(agent) and (foe is None or foe.realm != agent.realm)
+        return (1 - LAND_RALLY if rallied else 1.0) * max(0.0, 1 - WAR_NERVE * self._war_standing(agent.realm))
+
+    def _land_senses(self, agent: Bitzkey, sight: int) -> tuple[dict[str, float], float, float]:
+        """Its land, its group's wars, trespassers in its land, and marks of the victor, as senses; and its land (1 in it,
+        -1 away from the land its group holds, 0 with none) and wars for its comfort."""
+        realm = self.realms.get(agent.realm)
+        holds = realm is not None and bool(realm.patches)
+        at_home = self._in_own_land(agent)
+        land = 1.0 if at_home else -1.0 if holds else 0.0
+        war = float(self._war_standing(agent.realm))
+        senses = {"own_land": float(at_home), "foreign_land": float(self._trespassing(agent)), "war_standing": war,
+                  "marked": agent.mark / 2}
+        if holds and not at_home:  # which way the nearest square of its own land lies
+            square, nearest = -1, 0
+            for patch in realm.patches:
+                cx = patch % self.land_columns * self.land_patch + self.land_patch // 2
+                cy = patch // self.land_columns * self.land_patch + self.land_patch // 2
+                steps = max(abs(cx - agent.x), abs(cy - agent.y))
+                if square < 0 or steps < nearest:
+                    square, nearest = patch, steps
+            senses["own_land_east"] = (square % self.land_columns * self.land_patch + self.land_patch // 2 - agent.x) / max(1, nearest)
+            senses["own_land_south"] = (square // self.land_columns * self.land_patch + self.land_patch // 2 - agent.y) / max(1, nearest)
+        trespasser, best_mark = sight + 1, NO_MARK
+        for other in self._nearby(agent, sight):
+            if other.species == "plant":
+                continue
+            best_mark = max(best_mark, other.mark)
+            if not holds or other.realm == agent.realm:
+                continue
+            there = self._claims_at(other.x, other.y)
+            if there is not None and self._claims(there, agent.realm):
+                trespasser = min(trespasser, abs(other.x - agent.x) + abs(other.y - agent.y))
+        if trespasser <= sight:
+            senses["trespasser"] = 1.0 - (trespasser - 1) / max(1, sight)
+        senses["mark_seen"] = best_mark / 2
+        return senses, land, war
+
+    def _trespass(self, agent: Bitzkey) -> None:
+        """A turn in another's land: thought the worse of by those of it who see it from their land, the more each turn."""
+        if not self._trespassing(agent):
+            agent.trespass = 0
+            return
+        agent.trespass += 1
+        if TRESPASS_REGARD <= 0:
+            return
+        land = self._claims_at(agent.x, agent.y)
+        weight = min(1.0, TRESPASS_REGARD * (1 + TRESPASS_GROWTH) ** (agent.trespass - 1))  # compounding
+        for other in self._nearby(agent, agent.sight):  # witnesses within both's sight, as of any deed
+            if other.brain is None or other.realm == agent.realm or not self._claims(land, other.realm):
+                continue
+            if abs(other.x - agent.x) + abs(other.y - agent.y) > other.sight or not self._in_own_land(other):
+                continue
+            self._note_deed(other, agent, -1.0, weight, "plain", True)
+
+    def _tally_war(self, killer: Bitzkey, victim: Bitzkey) -> None:
+        if killer.realm < 0 or victim.realm < 0 or killer.realm == victim.realm:
+            return
+        for war in self.wars:
+            if war[0] == killer.realm and war[1] == victim.realm:
+                war[2] += 1
+            elif war[1] == killer.realm and war[0] == victim.realm:
+                war[3] += 1
+
+    def _index_realm_patches(self) -> None:
+        for realm in self.realms.values():
+            realm.patches = []
+        for patch, land in enumerate(self.lands):
+            for realm, _ in land:
+                if realm >= 0 and realm in self.realms:
+                    self.realms[realm].patches.append(patch)
+
+    def _count_lands(self) -> None:
+        """Every LAND_TURNS turns: each animal's colour group, the claims on each land square, the wars, and their enmity."""
+        if LAND_SIZE <= 0 or LAND_PATCH <= 0:  # no lands: none claimed, no groups, no wars
+            if self.lands or self.realms:
+                self.lands, self.realms, self.wars = [], {}, []
+                for agent in self.agents:
+                    agent.realm = -1
+            return
+        if self.land_patch != LAND_PATCH or not self.lands:  # a new size of square: all claims begin again
+            self.land_patch = LAND_PATCH
+            self.land_columns = -(-self.width // self.land_patch)
+            self.lands = [[[-1, 0.0], [-1, 0.0]] for _ in range(self.land_columns * -(-self.height // self.land_patch))]
+            self.wars = []
+        # Each animal to its colour group: the one it was in while its colour stays within reach of it, else the nearest
+        # of its species within reach, else a new one of its own colour.
+        sums: dict[int, list[int]] = {}
+        members: Counter = Counter()
+        for agent in self.agents:
+            if agent.species == "plant" or not agent.alive:
+                continue
+            ring = body_word(agent.dna)
+            fits = lambda realm: realm.species == agent.species and colour_difference(realm.ring, ring) <= FACTION_WIDTH
+            current = self.realms.get(agent.realm)
+            if current is None or not fits(current):
+                agent.realm, best = -1, 2.0
+                for identifier, realm in sorted(self.realms.items()):
+                    apart = colour_difference(realm.ring, ring)
+                    if fits(realm) and apart < best:
+                        best, agent.realm = apart, identifier
+                if agent.realm < 0:
+                    agent.realm = self.next_realm
+                    self.next_realm += 1
+                    self.realms[agent.realm] = Realm(agent.realm, agent.species, ring)
+            members[agent.realm] += 1
+            total = sums.setdefault(agent.realm, [0, 0, 0, 0])
+            for byte in range(4):
+                total[byte] += ring >> (24 - 8 * byte) & 0xFF
+        for identifier in sorted(self.realms):  # a group with none left is gone; the rest take their mean colour
+            count = members[identifier]
+            if count == 0:
+                del self.realms[identifier]
+                continue
+            realm = self.realms[identifier]
+            realm.ring = sum((sums[identifier][byte] // count) << (24 - 8 * byte) for byte in range(4))
+            realm.members = count
+        present: list[Counter] = [Counter() for _ in self.lands]  # who stands in each square, by group
+        for agent in self.agents:
+            if agent.realm < 0 or not agent.alive or agent.species == "plant" or not (0 <= agent.x < self.width and 0 <= agent.y < self.height):
+                continue
+            present[agent.y // self.land_patch * self.land_columns + agent.x // self.land_patch][agent.realm] += 1
+        large = lambda realm: realm in self.realms and self.realms[realm].members >= LAND_SIZE
+        fading = 1.0 / max(1, LAND_MEMORY)
+        for patch, land in enumerate(self.lands):
+            here = present[patch]
+            for slot in range(2):  # held while any of it stand there, unless clearly losing the war for it
+                claim, other = land[slot], land[1 - slot]
+                if claim[0] < 0:
+                    continue
+                losing = other[0] >= 0 and self._war_standing(claim[0], other[0]) < 0
+                if here[claim[0]] > 0 and large(claim[0]) and not losing:
+                    claim[1] = 1.0
+                else:
+                    claim[1] -= fading
+                if claim[1] <= 1e-9 or claim[0] not in self.realms:
+                    claim[0], claim[1] = -1, 0.0
+            if land[0][0] < 0 and land[1][0] >= 0:
+                land[0], land[1] = land[1], land[0]
+            if land[1][0] >= 0:
+                continue
+            best, most = -1, max(1, LAND_HOLD) - 1  # a new claim, by the group standing there in the most strength
+            for realm, count in sorted(here.items()):
+                if count > most and realm != land[0][0] and large(realm):
+                    best, most = realm, count
+            if best >= 0:
+                land[0 if land[0][0] < 0 else 1] = [best, 1.0]
+        self._index_realm_patches()
+        # Wars: every pair of groups with a square both claim. One no longer contesting any is over.
+        fronts = sorted({tuple(sorted((land[0][0], land[1][0]))) for land in self.lands if land[0][0] >= 0 and land[1][0] >= 0})
+        self.wars = [war for war in self.wars if (war[0], war[1]) in fronts]
+        for first, second in fronts:
+            if not any(war[0] == first and war[1] == second for war in self.wars):
+                self.wars.append([first, second, 0, 0, self.turn])
+        if WAR_ENMITY <= 0 or not self.wars:
+            return
+        face: dict[int, Bitzkey] = {}  # a living member of each group, standing for its colour
+        for agent in self.agents:
+            if agent.realm >= 0 and agent.alive and agent.realm not in face:
+                face[agent.realm] = agent
+        for agent in self.agents:  # each member of a group at war thinks the worse of its enemy's colour
+            if agent.realm < 0 or not agent.alive or agent.brain is None:
+                continue
+            for first, second, *_ in self.wars:
+                enemy = second if first == agent.realm else first if second == agent.realm else -1
+                if enemy >= 0 and enemy in face:
+                    self._note_faction(agent, face[enemy], -1.0, WAR_ENMITY, "plain", True)
 
     @staticmethod
     def _hide_from(corpse: Bitzkey) -> int:
@@ -2565,6 +2844,8 @@ class Simulation:
         self.turn += 1
         self._update_climate()
         self._index_cells()
+        if self.turn % max(1, LAND_TURNS) == 0:
+            self._count_lands()
         for agent in self.agents:  # a body some cost starved, its death not yet recorded: recorded now
             agent.trail.clear()  # last turn's way is forgotten
             if agent.died_turn is None and not agent.alive:
@@ -2595,7 +2876,7 @@ class Simulation:
             if agent.cooldown:
                 agent.cooldown -= 1
             if agent.health < agent.max_health and agent.hunger < 65:
-                agent.heal(0.005)
+                agent.heal(0.005 * (1 + LAND_HEALING if self._in_own_land(agent) else 1.0))
             # A tenth of its health a step, part steps in part; a plant takes one step in its stride,
             # and is hurt more and more as the weather turns toward a second, to full harm two away.
             felt = max(0.0, min(steps, 2 * (steps - 1))) if plant else steps
@@ -2639,6 +2920,7 @@ class Simulation:
             agent.seen_failure *= SOCIAL_MEMORY ** (1 + RESILIENCE * (2 * agent.feeling("resilience") - 1))  # got over sooner
             self._settle(agent)
             self._nurse(agent)
+            self._trespass(agent)
             if agent.hunger >= 80:
                 self._experience(agent, "starving")
             thinkers.append(agent)
@@ -3073,8 +3355,8 @@ class Simulation:
         mate = max((other for other in self._nearby(agent, MATE_REACH) if self._compatible(agent, other) and other.can_breed),
                    key=lambda other: other.mind["dominance"] + TRAIT_MAX * envy * self._possessions(other), default=None)
         nurseries = self._free_cells_near(agent)
-        prey = [other for other in neighbors if self._is_prey(agent, other)]
-        threats = [other for other in neighbors if self._is_prey(other, agent)]
+        prey = [other for other in neighbors if self._preys_on(agent, other)]
+        threats = [other for other in neighbors if self._preys_on(other, agent)]
         target = max(prey, key=lambda other: self._damage(agent, other) / other.health, default=None)
         threat = max(threats, key=lambda other: self._damage(other, agent), default=None)
         around = self._nearby(agent, 2)
@@ -3334,6 +3616,7 @@ class Simulation:
             available.update(("go_south", "walk_south"))
 
         heard, caller = self._heard(agent)
+        lands, land, war = self._land_senses(agent, sight)
         senses = make_senses(
             hunger=min(1.0, agent.hunger / 100),
             health=max(0.0, agent.health / agent.max_health),
@@ -3411,6 +3694,7 @@ class Simulation:
                 "elder_age": min(1.0, oldest.age / YEAR_LENGTH), "elder_closeness": self._closeness(agent, (oldest.x, oldest.y), sight),
                 "elder_east": max(-1.0, min(1.0, (oldest.x - agent.x) / sight)),
                 "elder_south": max(-1.0, min(1.0, (oldest.y - agent.y) / sight))}),
+            **lands,
             **{trait: agent.feeling(trait) for trait in TEMPERAMENT},
             **agent.genes,
         )
@@ -3425,6 +3709,7 @@ class Simulation:
                      "alert_to": alert_to, "revisit": agent.food_memory and agent.food_memory[:2],
                      "student": students[0] if students else None,
                      "calls": [SILENT, *([ALERT_CALL] if alert_to is not None else []), *range(FIRST_CALL, len(CALLS))]}
+        situation["land"], situation["war"] = land, war
         situation["inside"] = (2 if ACTIONS[agent.last_choice] == "rest" else 1) if (agent.x, agent.y) in self.shelters else 0
         if situation["exposure"] > 0 and (situation["inside"] or self.sheltered(agent) or self._warmed_by_fire(agent, here)):
             situation["spared"], situation["exposure"] = situation["exposure"], 0.0  # kept from the weather, it feels none, only relief
@@ -3460,7 +3745,9 @@ class Simulation:
         exposed = CLIMATE_UNEASE * situation.get("exposure", 0.0) + HOMEWARD_UNEASE * situation.get("home_distance", 0.0)
         # A parent is glad of its own young close by, the more so the more empathetic.
         parental = PARENT_JOY * (0.5 + agent.feeling("empathy")) * min(3, situation.get("young_near", 0)) / 3
-        return company - dread - unease - crowded + herding - exposed + parental
+        # At ease in its own land and uneasy away from it; glad of a war clearly being won, and troubled by one being lost.
+        belonging = LAND_COMFORT * situation.get("land", 0.0) + WAR_MORALE * situation.get("war", 0.0)
+        return company - dread - unease - crowded + herding - exposed + parental + belonging
 
     @staticmethod
     def _dread(agent: Bitzkey, situation: dict) -> float:
@@ -3468,7 +3755,7 @@ class Simulation:
         tolerance = agent.feeling("tolerance")
         herd_near = min(3, situation.get("herd_near", 0)) / 3
         return (FEAR_DREAD * agent.fearfulness * (1 - 0.5 * tolerance) * min(2, situation["threats"]) / 2
-                * (1 - HERD_SAFETY * agent.herd_instinct * herd_near))
+                * max(0.0, 1 - HERD_SAFETY * agent.herd_instinct * herd_near * (1 + LAND_HERD if situation.get("land", 0.0) > 0 else 1.0)))
 
     def _hearth(self, agent: Bitzkey, situation: dict) -> float:
         """A fire of its own or its herd's is a comfort to see; one it doesn't know frightens it (see FIRE_PANIC).
@@ -3643,6 +3930,9 @@ class Simulation:
                                                      agent.age // DAY_LENGTH)
         self._death_order.append((self.turn, agent.identifier))
         self.death_tally.add(self.death_records[agent.identifier])
+        if killer is not None and killer.species != "plant" and agent.species != "plant":  # a victory: its mark, and a war's tally
+            self._earn_mark(killer, agent)
+            self._tally_war(killer, agent)
         if killer is not None and agent.womb and killer.species in ("predator", "omnivore"):
             # A hunter that killed a mother carrying young feels remorse for it.
             if killer.alive and killer.brain is not None:
@@ -3723,6 +4013,8 @@ class Simulation:
             agent.reward += ENVY_JOY * self._envy_of(agent) * gained  # the envious, glad of better
         if self._garb_of(agent.hide) > 0:
             self._deed_seen(agent, self._garb_of(agent.hide), None, "garb")  # its garb, seen
+        if agent.mark and MARK_REGARD > 0:
+            self._deed_seen(agent, self._mark_worth(agent.mark), None, "mark")  # and its mark
         if agent.last_action == "rested":
             agent.stamina = min(FULL_STAMINA, agent.stamina + rest_recovery())
             return
@@ -4692,8 +4984,9 @@ class Simulation:
         self._wear_weapon(agent)
         self._wear_armour(victim)
         if any(self._herd_mate(agent, other) for other in self._nearby(victim, 1) if other is not agent):
-            damage *= 1 + PACK_BONUS * agent.herd_instinct  # hunting as a pack
+            damage *= 1 + PACK_BONUS * agent.herd_instinct * self._land_herd(agent)  # hunting as a pack, the more so in its own land
             agent.reward += JOINED_HUNT_JOY * (0.5 + agent.herd_instinct)  # and glad of it
+        damage *= self._land_guard(victim, agent)  # and harder to bring down in its own land
         victim.health -= damage
         agent.nourish(5, meat=True)
         agent.hunger += STRIKE_EFFORT * damage / agent.stomach  # the harder the blow, the more it costs
@@ -4749,7 +5042,7 @@ class Simulation:
         toughness. The blow costs effort like any other, and feeds the defender nothing, but it
         can kill, and a struck assailant must check its own morale. Defending its herd pleases a
         herd animal."""
-        damage = self._damage(agent, assailant, defending=True)
+        damage = self._damage(agent, assailant, defending=True) * self._land_guard(assailant, agent)  # less, at one in its own land
         self._gear_pays(agent, assailant, damage)
         self._wear_weapon(agent)
         self._wear_armour(assailant)
@@ -4790,10 +5083,13 @@ class Simulation:
                     other.herd_assailant = striker.identifier
         unhurt, dying = PANIC
         hurt = 1 - max(0.0, victim.health) / victim.max_health
-        steadied = 1 - HERD_SAFETY * victim.herd_instinct * min(3, herd_near) / 3
-        coward = victim.species == "omnivore" and COWARDLY_OMNIVORES  # an omnivore struck always breaks
+        steadied = max(0.0, 1 - HERD_SAFETY * victim.herd_instinct * self._land_herd(victim) * min(3, herd_near) / 3)
+        # Its land and its wars steady it, or not: in its own land, even a born coward may stand.
+        nerved = self._nerve(victim, striker)
+        coward = (victim.species == "omnivore" and COWARDLY_OMNIVORES
+                  and (nerved >= 1 or self.random.random() < nerved))  # an omnivore struck always breaks
         chance = max(victim.fearfulness * (unhurt + (dying - unhurt) * hurt) * steadied,
-                     CARRION_COWARDICE * victim.scavenger)  # and a carrion-eater, the more so the more it is one
+                     CARRION_COWARDICE * victim.scavenger) * nerved  # and a carrion-eater, the more so the more it is one
         if coward or self.random.random() < chance:
             victim.panicked = True
             self._experience(victim, "panicked")
@@ -4809,7 +5105,7 @@ class Simulation:
             disparity = self.disparity(agent, hunter)
             if disparity > 0:
                 chance = (PRIMAL_FEAR * disparity * (PRIMAL_FEAR_PREDATORS if agent.species == "predator" else 1.0)
-                          * agent.unafraid)
+                          * agent.unafraid * self._nerve(agent, hunter))
                 if self.random.random() < chance:
                     agent.primal_fear = True
                     self._experience(agent, "panicked")
@@ -5298,11 +5594,11 @@ class Simulation:
             for other in cells.get((x + sx * dx, y + sy * dy), ()):
                 if other is agent or not other.alive:
                     continue
-                if quarry is None and self._is_prey(agent, other):
+                if quarry is None and self._preys_on(agent, other):
                     quarry = other
                 elif far:
                     continue
-                elif hunter is None and self._is_prey(other, agent):
+                elif hunter is None and self._preys_on(other, agent):
                     hunter = other
                 elif browses and flora is None and other.species == "plant" and self.fruit_left(other) > 0 and agent.can_be(other.wet):
                     flora = other
