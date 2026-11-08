@@ -4418,3 +4418,37 @@ class LandTests(unittest.TestCase):
         self.assertGreater(senses[SENSES.index("standout_east")], 0.0)
         self.assertAlmostEqual(situation["admired"], 1 / 3)  # one about it holds it a friend
         self.assertGreater(Simulation._comfort(follower, situation), Simulation._comfort(follower, alone))
+
+    def test_an_offer_is_weighed_by_both_a_deal_that_seems_a_gain_to_each_is_made_one_that_doesnt_refused(self):
+        sm = simulation_module
+        simulation = Simulation(30, 30, 0, seed=1)
+        trader = simulation._add_agent(encode_dna("omnivore", size=3), 5, 5)
+        owner = simulation._add_agent(encode_dna("omnivore", size=3), 6, 5)
+        simulation._index_cells()
+        for one in (trader, owner):
+            for trait in ("aggression", "dominance", "empathy", "sociability"):
+                one.mind[trait] = 0.0
+            one.mind["intellect"] = 7.0  # the sharpest misjudge nothing
+        trader.weapon = sm.STONE_AXE  # worth 0.5 to the meek trader
+        owner.armour_worn = sm.WOOD_ARMOUR  # worth 1 to either
+        owner.mind["aggression"] = 7.0  # the axe worth 1.5 to the fierce owner
+        simulation._offer(trader, owner, sm.ARMOUR_POSSESSION, sm.WEAPON_POSSESSION)
+        self.assertEqual(trader.last_action, "traded")
+        self.assertEqual((trader.armour_worn, trader.weapon), (sm.WOOD_ARMOUR, sm.NO_WEAPON))
+        self.assertEqual((owner.weapon, owner.armour_worn), (sm.STONE_AXE, sm.NO_ARMOUR))
+        self.assertGreater(simulation._regard_for(owner, trader), 0.0)  # a kindness both ways
+        self.assertGreater(simulation._regard_for(trader, owner), 0.0)
+        self.assertGreaterEqual(min(trader.reward, owner.reward), sm.TRADE_JOY)  # trade joy, to both
+
+        owner.mind["aggression"] = 0.0  # the axe now worth 0.5 to the owner, less than the armour it would give up
+        owner.armour_worn, owner.weapon = sm.WOOD_ARMOUR, sm.NO_WEAPON
+        trader.weapon, trader.armour_worn = sm.STONE_AXE, sm.NO_ARMOUR
+        simulation._offer(trader, owner, sm.ARMOUR_POSSESSION, sm.WEAPON_POSSESSION)
+        self.assertEqual(trader.last_action, "was refused")
+        self.assertEqual((trader.weapon, owner.armour_worn), (sm.STONE_AXE, sm.WOOD_ARMOUR))
+
+        owner.hunger = 100.0  # food: a hungry owner takes a portion for its armour
+        trader.carried_meat = 1
+        simulation._offer(trader, owner, sm.ARMOUR_POSSESSION, sm.MEAT_GOOD)
+        self.assertEqual(trader.last_action, "traded")
+        self.assertEqual((owner.carried_meat, trader.carried_meat, trader.armour_worn), (1, 0, sm.WOOD_ARMOUR))

@@ -679,6 +679,12 @@ FOE_LEVEL, VICTORY_REGARD, FOE_DEFEAT_REGARD, COWARD_DISREGARD = 0.5, 0.3, 0.3, 
 CULTURE_REGARD = 0.3
 CULTURES = {"predator": "victory", "omnivore": "craft", "grazer": "sowing"}
 GIVE_LEVEL, GIVE_JOY, TAKE_LEVEL, THEFT_DISREGARD = 0.75, 0.5, 0.75, 0.5
+# Offers, as the C++ version's (see there): any animal may offer one beside it, not a foe, a good of its own (a hide,
+# weapon or armour, or a portion of carried meat or fruit) for one of the other's, each judging the deal's worth,
+# misjudged by up to TRADE_MISJUDGE times one less its intelligence. Accepted, it is a kindness both ways
+# (TRADE_REGARD) and a joy to both (TRADE_JOY); a refusal is nothing.
+TRADE_MISJUDGE, TRADE_REGARD, TRADE_JOY = 0.5, 0.5, 0.5
+MEAT_GOOD, FRUIT_GOOD, GOODS = 3, 4, 5  # what may be offered: the possessions, then food
 # Marks of the victor, as the C++ version's: defeating an omnivore earns the mark of the warrior, a predator the mark of
 # prestige, kept for life; each turn all who see it and don't hold it a foe move their regard toward WARRIOR_MARK or
 # PRESTIGE_MARK at MARK_REGARD of a deed's weight, and a foe holds it the more dangerous and dreads it (MARK_DREAD).
@@ -1972,6 +1978,72 @@ class Simulation:
         self._hand_over(agent, friend, possession)
         self._note_deed(friend, agent, 1.0, 1.0, "plain", True)  # a gift, a kindness
         agent.reward += GIVE_JOY * (0.5 + max(agent.feeling("empathy"), agent.feeling("sociability")))
+
+    @staticmethod
+    def _holds(holder: Bitzkey, good: int) -> bool:
+        if good == MEAT_GOOD:
+            return holder.carried_meat + holder.cooked_meat > 0
+        if good == FRUIT_GOOD:
+            return holder.carried_fruit + holder.cooked_fruit > 0
+        return Simulation._value_of(holder, good) > 0
+
+    def _good_worth(self, judge: Bitzkey, holder: Bitzkey, good: int) -> float:
+        """The holder's good, to the judge: its quality, as worn as it is, times the judge's need."""
+        if not self._holds(holder, good):
+            return 0.0
+        if good in (MEAT_GOOD, FRUIT_GOOD):  # a portion, the cooked first, by the hunger it would ease the judge
+            meat = good == MEAT_GOOD
+            cooked = (holder.cooked_meat if meat else holder.cooked_fruit) > 0
+            food = (MEAT_PORTION * judge.digestion if meat else FRUIT_PORTION * judge.browsing) * (COOKED_FOOD if cooked else 1.0)
+            return min(1.0, food / judge.stomach / 100) * (0.5 + judge.hunger / 100)
+        if good == HIDE_POSSESSION:  # warmth, the more the colder than home, and the prestige of the body it came from
+            cold = min(1.0, max(0.0, temperature_at(judge.y, self.height, self.turn) - judge.climate[0]))
+            return 0.5 * (0.5 + cold) + 0.5 * self._garb_of(holder.hide)
+        if good == WEAPON_POSSESSION:
+            quality = 1.0 if holder.weapon == STONE_AXE else 0.5 * (1.0 - holder.weapon_uses / GEAR_USES)
+            return quality * (0.5 + judge.feeling("aggression"))
+        return 1.0 - holder.armour_uses / GEAR_USES
+
+    def _trade_gain(self, judge: Bitzkey, other: Bitzkey, good: int) -> float:
+        """The judge taking the other's good: what it has of it falls."""
+        if not self._holds(other, good):
+            return 0.0
+        if good in (MEAT_GOOD, FRUIT_GOOD):
+            return self._good_worth(judge, other, good) if judge.load < judge.capacity else 0.0
+        return self._good_worth(judge, other, good) - self._good_worth(judge, judge, good)
+
+    def _pass_good(self, giver: Bitzkey, taker: Bitzkey, good: int) -> None:
+        if good < MEAT_GOOD:
+            self._hand_over(giver, taker, good)
+            return
+        kind = "meat" if good == MEAT_GOOD else "fruit"
+        if getattr(giver, f"cooked_{kind}") > 0:
+            setattr(giver, f"cooked_{kind}", getattr(giver, f"cooked_{kind}") - 1)
+            setattr(taker, f"cooked_{kind}", getattr(taker, f"cooked_{kind}") + 1)
+        else:
+            setattr(giver, f"carried_{kind}", getattr(giver, f"carried_{kind}") - 1)
+            setattr(taker, f"carried_{kind}", getattr(taker, f"carried_{kind}") + 1)
+
+    def _offer(self, agent: Bitzkey, owner: Bitzkey, wanted: int, offered: int) -> None:
+        agent.last_action = "offered"
+        if not self._holds(owner, wanted) or not self._holds(agent, offered):
+            return
+
+        def judged(judge: Bitzkey, worth: float) -> float:
+            return worth + TRADE_MISJUDGE * (1.0 - judge.intelligence) * self.random.uniform(-1.0, 1.0)
+
+        if judged(agent, self._trade_gain(agent, owner, wanted)) <= judged(agent, self._good_worth(agent, agent, offered)):
+            agent.last_action = "thought better of an offer"
+        elif judged(owner, self._trade_gain(owner, agent, offered)) <= judged(owner, self._good_worth(owner, owner, wanted)):
+            agent.last_action = "was refused"
+        else:
+            self._pass_good(agent, owner, offered)
+            self._pass_good(owner, agent, wanted)
+            self._note_deed(owner, agent, 1.0, TRADE_REGARD, "plain", True)  # a kindness both ways
+            self._note_deed(agent, owner, 1.0, TRADE_REGARD, "plain", True)
+            agent.reward += TRADE_JOY  # trade joy: a deal made pleases both
+            owner.reward += TRADE_JOY
+            agent.last_action = "traded"
 
     def _brawl(self, agent: Bitzkey, opponent: Bitzkey) -> None:
         """A turn of the fight: closer, or a blow."""
@@ -3618,6 +3690,30 @@ class Simulation:
             available |= {"demand", "steal"}
         if gift_to is not None:
             available.add("give")
+        # An offer: the deal that gains it most, giving what it would miss least, to one that would gain by it.
+        trade_with = wanted_good = offered_good = None
+        best_gain = 0.0
+        for other in neighbors:
+            if other is agent or not other.alive or other.species == "plant" or other.infant or self._is_foe(agent, other):
+                continue
+            for wanted in range(GOODS):
+                if not self._holds(other, wanted):
+                    continue
+                gain = self._trade_gain(agent, other, wanted)
+                if gain <= best_gain:
+                    continue
+                offered, least = None, 0.0
+                for good in range(GOODS):
+                    if good == wanted or not self._holds(agent, good) or self._trade_gain(other, agent, good) <= 0:
+                        continue
+                    loss = self._good_worth(agent, agent, good)
+                    if offered is None or loss < least:
+                        offered, least = good, loss
+                if offered is None or gain <= least:
+                    continue
+                best_gain, trade_with, wanted_good, offered_good = gain, other, wanted, offered
+        if trade_with is not None:
+            available.add("offer")
         if agent.weapon == STONE_AXE and agent.carried_stone >= ROAD_STONES and square not in self.roads and square not in self.shelters and square not in self.sites and not self.sea(*square):
             available.add("build_road")
         if (agent.weapon == CLUB or agent.carried_stone >= FIRE_STONES) and not self.sea(agent.x, agent.y):
@@ -3738,7 +3834,7 @@ class Simulation:
             **{trait: agent.feeling(trait) for trait in TEMPERAMENT},
             **agent.genes,
         )
-        situation = {"envy": envied, "claim_from": claim_from, "claim": claim, "gift_to": gift_to, "gift": gift, "teacher_steps": -1 if teacher is None else abs(teacher.x - agent.x) + abs(teacher.y - agent.y),
+        situation = {"envy": envied, "claim_from": claim_from, "claim": claim, "gift_to": gift_to, "gift": gift, "trade_with": trade_with, "wanted": wanted_good, "offered": offered_good, "teacher_steps": -1 if teacher is None else abs(teacher.x - agent.x) + abs(teacher.y - agent.y),
                      "mate": mate, "nurseries": nurseries, "young_near": young, "young": own_young, "prey": target, "threat": threat,
                      "threats": len(threats), "quarry": quarry, "hunter": hunter, "suitor": suitor, "suitor_at": suitor and (suitor.x, suitor.y),
                      "grass": grass, "grass_here": grass_here, "carrion": carrion, "kill": kill, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
@@ -4226,6 +4322,8 @@ class Simulation:
             self._steal(agent, situation["claim_from"], situation["claim"])
         elif action == "give":
             self._give(agent, situation["gift_to"], situation["gift"])
+        elif action == "offer":
+            self._offer(agent, situation["trade_with"], situation["wanted"], situation["offered"])
         elif action == "eat_marrow":
             self._eat_marrow(agent)
         elif action == "fertilize":
