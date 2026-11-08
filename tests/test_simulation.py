@@ -4237,12 +4237,12 @@ class MaterialTests(unittest.TestCase):
 class LandTests(unittest.TestCase):
     def setUp(self):
         sm = simulation_module
-        self.saved = (sm.LAND_SIZE, sm.LAND_HOLD, sm.LAND_PATCH, sm.WAR_KILLS)
+        self.saved = (sm.LAND_SIZE, sm.LAND_HOLD, sm.LAND_PATCH, sm.WAR_KILLS, sm.WAR_FADE)
         sm.LAND_SIZE, sm.LAND_HOLD, sm.LAND_PATCH, sm.WAR_KILLS = 3, 2, 8, 2
 
     def tearDown(self):
         sm = simulation_module
-        sm.LAND_SIZE, sm.LAND_HOLD, sm.LAND_PATCH, sm.WAR_KILLS = self.saved
+        sm.LAND_SIZE, sm.LAND_HOLD, sm.LAND_PATCH, sm.WAR_KILLS, sm.WAR_FADE = self.saved
 
     def test_a_defeat_earns_a_mark_of_the_victor_kept_for_life_esteemed_and_dreaded_by_foes(self):
         sm = simulation_module
@@ -4332,6 +4332,34 @@ class LandTests(unittest.TestCase):
         self.assertFalse(simulation._claims(simulation._claims_at(2, 2), enemy))  # the loser gives it up
         self.assertEqual(simulation.wars, [])  # and the war is over
         self.assertTrue(simulation._claims(simulation._claims_at(2, 2), realm))
+
+    def test_a_beaten_group_may_not_take_back_the_winners_land_until_the_wars_kills_have_faded(self):
+        sm = simulation_module
+        sm.WAR_FADE = 0.0
+        simulation = Simulation(24, 24, 0, seed=3)
+        red = encode_dna("omnivore", size=3)
+        blue = red ^ (0xFFFF0000 << 32)
+        reds = [simulation._add_agent(red, x, y) for x, y in ((2, 2), (3, 2), (2, 3))]
+        blues = [simulation._add_agent(blue, x, y) for x, y in ((4, 3), (3, 4), (4, 4), (5, 4), (4, 5))]
+        simulation._index_cells()
+        simulation._count_lands()
+        simulation._count_lands()  # the one claims, then the other contests it
+        realm, enemy = reds[0].realm, blues[0].realm
+        self.assertEqual(len(simulation.wars), 1)
+        for fallen in blues[:2]:
+            fallen.health = 0
+            simulation._die(fallen, "killed", reds[0])
+        self.assertEqual(simulation._war_standing(enemy), -1)
+        for _ in range(2 * sm.LAND_MEMORY):
+            simulation._count_lands()
+        self.assertTrue(simulation._claims(simulation._claims_at(2, 2), realm))
+        self.assertFalse(simulation._claims(simulation._claims_at(2, 2), enemy))  # still there in strength, but beaten
+        self.assertEqual(len(simulation.wars), 1)  # and the war remembered
+        sm.WAR_FADE = 1.0
+        simulation._count_lands()
+        self.assertEqual(simulation.wars, [])  # its kills forgotten, the war is over
+        simulation._count_lands()
+        self.assertTrue(simulation._claims(simulation._claims_at(2, 2), enemy))  # and the land may be fought for again
 
     def test_lands_and_marks_are_saved_and_loaded_back(self):
         from tools import WorldFile

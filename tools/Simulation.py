@@ -687,6 +687,7 @@ WARRIOR_MARK, PRESTIGE_MARK, MARK_REGARD, MARK_DREAD = 0.5, 1.0, 0.05, 0.3
 LAND_PATCH, LAND_SIZE, LAND_HOLD, LAND_MEMORY, LAND_TURNS, WAR_KILLS = 8, 12, 3, 5, 24, 3
 LAND_HEALING, LAND_DEFENCE, LAND_HERD, LAND_COMFORT, TRESPASS_REGARD = 1.0, 0.25, 0.5, 0.1, 0.02
 TRESPASS_GROWTH, LAND_RALLY, WAR_ENMITY, WAR_MORALE, WAR_NERVE = 0.25, 0.75, 0.1, 0.1, 0.25
+WAR_FADE = 0.1
 # Standing, as the C++ version's: no one is made a leader. An animal is glad of how many about it hold it a friend
 # (STANDING_JOY), and at ease near its standout, the member of its own group in sight it esteems most (FOLLOW_COMFORT).
 STANDING_JOY, FOLLOW_COMFORT = 0.2, 0.2
@@ -2358,14 +2359,19 @@ class Simulation:
                 continue
             best, most = -1, max(1, LAND_HOLD) - 1  # a new claim, by the group standing there in the most strength
             for realm, count in sorted(here.items()):
-                if count > most and realm != land[0][0] and large(realm):
+                if count > most and realm != land[0][0] and large(realm) and (land[0][0] < 0 or self._war_standing(realm, land[0][0]) >= 0):  # not the beaten
                     best, most = realm, count
             if best >= 0:
                 land[0 if land[0][0] < 0 else 1] = [best, 1.0]
         self._index_realm_patches()
-        # Wars: every pair of groups with a square both claim. One no longer contesting any is over.
+        # Wars: every pair of groups with a square both claim. Their kills fade; one no longer contested is forgotten once
+        # they have faded, or either group is gone.
         fronts = sorted({tuple(sorted((land[0][0], land[1][0]))) for land in self.lands if land[0][0] >= 0 and land[1][0] >= 0})
-        self.wars = [war for war in self.wars if (war[0], war[1]) in fronts]
+        for war in self.wars:
+            war[2] = int(war[2] * (1 - WAR_FADE))
+            war[3] = int(war[3] * (1 - WAR_FADE))
+        self.wars = [war for war in self.wars if war[0] in self.realms and war[1] in self.realms
+                     and ((war[0], war[1]) in fronts or war[2] + war[3] > 0)]
         for first, second in fronts:
             if not any(war[0] == first and war[1] == second for war in self.wars):
                 self.wars.append([first, second, 0, 0, self.turn])
