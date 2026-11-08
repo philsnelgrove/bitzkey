@@ -93,7 +93,7 @@ class SeaTests(unittest.TestCase):
 
     def test_every_biome_starts_with_groups_at_home_in_it(self):
         for ocean in (DEFAULT_OCEAN, 0.0):
-            simulation = Simulation(60, 60, 30, 7, ocean=ocean)
+            simulation = Simulation(60, 60, 30, 8, ocean=ocean)
             for biome in simulation.biomes():
                 self.assertGreaterEqual(len(biome), BIOME_SIZE)
                 home, wet, squares = zone_temperature(biome[0][1], 60), simulation.sea(*biome[0]), set(biome)
