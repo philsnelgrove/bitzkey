@@ -378,6 +378,7 @@ _TABLE: dict[str, list[tuple]] = {
         ("PREDATOR_WEAPONS", "Predator weapons", "a predator's natural weapons count this many times over; an omnivore's 3/4, a grazer's half as many", 0.0, 10.0, 0.1),
         ("GRAZER_DEFENCE_STRENGTH", "Grazer defence strength", "a grazer can strike back only with strength above this",
          0, 7, 1),
+        ("GRAZER_FORCE", "Grazer force", "the share of a grazer's base force in a blow it strikes, not in defence, before weapons, gear and other bonuses: it has no natural weapons to attack with", 0.0, 1.0, 0.05),
         ("STRIKE_EFFORT", "Strike effort", "food burned for each point of damage a blow deals", 0.0, 2.0, 0.05),
         ("THORN_FORCE", "Thorn force", "a plant's counterblow at full weapons and size", 0, 100, 1),
         ("THORN_SIZE_SHARE", "Thorn size share", "share of that from the plant's size; the rest its weapons",

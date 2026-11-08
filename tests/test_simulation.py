@@ -801,7 +801,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(senses[SENSES.index("assailant_near")], 1)
 
         health, hunger = predator.health, grazer.hunger
-        damage = self.simulation._damage(grazer, predator)
+        damage = self.simulation._damage(grazer, predator, defending=True)  # its full force, in defence
         self.simulation._act(grazer, "defend", situation)
         self.assertAlmostEqual(predator.health, health - damage)
         self.assertGreater(grazer.hunger, hunger)  # striking back costs effort, and feeds nothing
@@ -1619,13 +1619,14 @@ class NewTraitTests(unittest.TestCase):
         self.assertLess(2 * self.simulation._damage(hunter, grazer), grazer.max_health)
 
     def test_in_defence_grazers_bring_half_their_weapons_omnivores_three_quarters_and_predators_all(self):
-        from tools.Simulation import STRIKE_FORCE
+        from tools.Simulation import GRAZER_FORCE, STRIKE_FORCE
         target = self.simulation._add_agent(encode_dna("grazer"), 1, 1)
         for i, (species, share) in enumerate((("grazer", 0.5), ("omnivore", 0.75), ("predator", 1.0))):
             animal = self.simulation._add_agent(encode_dna(species, weapons=7), 3 + i, 3)
             force = STRIKE_FORCE * (2 + 9 * animal.might) * (1 - 0.6 * target.toughness)
             armed = self.simulation._armed(animal)
-            self.assertAlmostEqual(self.simulation._damage(animal, target), force * (1 + 0.75 * armed))
+            weak = GRAZER_FORCE if species == "grazer" else 1.0  # a grazer attacks at less than its full force
+            self.assertAlmostEqual(self.simulation._damage(animal, target), weak * force * (1 + 0.75 * armed))
             self.assertAlmostEqual(self.simulation._damage(animal, target, defending=True), force * (1 + 0.75 * armed * share))
 
     def test_omnivore_weapons_count_three_quarters_and_grazer_weapons_half_a_predators(self):
@@ -4360,6 +4361,31 @@ class LandTests(unittest.TestCase):
         self.assertEqual(simulation.wars, [])  # its kills forgotten, the war is over
         simulation._count_lands()
         self.assertTrue(simulation._claims(simulation._claims_at(2, 2), enemy))  # and the land may be fought for again
+
+    def test_a_grazer_may_attack_a_foe_within_reach_at_half_the_base_force_and_makes_no_meal_of_it(self):
+        import copy
+        sm = simulation_module
+        simulation = Simulation(12, 12, 0, seed=3)
+        grazer = simulation._add_agent(encode_dna("grazer", size=3), 5, 5)
+        foe = simulation._add_agent(encode_dna("grazer", size=3), 6, 5)
+        stranger = simulation._add_agent(encode_dna("grazer", size=3), 5, 6)
+        hunter = simulation._add_agent(encode_dna("predator", size=3), 4, 5)
+        simulation._index_cells()
+        self.assertFalse(simulation._preys_on(grazer, foe))
+        grazer.known.append(sm.Acquaintance(foe.identifier, -0.9, 0))
+        self.assertTrue(simulation._is_foe(grazer, foe))
+        self.assertTrue(simulation._preys_on(grazer, foe))  # a foe, it may strike
+        self.assertFalse(simulation._preys_on(grazer, stranger))  # not one it holds nothing against
+        self.assertIs(simulation._sense(grazer)[2]["prey"], foe)
+        twin = copy.copy(grazer)
+        twin.species = "omnivore"
+        weapons, alike = 1 + 0.75 * Simulation._armed(grazer), 1 + 0.75 * Simulation._armed(twin)
+        self.assertAlmostEqual(Simulation._damage(grazer, foe) / weapons, sm.GRAZER_FORCE * Simulation._damage(twin, foe) / alike)
+        self.assertGreater(Simulation._damage(grazer, hunter, True), Simulation._damage(grazer, hunter))  # but not in defence
+        hunger, health = grazer.hunger, foe.health
+        simulation._attack(grazer, foe)
+        self.assertLess(foe.health, health)
+        self.assertGreaterEqual(grazer.hunger, hunger)  # no meal of it
 
     def test_lands_and_marks_are_saved_and_loaded_back(self):
         from tools import WorldFile

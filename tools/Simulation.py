@@ -564,6 +564,9 @@ OMNIVORE_DEFENCE_WEAPONS = 0.75  # the same for an omnivore; a predator defends 
 PREDATOR_WEAPONS = 3.0  # a predator's natural weapons count this many times over, striking and stinging;
 # an omnivore's three quarters of that and a grazer's half
 GRAZER_DEFENCE_STRENGTH = 5  # a grazer can strike back only with strength above this
+# A grazer may attack any animal within reach it holds a foe, at GRAZER_FORCE of the base force of a blow (before
+# weapons, gear and other bonuses), and gains no meal by it.
+GRAZER_FORCE = 0.5
 FEAST_JOY = 1.5        # a predator's pleasure in feasting on a fresh kill
 SATED_JOY = 1.0        # pleasure in hunger relieved by eating, hunting, feasting or scavenging, per its full range
 ATTACK_JOY = 0.1       # a predator's pleasure in a blow it lives through
@@ -2183,7 +2186,12 @@ class Simulation:
         return there is not None and self._claims(there, hunter.realm) and self._in_own_land(hunter) and self._is_foe(hunter, other)
 
     def _preys_on(self, hunter: Bitzkey, other: Bitzkey) -> bool:
-        return self._is_prey(hunter, other) or self._drives_out(hunter, other)
+        return self._is_prey(hunter, other) or self._drives_out(hunter, other) or self._grazer_assails(hunter, other)
+
+    def _grazer_assails(self, grazer: Bitzkey, other: Bitzkey) -> bool:
+        """A grazer has no prey, but may attack a foe within reach."""
+        return (grazer.species == "grazer" and other.species != "plant" and not other.guarded and self.within_reach(grazer, other)
+                and self._is_foe(grazer, other))
 
     def _land_guard(self, struck: Bitzkey, striker: Bitzkey) -> float:
         """The share of a blow from an outsider that lands on one in its own land."""
@@ -4614,7 +4622,8 @@ class Simulation:
         if attacker.species == "plant":
             thorns = THORN_SIZE_SHARE * attacker.physique("size") + (1 - THORN_SIZE_SHARE) * attacker.physique("weapons")
             return THORN_FORCE * thorns * (1 - 0.6 * defender.toughness) * (INFANT_THORNS if defender.infant else 1.0)
-        force = STRIKE_FORCE * (2 + 9 * attacker.might)
+        weak = GRAZER_FORCE if attacker.species == "grazer" and not defending else 1.0  # no natural weapons to attack with
+        force = STRIKE_FORCE * (2 + 9 * attacker.might) * weak
         armed = Simulation._armed(attacker) * (Simulation._defence_share(attacker) if defending else 1.0)
         return force * (1 + 0.75 * armed) * (1 - 0.6 * Simulation._gear_toughness(defender)) * Simulation._gear_force(attacker)
 
@@ -5024,7 +5033,9 @@ class Simulation:
             agent.reward += JOINED_HUNT_JOY * (0.5 + agent.herd_instinct)  # and glad of it
         damage *= self._land_guard(victim, agent)  # and harder to bring down in its own land
         victim.health -= damage
-        agent.nourish(5, meat=True)
+        eats = agent.species != "grazer"  # a grazer strikes, but makes no meal of it
+        if eats:
+            agent.nourish(5, meat=True)
         agent.hunger += STRIKE_EFFORT * damage / agent.stomach  # the harder the blow, the more it costs
         agent.reward += joy + self._harm_felt(agent, self._regard_for(agent, victim))
         agent.last_action = "attacked"
@@ -5037,8 +5048,9 @@ class Simulation:
             if not any(other.species == victim.species for other in self._nearby(victim, 2)):
                 self._experience(victim, "wounded_alone")
         else:
-            meal = KILL_MEAL + KILL_MEAL_FOR_SIZE * victim.physique("size")
-            agent.nourish(meal, meat=True)
+            meal = KILL_MEAL + KILL_MEAL_FOR_SIZE * victim.physique("size") if eats else 0.0
+            if eats:
+                agent.nourish(meal, meat=True)
             agent.reward += 2 * joy
             self._witness(agent, meal / agent.stomach / 100)  # its pack sees it succeed: the fullness it gained
             if self._rival_weight(agent, victim) > 0 or self._is_foe(agent, victim):  # one fewer rival for the feeding ground
