@@ -3555,13 +3555,13 @@ class AcquaintanceTests(unittest.TestCase):
 
         doer.x = 12
         world._index_cells()
-        agent.known[0].skill, agent.known[0].regard = 0.0, 0.0
+        agent.known[0].skill, agent.known[0].regard = 0.0, -1.0
         stranger.known.append(sm.Acquaintance(doer.identifier, 0.0, 0, skill=0.9))
         with patch.object(sm, "WATCH_LEARNING", 1.0):
             world._deed_seen(doer, sm.CRAFT_DEED, None, "skill", 1)
-            self.assertFalse(agent.crafts & 2)  # not yet held skilled
+            self.assertFalse(agent.crafts & 2)  # held a foe: nothing learnt from it
             self.assertFalse(stranger.crafts & 2)  # not of its kind
-            agent.known[0].skill = 0.9
+            agent.known[0].regard = 0.0  # no foe, skilled or not
             world._deed_seen(doer, sm.CRAFT_DEED, None, "skill", 1)
             self.assertTrue(agent.crafts & 2)
         crafter = world._add_agent(agent.dna, 14, 10)
@@ -4611,4 +4611,31 @@ class LandTests(unittest.TestCase):
             archer.bow_uses = 1
             simulation._shoot(archer, prey, False)
         self.assertLess(prey.health, before)  # struck from two steps off
+
+    def test_a_tutor_gives_one_of_its_kind_a_lesson_a_recipe_then_archery_then_a_try_nearer_mastery(self):
+        sm = simulation_module
+        simulation = Simulation(30, 30, 0, seed=1)
+        tutor = simulation._add_agent(encode_dna("omnivore", size=3), 5, 5)
+        pupil = simulation._add_agent(encode_dna("omnivore", size=3), 6, 5)
+        simulation._index_cells()
+        club = sm.CRAFTS.index("make_club")
+        self.assertEqual(Simulation._lesson_for(tutor, pupil), -1)  # nothing worth teaching
+        tutor.crafts, tutor.archery = 1 << club, 0.5
+        self.assertEqual(Simulation._lesson_for(tutor, pupil), club)
+        hunger, joy = tutor.hunger, tutor.reward
+        simulation._tutor(tutor, pupil, club)
+        self.assertTrue(pupil.crafts >> club & 1)  # the recipe, now known
+        self.assertEqual(pupil.craft_tries[club], 1)  # as if tried once
+        self.assertAlmostEqual(tutor.hunger, hunger + sm.CALL_COST)  # as dear as a call
+        self.assertGreater(tutor.reward, joy)
+        self.assertGreater(simulation._regard_for(pupil, tutor), 0.0)
+        self.assertEqual(Simulation._lesson_for(tutor, pupil), len(sm.CRAFTS))  # then archery
+        simulation._tutor(tutor, pupil, len(sm.CRAFTS))
+        self.assertAlmostEqual(pupil.archery, sm.ARCHERY_LEARNING)  # as one shot teaches
+        pupil.archery = 0.5
+        self.assertEqual(Simulation._lesson_for(tutor, pupil), club)  # then a try nearer mastery
+        simulation._tutor(tutor, pupil, club)
+        self.assertEqual(pupil.craft_tries[club], 2)
+        stranger = simulation._add_agent(encode_dna("grazer", size=3), 5, 6)
+        self.assertEqual(Simulation._lesson_for(tutor, stranger), -1)  # not of its kind
 

@@ -14,7 +14,7 @@ from tools.Genome import (BODY_TRAITS, SPECIES, TEMPERAMENT, TEMPERATURES, TRAIT
 ACTIONS = ("eat", "forage", "browse", "uproot", "scavenge", "feast", "rest", "court", "breed", "hunt", "attack", "defend",
            "flee", "herd", "go_north", "go_south", "go_east", "go_west", "walk_north", "walk_south", "walk_east",
            "walk_west", "revisit", "feed_young", "teach", "take_meat", "take_fruit", "drop_meat", "drop_fruit", "eat_pile", "eat_carried",
-           "take_stone", "take_bone", "take_wood", "drop_stone", "drop_bone", "drop_wood", "dress", "make_bone_axe", "make_bone_armour", "make_club", "make_wood_armour", "make_stone_axe", "make_bow", "take_gear", "drop_weapon", "drop_armour", "cut", "dig", "light_fire", "feed_fire", "cook", "construct", "eat_seed", "plant_seed", "build_road", "eat_marrow", "fertilize", "skin", "demand", "steal", "give", "offer", "shoot", "practise")
+           "take_stone", "take_bone", "take_wood", "drop_stone", "drop_bone", "drop_wood", "dress", "make_bone_axe", "make_bone_armour", "make_club", "make_wood_armour", "make_stone_axe", "make_bow", "take_gear", "drop_weapon", "drop_armour", "cut", "dig", "light_fire", "feed_fire", "cook", "construct", "eat_seed", "plant_seed", "build_road", "eat_marrow", "fertilize", "skin", "demand", "steal", "give", "offer", "shoot", "practise", "tutor")
 # Alongside its action, every animal that thinks keeps silent or calls: the alert, to its herd, of a hunter (grazers)
 # or a fresh kill (hunters) it sees, or one of five calls that mean only what its kind come to make of them, heard by
 # all close enough. A brain values them as it values its actions, after them, and learns them the same way.

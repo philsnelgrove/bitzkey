@@ -245,6 +245,10 @@ STUDENT_INTELLECT = 4  # the least inborn intellect an animal needs to be taught
 STUDENT_AGE = 0.5  # the oldest a student may be, as a share of its elder's age
 STUDENT_TRUST = 0.25  # how trusting an animal must be to be willing to be taught
 TEACHING_JOY = 1.0  # how glad an elder is of teaching a student; more if empathetic
+# Tutoring, as the C++ version's (see there): one lesson to one of its kind beside it, not a foe, for a call's hunger:
+# a recipe it lacks, else archery from a better shot, else a try nearer a recipe's mastery (TUTOR_JOY to the tutor).
+TUTOR_JOY = 0.5
+ARCHERY_WORTH_TEACHING = 0.05  # how much the better a shot a tutor must be to teach archery
 # Kinship: the most a herd-mate's or partner's social background may differ from its own, at full kinship and
 # no tolerance, is 1 less this; less kinship, or more tolerance, accepts more.
 KINSHIP_SHUN = 0.8
@@ -646,12 +650,12 @@ ROAD_JOY = 0.3
 ROAD_LONGING = 1.0
 PROTECTION_JOY = 1.0
 # Leadership, as the C++ version's. One it holds skilled close by is a comfort (SKILL_COMFORT, more if curious), and a
-# craft seen done by one of its kind it holds skilled may be learnt from the watching (WATCH_LEARNING). A student within
+# craft seen done by one of its kind it holds no foe may be learnt from the watching (WATCH_LEARNING). A student within
 # ELDER_REACH steps of the elder who taught it is glad of it (ELDER_COMFORT, more if trusting). With danger in sight, a
 # friend or one it holds skilled within FOLLOW_REACH steps spares it FOLLOW_SAFETY of its dread, felt as relief.
 SKILL_HELD = 0.5  # the skill at which another is held skilled
 SKILL_COMFORT = 0.5
-WATCH_LEARNING = 0.1
+WATCH_LEARNING = 0.25
 ELDER_COMFORT = 0.5
 ELDER_REACH = 3
 FOLLOW_SAFETY = 0.5
@@ -2236,8 +2240,8 @@ class Simulation:
                 if kind == "skill" and SKILL_WITNESS > WITNESS_SHARE:  # the rest, on skill alone
                     self._note_deed(other, doer, 0.0, SKILL_WITNESS - WITNESS_SHARE, kind, False)
                 if (craft >= 0 and not other.crafts >> craft & 1 and self._same_kind(other, doer)
-                        and self._skill_held(other, doer) >= SKILL_HELD and self.random.random() < WATCH_LEARNING):
-                    other.crafts |= 1 << craft  # a craft watched done by one it holds skilled, learnt from the watching
+                        and not self._is_foe(other, doer) and self.random.random() < WATCH_LEARNING):
+                    other.crafts |= 1 << craft  # a craft watched done by one of its kind it holds no foe, learnt from the watching
 
     def _garb_seen(self, seer: Bitzkey, wearer: Bitzkey, garb: float, lie: bool) -> None:
         """What one sees of another's garb: its regard won, or, fleeing in it, lost as a liar's."""
@@ -3708,6 +3712,13 @@ class Simulation:
         teacher = next((other for other in kind if other.identifier == agent.taught_by), None)  # the elder who taught it
         students = [other for other in kind
                     if abs(other.x - agent.x) + abs(other.y - agent.y) <= 1 and self._willing_student(agent, other)]
+        pupil, lesson = None, -1  # one beside it worth tutoring, and in what
+        for other in kind:
+            if abs(other.x - agent.x) + abs(other.y - agent.y) <= 1 and not self._is_foe(agent, other):
+                lesson = self._lesson_for(agent, other)
+                if lesson >= 0:
+                    pupil = other
+                    break
         here = self._climate[agent.y]
         discomfort = agent.climate_steps(here)
         # The nearest row it would feel at home in, however far, and the same only if within sight.
@@ -3965,6 +3976,8 @@ class Simulation:
             available.add("feed_young")  # once one of its infants about it is hungry, it may feed them
         if students:
             available.add("teach")
+        if pupil is not None:
+            available.add("tutor")
         if agent.y > 0:
             available.update(("go_north", "walk_north"))
         if agent.y < self.height - 1:
@@ -4067,7 +4080,7 @@ class Simulation:
                      "exposure": min(2, discomfort) / 2 * agent.exposure_share(here), "uprootable": uprootable, "eat_meat": eat_meat, "eat_fruit": eat_fruit, "fire": fire, "gear_pile": gear_pile, "gear_kind": gear_kind, "stone_pile": stone_pile, "bone_pile": bone_pile, "wood_pile": wood_pile, "dressable": dressable, "tears": tears, "meat_pile": meat_pile, "fruit_pile": fruit_pile,
                      "home_distance": home_distance * agent.exposure_share(here),
                      "alert_to": alert_to, "revisit": agent.food_memory and agent.food_memory[:2],
-                     "student": students[0] if students else None,
+                     "student": students[0] if students else None, "pupil": pupil, "lesson": lesson,
                      "calls": [SILENT, *([ALERT_CALL] if alert_to is not None else []), *range(FIRST_CALL, len(CALLS))]}
         situation["land"], situation["war"], situation["ambition"] = land, war, agent.ambition
         situation["admired"], situation["standout"] = admired, standout
@@ -4501,6 +4514,8 @@ class Simulation:
             self._feed_young(agent, situation["young"])
         elif action == "teach":
             self._teach(agent, situation["student"])
+        elif action == "tutor":
+            self._tutor(agent, situation["pupil"], situation["lesson"])
         elif action == "take_meat":
             self._take_meat(agent, situation)
         elif action == "take_fruit":
@@ -5344,6 +5359,37 @@ class Simulation:
         agent.last_action = "took gear"
 
     @staticmethod
+    def _lesson_for(tutor: Bitzkey, pupil: Bitzkey) -> int:
+        """What the tutor has worth teaching the pupil: a recipe it lacks, archery (len(CRAFTS)), a recipe not mastered; -1 none."""
+        if pupil.species != tutor.species or pupil.brain is None:
+            return -1
+        for craft in range(len(CRAFTS)):
+            if tutor.crafts >> craft & 1 and not pupil.crafts >> craft & 1:
+                return craft
+        if tutor.archery > pupil.archery + ARCHERY_WORTH_TEACHING:
+            return len(CRAFTS)
+        for craft in range(len(CRAFTS)):
+            if tutor.crafts >> craft & 1 and pupil.craft_tries[craft] < CRAFT_TRIES:
+                return craft
+        return -1
+
+    def _tutor(self, tutor: Bitzkey, pupil: Bitzkey, lesson: int) -> None:
+        """One lesson, as the C++ version's, for the hunger of a call."""
+        if pupil is None or not pupil.alive or abs(pupil.x - tutor.x) + abs(pupil.y - tutor.y) > 1 or lesson < 0:
+            tutor.last_action = "lost its pupil"
+            return
+        tutor.hunger = min(100.0, tutor.hunger + CALL_COST)  # as dear as a call
+        if lesson == len(CRAFTS):
+            pupil.archery += ARCHERY_LEARNING * (1 - pupil.archery)  # as one shot teaches
+        else:
+            pupil.crafts |= 1 << lesson  # known now, if it was not
+            pupil.craft_tries[lesson] = min(CRAFT_TRIES, pupil.craft_tries[lesson] + 1)  # a try nearer mastery
+        tutor.last_action = "tutored"
+        tutor.reward += TUTOR_JOY * (0.5 + tutor.feeling("empathy")) + self._help_felt(tutor, self._regard_for(tutor, pupil))
+        self._note_deed(pupil, tutor, TEACHING_DEED, 0.5, "skill")  # half a teaching's goodwill
+        self._deed_seen(tutor, 0.5 * TEACHING_DEED, pupil, "skill")
+
+    @staticmethod
     def _hit_chance(archer: Bitzkey, away: int) -> float:
         steady = (archer.feeling("patience") + archer.feeling("intellect") + 1 - archer.feeling("fear")) / 3
         aimed = ARCHERY_LEAST + (1 - ARCHERY_LEAST) * (0.4 * steady + 0.6 * archer.archery)
@@ -5363,6 +5409,11 @@ class Simulation:
             return
         archer.reward += ARCHERY_JOY * (0.5 + archer.archery)
         self._deed_seen(archer, ARCHERY_REGARD, None, "skill")  # all who see it think it the more skilled, and the better of it
+        for other in self._nearby(archer, archer.sight):  # and those of its kind who see it learn a little of how
+            if (other is archer or not other.alive or not self._same_kind(other, archer) or self._is_foe(other, archer)
+                    or abs(other.x - archer.x) + abs(other.y - archer.y) > other.sight):
+                continue
+            other.archery += WATCH_LEARNING * ARCHERY_LEARNING * (1 - other.archery)
         if practice:
             archer.last_action = "hit the mark in practice"
             return
