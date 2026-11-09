@@ -214,7 +214,7 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "carried_meat": agent.carried_meat, "carried_fruit": agent.carried_fruit, "weapon": agent.weapon, "armour": agent.armour_worn, "weapon_uses": agent.weapon_uses, "armour_uses": agent.armour_uses,
         "infant_taught": agent.infant_taught, "crafts": agent.crafts, "craft_tries": agent.craft_tries, "cooked_meat": agent.cooked_meat, "cooked_fruit": agent.cooked_fruit,
         "carried_stone": agent.carried_stone,
-        "carried_bone": agent.carried_bone, "carried_wood": agent.carried_wood, "carried_seed": agent.carried_seed, "boredom": float(agent.boredom), "shelter_known": float(agent.shelter_known), "road_known": float(agent.road_known), "cooked_known": float(agent.cooked_known), "plenty": float(agent.plenty), "plenty_known": float(agent.plenty_known), "hide": agent.hide, "hide_armour": float(agent.hide_armour), "skinned": agent.skinned, "thefts": agent.thefts, "mark": agent.mark, "realm": agent.realm, "trespass": agent.trespass, "meat_lean": float(agent.meat_lean), "expected": agent.expected, "last_tried": [agent.last_tried.get(action, 0) for action in ACTIONS], "died_turn": agent.died_turn, "assailant": agent.assailant,
+        "carried_bone": agent.carried_bone, "carried_wood": agent.carried_wood, "carried_seed": agent.carried_seed, "boredom": float(agent.boredom), "shelter_known": float(agent.shelter_known), "road_known": float(agent.road_known), "cooked_known": float(agent.cooked_known), "plenty": float(agent.plenty), "plenty_known": float(agent.plenty_known), "hide": agent.hide, "hide_armour": float(agent.hide_armour), "skinned": agent.skinned, "thefts": agent.thefts, "mark": agent.mark, "realm": agent.realm, "standout": agent.standout, "follows": agent.follows, "followers": agent.followers, "leader": agent.leader, "trespass": agent.trespass, "meat_lean": float(agent.meat_lean), "expected": agent.expected, "last_tried": [agent.last_tried.get(action, 0) for action in ACTIONS], "died_turn": agent.died_turn, "assailant": agent.assailant,
         "panicked": agent.panicked, "primal_fear": agent.primal_fear, "rivalry": float(agent.rivalry),
         "own_rivalry": float(agent.own_rivalry), "hunts_grazers": agent.hunts_grazers,
         "hunts_omnivores": agent.hunts_omnivores, "hunts_predators": agent.hunts_predators, "guarded": agent.guarded,
@@ -310,6 +310,10 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
     agent.skinned = bool(record.get("skinned", False))
     agent.thefts = int(record.get("thefts", 0))
     agent.mark = int(record.get("mark", 0))  # none, in an older world
+    agent.standout = int(record.get("standout", -1))  # nor these
+    agent.follows = int(record.get("follows", -1))
+    agent.followers = int(record.get("followers", 0))
+    agent.leader = bool(record.get("leader", False))
     agent.realm = int(record.get("realm", -1))
     agent.trespass = int(record.get("trespass", 0))
     agent.meat_lean = float(record.get("meat_lean", 0.0))
@@ -619,6 +623,7 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
     else:
         simulation.death_tally = _tally_from(record["death_tally"])
     simulation.agents = [_agent_from(agent, numbers, before_terrain) for agent in record["agents"]]
+    simulation._leaders = sum(agent.leader and agent.alive for agent in simulation.agents)
     simulation._update_climate()
     simulation._index_cells()
     # What each knew as of its turn's start, which indexing the cells afresh would count again as things now stand.

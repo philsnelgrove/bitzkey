@@ -72,8 +72,13 @@ class SimulationFlowTests(unittest.TestCase):
             pg.event.post(pg.event.Event(pg.MOUSEBUTTONDOWN, button=3, pos=at(5, 5)))  # stops
             pg.event.post(pg.event.Event(pg.MOUSEBUTTONDOWN, button=1, pos=at(5, 5)))  # an ordinary click again
             pg.event.post(pg.event.Event(pg.QUIT))
-            self.assertEqual(self.app.run(), "quit")
-            self.assertEqual(len(self.app.simulation.agents), before + 10)
+            placed = []
+            deploy = self.app.simulation.deploy
+            with patch.object(self.app.simulation, "deploy", side_effect=lambda *args: placed.append(deploy(*args)) or placed[-1]):
+                self.assertEqual(self.app.run(), "quit")
+            self.assertEqual(len(placed), 2)  # one group, then another dragged far enough
+            self.assertTrue(all(placed))  # each where there was room for some
+            self.assertEqual(len(self.app.simulation.agents), before + sum(map(len, placed)))
             self.assertEqual(self.app.deploying, [])
             self.assertEqual(cursor.call_args.args[0], pg.SYSTEM_CURSOR_ARROW)
             self.app._start_deploying([Catalog.imported(entry)])

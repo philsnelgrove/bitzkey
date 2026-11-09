@@ -684,6 +684,12 @@ GIVE_LEVEL, GIVE_JOY, TAKE_LEVEL, THEFT_DISREGARD = 0.75, 0.5, 0.75, 0.5
 # misjudged by up to TRADE_MISJUDGE times one less its intelligence. Accepted, it is a kindness both ways
 # (TRADE_REGARD) and a joy to both (TRADE_JOY); a refusal is nothing.
 TRADE_MISJUDGE, TRADE_REGARD, TRADE_JOY = 0.5, 0.5, 0.5
+# Leaders, as the C++ version's (see there): recognised at each count by LEADER_FOLLOWERS or more of its colour group
+# holding it their standout, kept until fewer than half as many do. Its followers yield to its demands, judge its
+# offers the kinder (LEADER_DEFERENCE), rally in its sight (LEADER_RALLY) and defend it; it is glad of them
+# (LEADER_JOY), courted first, and a joy to breed with (LEADER_ALLURE). LEADER_FOLLOWERS 0 for no leaders.
+LEADER_FOLLOWERS = 5
+LEADER_DEFERENCE, LEADER_RALLY, LEADER_JOY, LEADER_ALLURE = 0.5, 0.5, 0.3, 0.5
 MEAT_GOOD, FRUIT_GOOD, GOODS = 3, 4, 5  # what may be offered: the possessions, then food
 # Marks of the victor, as the C++ version's: defeating an omnivore earns the mark of the warrior, a predator the mark of
 # prestige, kept for life; each turn all who see it and don't hold it a foe move their regard toward WARRIOR_MARK or
@@ -1099,6 +1105,11 @@ class Bitzkey:
     thefts: int = 0  # possessions it has stolen
     mark: int = 0  # the best mark of the victor it has earned
     realm: int = -1  # its colour group, as of the last count; -1 for none yet
+    standout: int = -1  # the member of its colour group in sight it esteems most, as last sensed; -1 for none
+    follows: int = -1  # its standout as of the last count, if that one was then recognised a leader; -1 for none
+    followers: int = 0  # those whose standout it was at the last count
+    leader: bool = False  # recognised a leader at the last count
+    followed: float = 0.0  # a leader's followers in sight, as last sensed, a LEADER_FOLLOWERS-th each, to 1
     trespass: int = 0  # turns it has stood in another group's land without a break
     plenty: float = 0.0  # the food about it as of its last survey (see FORAGE_RADIUS)
     plenty_known: float = -1.0  # its memory of that food, following it over about a day; below 0 before its first survey
@@ -1683,6 +1694,7 @@ class Simulation:
         self.lands: list[list[list]] = []  # each land square's two claims, [group, hold], row by row; empty with no lands
         self.land_patch, self.land_columns = 0, 0
         self.wars: list[list[int]] = []  # each [first, second, first_kills, second_kills, since]
+        self._leaders = 0  # recognised at the last count
         self.next_realm = 0
         self._cuts: dict[str, tuple[float, float, float]] = {}  # each species' envy, take and give cuts, ranked each turn
         self._fights_begun: list[list] = []
@@ -1953,7 +1965,7 @@ class Simulation:
         agent.last_action = "demanded"
         if self._value_of(owner, possession) <= self._value_of(agent, possession):
             return
-        if self.random.random() < max(owner.feeling("aggression"), owner.feeling("dominance")):  # it fights for it
+        if not self._follows(owner, agent) and self.random.random() < max(owner.feeling("aggression"), owner.feeling("dominance")):  # it fights for it, unless it follows the one asking
             self._fights_begun.append([agent.identifier, owner.identifier, possession, False])
             agent.last_action = "began a fight"
             return
@@ -2034,7 +2046,8 @@ class Simulation:
 
         if judged(agent, self._trade_gain(agent, owner, wanted)) <= judged(agent, self._good_worth(agent, agent, offered)):
             agent.last_action = "thought better of an offer"
-        elif judged(owner, self._trade_gain(owner, agent, offered)) <= judged(owner, self._good_worth(owner, owner, wanted)):
+        elif (judged(owner, self._trade_gain(owner, agent, offered)) + (LEADER_DEFERENCE if self._follows(owner, agent) else 0.0)
+              <= judged(owner, self._good_worth(owner, owner, wanted))):
             agent.last_action = "was refused"
         else:
             self._pass_good(agent, owner, offered)
@@ -2276,7 +2289,38 @@ class Simulation:
         """How much of its panic, or primal fear, is left it: LAND_RALLY of it overcome defending its own land from an
         outsider, and WAR_NERVE less, or more, clearly winning or losing."""
         rallied = self._in_own_land(agent) and (foe is None or foe.realm != agent.realm)
-        return (1 - LAND_RALLY if rallied else 1.0) * max(0.0, 1 - WAR_NERVE * self._war_standing(agent.realm))
+        return ((1 - LAND_RALLY if rallied else 1.0) * max(0.0, 1 - WAR_NERVE * self._war_standing(agent.realm))
+                * (1 - LEADER_RALLY if self._leader_in_sight(agent) else 1.0))  # and its leader in sight
+
+    @staticmethod
+    def _follows(follower: Bitzkey, leader: Bitzkey) -> bool:
+        """Whether it follows that one, a leader, as of the last count."""
+        return leader.leader and follower.follows == leader.identifier
+
+    def _leader_in_sight(self, agent: Bitzkey) -> bool:
+        if agent.follows < 0:
+            return False
+        leader = self.find_agent(agent.follows)
+        return leader is not None and leader.alive and leader.leader and abs(leader.x - agent.x) + abs(leader.y - agent.y) <= agent.sight
+
+    def _recognise_leaders(self) -> None:
+        """Each counted as the standout of so many, now: recognised at LEADER_FOLLOWERS, kept until under half as many."""
+        held: dict[int, int] = {}
+        for agent in self.agents:
+            if agent.alive and agent.standout >= 0:
+                held[agent.standout] = held.get(agent.standout, 0) + 1
+        self._leaders = 0
+        for agent in self.agents:
+            if not agent.alive:
+                continue
+            agent.followers = held.get(agent.identifier, 0)
+            was = agent.leader
+            agent.leader = (LEADER_FOLLOWERS > 0 and agent.species != "plant" and not agent.infant
+                            and agent.followers >= ((LEADER_FOLLOWERS + 1) // 2 if was else LEADER_FOLLOWERS))
+            self._leaders += agent.leader
+        for agent in self.agents:
+            standout = self.find_agent(agent.standout) if agent.standout >= 0 else None
+            agent.follows = standout.identifier if standout is not None and standout.alive and standout.leader else -1
 
     def _land_senses(self, agent: Bitzkey, sight: int) -> tuple[dict[str, float], float, float]:
         """Its land, its group's wars, trespassers in its land, and marks of the victor, as senses; and its land (1 in it,
@@ -2317,20 +2361,24 @@ class Simulation:
         """Its standing: who about it hold it a friend, a third each to 1; and its standout, the one of its own colour group
         (its species, with none) in sight it esteems most, as senses, and its esteem times closeness for its comfort."""
         admirers, standout, best = 0, None, 0.0
+        followed = 0
         for other in self._nearby(agent, sight):
             if other.species != agent.species:
                 continue
             if abs(other.x - agent.x) + abs(other.y - agent.y) <= other.sight and self._regard_for(other, agent) >= REGARD_STRONG:
                 admirers += 1
+            followed += agent.leader and other.alive and self._follows(other, agent)
             if agent.realm >= 0 and other.realm != agent.realm:
                 continue
             esteem = min(1.0, self._regard_for(agent, other))
             if esteem > best:
                 best, standout = esteem, other
+        agent.standout = -1 if standout is None else standout.identifier
+        agent.followed = min(1.0, followed / LEADER_FOLLOWERS) if agent.leader and LEADER_FOLLOWERS > 0 else 0.0
         if standout is None:
-            return {}, min(3, admirers) / 3, 0.0
+            return {"leader": float(agent.leader)}, min(3, admirers) / 3, 0.0
         near = self._closeness(agent, (standout.x, standout.y), sight)
-        return ({"standout_esteem": best, "standout_closeness": near,
+        return ({"leader": float(agent.leader), "standout_leads": float(standout.leader), "standout_esteem": best, "standout_closeness": near,
                  "standout_east": max(-1.0, min(1.0, (standout.x - agent.x) / max(1, sight))),
                  "standout_south": max(-1.0, min(1.0, (standout.y - agent.y) / max(1, sight)))}, min(3, admirers) / 3, best * near)
 
@@ -2956,6 +3004,7 @@ class Simulation:
         self._index_cells()
         if self.turn % max(1, LAND_TURNS) == 0:
             self._count_lands()
+            self._recognise_leaders()
         for agent in self.agents:  # a body some cost starved, its death not yet recorded: recorded now
             agent.trail.clear()  # last turn's way is forgotten
             if agent.died_turn is None and not agent.alive:
@@ -3484,6 +3533,9 @@ class Simulation:
         if suitor is None and call_range > 0 and agent.can_breed:  # the mating call reaches further
             suitor = next((other for other in self._nearby(agent, int(call_range * sight))
                            if self._compatible(agent, other) and other.can_breed), None)
+        if suitor is not None and not suitor.leader and self._leaders > 0 and agent.can_breed:  # a leader in sight is courted first
+            suitor = next((other for other in self._nearby(agent, sight) if other is not agent and other.leader and other.alive
+                           and other.can_breed and self._compatible(agent, other)), suitor)
         assailant = next((other for other in neighbors if other.identifier == agent.assailant), None)
         herd_assailant = next((other for other in neighbors if other.identifier == agent.herd_assailant), None)
         defend_target = assailant or herd_assailant
@@ -3847,6 +3899,7 @@ class Simulation:
                      "calls": [SILENT, *([ALERT_CALL] if alert_to is not None else []), *range(FIRST_CALL, len(CALLS))]}
         situation["land"], situation["war"] = land, war
         situation["admired"], situation["standout"] = admired, standout
+        situation["followed"] = agent.followed
         situation["inside"] = (2 if ACTIONS[agent.last_choice] == "rest" else 1) if (agent.x, agent.y) in self.shelters else 0
         if situation["exposure"] > 0 and (situation["inside"] or self.sheltered(agent) or self._warmed_by_fire(agent, here)):
             situation["spared"], situation["exposure"] = situation["exposure"], 0.0  # kept from the weather, it feels none, only relief
@@ -3886,7 +3939,8 @@ class Simulation:
         belonging = (LAND_COMFORT * situation.get("land", 0.0) + WAR_MORALE * situation.get("war", 0.0)
                      # glad to be held a friend by those about it, and at ease near the one it esteems most
                      + STANDING_JOY * (0.5 + agent.feeling("dominance")) * situation.get("admired", 0.0)
-                     + FOLLOW_COMFORT * (0.5 + 0.5 * (agent.feeling("trust") + agent.feeling("sociability"))) * situation.get("standout", 0.0))
+                     + FOLLOW_COMFORT * (0.5 + 0.5 * (agent.feeling("trust") + agent.feeling("sociability"))) * situation.get("standout", 0.0)
+                     + LEADER_JOY * situation.get("followed", 0.0))  # a leader glad of its followers about it
         return company - dread - unease - crowded + herding - exposed + parental + belonging
 
     @staticmethod
@@ -5223,7 +5277,7 @@ class Simulation:
             if other is striker or other.brain is None:
                 continue
             herd_near += self._herd_mate(victim, other)
-            if self._herd_mate(other, victim):
+            if self._herd_mate(other, victim) or self._follows(other, victim):  # its herd, and its followers
                 other.alarm = striker.identifier
                 if abs(other.x - striker.x) + abs(other.y - striker.y) <= 1:
                     other.herd_assailant = striker.identifier
@@ -5339,14 +5393,14 @@ class Simulation:
             first.womb.append((dna, mind, brain, given / litter, generation, second.identifier))
         carried = gestation(first.trait("size"))  # a grazer's the shorter, by GRAZER_GESTATION
         first.due_turn = self.turn + (max(1, int(carried * GRAZER_GESTATION + 0.5)) if first.species == "grazer" else carried)
-        for parent, cost in zip((first, second), costs, strict=True):
+        for parent, partner, cost in zip((first, second), (second, first), costs, strict=True):
             parent.hunger += cost
             rest = PREDATOR_BREED_COOLDOWN if parent.species == "predator" else BREED_COOLDOWN
             parent.cooldown = round((60 - 45 * parent.physique("fertility")) * rest
                                     * (AMPHIBIOUS_COOLDOWN if parent.terrain == "amphibious" else 1.0))
             parent.children += litter
             parent.stamina = max(0.0, parent.stamina - parent.fatigue(BREED_FATIGUE))
-            parent.reward += mating_joy(parent, BREED_JOY)
+            parent.reward += mating_joy(parent, BREED_JOY * (1 + LEADER_ALLURE if partner.leader else 1.0))
             if not parent.alive:
                 self._die(parent, "bred to death")
             else:

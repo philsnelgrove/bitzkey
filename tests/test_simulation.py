@@ -4452,3 +4452,41 @@ class LandTests(unittest.TestCase):
         simulation._offer(trader, owner, sm.ARMOUR_POSSESSION, sm.MEAT_GOOD)
         self.assertEqual(trader.last_action, "traded")
         self.assertEqual((owner.carried_meat, trader.carried_meat, trader.armour_worn), (1, 0, sm.WOOD_ARMOUR))
+
+    def test_a_leader_is_recognised_by_those_who_hold_it_their_standout_and_its_followers_defer_rally_and_defend_it(self):
+        sm = simulation_module
+        simulation = Simulation(30, 30, 0, seed=1)
+        dna = encode_dna("omnivore", size=3)
+        head = simulation._add_agent(dna, 10, 10)
+        band = [simulation._add_agent(dna, 11 + index % 3, 9 + index // 3) for index in range(sm.LEADER_FOLLOWERS)]
+        simulation._index_cells()
+        for one in band:
+            one.standout = head.identifier
+        simulation._recognise_leaders()
+        self.assertTrue(head.leader)
+        self.assertEqual(head.followers, sm.LEADER_FOLLOWERS)
+        self.assertTrue(all(Simulation._follows(one, head) for one in band))
+        self.assertTrue(simulation._leader_in_sight(band[0]))
+        self.assertAlmostEqual(simulation._nerve(band[0], None), 1 - sm.LEADER_RALLY)
+
+        owner = band[0]
+        owner.mind["aggression"] = owner.mind["dominance"] = 7.0  # fierce, it would fight anyone else
+        owner.weapon = sm.STONE_AXE
+        simulation._demand(head, owner, sm.WEAPON_POSSESSION)
+        self.assertEqual(head.last_action, "was yielded")
+        self.assertEqual(head.weapon, sm.STONE_AXE)
+
+        for one in band[:sm.LEADER_FOLLOWERS - 2]:
+            one.standout = -1
+        simulation._recognise_leaders()  # fewer than half as many: no longer
+        self.assertEqual(head.followers, 2)
+        self.assertFalse(head.leader)
+        for one in band:
+            one.standout = head.identifier
+        simulation._recognise_leaders()
+        self.assertTrue(head.leader)
+
+        foe = simulation._add_agent(encode_dna("predator", size=3), 10, 9)
+        simulation._index_cells()
+        simulation._struck(head, foe)  # its followers close by come to its defence
+        self.assertEqual(band[0].herd_assailant, foe.identifier)
