@@ -4619,23 +4619,31 @@ class LandTests(unittest.TestCase):
         pupil = simulation._add_agent(encode_dna("omnivore", size=3), 6, 5)
         simulation._index_cells()
         club = sm.CRAFTS.index("make_club")
-        self.assertEqual(Simulation._lesson_for(tutor, pupil), -1)  # nothing worth teaching
+        lesson = lambda to: Simulation._lesson_for(tutor, to, simulation.turn)  # noqa: E731
+        self.assertEqual(lesson(pupil), -1)  # nothing worth teaching
         tutor.crafts, tutor.archery = 1 << club, 0.5
-        self.assertEqual(Simulation._lesson_for(tutor, pupil), club)
+        self.assertEqual(lesson(pupil), len(sm.CRAFTS))  # a club it hasn't mastered isn't worth teaching; archery is
+        tutor.craft_tries[club] = sm.CRAFT_TRIES  # mastered
+        self.assertEqual(lesson(pupil), club)
         hunger, joy = tutor.hunger, tutor.reward
-        simulation._tutor(tutor, pupil, club)
+        with patch.object(sm, "TUTOR_PRACTICE", 1.0):  # a lesson as good as a try, to count
+            simulation._tutor(tutor, pupil, club)
         self.assertTrue(pupil.crafts >> club & 1)  # the recipe, now known
-        self.assertEqual(pupil.craft_tries[club], 1)  # as if tried once
+        self.assertEqual(pupil.craft_tries[club], 1)
         self.assertAlmostEqual(tutor.hunger, hunger + sm.CALL_COST)  # as dear as a call
         self.assertGreater(tutor.reward, joy)
         self.assertGreater(simulation._regard_for(pupil, tutor), 0.0)
-        self.assertEqual(Simulation._lesson_for(tutor, pupil), len(sm.CRAFTS))  # then archery
-        simulation._tutor(tutor, pupil, len(sm.CRAFTS))
-        self.assertAlmostEqual(pupil.archery, sm.ARCHERY_LEARNING)  # as one shot teaches
-        pupil.archery = 0.5
-        self.assertEqual(Simulation._lesson_for(tutor, pupil), club)  # then a try nearer mastery
-        simulation._tutor(tutor, pupil, club)
-        self.assertEqual(pupil.craft_tries[club], 2)
+        self.assertEqual(lesson(pupil), -1)  # a lesson a day at most
+        pupil.tutored_turn = simulation.turn - sm.DAY_LENGTH
+        self.assertEqual(lesson(pupil), len(sm.CRAFTS))  # a day on, archery
+        with patch.object(sm, "TUTOR_PRACTICE", 0.5):
+            simulation._tutor(tutor, pupil, len(sm.CRAFTS))
+        self.assertAlmostEqual(pupil.archery, 0.5 * sm.ARCHERY_LEARNING)  # half a shot's lesson
+        pupil.archery, pupil.tutored_turn = 0.5, -1
+        self.assertEqual(lesson(pupil), club)  # then a try nearer mastery, which a worthless lesson never gives
+        with patch.object(sm, "TUTOR_PRACTICE", 0.0):
+            simulation._tutor(tutor, pupil, club)
+        self.assertEqual(pupil.craft_tries[club], 1)
         stranger = simulation._add_agent(encode_dna("grazer", size=3), 5, 6)
-        self.assertEqual(Simulation._lesson_for(tutor, stranger), -1)  # not of its kind
+        self.assertEqual(lesson(stranger), -1)  # not of its kind
 

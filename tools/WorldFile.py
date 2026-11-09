@@ -213,7 +213,7 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "cooldown": agent.cooldown, "fruit": agent.fruit,
         "last_action": agent.last_action, "brain": numbers.brain(agent.brain), "generation": agent.generation,
         "children": agent.children, "mother": agent.mother, "father": agent.father, "taught_by": agent.taught_by,
-        "carried_meat": agent.carried_meat, "carried_fruit": agent.carried_fruit, "weapon": agent.weapon, "armour": agent.armour_worn, "weapon_uses": agent.weapon_uses, "armour_uses": agent.armour_uses, "bow_uses": agent.bow_uses, "archery": agent.archery,
+        "carried_meat": agent.carried_meat, "carried_fruit": agent.carried_fruit, "weapon": agent.weapon, "armour": agent.armour_worn, "weapon_uses": agent.weapon_uses, "armour_uses": agent.armour_uses, "bow_uses": agent.bow_uses, "archery": agent.archery, "tutored_turn": agent.tutored_turn,
         "infant_taught": agent.infant_taught, "crafts": agent.crafts, "craft_tries": agent.craft_tries, "cooked_meat": agent.cooked_meat, "cooked_fruit": agent.cooked_fruit,
         "carried_stone": agent.carried_stone,
         "carried_bone": agent.carried_bone, "carried_wood": agent.carried_wood, "carried_seed": agent.carried_seed, "boredom": float(agent.boredom), "shelter_known": float(agent.shelter_known), "road_known": float(agent.road_known), "cooked_known": float(agent.cooked_known), "plenty": float(agent.plenty), "plenty_known": float(agent.plenty_known), "hide": agent.hide, "hide_armour": float(agent.hide_armour), "skinned": agent.skinned, "thefts": agent.thefts, "mark": agent.mark, "realm": agent.realm, "standout": agent.standout, "follows": agent.follows, "followers": agent.followers, "leader": agent.leader, "trespass": agent.trespass, "meat_lean": float(agent.meat_lean), "expected": agent.expected, "last_tried": [agent.last_tried.get(action, 0) for action in ACTIONS], "died_turn": agent.died_turn, "assailant": agent.assailant,
@@ -294,6 +294,7 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
     agent.weapon_uses = int(record.get("weapon_uses", 0))
     agent.bow_uses = int(record.get("bow_uses", 0))  # none, in a world saved before archery
     agent.archery = float(record.get("archery", 0.0))
+    agent.tutored_turn = int(record.get("tutored_turn", -1))
     agent.armour_uses = int(record.get("armour_uses", 0))
     agent.crafts = int(record.get("crafts", 0))
     agent.craft_tries = (list(record.get("craft_tries", ())) + [0] * 6)[:6]  # five before the bow

@@ -247,7 +247,7 @@ STUDENT_TRUST = 0.25  # how trusting an animal must be to be willing to be taugh
 TEACHING_JOY = 1.0  # how glad an elder is of teaching a student; more if empathetic
 # Tutoring, as the C++ version's (see there): one lesson to one of its kind beside it, not a foe, for a call's hunger:
 # a recipe it lacks, else archery from a better shot, else a try nearer a recipe's mastery (TUTOR_JOY to the tutor).
-TUTOR_JOY = 0.5
+TUTOR_JOY, TUTOR_PRACTICE = 0.5, 0.5  # a lesson a day, of mastered crafts, worth TUTOR_PRACTICE of real practice
 ARCHERY_WORTH_TEACHING = 0.05  # how much the better a shot a tutor must be to teach archery
 # Kinship: the most a herd-mate's or partner's social background may differ from its own, at full kinship and
 # no tolerance, is 1 less this; less kinship, or more tolerance, accepts more.
@@ -1153,6 +1153,7 @@ class Bitzkey:
     craft_tries: list[int] = field(default_factory=lambda: [0] * 6)  # how often it has tried each
     bow_uses: int = 0  # shots left in the bow it carries; 0 for none
     archery: float = 0.0  # its skill at hitting with a bow, 0..1, from its shots
+    tutored_turn: int = -1  # the turn it last had a lesson from a tutor; -1 never
     weapon: int = 0  # what it wields and wears, and how often each has been used
     armour_worn: int = 0
     weapon_uses: int = 0
@@ -3715,7 +3716,7 @@ class Simulation:
         pupil, lesson = None, -1  # one beside it worth tutoring, and in what
         for other in kind:
             if abs(other.x - agent.x) + abs(other.y - agent.y) <= 1 and not self._is_foe(agent, other):
-                lesson = self._lesson_for(agent, other)
+                lesson = self._lesson_for(agent, other, self.turn)
                 if lesson >= 0:
                     pupil = other
                     break
@@ -5359,17 +5360,20 @@ class Simulation:
         agent.last_action = "took gear"
 
     @staticmethod
-    def _lesson_for(tutor: Bitzkey, pupil: Bitzkey) -> int:
+    def _lesson_for(tutor: Bitzkey, pupil: Bitzkey, turn: int) -> int:
         """What the tutor has worth teaching the pupil: a recipe it lacks, archery (len(CRAFTS)), a recipe not mastered; -1 none."""
         if pupil.species != tutor.species or pupil.brain is None:
             return -1
+        if pupil.tutored_turn >= 0 and turn - pupil.tutored_turn < DAY_LENGTH:
+            return -1  # a lesson a day at most
+        mastered = [tutor.crafts >> craft & 1 and tutor.craft_tries[craft] >= CRAFT_TRIES for craft in range(len(CRAFTS))]
         for craft in range(len(CRAFTS)):
-            if tutor.crafts >> craft & 1 and not pupil.crafts >> craft & 1:
+            if mastered[craft] and not pupil.crafts >> craft & 1:
                 return craft
         if tutor.archery > pupil.archery + ARCHERY_WORTH_TEACHING:
             return len(CRAFTS)
         for craft in range(len(CRAFTS)):
-            if tutor.crafts >> craft & 1 and pupil.craft_tries[craft] < CRAFT_TRIES:
+            if mastered[craft] and pupil.craft_tries[craft] < CRAFT_TRIES:
                 return craft
         return -1
 
@@ -5379,11 +5383,13 @@ class Simulation:
             tutor.last_action = "lost its pupil"
             return
         tutor.hunger = min(100.0, tutor.hunger + CALL_COST)  # as dear as a call
+        pupil.tutored_turn = self.turn
         if lesson == len(CRAFTS):
-            pupil.archery += ARCHERY_LEARNING * (1 - pupil.archery)  # as one shot teaches
+            pupil.archery += TUTOR_PRACTICE * ARCHERY_LEARNING * (1 - pupil.archery)  # worth part of a shot
         else:
             pupil.crafts |= 1 << lesson  # known now, if it was not
-            pupil.craft_tries[lesson] = min(CRAFT_TRIES, pupil.craft_tries[lesson] + 1)  # a try nearer mastery
+            if self.random.random() < TUTOR_PRACTICE:  # perhaps a try nearer mastery
+                pupil.craft_tries[lesson] = min(CRAFT_TRIES, pupil.craft_tries[lesson] + 1)
         tutor.last_action = "tutored"
         tutor.reward += TUTOR_JOY * (0.5 + tutor.feeling("empathy")) + self._help_felt(tutor, self._regard_for(tutor, pupil))
         self._note_deed(pupil, tutor, TEACHING_DEED, 0.5, "skill")  # half a teaching's goodwill
