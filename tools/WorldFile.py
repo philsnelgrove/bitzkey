@@ -409,7 +409,7 @@ def world_bytes(simulation: Simulation) -> bytes:
         "lands": {"patch": simulation.land_patch, "columns": simulation.land_columns, "squares": len(simulation.lands), "next_realm": simulation.next_realm,
                   "realms": [[identifier, SPECIES.index(realm.species), realm.ring, realm.members] for identifier, realm in sorted(simulation.realms.items())],
                   "claims": [[patch, realm, hold] for patch, land in enumerate(simulation.lands) for realm, hold in land if realm >= 0],
-                  "wars": [list(war) for war in simulation.wars]},
+                  "wars": [list(war) for war in simulation.wars], "welcomes": [list(pair) for pair in sorted(simulation.welcome)]},
         "roads": [[y * simulation.width + x, simulation.road_work.get((x, y), 0), int((x, y) in simulation.roads)] for x, y in sorted(simulation.roads | set(simulation.road_work), key=lambda c: (c[1], c[0]))],
         "shelters": [[x, y, simulation.sites.get((x, y), 0), int((x, y) in simulation.shelters), simulation.site_turns.get((x, y), 0), simulation.site_stone.get((x, y), 0)] for y in range(simulation.height) for x in range(simulation.width)
                      if (x, y) in simulation.sites or (x, y) in simulation.shelters],
@@ -549,7 +549,7 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
             simulation.pile_turns[(x, y, "bone" if kind == 3 else "wood")] = dropped
     simulation.arable = {(cell % simulation.width, cell // simulation.width) for cell in record.get("arable", ())}  # none in an older world
     simulation.fights = [[int(a), int(b), int(c), bool(d)] for a, b, c, d in record.get("fights", ())]  # none in an older world
-    simulation.realms, simulation.lands, simulation.wars = {}, [], []
+    simulation.realms, simulation.lands, simulation.wars, simulation.welcome = {}, [], [], set()
     if "lands" in record:  # none, in a world saved before lands: counted afresh
         lands = record["lands"]
         simulation.land_patch, simulation.land_columns, simulation.next_realm = int(lands["patch"]), int(lands["columns"]), int(lands["next_realm"])
@@ -560,6 +560,7 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
             land = simulation.lands[int(patch)]
             land[0 if land[0][0] < 0 else 1] = [int(realm), float(hold)]
         simulation.wars = [[int(value) for value in war] for war in lands["wars"]]
+        simulation.welcome = {(int(owner), int(guest)) for owner, guest in lands.get("welcomes", ())}  # none before
         simulation._index_realm_patches()
     simulation.fertilized = {(cell % simulation.width, cell // simulation.width) for cell in record.get("fertilized", ())}  # none in an older world
     simulation.roads, simulation.road_work = set(), {}

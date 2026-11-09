@@ -700,6 +700,10 @@ def trade_bias(identifier: int, good: int) -> float:
 # offers the kinder (LEADER_DEFERENCE), rally in its sight (LEADER_RALLY) and defend it; it is glad of them
 # (LEADER_JOY), courted first, and a joy to breed with (LEADER_ALLURE). LEADER_FOLLOWERS 0 for no leaders.
 LEADER_FOLLOWERS = 5
+# Ambition and welcome, as the C++ version's (see there): drawn to stay in a disliked group's land and uneasy in a
+# liked one's (LAND_AMBITION) unless welcome; a group whose members think well enough of a colour group, on average
+# (WELCOME_LEVEL), welcomes it as guests who neither trespass nor contest its land.
+LAND_AMBITION, WELCOME_LEVEL = 0.1, 0.5
 LEADER_DEFERENCE, LEADER_RALLY, LEADER_JOY, LEADER_ALLURE = 0.5, 0.5, 0.3, 0.5
 MEAT_GOOD, FRUIT_GOOD, GOODS = 3, 4, 5  # what may be offered: the possessions, then food
 # Marks of the victor, as the C++ version's: defeating an omnivore earns the mark of the warrior, a predator the mark of
@@ -1121,6 +1125,7 @@ class Bitzkey:
     followers: int = 0  # those whose standout it was at the last count
     leader: bool = False  # recognised a leader at the last count
     followed: float = 0.0  # a leader's followers in sight, as last sensed, a LEADER_FOLLOWERS-th each, to 1
+    ambition: float = 0.0  # its dislike of the group whose land it stands in, uninvited, as last sensed
     trespass: int = 0  # turns it has stood in another group's land without a break
     plenty: float = 0.0  # the food about it as of its last survey (see FORAGE_RADIUS)
     plenty_known: float = -1.0  # its memory of that food, following it over about a day; below 0 before its first survey
@@ -1705,6 +1710,7 @@ class Simulation:
         self.lands: list[list[list]] = []  # each land square's two claims, [group, hold], row by row; empty with no lands
         self.land_patch, self.land_columns = 0, 0
         self.wars: list[list[int]] = []  # each [first, second, first_kills, second_kills, since]
+        self.welcome: set[tuple[int, int]] = set()  # (owner, guest): groups an owner of land welcomes, as of the last count
         self._leaders = 0  # recognised at the last count
         self.next_realm = 0
         self._cuts: dict[str, tuple[float, float, float]] = {}  # each species' envy, take and give cuts, ranked each turn
@@ -2259,7 +2265,41 @@ class Simulation:
     def _trespassing(self, agent: Bitzkey) -> bool:
         """In a land with a claimant other than its own group."""
         land = None if agent.species == "plant" else self._claims_at(agent.x, agent.y)
-        return land is not None and any(claim[0] >= 0 and claim[0] != agent.realm for claim in land)
+        return land is not None and any(claim[0] >= 0 and claim[0] != agent.realm and not self._welcomed(claim[0], agent.realm) for claim in land)
+
+    def _welcomed(self, owner: int, guest: int) -> bool:
+        return owner >= 0 and guest >= 0 and (owner, guest) in self.welcome
+
+    def _view_of_realm(self, agent: Bitzkey, realm: int) -> float | None:
+        """Its regard for a colour group, by its colour, if it holds a view."""
+        found = self.realms.get(realm)
+        if found is None:
+            return None
+        return next((one.regard for one in agent.factions if colour_difference(one.ring, found.ring) <= FACTION_WIDTH), None)
+
+    def _count_welcomes(self) -> None:
+        """Which groups welcome which, from what their members think of them."""
+        self.welcome = set()
+        if WELCOME_LEVEL > 1:
+            return
+        visiting: dict[int, set[int]] = {}
+        for agent in self.agents:
+            if not agent.alive or agent.realm < 0 or agent.species == "plant":
+                continue
+            land = self._claims_at(agent.x, agent.y)
+            for claim in land or ():
+                if claim[0] >= 0 and claim[0] != agent.realm:
+                    visiting.setdefault(claim[0], set()).add(agent.realm)
+        views: dict[tuple[int, int], list] = {}
+        for agent in self.agents:
+            guests = visiting.get(agent.realm) if agent.alive else None
+            for guest in sorted(guests or ()):
+                view = self._view_of_realm(agent, guest)
+                if view is not None:
+                    held = views.setdefault((agent.realm, guest), [0.0, 0])
+                    held[0] += view
+                    held[1] += 1
+        self.welcome = {pair for pair, (total, count) in views.items() if count > 0 and total / count >= WELCOME_LEVEL}
 
     def _war_standing(self, realm: int, enemy: int = -1) -> int:
         """How its group's war with `enemy` goes, or all its wars together: 1 clearly winning, -1 clearly losing, 0 neither."""
@@ -2285,7 +2325,8 @@ class Simulation:
         if hunter.realm < 0 or other.realm == hunter.realm or other.guarded or not self.within_reach(hunter, other):
             return False
         there = self._claims_at(other.x, other.y)
-        return there is not None and self._claims(there, hunter.realm) and self._in_own_land(hunter) and self._is_foe(hunter, other)
+        return (there is not None and self._claims(there, hunter.realm) and self._in_own_land(hunter)
+                and not self._welcomed(hunter.realm, other.realm) and self._is_foe(hunter, other))
 
     def _preys_on(self, hunter: Bitzkey, other: Bitzkey) -> bool:
         return self._is_prey(hunter, other) or self._drives_out(hunter, other) or self._grazer_assails(hunter, other)
@@ -2349,6 +2390,18 @@ class Simulation:
         war = float(self._war_standing(agent.realm))
         senses = {"own_land": float(at_home), "foreign_land": float(self._trespassing(agent)), "war_standing": war,
                   "marked": agent.mark / 2}
+        agent.ambition = 0.0
+        here = self._claims_at(agent.x, agent.y) if not at_home and agent.realm >= 0 else None
+        for claim in here or ():  # the first other claimant it holds a view of
+            if claim[0] < 0 or claim[0] == agent.realm:
+                continue
+            view = self._view_of_realm(agent, claim[0])
+            if view is None:
+                continue
+            senses["land_owner_regard"] = max(-1.0, min(1.0, view))
+            if not self._welcomed(claim[0], agent.realm):
+                agent.ambition = -senses["land_owner_regard"]
+            break
         if holds and not at_home:  # which way the nearest square of its own land lies
             square, nearest = -1, 0
             for patch in realm.patches:
@@ -2367,7 +2420,7 @@ class Simulation:
             if not holds or other.realm == agent.realm:
                 continue
             there = self._claims_at(other.x, other.y)
-            if there is not None and self._claims(there, agent.realm):
+            if there is not None and self._claims(there, agent.realm) and not self._welcomed(agent.realm, other.realm):
                 trespasser = min(trespasser, abs(other.x - agent.x) + abs(other.y - agent.y))
         if trespasser <= sight:
             senses["trespasser"] = 1.0 - (trespasser - 1) / max(1, sight)
@@ -2491,7 +2544,8 @@ class Simulation:
                 claim, other = land[slot], land[1 - slot]
                 if claim[0] < 0:
                     continue
-                losing = other[0] >= 0 and self._war_standing(claim[0], other[0]) < 0
+                losing = ((other[0] >= 0 and self._war_standing(claim[0], other[0]) < 0)
+                          or (slot == 1 and self._welcomed(other[0], claim[0])))  # or a guest there, which contests nothing
                 if here[claim[0]] > 0 and large(claim[0]) and not losing:
                     claim[1] = 1.0
                 else:
@@ -2504,7 +2558,8 @@ class Simulation:
                 continue
             best, most = -1, max(1, LAND_HOLD) - 1  # a new claim, by the group standing there in the most strength
             for realm, count in sorted(here.items()):
-                if count > most and realm != land[0][0] and large(realm) and (land[0][0] < 0 or self._war_standing(realm, land[0][0]) >= 0):  # not the beaten
+                if (count > most and realm != land[0][0] and large(realm) and (land[0][0] < 0 or self._war_standing(realm, land[0][0]) >= 0)
+                        and not self._welcomed(land[0][0], realm)):  # not the beaten, nor a guest
                     best, most = realm, count
             if best >= 0:
                 land[0 if land[0][0] < 0 else 1] = [best, 1.0]
@@ -3021,6 +3076,7 @@ class Simulation:
         self._index_cells()
         if self.turn % max(1, LAND_TURNS) == 0:
             self._count_lands()
+            self._count_welcomes()
             self._recognise_leaders()
         for agent in self.agents:  # a body some cost starved, its death not yet recorded: recorded now
             agent.trail.clear()  # last turn's way is forgotten
@@ -3915,7 +3971,7 @@ class Simulation:
                      "alert_to": alert_to, "revisit": agent.food_memory and agent.food_memory[:2],
                      "student": students[0] if students else None,
                      "calls": [SILENT, *([ALERT_CALL] if alert_to is not None else []), *range(FIRST_CALL, len(CALLS))]}
-        situation["land"], situation["war"] = land, war
+        situation["land"], situation["war"], situation["ambition"] = land, war, agent.ambition
         situation["admired"], situation["standout"] = admired, standout
         situation["followed"] = agent.followed
         situation["inside"] = (2 if ACTIONS[agent.last_choice] == "rest" else 1) if (agent.x, agent.y) in self.shelters else 0
@@ -3955,6 +4011,7 @@ class Simulation:
         parental = PARENT_JOY * (0.5 + agent.feeling("empathy")) * min(3, situation.get("young_near", 0)) / 3
         # At ease in its own land and uneasy away from it; glad of a war clearly being won, and troubled by one being lost.
         belonging = (LAND_COMFORT * situation.get("land", 0.0) + WAR_MORALE * situation.get("war", 0.0)
+                     + LAND_AMBITION * situation.get("ambition", 0.0)  # drawn to a disliked group's land
                      # glad to be held a friend by those about it, and at ease near the one it esteems most
                      + STANDING_JOY * (0.5 + agent.feeling("dominance")) * situation.get("admired", 0.0)
                      + FOLLOW_COMFORT * (0.5 + 0.5 * (agent.feeling("trust") + agent.feeling("sociability"))) * situation.get("standout", 0.0)

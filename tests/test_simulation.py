@@ -4509,3 +4509,40 @@ class LandTests(unittest.TestCase):
         simulation._index_cells()
         simulation._struck(head, foe)  # its followers close by come to its defence
         self.assertEqual(band[0].herd_assailant, foe.identifier)
+
+    def test_a_guest_is_welcome_in_a_friends_land_and_contests_none_of_it_and_in_a_foes_land_is_drawn_to_stay(self):
+        sm = simulation_module
+        from tools.Brain import SENSES
+        simulation = Simulation(24, 24, 0, seed=3)
+        red = encode_dna("omnivore", size=3)
+        blue = red ^ (0xFFFF0000 << 32)
+        hosts = [simulation._add_agent(red, x, y) for x, y in ((2, 2), (3, 2), (2, 3))]
+        guests = [simulation._add_agent(blue, x, y) for x, y in ((18, 18), (19, 18), (18, 19))]
+        simulation._index_cells()
+        simulation._count_lands()  # each group claims where it stands
+        host, guest = hosts[0].realm, guests[0].realm
+        self.assertTrue(host >= 0 and guest >= 0 and host != guest)
+        for index, one in enumerate(guests):  # all of them into the host's land
+            one.x, one.y = 4 + index, 4
+        simulation._index_cells()
+        self.assertTrue(simulation._trespassing(guests[0]))
+        for one in hosts:  # the hosts think well of the guests' colour
+            one.factions.append(sm.Faction(sm.body_word(blue), 0.9, 0))
+        simulation._count_welcomes()
+        self.assertTrue(simulation._welcomed(host, guest))
+        self.assertFalse(simulation._trespassing(guests[0]))
+        simulation._count_lands()
+        land = simulation._claims_at(2, 2)
+        self.assertTrue(simulation._claims(land, host))
+        self.assertFalse(simulation._claims(land, guest))  # guests contest none of their host's land
+
+        guests[0].factions.append(sm.Faction(sm.body_word(red), -0.8, 0))  # one dislikes its hosts, and uninvited it would stay
+        for one in hosts:
+            one.factions[-1].regard = 0.0
+        simulation._count_welcomes()
+        self.assertFalse(simulation._welcomed(host, guest))
+        senses, _, situation = simulation._sense(guests[0])
+        self.assertAlmostEqual(senses[SENSES.index("land_owner_regard")], -0.8)
+        self.assertAlmostEqual(situation["ambition"], 0.8)
+        simulation._count_lands()
+        self.assertTrue(simulation._claims(simulation._claims_at(2, 2), guest))  # unwelcome, they contest it

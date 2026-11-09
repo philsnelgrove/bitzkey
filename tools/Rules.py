@@ -452,6 +452,8 @@ _TABLE: dict[str, list[tuple]] = {
         ("LAND_COMFORT", "Land comfort", "ease in its own land, and unease as much away from it while its group holds land", 0.0, 2.0, 0.05),
         ("TRESPASS_REGARD", "Trespass regard", "how much of a deed's weight a trespasser's first turn in a land costs it with those of the land who see it", 0.0, 1.0, 0.01),
         ("TRESPASS_GROWTH", "Trespass growth", "how much that grows, of itself, each turn the trespasser stays, to a whole deed", 0.0, 2.0, 0.05),
+        ("LAND_AMBITION", "Land ambition", "pull to stay in the land of a group it dislikes, and unease in the land of one it likes unless welcome there, times its regard for that group", 0.0, 1.0, 0.01),
+        ("WELCOME_LEVEL", "Welcome level", "how well a group's members must think of a colour group, on average, to welcome it in their land as guests who neither trespass nor contest it; above 1 for none", 0.0, 1.5, 0.05),
         ("LEADER_RALLY", "Leader rally", "share of the chance to panic or break that a follower in sight of its leader overcomes", 0.0, 1.0, 0.05),
         ("LAND_RALLY", "Land rally", "share of the chance to panic, break or be overcome by primal fear that defending its own land overcomes, a born coward's too", 0.0, 1.0, 0.05),
         ("WAR_ENMITY", "War enmity", "how much of a deed's weight each count of a war sets each member against its enemy's colour", 0.0, 1.0, 0.05),
