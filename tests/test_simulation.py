@@ -4581,3 +4581,34 @@ class LandTests(unittest.TestCase):
         self.assertAlmostEqual(Simulation._ambition(soft, 1.0, True), 2.0)  # at ease as a friend's guest
         self.assertAlmostEqual(Simulation._ambition(hard, 1.0, True), 0.0)
         self.assertAlmostEqual(Simulation._ambition(soft, 1.0, False), -1.0)  # uninvited, uneasy all the same
+
+    def test_a_bow_is_made_of_two_wood_and_a_worn_hide_and_shoots_its_uses_and_hits_teach_and_are_respected(self):
+        sm = simulation_module
+        simulation = Simulation(30, 30, 0, seed=1)
+        archer = simulation._add_agent(encode_dna("omnivore", size=3, patience=7, intellect=7, fear=0), 5, 5)
+        archer.weapon, archer.carried_wood, archer.hide = sm.STONE_AXE, 3, 2
+        archer.crafts = 1 << sm.CRAFTS.index("make_bow")
+        archer.craft_tries[sm.CRAFTS.index("make_bow")] = sm.CRAFT_TRIES - 1
+        simulation._make_gear(archer, "make_bow")
+        self.assertEqual((archer.bow_uses, archer.carried_wood, archer.hide, archer.weapon), (sm.BOW_USES, 1, 0, sm.STONE_AXE))
+        self.assertGreater(Simulation._hit_chance(archer, 1), Simulation._hit_chance(archer, archer.sight))
+        plant = simulation._add_agent(encode_dna("plant", size=3), 7, 5)
+        onlooker = simulation._add_agent(encode_dna("omnivore", size=3), 6, 6)
+        simulation._index_cells()
+        health, skill = plant.health, Simulation._skill_held(onlooker, archer)
+        for _ in range(sm.BOW_USES):
+            simulation._shoot(archer, plant, True)
+        self.assertEqual(archer.bow_uses, 0)  # spent
+        self.assertAlmostEqual(archer.archery, 1 - (1 - sm.ARCHERY_LEARNING) ** sm.BOW_USES)  # every shot taught
+        self.assertEqual(plant.health, health)  # practice harms nothing
+        self.assertGreater(Simulation._skill_held(onlooker, archer), skill)  # its hits were seen
+        prey = simulation._add_agent(encode_dna("grazer", size=1), 5, 7)
+        simulation._index_cells()
+        archer.archery, before = 1.0, prey.health
+        for _ in range(20):
+            if prey.health != before:
+                break
+            archer.bow_uses = 1
+            simulation._shoot(archer, prey, False)
+        self.assertLess(prey.health, before)  # struck from two steps off
+

@@ -14,7 +14,7 @@ from tools.Genome import (BODY_TRAITS, SPECIES, TEMPERAMENT, TEMPERATURES, TRAIT
 ACTIONS = ("eat", "forage", "browse", "uproot", "scavenge", "feast", "rest", "court", "breed", "hunt", "attack", "defend",
            "flee", "herd", "go_north", "go_south", "go_east", "go_west", "walk_north", "walk_south", "walk_east",
            "walk_west", "revisit", "feed_young", "teach", "take_meat", "take_fruit", "drop_meat", "drop_fruit", "eat_pile", "eat_carried",
-           "take_stone", "take_bone", "take_wood", "drop_stone", "drop_bone", "drop_wood", "dress", "make_bone_axe", "make_bone_armour", "make_club", "make_wood_armour", "make_stone_axe", "take_gear", "drop_weapon", "drop_armour", "cut", "dig", "light_fire", "feed_fire", "cook", "construct", "eat_seed", "plant_seed", "build_road", "eat_marrow", "fertilize", "skin", "demand", "steal", "give", "offer")
+           "take_stone", "take_bone", "take_wood", "drop_stone", "drop_bone", "drop_wood", "dress", "make_bone_axe", "make_bone_armour", "make_club", "make_wood_armour", "make_stone_axe", "make_bow", "take_gear", "drop_weapon", "drop_armour", "cut", "dig", "light_fire", "feed_fire", "cook", "construct", "eat_seed", "plant_seed", "build_road", "eat_marrow", "fertilize", "skin", "demand", "steal", "give", "offer", "shoot", "practise")
 # Alongside its action, every animal that thinks keeps silent or calls: the alert, to its herd, of a hunter (grazers)
 # or a fresh kill (hunters) it sees, or one of five calls that mean only what its kind come to make of them, heard by
 # all close enough. A brain values them as it values its actions, after them, and learns them the same way.
@@ -120,7 +120,7 @@ SENSES = (
     "known_closeness", "known_regard", "known_east", "known_south", "caller_known", "caller_regard", "known_danger", "known_skill",
     "elder_age", "elder_closeness", "elder_east", "elder_south", "student_near",
     "load", "meat_carried", "fruit_carried", "meat_pile_closeness", "fruit_pile_closeness",
-    "stone_carried", "bone_carried", "wood_carried", "stone_pile_closeness", "bone_pile_closeness", "wood_pile_closeness", "gear_pile_closeness", "fire_closeness", "fire_friendly", "wielding", "armoured", "foe_sheltered", "shelter_here", "arable_here", "seed_carried", "boredom", "road_here", "fertilized_here", "hide_worn", "regarded", "envy", "fighting", "foe_closeness", "cooking_smell", "food_plenty", "prey_flanked", "own_land", "foreign_land", "own_land_east", "own_land_south", "trespasser", "war_standing", "marked", "mark_seen", "standout_esteem", "standout_closeness", "standout_east", "standout_south", "leader", "standout_leads", "land_owner_regard",
+    "stone_carried", "bone_carried", "wood_carried", "stone_pile_closeness", "bone_pile_closeness", "wood_pile_closeness", "gear_pile_closeness", "fire_closeness", "fire_friendly", "wielding", "armoured", "foe_sheltered", "shelter_here", "arable_here", "seed_carried", "boredom", "road_here", "fertilized_here", "hide_worn", "regarded", "envy", "fighting", "foe_closeness", "cooking_smell", "food_plenty", "prey_flanked", "own_land", "foreign_land", "own_land_east", "own_land_south", "trespasser", "war_standing", "marked", "mark_seen", "standout_esteem", "standout_closeness", "standout_east", "standout_south", "leader", "standout_leads", "land_owner_regard", "bow_carried", "archery",
 ) + TEMPERAMENT + (    # then its current temperament, mind and social traits, each 0..7 scaled to 0..1
     *(f"inborn_{trait}" for trait in TEMPERAMENT),        # its dot's and social background's traits, as born, 0..1
     *BODY_TRAITS,                                         # its ring's traits, 0..1 (species 0 plant to 1 predator)
@@ -129,12 +129,12 @@ SENSES = (
     "nocturnal",  # its activity gene: 1 nocturnal, 0 diurnal
     # Imagining: the action it pictures itself taking, a -1 or 1 for each bit of its number, or all 0 when it pictures
     # nothing. Only its foresight is taught with them set. As the C++ version's.
-    "imagined_1", "imagined_2", "imagined_3", "imagined_4", "imagined_5", "imagined_6",
+    "imagined_1", "imagined_2", "imagined_3", "imagined_4", "imagined_5", "imagined_6", "imagined_7",
 )
 INPUT_SIZE = len(SENSES)
 MEMORY_SENSE = SENSES.index("memory_1")  # the first sense of what the memory held
 IMAGINED_SENSE = SENSES.index("imagined_1")
-IMAGINED_BITS = 6
+IMAGINED_BITS = 7  # enough to number every action (65 since archery)
 # The senses as a brain reads them: each that runs 0..1 centred, read as -1..1, so that a lesson moves a neuron's weights
 # both ways (senses never below 0 push all its weights the same way, lesson after lesson, until the neuron jams at its
 # limit, the same whatever it senses, and learns no more); those already running -1..1 read as they are. As the C++

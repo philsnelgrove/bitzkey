@@ -597,7 +597,7 @@ WOOD_LASTS = 10.0  # times as long as a pile of food a pile of wood or bone last
 # with armour. Armour counts as at least ARMOUR_LEAST of the trait's points, doubled.
 NO_WEAPON, BONE_AXE, CLUB, STONE_AXE = 0, 1, 2, 3
 NO_ARMOUR, BONE_ARMOUR, WOOD_ARMOUR = 0, 1, 2
-GEAR_KINDS = ("bone_axe", "club", "stone_axe", "bone_armour", "wood_armour")
+GEAR_KINDS = ("bone_axe", "club", "stone_axe", "bone_armour", "wood_armour", "bow")  # the bow last, carried apart from the rest
 GEAR_USES = 7
 FIRE_TURNS = 24  # a day, and another for each wood fed to it; a club lights one, a fire cooks what is carried, and cooked food never spoils
 FIRE_PANIC = 0.25  # the chance an animal panics, seeing a fire not its own or its herd's
@@ -617,7 +617,7 @@ FIRE_REACH = 2  # squares off, a fire shelters an animal from the cold
 # A craft must first be discovered, the more likely each turn the cleverer the animal holding its materials, and then
 # made to work: the chance rises with each try to certainty at CRAFT_TRIES, the sooner the cleverer. A failure spends
 # nothing, and is a small thrill of discovery to the curious.
-CRAFTS = ("make_bone_axe", "make_bone_armour", "make_club", "make_wood_armour", "make_stone_axe")
+CRAFTS = ("make_bone_axe", "make_bone_armour", "make_club", "make_wood_armour", "make_stone_axe", "make_bow")
 DISCOVERY_CHANCE = 0.0005  # rare: a find is news, and a taught recipe spreads it
 DISCOVERY_JOY = 5.0  # the joy of first discovering a craft (times curiosity), so its finder comes to prize the materials
 CRAFT_TRIES = 10
@@ -709,7 +709,7 @@ LEADER_FOLLOWERS = 5
 # (WELCOME_LEVEL), welcomes it as guests who neither trespass nor contest its land.
 LAND_AMBITION, WELCOME_LEVEL = 0.1, 0.5
 LEADER_DEFERENCE, LEADER_RALLY, LEADER_JOY, LEADER_ALLURE = 0.5, 0.5, 0.3, 0.5
-MEAT_GOOD, FRUIT_GOOD, GOODS = 3, 4, 5  # what may be offered: the possessions, then food
+MEAT_GOOD, FRUIT_GOOD, GOODS = 4, 5, 6  # what may be offered: the possessions, then food
 # Marks of the victor, as the C++ version's: defeating an omnivore earns the mark of the warrior, a predator the mark of
 # prestige, kept for life; each turn all who see it and don't hold it a foe move their regard toward WARRIOR_MARK or
 # PRESTIGE_MARK at MARK_REGARD of a deed's weight, and a foe holds it the more dangerous and dreads it (MARK_DREAD).
@@ -725,9 +725,15 @@ WAR_FADE = 0.1
 # Standing, as the C++ version's: no one is made a leader. An animal is glad of how many about it hold it a friend
 # (STANDING_JOY), and at ease near its standout, the member of its own group in sight it esteems most (FOLLOW_COMFORT).
 STANDING_JOY, FOLLOW_COMFORT = 0.2, 0.2
-HIDE_POSSESSION, WEAPON_POSSESSION, ARMOUR_POSSESSION = 0, 1, 2
+HIDE_POSSESSION, WEAPON_POSSESSION, ARMOUR_POSSESSION, BOW_POSSESSION = 0, 1, 2, 3
 DIG_CHANCE = 0.1  # that a dig finds a stone
 WEAPON_FORCE, STONE_FORCE, ARMOUR_FORCE = 2.0, 1.5, 2.0
+# Archery, as the C++ version's (see there): a bow of BOW_WOOD wood and the worn hide, with a stone axe kept, carried apart,
+# shooting BOW_USES times as far as the archer sees, as hard as a carried stone; practice on plants harms nothing; every
+# shot teaches (ARCHERY_LEARNING); a hit pleases (ARCHERY_JOY) and wins the respect of all who see it (ARCHERY_REGARD).
+BOW_WOOD, BOW_USES = 2, 20
+ARCHERY_JOY, ARCHERY_REGARD, ARCHERY_LEARNING = 1.0, 0.1, 0.05
+ARCHERY_LEAST = 0.2  # the chance of a hit at the archer's feet, unsteady and unskilled
 ARMOUR_LEAST = 2
 STONE_SCATTER_PER = 100  # one stone to this many squares, scattered once in a world's life
 # An animal may carry food off rather than eat it, up to its size + 1 portions, and drop it in a pile any may take
@@ -1140,7 +1146,9 @@ class Bitzkey:
     last_tried: dict = field(default_factory=dict)  # the turn after it last chose each action
     carried_seed: int = 0  # kept from raw fruit it ate, up to its capacity, and no weight to it
     crafts: int = 0  # a bit for each craft it has discovered
-    craft_tries: list[int] = field(default_factory=lambda: [0] * 5)  # how often it has tried each
+    craft_tries: list[int] = field(default_factory=lambda: [0] * 6)  # how often it has tried each
+    bow_uses: int = 0  # shots left in the bow it carries; 0 for none
+    archery: float = 0.0  # its skill at hitting with a bow, 0..1, from its shots
     weapon: int = 0  # what it wields and wears, and how often each has been used
     armour_worn: int = 0
     weapon_uses: int = 0
@@ -1948,13 +1956,15 @@ class Simulation:
             return agent.hide
         if possession == WEAPON_POSSESSION:
             return 2 if agent.weapon == STONE_AXE else 1 if agent.weapon else 0
+        if possession == BOW_POSSESSION:
+            return 1 if agent.bow_uses > 0 else 0
         return 1 if agent.armour_worn else 0
 
     @classmethod
     def _better_possession(cls, taker: Bitzkey, owner: Bitzkey) -> int | None:
         """The kind of possession owner has most better than taker's, if any."""
         best, most = None, 0
-        for possession in (HIDE_POSSESSION, WEAPON_POSSESSION, ARMOUR_POSSESSION):
+        for possession in (HIDE_POSSESSION, WEAPON_POSSESSION, ARMOUR_POSSESSION, BOW_POSSESSION):
             more = cls._value_of(owner, possession) - cls._value_of(taker, possession)
             if more > most:
                 best, most = possession, more
@@ -1972,7 +1982,11 @@ class Simulation:
                 self._drop_gear((one.x, one.y), GEAR_KINDS[one.armour_worn + 2], one.armour_uses)
             one.armour_worn, one.armour_uses = NO_ARMOUR, 0
 
-        if possession == HIDE_POSSESSION:
+        if possession == BOW_POSSESSION:
+            if taker.bow_uses > 0:
+                self._drop_gear((taker.x, taker.y), "bow", BOW_USES - taker.bow_uses)
+            taker.bow_uses, giver.bow_uses = giver.bow_uses, 0
+        elif possession == HIDE_POSSESSION:
             taker.hide, taker.hide_armour = giver.hide, giver.hide_armour
             giver.hide, giver.hide_armour = 0, 0.0
         elif possession == WEAPON_POSSESSION:
@@ -2041,6 +2055,8 @@ class Simulation:
         if good == WEAPON_POSSESSION:
             quality = 1.0 if holder.weapon == STONE_AXE else 0.5 * (1.0 - holder.weapon_uses / GEAR_USES)
             return quality * (0.5 + judge.feeling("aggression"))
+        if good == BOW_POSSESSION:  # shots left, to one who can use them
+            return (holder.bow_uses / BOW_USES if BOW_USES > 0 else 0.0) * (0.5 + judge.archery)
         return 1.0 - holder.armour_uses / GEAR_USES
 
     def _trade_gain(self, judge: Bitzkey, other: Bitzkey, good: int) -> float:
@@ -2618,7 +2634,8 @@ class Simulation:
     @staticmethod
     def _possessions(agent: Bitzkey) -> float:
         """Its possessions, for envy: its hide, tool and armour."""
-        return agent.hide / 3 + (1.0 if agent.weapon == STONE_AXE else 0.5 if agent.weapon else 0.0) + (0.5 if agent.armour_worn else 0.0)
+        return (agent.hide / 3 + (1.0 if agent.weapon == STONE_AXE else 0.5 if agent.weapon else 0.0) + (0.5 if agent.armour_worn else 0.0)
+                + (0.5 if agent.bow_uses > 0 else 0.0))
 
     def _envy_of(self, agent: Bitzkey) -> float:
         """How envious it is: 0 at or below its kind's envy cut, 1 at the most."""
@@ -3655,6 +3672,22 @@ class Simulation:
         kill = self._nearest_kill(agent, sight) if agent.species in ("omnivore", "predator") else None
         prey_sight = sight + (PREDATOR_SIGHT if agent.species == "predator" else 0)
         quarry, hunter, suitor, flora = self._look_around(agent, sight, prey_sight)
+        shoot_at = practise_on = None
+        if agent.bow_uses > 0:  # what it might shoot at: the prey it would hunt, else the nearest foe; and a plant to practise on
+            if quarry is not None and abs(quarry.x - agent.x) + abs(quarry.y - agent.y) <= sight:
+                shoot_at = quarry
+            foe_away = plant_away = sight + 1
+            for other in self._nearby(agent, sight):
+                if other is agent or not other.alive:
+                    continue
+                away = abs(other.x - agent.x) + abs(other.y - agent.y)
+                if away > sight:
+                    continue
+                if other.species == "plant":
+                    if away < plant_away:
+                        plant_away, practise_on = away, other
+                elif quarry is None and away < foe_away and self._is_foe(agent, other):
+                    foe_away, shoot_at = away, other
         call_range = {"predator": MATING_CALL_RANGE, "omnivore": OMNIVORE_MATING_CALL_RANGE}.get(agent.species, 0.0)
         if suitor is None and call_range > 0 and agent.can_breed:  # the mating call reaches further
             suitor = next((other for other in self._nearby(agent, int(call_range * sight))
@@ -3708,7 +3741,7 @@ class Simulation:
         wood_pile = self._nearest_pile(agent, sight, self.wood_piles) if self._any_piles else None
         gear_pile, gear_kind = None, None
         heavy = agent.weapon in (BONE_AXE, CLUB)
-        for kind in GEAR_KINDS if self._any_piles else ():
+        for kind in GEAR_KINDS[:5] if self._any_piles else ():
             wields = kind in GEAR_KINDS[:3]
             if (agent.weapon or (kind != "stone_axe" and agent.armour_worn)) if wields else (agent.armour_worn or heavy):
                 continue
@@ -3716,6 +3749,9 @@ class Simulation:
             if gear_pile:
                 gear_kind = kind
                 break
+        if self._any_piles and gear_pile is None and agent.bow_uses == 0:  # a bow, carried apart from all else
+            gear_pile = self._nearest_pile(agent, sight, self.gear_piles["bow"])
+            gear_kind = "bow" if gear_pile else None
         fruit_pile = self._nearest_pile(agent, sight, self.fruit_piles) if self._any_piles else None
         alerted_kill = None
         if agent.kill_alert is not None:  # a pack-mate's alert: a fresh kill it may not see itself
@@ -3795,6 +3831,12 @@ class Simulation:
                 available.add("make_club")
             if agent.carried_stone and agent.carried_bone + agent.carried_wood and known("make_stone_axe"):
                 available.add("make_stone_axe")
+        if known("make_bow") and agent.weapon == STONE_AXE and agent.carried_wood >= BOW_WOOD and agent.hide > 0 and agent.bow_uses == 0:
+            available.add("make_bow")
+        if shoot_at is not None:
+            available.add("shoot")
+        if practise_on is not None:
+            available.add("practise")
         if not agent.armour_worn and agent.weapon not in (BONE_AXE, CLUB):
             if agent.carried_bone and known("make_bone_armour"):
                 available.add("make_bone_armour")
@@ -3999,6 +4041,8 @@ class Simulation:
             shore_north=shores[0], shore_south=shores[1], shore_east=shores[2], shore_west=shores[3],
             stamina=agent.stamina / FULL_STAMINA,
             night=float(self.night(agent.x)),
+            bow_carried=min(1.0, agent.bow_uses / BOW_USES) if BOW_USES > 0 else 0.0,
+            archery=agent.archery,
             **self._parent_senses(agent, sight),
             **heard,
             **{f"memory_{neuron + 1}": held for neuron, held in enumerate(agent.held)},
@@ -4016,7 +4060,7 @@ class Simulation:
         )
         situation = {"envy": envied, "claim_from": claim_from, "claim": claim, "gift_to": gift_to, "gift": gift, "trade_with": trade_with, "wanted": wanted_good, "offered": offered_good, "teacher_steps": -1 if teacher is None else abs(teacher.x - agent.x) + abs(teacher.y - agent.y),
                      "mate": mate, "nurseries": nurseries, "young_near": young, "young": own_young, "prey": target, "threat": threat,
-                     "threats": len(threats), "heard_from": heard_from, "quarry": quarry, "hunter": hunter, "suitor": suitor, "suitor_at": suitor and (suitor.x, suitor.y),
+                     "threats": len(threats), "heard_from": heard_from, "quarry": quarry, "shoot_at": shoot_at, "practise_on": practise_on, "hunter": hunter, "suitor": suitor, "suitor_at": suitor and (suitor.x, suitor.y),
                      "grass": grass, "grass_here": grass_here, "carrion": carrion, "kill": kill, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
                      "others": others, "defend_target": defend_target, "for_herd": assailant is None,
                      "herd": herd, "herd_near": herd_near, "herd_middle": herd_middle,
@@ -4298,8 +4342,11 @@ class Simulation:
             self._drop_gear((agent.x, agent.y), GEAR_KINDS[agent.weapon - 1], agent.weapon_uses)
         if agent.armour_worn:
             self._drop_gear((agent.x, agent.y), GEAR_KINDS[agent.armour_worn + 2], agent.armour_uses)
+        if agent.bow_uses > 0:
+            self._drop_gear((agent.x, agent.y), "bow", BOW_USES - agent.bow_uses)  # as worn as it was
         agent.weapon = NO_WEAPON
         agent.armour_worn = NO_ARMOUR
+        agent.bow_uses = 0
         agent.carried_meat = agent.carried_fruit = agent.cooked_meat = agent.cooked_fruit = agent.carried_stone = agent.carried_bone = agent.carried_wood = 0
         if agent.species != "plant":
             self._kills.setdefault((agent.x, agent.y), []).append(agent)
@@ -4483,8 +4530,12 @@ class Simulation:
             agent.last_action = "dropped " + material
         elif action == "dress":
             self._dress(agent, situation["dressable"])
-        elif action in ("make_bone_axe", "make_club", "make_stone_axe", "make_bone_armour", "make_wood_armour"):
+        elif action in ("make_bone_axe", "make_club", "make_stone_axe", "make_bone_armour", "make_wood_armour", "make_bow"):
             self._make_gear(agent, action)
+        elif action == "shoot":
+            self._shoot(agent, situation["shoot_at"], False)
+        elif action == "practise":
+            self._shoot(agent, situation["practise_on"], True)
         elif action == "cut":
             self._cut(agent, situation["flora"])
         elif action == "dig":
@@ -5224,7 +5275,8 @@ class Simulation:
     def _discover(self, agent: Bitzkey) -> None:
         """Perhaps, a craft whose materials it holds."""
         holds = (agent.carried_bone > 0, agent.carried_bone > 0, agent.carried_wood > 0, agent.carried_wood > 0,
-                 agent.carried_stone > 0 and agent.carried_bone + agent.carried_wood > 0)
+                 agent.carried_stone > 0 and agent.carried_bone + agent.carried_wood > 0,
+                 agent.weapon == STONE_AXE and agent.carried_wood >= BOW_WOOD and agent.hide > 0)
         for craft, held in enumerate(holds):
             if held and not agent.crafts >> craft & 1 and self.random.random() < DISCOVERY_CHANCE * agent.intelligence * (2 if agent.species == "omnivore" else 1):
                 agent.crafts |= 1 << craft
@@ -5252,6 +5304,10 @@ class Simulation:
         elif action == "make_wood_armour":
             agent.carried_wood -= 1
             agent.armour_worn = WOOD_ARMOUR
+        elif action == "make_bow":  # two wood and the hide it wore, with the stone axe it keeps
+            agent.carried_wood -= BOW_WOOD
+            agent.hide, agent.hide_armour = 0, 0.0
+            agent.bow_uses = BOW_USES
         else:  # a stone axe, of a stone and a bone, or wood if it has no bone
             agent.carried_stone -= 1
             if agent.carried_bone:
@@ -5261,9 +5317,10 @@ class Simulation:
             agent.weapon = STONE_AXE
         agent.reward += CRAFT_JOY * (0.5 if action in ("make_bone_armour", "make_wood_armour") else 1.0) * (0.5 + agent.feeling("curiosity"))
         self._deed_seen(agent, CRAFT_DEED, None, "skill", craft, "craft")
-        if action not in ("make_bone_armour", "make_wood_armour"):
-            agent.weapon_uses = 0
-        agent.armour_uses = 0
+        if action != "make_bow":
+            if action not in ("make_bone_armour", "make_wood_armour"):
+                agent.weapon_uses = 0
+            agent.armour_uses = 0
         agent.last_action = "made gear"
 
     def _take_gear(self, agent: Bitzkey, pile: tuple[int, int], kind: str) -> None:
@@ -5278,11 +5335,52 @@ class Simulation:
         piles[pile] -= 1
         if not piles[pile]:
             del piles[pile]
-        if kind in GEAR_KINDS[:3]:
+        if kind == "bow":
+            agent.bow_uses = max(1, BOW_USES - uses)
+        elif kind in GEAR_KINDS[:3]:
             agent.weapon, agent.weapon_uses = GEAR_KINDS.index(kind) + 1, uses
         else:
             agent.armour_worn, agent.armour_uses = GEAR_KINDS.index(kind) - 2, uses
         agent.last_action = "took gear"
+
+    @staticmethod
+    def _hit_chance(archer: Bitzkey, away: int) -> float:
+        steady = (archer.feeling("patience") + archer.feeling("intellect") + 1 - archer.feeling("fear")) / 3
+        aimed = ARCHERY_LEAST + (1 - ARCHERY_LEAST) * (0.4 * steady + 0.6 * archer.archery)
+        return aimed * (1 - 0.5 * min(1.0, away / max(1, archer.sight)))  # half as likely at the edge of sight
+
+    def _shoot(self, archer: Bitzkey, target: Bitzkey, practice: bool) -> None:
+        """A shot with its bow, as the C++ version's: at a plant for practice, or at prey or a foe in sight."""
+        away = abs(target.x - archer.x) + abs(target.y - archer.y)
+        if archer.bow_uses <= 0 or not target.alive or away > archer.sight:
+            archer.last_action = "lost sight of its mark"
+            return
+        archer.bow_uses -= 1  # an arrow, and the bow the worse for it
+        hit = (practice or not self._safe_inside(target)) and self.random.random() < self._hit_chance(archer, away)
+        archer.archery += ARCHERY_LEARNING * (1 - archer.archery)  # every shot teaches
+        if not hit:
+            archer.last_action = "missed in practice" if practice else "shot and missed"
+            return
+        archer.reward += ARCHERY_JOY * (0.5 + archer.archery)
+        self._deed_seen(archer, ARCHERY_REGARD, None, "skill")  # all who see it think it the more skilled, and the better of it
+        if practice:
+            archer.last_action = "hit the mark in practice"
+            return
+        damage = self._damage(archer, target) / self._gear_force(archer) * STONE_FORCE * self._land_guard(target, archer)  # as hard as a carried stone
+        self._wear_armour(target)
+        target.health -= damage
+        archer.reward += self._harm_felt(archer, self._regard_for(archer, target))
+        archer.last_action = "shot and hit"
+        self._experience(archer, "hit")
+        killed = not target.alive
+        archer.reward -= EMPATHY_PAIN * (2 if killed else 1) * archer.feeling("empathy") * (1.0 if self._same_kind(archer, target) else OTHER_KIND)
+        if killed:
+            self._experience(archer, "kill")
+            self._die(target, "killed", archer, "shooting")
+        else:
+            target.last_action = "wounded"
+            self._struck(target, archer)
+            self._experience(target, "wounded")
 
     @staticmethod
     def _armed(animal: Bitzkey) -> float:
