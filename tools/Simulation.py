@@ -386,11 +386,11 @@ ALERT_JOY = 0.1        # pleasure of alerting its herd: to a hunter, for a graze
 ALARM_REACH = 6        # an alarmed animal knows where the hunter is within this many steps
 # Calls (Brain.py): one carries this many steps times a half and its caller's size (a share of its range), at least
 # one, and costs its caller this much hunger, as any call does, the alert among them.
-CALL_REACH = 4
-CALL_COST = 0.2
+CALL_REACH = 8
+CALL_COST = 0.05
 # A call that helps pays its caller, as the C++ version's (see there): one of its kind that heard it and then got away
 # or, hungry, ate gives it joy (CALL_PAYOFF, three a turn at most) and thinks the better of it (HEEDED_REGARD).
-CALL_PAYOFF, HEEDED_REGARD = 0.2, 0.05
+CALL_PAYOFF, HEEDED_REGARD = 0.0, 0.0  # none by default: what a call earns is left to what it does
 CALL_PAYOFFS_A_TURN = 3
 # Memory (Brain.py): how many choices back a lesson's error is carried to the memory gates that wrote what the brain
 # read, 0 for none (what it keeps is then only what it was born to), up to MAX_MEMORY_STEPS; and how fast they learn,

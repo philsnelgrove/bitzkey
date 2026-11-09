@@ -4547,6 +4547,8 @@ class LandTests(unittest.TestCase):
         simulation._count_lands()
         self.assertTrue(simulation._claims(simulation._claims_at(2, 2), guest))  # unwelcome, they contest it
 
+    @patch("tools.Simulation.CALL_PAYOFF", 0.2)  # none by default
+    @patch("tools.Simulation.HEEDED_REGARD", 0.05)
     def test_a_call_that_helps_pays_its_caller_with_joy_and_regard(self):
         sm = simulation_module
         simulation = Simulation(30, 30, 0, seed=1)
