@@ -685,7 +685,7 @@ GIVE_LEVEL, GIVE_JOY, TAKE_LEVEL, THEFT_DISREGARD = 0.75, 0.5, 0.75, 0.5
 # of each kind of good, the same each time (trade_bias). Accepted, each side that truly gained takes it as a kindness
 # (TRADE_REGARD) and a joy (TRADE_JOY), and one that truly lost as a wrong; an offer from one its owner thinks ill of
 # seems the worse (TRADE_WARINESS). A refusal is nothing.
-TRADE_MISJUDGE, TRADE_REGARD, TRADE_JOY, TRADE_WARINESS = 0.5, 0.5, 0.5, 0.5
+TRADE_MISJUDGE, TRADE_REGARD, TRADE_JOY, TRADE_WARINESS = 0.2, 0.5, 0.5, 0.5
 
 
 def trade_bias(identifier: int, good: int) -> float:

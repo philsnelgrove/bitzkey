@@ -1442,6 +1442,11 @@ class BitzkeyApp:
 
     def _draw_bitzkey(self, agent: Bitzkey, point: tuple[int, int], radius: int, opacity: float = 1.0) -> None:
         draw_bitzkey(self.screen, agent.dna, point, radius, alive=agent.alive, opacity=opacity)
+        if agent.alive and agent.leader:  # recognised a leader: a small gold crown above it
+            half = high = max(3, radius * 3 // 4)
+            foot, cx = point[1] - radius - RING_WIDTH - 1, point[0]
+            pg.draw.polygon(self.screen, (236, 190, 60), [(cx - half, foot), (cx + half, foot), (cx + half, foot - high), (cx + half // 2, foot - high // 2),
+                                                          (cx, foot - high), (cx - half // 2, foot - high // 2), (cx - half, foot - high)])
         size, (x, y) = max(2, radius * 3 // 5), point  # a small shield at its lower left, a small tool at its upper right
         if agent.armour_worn:  # a shield: flat across the top, narrowing to a point below
             cx, cy = x - radius, y + radius * 3 // 5
