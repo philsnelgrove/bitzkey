@@ -4546,3 +4546,25 @@ class LandTests(unittest.TestCase):
         self.assertAlmostEqual(situation["ambition"], 0.8)
         simulation._count_lands()
         self.assertTrue(simulation._claims(simulation._claims_at(2, 2), guest))  # unwelcome, they contest it
+
+    def test_a_call_that_helps_pays_its_caller_with_joy_and_regard(self):
+        sm = simulation_module
+        simulation = Simulation(30, 30, 0, seed=1)
+        dna = encode_dna("grazer", size=1)
+        caller = simulation._add_agent(dna, 5, 5)
+        listener = simulation._add_agent(dna, 6, 5)
+        simulation._index_cells()
+        simulation.turn = 10
+        listener.heard_from, listener.heard_call, listener.heard_turn = caller.identifier, sm.FIRST_CALL + 1, 9
+        listener.heard_danger, listener.struck_turn = True, -1  # a hunter in sight, and not struck since
+        joy = caller.reward
+        paid = {}
+        simulation._pay_callers(listener, {}, paid)
+        self.assertGreater(caller.reward, joy)
+        self.assertGreater(simulation._regard_for(listener, caller), 0.0)
+        self.assertEqual(listener.heard_from, -1)  # it heard nothing this time
+
+        listener.heard_from, listener.heard_turn, listener.heard_danger, listener.struck_turn = caller.identifier, 9, True, 10
+        before = caller.reward
+        simulation._pay_callers(listener, {}, paid)  # struck after hearing: no payoff
+        self.assertEqual(caller.reward, before)

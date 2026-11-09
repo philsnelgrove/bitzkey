@@ -388,6 +388,10 @@ ALARM_REACH = 6        # an alarmed animal knows where the hunter is within this
 # one, and costs its caller this much hunger, as any call does, the alert among them.
 CALL_REACH = 4
 CALL_COST = 0.2
+# A call that helps pays its caller, as the C++ version's (see there): one of its kind that heard it and then got away
+# or, hungry, ate gives it joy (CALL_PAYOFF, three a turn at most) and thinks the better of it (HEEDED_REGARD).
+CALL_PAYOFF, HEEDED_REGARD = 0.2, 0.05
+CALL_PAYOFFS_A_TURN = 3
 # Memory (Brain.py): how many choices back a lesson's error is carried to the memory gates that wrote what the brain
 # read, 0 for none (what it keeps is then only what it was born to), up to MAX_MEMORY_STEPS; and how fast they learn,
 # times the brain's learning rate.
@@ -1158,6 +1162,12 @@ class Bitzkey:
     kill_alert: tuple[int, int] | None = None  # where a pack-mate alerted it to a fresh kill since it last acted
     call: int = SILENT  # what it called alongside its last action (Brain.py's CALLS), heard the turn after
     call_turn: int = -1  # the turn it called it
+    heard_from: int = -1  # the loudest caller of its kind it heard when it last chose, -1 none
+    heard_call: int = -1  # and its call
+    heard_turn: int = -1  # that turn
+    heard_hunger: float = 0.0  # its hunger then
+    heard_danger: bool = False  # and whether a hunter was in sight
+    struck_turn: int = -1  # the last turn it was struck
     last_call: int = -1  # its last choice of call, to learn from with its action; -1 for none of its own
     held: list[float] = field(default_factory=lambda: [0.0] * MEMORY_NEURONS)  # what its memory neurons hold (Brain.py)
     # Its senses at the choices before its last, most recent first, back to the first its memory wasn't written at, and
@@ -2712,6 +2722,38 @@ class Simulation:
             heard[f"{name}_kin"] = float(other.species == agent.species)
         return heard, caller
 
+    def _kin_caller(self, agent: Bitzkey) -> Bitzkey | None:
+        """The loudest caller of its own kind it heard, to credit should the call help."""
+        found, kin_loudest = None, 0.0
+        for other in self._nearby(agent, min(MAX_CALL_REACH, math.ceil(CALL_REACH * 1.5))):
+            if other is agent or other.species != agent.species or other.call < FIRST_CALL or other.call_turn != self.turn - 1:
+                continue
+            reach = call_reach(other)
+            away = abs(other.x - agent.x) + abs(other.y - agent.y)
+            if away > reach:
+                continue
+            loudness = 1 - away / (reach + 1)
+            if loudness > kin_loudest:
+                found, kin_loudest = other, loudness
+        return found
+
+    def _pay_callers(self, listener: Bitzkey, situation: dict, paid: dict[int, int]) -> None:
+        """What came of the call it heard last time: an escape, or a meal when hungry; then what it hears now."""
+        if listener.heard_from >= 0 and listener.heard_turn == self.turn - 1 and (CALL_PAYOFF > 0 or HEEDED_REGARD > 0):
+            escaped = listener.heard_danger and listener.struck_turn < listener.heard_turn
+            fed = listener.heard_hunger >= 50 and listener.hunger < listener.heard_hunger
+            caller = self.find_agent(listener.heard_from) if escaped or fed else None
+            if caller is not None and caller.alive and paid.get(caller.identifier, 0) < CALL_PAYOFFS_A_TURN:
+                paid[caller.identifier] = paid.get(caller.identifier, 0) + 1
+                caller.reward += CALL_PAYOFF * (0.5 + max(caller.feeling("empathy"), caller.feeling("sociability")))
+                self._note_deed(listener, caller, 1.0, HEEDED_REGARD, "plain", True)
+        kin = situation.get("heard_from")
+        listener.heard_from = -1 if kin is None else kin.identifier
+        listener.heard_call = -1 if kin is None else kin.call
+        listener.heard_turn = self.turn
+        listener.heard_hunger = listener.hunger
+        listener.heard_danger = bool(situation.get("hunter") or situation.get("threat"))
+
     def _parent_senses(self, agent: Bitzkey, sight: int) -> dict[str, float]:
         """An infant's nearest living parent within its sight: how close, and which way it lies, as the C++ version."""
         nearest, reach = None, None
@@ -3405,6 +3447,9 @@ class Simulation:
                 elif (situation["grass"] or situation["grass_here"]) and not agent.last_senses[GRASS_SEEN]:
                     self._experience(agent, "discovery")
             plans.append((agent, senses, options, situation))
+        paid: dict[int, int] = {}  # each caller's payoffs this turn, once all have sensed
+        for agent, _, _, situation in plans:
+            self._pay_callers(agent, situation, paid)
         # A brain idle this turn isn't asked: one that can only rest (asleep with nothing to startle it, or spent),
         # with no lesson waiting on what it values now, its last turn having been as forced. Nothing it would say is used.
         startling = (ACTIONS.index("flee"), ACTIONS.index("defend"))
@@ -3876,6 +3921,7 @@ class Simulation:
             available.update(("go_south", "walk_south"))
 
         heard, caller = self._heard(agent)
+        heard_from = self._kin_caller(agent)
         lands, land, war = self._land_senses(agent, sight)
         standing, admired, standout = self._standing(agent, sight)
         senses = make_senses(
@@ -3962,7 +4008,7 @@ class Simulation:
         )
         situation = {"envy": envied, "claim_from": claim_from, "claim": claim, "gift_to": gift_to, "gift": gift, "trade_with": trade_with, "wanted": wanted_good, "offered": offered_good, "teacher_steps": -1 if teacher is None else abs(teacher.x - agent.x) + abs(teacher.y - agent.y),
                      "mate": mate, "nurseries": nurseries, "young_near": young, "young": own_young, "prey": target, "threat": threat,
-                     "threats": len(threats), "quarry": quarry, "hunter": hunter, "suitor": suitor, "suitor_at": suitor and (suitor.x, suitor.y),
+                     "threats": len(threats), "heard_from": heard_from, "quarry": quarry, "hunter": hunter, "suitor": suitor, "suitor_at": suitor and (suitor.x, suitor.y),
                      "grass": grass, "grass_here": grass_here, "carrion": carrion, "kill": kill, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
                      "others": others, "defend_target": defend_target, "for_herd": assailant is None,
                      "herd": herd, "herd_near": herd_near, "herd_middle": herd_middle,
@@ -5344,6 +5390,7 @@ class Simulation:
         must flee instead. Its herd-mates close by are alarmed, and those alongside the striker may
         defend it."""
         victim.assailant = striker.identifier
+        victim.struck_turn = self.turn
         self._note_deed(victim, striker, BLOW_DEED, 1.0, "harm")
         self._deed_seen(striker, BLOW_DEED, victim, "harm")
         victim.danger_memory = (victim.x, victim.y, self.turn)

@@ -236,7 +236,7 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "last_choice": int(agent.last_choice), "last_forced": bool(agent.last_forced), "last_panicked": bool(agent.last_panicked), "last_wellbeing": float(agent.last_wellbeing),
         "reward": float(agent.reward), "last_comfort": float(agent.last_comfort),
         "odds": {action: float(chance) for action, chance in agent.odds.items()},
-        "call": agent.call, "call_turn": agent.call_turn, "last_call": agent.last_call,
+        "call": agent.call, "call_turn": agent.call_turn, "heard_from": agent.heard_from, "heard_call": agent.heard_call, "heard_turn": agent.heard_turn, "heard_hunger": float(agent.heard_hunger), "heard_danger": agent.heard_danger, "struck_turn": agent.struck_turn, "last_call": agent.last_call,
         "held": [float(held) for held in agent.held], "last_wrote": bool(agent.last_wrote),
         "past": [numbers.senses(senses) for senses in agent.past],
         # each [column, row, last, then for each season: seen, food, danger, comfort]
@@ -326,6 +326,12 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
         agent.last_choice, agent.last_senses = ACTIONS.index("rest"), None
     agent.call = int(record.get("call", 0))  # silent, in a world saved before calls
     agent.call_turn = int(record.get("call_turn", -1))
+    agent.heard_from = int(record.get("heard_from", -1))  # none, in a world saved before calls paid
+    agent.heard_call = int(record.get("heard_call", -1))
+    agent.heard_turn = int(record.get("heard_turn", -1))
+    agent.heard_hunger = float(record.get("heard_hunger", 0.0))
+    agent.heard_danger = bool(record.get("heard_danger", False))
+    agent.struck_turn = int(record.get("struck_turn", -1))
     agent.last_call = int(record.get("last_call", -1))
     if "held" in record:  # blank, in a world saved before memory
         agent.held = [float(held) for held in record["held"]]
