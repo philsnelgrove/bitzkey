@@ -681,9 +681,20 @@ CULTURES = {"predator": "victory", "omnivore": "craft", "grazer": "sowing"}
 GIVE_LEVEL, GIVE_JOY, TAKE_LEVEL, THEFT_DISREGARD = 0.75, 0.5, 0.75, 0.5
 # Offers, as the C++ version's (see there): any animal may offer one beside it, not a foe, a good of its own (a hide,
 # weapon or armour, or a portion of carried meat or fruit) for one of the other's, each judging the deal's worth,
-# misjudged by up to TRADE_MISJUDGE times one less its intelligence. Accepted, it is a kindness both ways
-# (TRADE_REGARD) and a joy to both (TRADE_JOY); a refusal is nothing.
-TRADE_MISJUDGE, TRADE_REGARD, TRADE_JOY = 0.5, 0.5, 0.5
+# misjudged by up to TRADE_MISJUDGE times one less its intelligence, and choosing through a misjudgement of its own
+# of each kind of good, the same each time (trade_bias). Accepted, each side that truly gained takes it as a kindness
+# (TRADE_REGARD) and a joy (TRADE_JOY), and one that truly lost as a wrong; an offer from one its owner thinks ill of
+# seems the worse (TRADE_WARINESS). A refusal is nothing.
+TRADE_MISJUDGE, TRADE_REGARD, TRADE_JOY, TRADE_WARINESS = 0.5, 0.5, 0.5, 0.5
+
+
+def trade_bias(identifier: int, good: int) -> float:
+    """An animal's own misjudgement of a kind of good, -1 to 1, the same every time: a hash of the two."""
+    value = ((identifier * 2654435761) & 0xFFFFFFFF) ^ (((good + 1) * 2246822519) & 0xFFFFFFFF)
+    value ^= value >> 15
+    value = (value * 2654435761) & 0xFFFFFFFF
+    value ^= value >> 13
+    return value / 4294967295.0 * 2.0 - 1.0
 # Leaders, as the C++ version's (see there): recognised at each count by LEADER_FOLLOWERS or more of its colour group
 # holding it their standout, kept until fewer than half as many do. Its followers yield to its demands, judge its
 # offers the kinder (LEADER_DEFERENCE), rally in its sight (LEADER_RALLY) and defend it; it is glad of them
@@ -2047,15 +2058,21 @@ class Simulation:
         if judged(agent, self._trade_gain(agent, owner, wanted)) <= judged(agent, self._good_worth(agent, agent, offered)):
             agent.last_action = "thought better of an offer"
         elif (judged(owner, self._trade_gain(owner, agent, offered)) + (LEADER_DEFERENCE if self._follows(owner, agent) else 0.0)
+              + TRADE_WARINESS * min(0.0, self._regard_for(owner, agent))  # warier of one it thinks ill of
               <= judged(owner, self._good_worth(owner, owner, wanted))):
             agent.last_action = "was refused"
         else:
+            agent_gain = self._trade_gain(agent, owner, wanted) - self._good_worth(agent, agent, offered)
+            owner_gain = self._trade_gain(owner, agent, offered) - self._good_worth(owner, owner, wanted)
             self._pass_good(agent, owner, offered)
             self._pass_good(owner, agent, wanted)
-            self._note_deed(owner, agent, 1.0, TRADE_REGARD, "plain", True)  # a kindness both ways
-            self._note_deed(agent, owner, 1.0, TRADE_REGARD, "plain", True)
-            agent.reward += TRADE_JOY  # trade joy: a deal made pleases both
-            owner.reward += TRADE_JOY
+            # A kindness to each that truly gained, and trade joy; a wrong to one that truly lost.
+            self._note_deed(owner, agent, 1.0 if owner_gain > 0 else -1.0, TRADE_REGARD, "plain", True)
+            self._note_deed(agent, owner, 1.0 if agent_gain > 0 else -1.0, TRADE_REGARD, "plain", True)
+            if agent_gain > 0:
+                agent.reward += TRADE_JOY
+            if owner_gain > 0:
+                owner.reward += TRADE_JOY
             agent.last_action = "traded"
 
     def _brawl(self, agent: Bitzkey, opponent: Bitzkey) -> None:
@@ -3745,20 +3762,21 @@ class Simulation:
         # An offer: the deal that gains it most, giving what it would miss least, to one that would gain by it.
         trade_with = wanted_good = offered_good = None
         best_gain = 0.0
+        clouded = TRADE_MISJUDGE * (1.0 - agent.intelligence)  # as it sees each kind of good, always
         for other in neighbors:
             if other is agent or not other.alive or other.species == "plant" or other.infant or self._is_foe(agent, other):
                 continue
             for wanted in range(GOODS):
                 if not self._holds(other, wanted):
                     continue
-                gain = self._trade_gain(agent, other, wanted)
+                gain = self._trade_gain(agent, other, wanted) + clouded * trade_bias(agent.identifier, wanted)
                 if gain <= best_gain:
                     continue
                 offered, least = None, 0.0
                 for good in range(GOODS):
                     if good == wanted or not self._holds(agent, good) or self._trade_gain(other, agent, good) <= 0:
                         continue
-                    loss = self._good_worth(agent, agent, good)
+                    loss = self._good_worth(agent, agent, good) + clouded * trade_bias(agent.identifier, good)
                     if offered is None or loss < least:
                         offered, least = good, loss
                 if offered is None or gain <= least:

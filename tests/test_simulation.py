@@ -4453,6 +4453,25 @@ class LandTests(unittest.TestCase):
         self.assertEqual(trader.last_action, "traded")
         self.assertEqual((owner.carried_meat, trader.carried_meat, trader.armour_worn), (1, 0, sm.WOOD_ARMOUR))
 
+        # A dull owner may be talked into a deal that truly costs it: no joy, and it thinks the worse of the trader.
+        self.assertEqual(sm.trade_bias(7, 2), sm.trade_bias(7, 2))  # its misjudgement, the same each time
+        self.assertNotEqual(sm.trade_bias(7, 2), sm.trade_bias(7, 3))
+        self.assertAlmostEqual(sm.trade_bias(7, 2), 0.9222179767494598, places=15)  # as the C++ version's
+        owner.mind["intellect"], owner.hunger, owner.carried_meat = 0.0, 0.0, 0
+        owner.armour_worn, trader.armour_worn, trader.carried_fruit = sm.WOOD_ARMOUR, sm.NO_ARMOUR, 1
+        regard, joy = simulation._regard_for(owner, trader), owner.reward
+        misjudge, sm.TRADE_MISJUDGE = sm.TRADE_MISJUDGE, 2.0  # badly, so it is soon talked into it
+        try:
+            for _ in range(200):
+                simulation._offer(trader, owner, sm.ARMOUR_POSSESSION, sm.FRUIT_GOOD)
+                if trader.last_action == "traded":
+                    break
+        finally:
+            sm.TRADE_MISJUDGE = misjudge
+        self.assertEqual(trader.last_action, "traded")
+        self.assertEqual(owner.reward, joy)
+        self.assertLess(simulation._regard_for(owner, trader), regard)
+
     def test_a_leader_is_recognised_by_those_who_hold_it_their_standout_and_its_followers_defer_rally_and_defend_it(self):
         sm = simulation_module
         simulation = Simulation(30, 30, 0, seed=1)
