@@ -2277,6 +2277,15 @@ class Simulation:
         land = None if agent.species == "plant" else self._claims_at(agent.x, agent.y)
         return land is not None and any(claim[0] >= 0 and claim[0] != agent.realm and not self._welcomed(claim[0], agent.realm) for claim in land)
 
+    @staticmethod
+    def _ambition(agent: Bitzkey, regard: float, welcome: bool) -> float:
+        """The hard would impose themselves on a foe's land, the soft are at ease as a friend's guests (as the C++)."""
+        hard = (agent.feeling("aggression") + agent.feeling("dominance") + 1 - agent.feeling("fear")) / 3
+        soft = (agent.feeling("empathy") + agent.feeling("sociability") + agent.feeling("tolerance")) / 3
+        if regard < 0:
+            return 0.0 if welcome else -regard * (2 * hard - soft)
+        return regard * 2 * soft if welcome else -regard
+
     def _welcomed(self, owner: int, guest: int) -> bool:
         return owner >= 0 and guest >= 0 and (owner, guest) in self.welcome
 
@@ -2409,8 +2418,7 @@ class Simulation:
             if view is None:
                 continue
             senses["land_owner_regard"] = max(-1.0, min(1.0, view))
-            if not self._welcomed(claim[0], agent.realm):
-                agent.ambition = -senses["land_owner_regard"]
+            agent.ambition = self._ambition(agent, senses["land_owner_regard"], self._welcomed(claim[0], agent.realm))
             break
         if holds and not at_home:  # which way the nearest square of its own land lies
             square, nearest = -1, 0

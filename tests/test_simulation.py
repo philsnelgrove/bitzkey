@@ -4543,7 +4543,8 @@ class LandTests(unittest.TestCase):
         self.assertFalse(simulation._welcomed(host, guest))
         senses, _, situation = simulation._sense(guests[0])
         self.assertAlmostEqual(senses[SENSES.index("land_owner_regard")], -0.8)
-        self.assertAlmostEqual(situation["ambition"], 0.8)
+        self.assertAlmostEqual(situation["ambition"], Simulation._ambition(guests[0], -0.8, False))  # by its temperament
+        self.assertNotEqual(situation["ambition"], 0.0)
         simulation._count_lands()
         self.assertTrue(simulation._claims(simulation._claims_at(2, 2), guest))  # unwelcome, they contest it
 
@@ -4570,3 +4571,13 @@ class LandTests(unittest.TestCase):
         before = caller.reward
         simulation._pay_callers(listener, {}, paid)  # struck after hearing: no payoff
         self.assertEqual(caller.reward, before)
+
+    def test_the_hard_impose_on_a_foes_land_and_the_soft_are_a_friends_guests(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        hard = simulation._add_agent(encode_dna("grazer", aggression=7, dominance=7, fear=0, empathy=0, sociability=0, tolerance=0), 1, 1)
+        soft = simulation._add_agent(encode_dna("grazer", aggression=0, dominance=0, fear=7, empathy=7, sociability=7, tolerance=7), 3, 3)
+        self.assertAlmostEqual(Simulation._ambition(hard, -1.0, False), 2.0)  # a foe's land: drawn to it
+        self.assertAlmostEqual(Simulation._ambition(soft, -1.0, False), -1.0)  # uneasy there
+        self.assertAlmostEqual(Simulation._ambition(soft, 1.0, True), 2.0)  # at ease as a friend's guest
+        self.assertAlmostEqual(Simulation._ambition(hard, 1.0, True), 0.0)
+        self.assertAlmostEqual(Simulation._ambition(soft, 1.0, False), -1.0)  # uninvited, uneasy all the same
