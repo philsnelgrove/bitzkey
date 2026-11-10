@@ -425,6 +425,7 @@ REGARD_STRONG = 0.5
 # worth, within FACTION_WIDTH on the body ring. As the C++ version's.
 FACTIONS, FACTION_SHARE, FACTION_WIDTH = 8, 0.25, 0.05
 REGARD_COMFORT, GRUDGE_JOY, FRIEND_JOY = 0.5, 1.0, 1.0
+EAVESDROP_SHARE = 0.1  # see _deed_seen: a friend's treatment of another, seen, colours the watcher's view of that other
 WITNESS_SHARE = 0.25  # how much a deed only seen counts, a blow only if the victim is of the witness's species
 # A deed of skill seen counts SKILL_WITNESS of its weight toward how skilled the doer is held, as the C++ version's.
 SKILL_WITNESS = 1.0
@@ -2278,6 +2279,14 @@ class Simulation:
             if other is doer or other is target or not other.alive or other.brain is None:
                 continue
             if abs(other.x - doer.x) + abs(other.y - doer.y) <= other.sight:
+                # Eavesdropping: how one it holds a friend treats another, well or ill, colours its own view of that
+                # other, as much as it regards the friend. Nothing is told; it is seen.
+                if target is not None and EAVESDROP_SHARE > 0 and target.alive and target.species != "plant":
+                    treated = (-1.0 if kind in ("victory", "theft") else 0.0 if kind in ("culture", "garb", "lie", "mark")
+                               else 1.0 if deed > 0 else -1.0 if deed < 0 else 0.0)
+                    trust = self._regard_for(other, doer)
+                    if treated != 0 and trust > 0:
+                        self._note_deed(other, target, treated, EAVESDROP_SHARE * trust, "plain", True)
                 if culture is not None or kind == "victory":
                     self._culture_seen(other, doer, "victory" if kind == "victory" else culture)
                 if kind == "culture":

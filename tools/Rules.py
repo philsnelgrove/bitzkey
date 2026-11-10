@@ -226,6 +226,7 @@ _TABLE: dict[str, list[tuple]] = {
         ("FACTION_SHARE", "Faction share", "how much of a deed's weight also falls on the doer's whole colour", 0.0, 1.0, 0.05),
         ("FACTION_WIDTH", "Faction width", "how far apart on the body ring two animals may be and count as one faction", 0.0, 0.5, 0.01),
         ("SKILL_WITNESS", "Skill witness", "how much of a deed's weight a craft, lesson or fire seen done has on how skilled the doer is held; no less than Witness share", 0.0, 1.0, 0.05),
+        ("EAVESDROP_SHARE", "Eavesdropping", "how much a witness's view of one is moved by seeing one it holds a friend treat that one, well or ill (a gift, a blow, a theft, a defeat), times its regard for that friend; no word passed, only seen", 0.0, 1.0, 0.05),
         ("WITNESS_SHARE", "Witness share", "how much of a deed's weight it has on regard when only seen done, not done to the animal", 0.0, 1.0, 0.05),
         ("TEACHING_JOY", "Teaching joy", "how glad an elder is of teaching a student; more if empathetic", 0.0, 5.0, 0.05),
         ("TRUST_REACH", "Trust reach", "times its trust times its sight away a herd-mate's alert is heeded", 0.0, 5.0, 0.25),
