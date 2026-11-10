@@ -146,8 +146,19 @@ SIGNED_SENSES = frozenset(("latitude", "warmth", "warmth_north", "warmth_south",
                            "known_regard", "known_east", "known_south", "caller_regard", "elder_east", "elder_south",
                            "own_land_east", "own_land_south", "war_standing", "standout_east", "standout_south", "land_owner_regard",
                            *(f"imagined_{bit}" for bit in range(1, IMAGINED_BITS + 1))))
+# Senses that are mostly nothing, an event or a thing near, carried or worn, read as 0..2: off, they push nothing and
+# teach nothing, where read as -1 each was a steady push that, over dozens of them, jammed neurons; on, they count as
+# the centred senses do. Those off for 70% of the animals of every species, 135,000 turns into a world (2026-11-10).
+SPARSE_SENSES = frozenset((
+    "prey_pregnant", "threat_near", "threat_danger", "carrion_closeness", "kill_closeness", "assailant_near",
+    "counter_frailty", "alarm", "kill_alert", "young_near", "shore_north", "shore_south", "shore_east", "shore_west",
+    "parent_closeness", "heard_call_5", "heard_call_5_kin", "map_comfort", "caller_known", "known_skill",
+    "student_near", "meat_carried", "fruit_carried", "meat_pile_closeness", "stone_carried", "wood_carried",
+    "gear_pile_closeness", "fire_closeness", "fire_friendly", "wielding", "foe_sheltered", "shelter_here",
+    "seed_carried", "road_here", "hide_worn", "envy", "fighting", "cooking_smell", "leader", "standout_leads",
+    "bow_carried", "archery"))
 _READ_SCALE = np.array([1.0 if name in SIGNED_SENSES else 2.0 for name in SENSES])
-_READ_SHIFT = np.array([0.0 if name in SIGNED_SENSES else -1.0 for name in SENSES])
+_READ_SHIFT = np.array([0.0 if name in SIGNED_SENSES or name in SPARSE_SENSES else -1.0 for name in SENSES])
 
 
 # A brain holds its values in hundredths: what an action is worth over the turns it looks ahead runs to ten and more,
@@ -429,11 +440,11 @@ class Brain:
 
     def centre_inputs(self) -> None:
         """Made to read the senses centred (read_senses), from a brain that read them as they were, choosing just as
-        before: each weight on a sense x read as 2x - 1 halved, and the half it gave at 0 given by the neuron's bias.
-        What it was learning from lets go."""
+        before: each weight on a sense x read as 2x - 1 halved, and the half it gave at 0 given by the neuron's bias; one
+        read as 2x (a sparse sense), halved alone. What it was learning from lets go."""
         weights, biases = self.layers[0]
-        centred = _READ_SCALE == 2.0
-        weights[:, centred] /= 2
+        weights[:, _READ_SCALE == 2.0] /= 2
+        centred = _READ_SHIFT == -1.0
         for neuron in range(weights.shape[0]):
             for sense in np.flatnonzero(centred):
                 biases[neuron] += weights[neuron, sense]

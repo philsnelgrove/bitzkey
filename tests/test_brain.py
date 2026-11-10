@@ -251,6 +251,8 @@ class BrainTests(unittest.TestCase):
             self.assertAlmostEqual(mine, theirs, places=10)
         self.assertEqual(read_senses(np.zeros(INPUT_SIZE))[SENSES.index("hunger")], -1.0)
         self.assertEqual(read_senses(np.full(INPUT_SIZE, -0.4))[SENSES.index("latitude")], -0.4)
+        self.assertEqual(read_senses(np.zeros(INPUT_SIZE))[SENSES.index("alarm")], 0.0)  # mostly nothing: off, it pushes nothing
+        self.assertEqual(read_senses(np.ones(INPUT_SIZE))[SENSES.index("alarm")], 2.0)
 
     def test_a_brain_saved_with_narrower_layers_loads_as_saved_and_values_alike(self):
         rng = np.random.default_rng(5)
