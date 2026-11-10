@@ -632,6 +632,9 @@ ARMOUR_JOY = 2.0  # the harm its armour took off a blow, as a share of its healt
 GEAR_EASE = 0.15  # the ease, each turn, of a weapon or bow in hand, and as much again of armour worn
 GEAR_COURAGE = 0.25  # the share of fear's effects a weapon or bow in hand takes off, and as much again armour worn
 DON_JOY = 0.25  # gaining a weapon or bow is TOOL_JOY times this a joy, and armour ARMOUR_JOY times this
+GEAR_DESIRE = 0.05  # desire for a kind of gear stirred by seeing it pay off, up to 1; envy counts that gear 1 + desire times
+DESIRE_FADE = 0.999  # the share of a desire for gear kept each turn, so it fades without fresh sights
+WEAPON_DESIRE, ARMOUR_DESIRE, BOW_DESIRE = 0, 1, 2
 BUILD_THRILL = 1.0  # each stage of a shelter, k of SHELTER_UNITS, thrills BUILD_THRILL * k / SHELTER_UNITS; finishing it, twice BUILD_THRILL (times curiosity, plus SHELTER_LONGING times its shelter memory)
 # A finished shelter keeps the weather off whoever stands in it, hot or cold. Resting inside is a comfort
 # (SHELTER_COMFORT, half standing in one), and each turn of it is remembered, to a full memory after a day, so that
@@ -1156,6 +1159,7 @@ class Bitzkey:
     craft_tries: list[int] = field(default_factory=lambda: [0] * 6)  # how often it has tried each
     bow_uses: int = 0  # shots left in the bow it carries; 0 for none
     archery: float = 0.0  # its skill at hitting with a bow, 0..1, from its shots
+    desire: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])  # for a weapon, armour and a bow, 0..1, from seeing each pay off
     tutored_turn: int = -1  # the turn it last had a lesson from a tutor; -1 never
     weapon: int = 0  # what it wields and wears, and how often each has been used
     armour_worn: int = 0
@@ -2662,6 +2666,31 @@ class Simulation:
         return (agent.hide / 3 + (1.0 if agent.weapon == STONE_AXE else 0.5 if agent.weapon else 0.0) + (0.5 if agent.armour_worn else 0.0)
                 + (0.5 if agent.bow_uses > 0 else 0.0))
 
+    @staticmethod
+    def _possessions_as(agent: Bitzkey, judge: Bitzkey) -> float:
+        """Its possessions as the judge, by its desires, weighs them."""
+        desire = judge.desire
+        return (agent.hide / 3 + (1 + desire[WEAPON_DESIRE]) * (1.0 if agent.weapon == STONE_AXE else 0.5 if agent.weapon else 0.0)
+                + (1 + desire[ARMOUR_DESIRE]) * (0.5 if agent.armour_worn else 0.0) + (1 + desire[BOW_DESIRE]) * (0.5 if agent.bow_uses > 0 else 0.0))
+
+    def _gear_seen(self, user: Bitzkey, kind: int) -> None:
+        """Those who see gear of that kind pay off, friend or foe, any kind, desire it the more, up to 1."""
+        if GEAR_DESIRE <= 0:
+            return
+        for other in self._nearby(user, user.sight):
+            if other.species == "plant" or abs(other.x - user.x) + abs(other.y - user.y) > other.sight:
+                continue
+            other.desire[kind] = min(1.0, other.desire[kind] + GEAR_DESIRE)
+
+    def _gear_witnessed(self, striker: Bitzkey, struck: Bitzkey) -> None:
+        """A blow seen: the weapon that added to it, and the armour that saved."""
+        if striker.species == "plant" or struck.species == "plant":
+            return
+        if self._gear_force(striker) > 1:
+            self._gear_seen(striker, WEAPON_DESIRE)
+        if struck.wearing:
+            self._gear_seen(struck, ARMOUR_DESIRE)
+
     def _envy_of(self, agent: Bitzkey) -> float:
         """How envious it is: 0 at or below its kind's envy cut, 1 at the most."""
         if agent.species == "plant" or ENVY_LEVEL >= 1:
@@ -3915,8 +3944,8 @@ class Simulation:
             available.add("skin")
         envied = 0.0  # how much better the best possessions it sees are than its own
         if envy > 0:
-            mine = self._possessions(agent)
-            envied = max([self._possessions(other) - mine for other in self._nearby(agent, sight) if other is not agent and other.alive and other.species != "plant"], default=0.0)
+            mine = self._possessions_as(agent, agent)  # each weighed by its own desires
+            envied = max([self._possessions_as(other, agent) - mine for other in self._nearby(agent, sight) if other is not agent and other.alive and other.species != "plant"], default=0.0)
             envied = max(0.0, envied)
         # The nearest foe in sight; possessions to claim from those beside it, or to give a friend beside it.
         foes = [abs(other.x - agent.x) + abs(other.y - agent.y) for other in self._nearby(agent, sight)
@@ -4402,7 +4431,8 @@ class Simulation:
             if agent.call == ALERT_CALL and situation["alert_to"] is not None:
                 self._alert(agent, situation["alert_to"])
         passed = len(agent.trail)
-        had = self._possessions(agent)
+        agent.desire = [desire * DESIRE_FADE for desire in agent.desire]
+        had = self._possessions_as(agent, agent)
         fight = self._fight_of(agent.identifier) if action != "flee" else None
         opponent = self.find_agent(fight[1] if fight[0] == agent.identifier else fight[0]) if fight else None
         if opponent is not None and opponent.alive:
@@ -4413,7 +4443,7 @@ class Simulation:
             agent.food_memory = (agent.x, agent.y, self.turn)
         if not agent.alive:
             return
-        gained = self._possessions(agent) - had
+        gained = self._possessions_as(agent, agent) - had
         if gained > 0:
             agent.reward += ENVY_JOY * self._envy_of(agent) * gained  # the envious, glad of better
         if self._garb_of(agent.hide) > 0:
@@ -5441,6 +5471,7 @@ class Simulation:
             archer.last_action = "lost sight of its mark"
             return
         archer.bow_uses -= 1  # an arrow, and the bow the worse for it
+        self._gear_seen(archer, BOW_DESIRE)  # a bow drawn, seen
         hit = (practice or not self._safe_inside(target)) and self.random.random() < self._hit_chance(archer, away)
         archer.archery += ARCHERY_LEARNING * (1 - archer.archery)  # every shot teaches
         if not hit:
@@ -5458,6 +5489,8 @@ class Simulation:
             return
         damage = self._damage(archer, target) / self._gear_force(archer) * STONE_FORCE * self._land_guard(target, archer)  # as hard as a carried stone
         self._wear_armour(target)
+        if target.wearing:
+            self._gear_seen(target, ARMOUR_DESIRE)
         target.health -= damage
         archer.reward += self._harm_felt(archer, self._regard_for(archer, target))
         archer.last_action = "shot and hit"
@@ -5495,6 +5528,7 @@ class Simulation:
         joy = FIGHT_JOY * agent.feeling("aggression") * (1 - 0.6 * empathy) * (1 - 0.75 * agent.feeling("tolerance"))
         damage = self._damage(agent, victim)
         self._gear_pays(agent, victim, damage)
+        self._gear_witnessed(agent, victim)
         self._wear_weapon(agent)
         self._wear_armour(victim)
         if any(self._herd_mate(agent, other) for other in self._nearby(victim, 1) if other is not agent):
@@ -5561,6 +5595,7 @@ class Simulation:
         herd animal."""
         damage = self._damage(agent, assailant, defending=True) * self._land_guard(assailant, agent)  # less, at one in its own land
         self._gear_pays(agent, assailant, damage)
+        self._gear_witnessed(agent, assailant)
         self._wear_weapon(agent)
         self._wear_armour(assailant)
         assailant.health -= damage

@@ -12,7 +12,7 @@ from tools.Simulation import (Death, DAY_LENGTH, FULL_STAMINA, SPAWN_SPREAD, DEA
                               nearby_offsets)
 
 
-from tools.Simulation import ARMOUR_JOY, BUILD_THRILL, CRAFT_JOY, DON_JOY, EIGHT_TURN_DAYS, FIRE_COMFORT, TOOL_JOY, WEAPON_FORCE
+from tools.Simulation import ARMOUR_JOY, BUILD_THRILL, CRAFT_JOY, DON_JOY, GEAR_DESIRE, EIGHT_TURN_DAYS, FIRE_COMFORT, TOOL_JOY, WEAPON_FORCE
 
 def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, unless a test says so
     global _grown, _common, _grazers, _plenty
@@ -4225,6 +4225,24 @@ class MaterialTests(unittest.TestCase):
         self.assertGreater(saved, 0)
         Simulation._gear_pays(striker, victim, 6.0)
         self.assertAlmostEqual(victim.reward, 3 * saved)  # the bigger the blow, the more it saved
+
+    def test_seeing_gear_pay_off_stirs_a_desire_for_it_and_desire_weighs_in_envy(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        striker = Bitzkey(1, encode_dna("omnivore", size=3), 5, 5)
+        struck = Bitzkey(2, encode_dna("grazer", size=3), 5, 6)
+        watcher = Bitzkey(3, encode_dna("predator", size=3), 6, 5)
+        simulation.agents.extend([striker, struck, watcher])
+        simulation._index_cells()
+        striker.weapon, struck.armour_worn = 3, 1
+        simulation._gear_witnessed(striker, struck)
+        self.assertAlmostEqual(watcher.desire[0], GEAR_DESIRE)
+        self.assertAlmostEqual(watcher.desire[1], GEAR_DESIRE)
+        self.assertEqual(watcher.desire[2], 0.0)
+        self.assertEqual(striker.desire[0], 0.0)  # not stirred by its own blow
+        self.assertAlmostEqual(Simulation._possessions_as(striker, watcher), Simulation._possessions(striker) + GEAR_DESIRE)
+        for _ in range(100):
+            simulation._gear_witnessed(striker, struck)
+        self.assertAlmostEqual(watcher.desire[0], 1.0)  # up to 1
 
     def test_the_tenth_try_at_a_craft_is_sure(self):
         simulation = Simulation(30, 30, 0, seed=1)
