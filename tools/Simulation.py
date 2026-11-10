@@ -744,8 +744,9 @@ LEADER_DEFERENCE, LEADER_RALLY, LEADER_JOY, LEADER_ALLURE = 0.5, 0.5, 0.3, 0.5
 # Ranks: a leader no leader follows is a chief; one a leader of rank r follows is of rank r + 1, up to MAX_RANK. Each rank
 # above chief makes its leader's bonuses RANK_BONUS the stronger, and each who sees a titled leader and holds it no foe
 # esteems it TITLE_REGARD times its rank the more, each turn. As the C++ version.
-MAX_RANK = 6
-TITLES = ("none", "chief", "lord", "baron", "count", "duke", "king")
+KING_RANK, EMPEROR_RANK = 6, 7
+MAX_RANK = EMPEROR_RANK
+TITLES = ("none", "chief", "lord", "baron", "count", "duke", "king", "emperor")
 RANK_BONUS, TITLE_REGARD = 0.25, 0.01
 MEAT_GOOD, FRUIT_GOOD, WAGON_GOOD, GOODS = 4, 5, 6, 7  # what may be offered: the possessions, then food, then a wagon
 # Marks of the victor, as the C++ version's: defeating an omnivore earns the mark of the warrior, a predator the mark of
@@ -1176,6 +1177,7 @@ class Bitzkey:
     followers: int = 0  # those whose standout it was at the last count
     leader: bool = False  # recognised a leader at the last count
     rank: int = 0  # and its rank then, by those under it: 0 none, 1 a chief, up to MAX_RANK (see TITLES)
+    emperor: bool = False  # crowned its colour group's emperor, for life: a leader that follows none
     followed: float = 0.0  # a leader's followers in sight, as last sensed, a LEADER_FOLLOWERS-th each, to 1
     ambition: float = 0.0  # its dislike of the group whose land it stands in, uninvited, as last sensed
     trespass: int = 0  # turns it has stood in another group's land without a break
@@ -2497,7 +2499,7 @@ class Simulation:
         """Each counted as the standout of so many, now: recognised at LEADER_FOLLOWERS, kept until under half as many."""
         held: dict[int, int] = {}
         for agent in self.agents:
-            if agent.alive and agent.standout >= 0:
+            if agent.alive and agent.standout >= 0 and not agent.emperor:  # an emperor follows none
                 held[agent.standout] = held.get(agent.standout, 0) + 1
         self._leaders = 0
         for agent in self.agents:
@@ -2505,26 +2507,47 @@ class Simulation:
                 continue
             agent.followers = held.get(agent.identifier, 0)
             was = agent.leader
-            agent.leader = (LEADER_FOLLOWERS > 0 and agent.species != "plant" and not agent.infant
+            agent.leader = agent.emperor or (LEADER_FOLLOWERS > 0 and agent.species != "plant" and not agent.infant
                             and agent.followers >= ((LEADER_FOLLOWERS + 1) // 2 if was else LEADER_FOLLOWERS))
             self._leaders += agent.leader
         for agent in self.agents:
             standout = self.find_agent(agent.standout) if agent.standout >= 0 else None
-            agent.follows = standout.identifier if standout is not None and standout.alive and standout.leader else -1
-        # Ranks, afresh: a chief each leader, and each followed by a leader one rank above it, as far as a few rounds carry.
+            agent.follows = standout.identifier if not agent.emperor and standout is not None and standout.alive and standout.leader else -1
+        # Leaders who follow one another round a loop hold no rank over each other: none of them follows another.
         for agent in self.agents:
-            agent.rank = 1 if agent.alive and agent.leader else 0
-        for _ in range(1, MAX_RANK):
-            raised = False
-            for agent in self.agents:
-                if agent.rank == 0 or agent.follows < 0:
-                    continue
-                above = self.find_agent(agent.follows)
-                rank = min(MAX_RANK, agent.rank + 1)
-                if above is not None and above.rank > 0 and above.rank < rank:
-                    above.rank, raised = rank, True
-            if not raised:
-                break
+            if not agent.leader or agent.follows < 0:
+                continue
+            loop, step = [agent], self.find_agent(agent.follows)
+            while step is not None and step.leader and len(loop) <= 64:
+                if step is agent:
+                    for one in loop:
+                        one.follows = -1
+                    break
+                loop.append(step)
+                step = self.find_agent(step.follows) if step.follows >= 0 else None
+        # Ranks, afresh: a chief each leader, one above the highest leader that follows it, by the longest chain, up to king.
+        under: dict[int, list[Bitzkey]] = {}
+        for agent in self.agents:
+            agent.rank = 0
+            if agent.alive and agent.leader and agent.follows >= 0:
+                under.setdefault(agent.follows, []).append(agent)
+        ranked: dict[int, int] = {}
+
+        def rank_of(leader: Bitzkey) -> int:
+            if leader.identifier not in ranked:
+                ranked[leader.identifier] = max([1] + [min(KING_RANK, rank_of(below) + 1) for below in under.get(leader.identifier, ())])
+            return ranked[leader.identifier]
+
+        reigning = set()  # the colour groups (by species and group) with an emperor living
+        for agent in self.agents:
+            if agent.alive and agent.leader:
+                agent.rank = EMPEROR_RANK if agent.emperor else rank_of(agent)
+                if agent.emperor:
+                    reigning.add((agent.species, agent.realm))
+        for agent in self.agents:  # the first king of a group with no emperor is crowned, and follows none
+            if agent.alive and agent.rank == KING_RANK and (agent.species, agent.realm) not in reigning:
+                reigning.add((agent.species, agent.realm))
+                agent.emperor, agent.rank, agent.follows = True, EMPEROR_RANK, -1
 
     def _land_senses(self, agent: Bitzkey, sight: int) -> tuple[dict[str, float], float, float]:
         """Its land, its group's wars, trespassers in its land, and marks of the victor, as senses; and its land (1 in it,
