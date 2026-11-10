@@ -629,6 +629,9 @@ CRAFT_THRILL = 1.0
 CRAFT_JOY = 1.0  # a craft that works: a weapon's in full, armour's in half (half plus curiosity)
 TOOL_JOY = 2.0  # the harm a weapon added to a blow, as a share of its victim's health
 ARMOUR_JOY = 2.0  # the harm its armour took off a blow, as a share of its health
+GEAR_EASE = 0.15  # the ease, each turn, of a weapon or bow in hand, and as much again of armour worn
+GEAR_COURAGE = 0.25  # the share of fear's effects a weapon or bow in hand takes off, and as much again armour worn
+DON_JOY = 0.25  # gaining a weapon or bow is TOOL_JOY times this a joy, and armour ARMOUR_JOY times this
 BUILD_THRILL = 1.0  # each stage of a shelter, k of SHELTER_UNITS, thrills BUILD_THRILL * k / SHELTER_UNITS; finishing it, twice BUILD_THRILL (times curiosity, plus SHELTER_LONGING times its shelter memory)
 # A finished shelter keeps the weather off whoever stands in it, hot or cold. Resting inside is a comfort
 # (SHELTER_COMFORT, half standing in one), and each turn of it is remembered, to a full memory after a day, so that
@@ -1358,8 +1361,23 @@ class Bitzkey:
 
     @property
     def fearfulness(self) -> float:
-        """Its fear, as its effects feel it: a predator's PREDATOR_FEAR as much, and less the hungrier it is."""
-        return self.feeling("fear") * (PREDATOR_FEAR * self.unafraid if self.species == "predator" else 1.0)
+        """Its fear, as its effects feel it: a predator's PREDATOR_FEAR as much, and less the hungrier it is; and
+        GEAR_COURAGE the less for each of a weapon or bow in hand and armour worn."""
+        return (self.feeling("fear") * (PREDATOR_FEAR * self.unafraid if self.species == "predator" else 1.0) *
+                (1 - GEAR_COURAGE * self.gear_held))
+
+    @property
+    def wielding(self) -> bool:
+        return bool(self.weapon) or self.bow_uses > 0
+
+    @property
+    def wearing(self) -> bool:
+        return bool(self.armour_worn)
+
+    @property
+    def gear_held(self) -> int:
+        """A weapon or bow in hand, and armour worn."""
+        return int(self.wielding) + int(self.wearing)
 
     @property
     def unafraid(self) -> float:
@@ -1987,6 +2005,7 @@ class Simulation:
                 self._drop_gear((one.x, one.y), GEAR_KINDS[one.armour_worn + 2], one.armour_uses)
             one.armour_worn, one.armour_uses = NO_ARMOUR, 0
 
+        had_weapon, had_armour = taker.wielding, taker.wearing
         if possession == BOW_POSSESSION:
             if taker.bow_uses > 0:
                 self._drop_gear((taker.x, taker.y), "bow", BOW_USES - taker.bow_uses)
@@ -2006,6 +2025,7 @@ class Simulation:
             giver.armour_worn, giver.armour_uses = NO_ARMOUR, 0
             if taker.weapon in (BONE_AXE, CLUB):
                 drop_weapon(taker)
+        self._donned(taker, had_weapon, had_armour)
 
     def _demand(self, agent: Bitzkey, owner: Bitzkey, possession: int) -> None:
         agent.last_action = "demanded"
@@ -4155,6 +4175,7 @@ class Simulation:
         if 0 <= steps <= FOLLOW_REACH and (regard >= REGARD_STRONG or skill >= SKILL_HELD):
             hearth += (1 + PROTECTION_JOY) * FOLLOW_SAFETY * self._dread(agent, situation)
         hearth -= ENVY_UNEASE * self._envy_of(agent) * situation.get("envy", 0.0)
+        hearth += GEAR_EASE * agent.gear_held  # at ease with a weapon in hand and armour on, while it keeps them
         if regard >= REGARD_STRONG:
             return hearth + REGARD_COMFORT * regard * (0.5 + agent.feeling("trust"))
         if regard <= -REGARD_STRONG:
@@ -5299,6 +5320,14 @@ class Simulation:
                 agent.reward += DISCOVERY_JOY * (0.5 + agent.feeling("curiosity"))
                 self._experience(agent, "discovery")
 
+    @staticmethod
+    def _donned(agent: Bitzkey, had_weapon: bool, had_armour: bool) -> None:
+        """Glad of a weapon or armour it lacked."""
+        if not had_weapon and agent.wielding:
+            agent.reward += DON_JOY * TOOL_JOY
+        if not had_armour and agent.wearing:
+            agent.reward += DON_JOY * ARMOUR_JOY
+
     def _make_gear(self, agent: Bitzkey, action: str) -> None:
         craft = CRAFTS.index(action)
         agent.craft_tries[craft] += 1
@@ -5308,6 +5337,7 @@ class Simulation:
             agent.last_action = "tried to craft"
             return
         agent.craft_tries[craft] = CRAFT_TRIES  # it has it now
+        had_weapon, had_armour = agent.wielding, agent.wearing
         if action == "make_bone_axe":
             agent.carried_bone -= 1
             agent.weapon = BONE_AXE
@@ -5332,6 +5362,7 @@ class Simulation:
                 agent.carried_wood -= 1
             agent.weapon = STONE_AXE
         agent.reward += CRAFT_JOY * (0.5 if action in ("make_bone_armour", "make_wood_armour") else 1.0) * (0.5 + agent.feeling("curiosity"))
+        self._donned(agent, had_weapon, had_armour)
         self._deed_seen(agent, CRAFT_DEED, None, "skill", craft, "craft")
         if action != "make_bow":
             if action not in ("make_bone_armour", "make_wood_armour"):
@@ -5351,12 +5382,14 @@ class Simulation:
         piles[pile] -= 1
         if not piles[pile]:
             del piles[pile]
+        had_weapon, had_armour = agent.wielding, agent.wearing
         if kind == "bow":
             agent.bow_uses = max(1, BOW_USES - uses)
         elif kind in GEAR_KINDS[:3]:
             agent.weapon, agent.weapon_uses = GEAR_KINDS.index(kind) + 1, uses
         else:
             agent.armour_worn, agent.armour_uses = GEAR_KINDS.index(kind) - 2, uses
+        self._donned(agent, had_weapon, had_armour)
         agent.last_action = "took gear"
 
     @staticmethod

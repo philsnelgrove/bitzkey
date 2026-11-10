@@ -12,7 +12,7 @@ from tools.Simulation import (Death, DAY_LENGTH, FULL_STAMINA, SPAWN_SPREAD, DEA
                               nearby_offsets)
 
 
-from tools.Simulation import ARMOUR_JOY, BUILD_THRILL, CRAFT_JOY, EIGHT_TURN_DAYS, FIRE_COMFORT, TOOL_JOY, WEAPON_FORCE
+from tools.Simulation import ARMOUR_JOY, BUILD_THRILL, CRAFT_JOY, DON_JOY, EIGHT_TURN_DAYS, FIRE_COMFORT, TOOL_JOY, WEAPON_FORCE
 
 def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, unless a test says so
     global _grown, _common, _grazers, _plenty
@@ -4205,11 +4205,11 @@ class MaterialTests(unittest.TestCase):
         crafter.craft_tries[2] = 9
         crafter.reward = 0.0
         simulation._make_gear(crafter, "make_club")
-        self.assertAlmostEqual(crafter.reward, CRAFT_JOY * 1.5)  # half plus a full curiosity
+        self.assertAlmostEqual(crafter.reward, CRAFT_JOY * 1.5 + DON_JOY * TOOL_JOY)  # half plus a full curiosity, and glad of a weapon
         crafter.craft_tries[1] = 9
         crafter.reward = 0.0
         simulation._make_gear(crafter, "make_bone_armour")
-        self.assertAlmostEqual(crafter.reward, CRAFT_JOY * 0.75)  # armour, half
+        self.assertAlmostEqual(crafter.reward, CRAFT_JOY * 0.75 + DON_JOY * ARMOUR_JOY)  # armour, half, and glad of it
         striker = Bitzkey(2, encode_dna("omnivore", size=3), 8, 8)
         victim = Bitzkey(3, encode_dna("grazer", size=3), 8, 9)
         striker.reward = victim.reward = 0.0
