@@ -622,7 +622,7 @@ FIRE_REACH = 2  # squares off, a fire shelters an animal from the cold
 # A craft must first be discovered, the more likely each turn the cleverer the animal holding its materials, and then
 # made to work: the chance rises with each try to certainty at CRAFT_TRIES, the sooner the cleverer. A failure spends
 # nothing, and is a small thrill of discovery to the curious.
-CRAFTS = ("make_bone_axe", "make_bone_armour", "make_club", "make_wood_armour", "make_stone_axe", "make_bow")
+CRAFTS = ("make_bone_axe", "make_bone_armour", "make_club", "make_wood_armour", "make_stone_axe", "make_bow", "make_wagon")
 DISCOVERY_CHANCE = 0.0005  # rare: a find is news, and a taught recipe spreads it
 DISCOVERY_JOY = 5.0  # the joy of first discovering a craft (times curiosity), so its finder comes to prize the materials
 CRAFT_TRIES = 10
@@ -651,6 +651,10 @@ DON_JOY = 0.25  # gaining a weapon or bow is TOOL_JOY times this a joy, and armo
 GEAR_DESIRE = 0.05  # desire for a kind of gear stirred by seeing it pay off, up to 1; envy counts that gear 1 + desire times
 DESIRE_FADE = 0.999  # the share of a desire for gear kept each turn, so it fades without fresh sights
 WEAPON_DESIRE, ARMOUR_DESIRE, BOW_DESIRE = 0, 1, 2
+# A wagon: made of WAGON_STONE stones and WAGON_WOOD wood with an axe, kept; hitched, it follows its hitcher, holds
+# SHELTER_UNITS more of its load, shelters it as a shelter does, and makes each step WAGON_DRAG more tiring.
+WAGON_STONE, WAGON_WOOD = 2, 3
+WAGON_DRAG = 0.5
 READY_JOY = 0.3  # for each part of a set it holds for what it knows how to make (half plus mostly patience)
 BUILD_THRILL = 1.0  # each stage of a shelter, k of SHELTER_UNITS, thrills BUILD_THRILL * k / SHELTER_UNITS; finishing it, twice BUILD_THRILL (times curiosity, plus SHELTER_LONGING times its shelter memory)
 # A finished shelter keeps the weather off whoever stands in it, hot or cold. Resting inside is a comfort
@@ -736,7 +740,7 @@ LEADER_FOLLOWERS = 5
 # (WELCOME_LEVEL), welcomes it as guests who neither trespass nor contest its land.
 LAND_AMBITION, WELCOME_LEVEL = 0.1, 0.5
 LEADER_DEFERENCE, LEADER_RALLY, LEADER_JOY, LEADER_ALLURE = 0.5, 0.5, 0.3, 0.5
-MEAT_GOOD, FRUIT_GOOD, GOODS = 4, 5, 6  # what may be offered: the possessions, then food
+MEAT_GOOD, FRUIT_GOOD, WAGON_GOOD, GOODS = 4, 5, 6, 7  # what may be offered: the possessions, then food, then a wagon
 # Marks of the victor, as the C++ version's: defeating an omnivore earns the mark of the warrior, a predator the mark of
 # prestige, kept for life; each turn all who see it and don't hold it a foe move their regard toward WARRIOR_MARK or
 # PRESTIGE_MARK at MARK_REGARD of a deed's weight, and a foe holds it the more dangerous and dreads it (MARK_DREAD).
@@ -1154,6 +1158,7 @@ class Bitzkey:
     hide_armour: float = 0.0  # the armour the hide adds
     spare_tools: list[list[int]] = field(default_factory=list)  # [kind, uses] of each tool carried beside the one in hand
     spare_hides: list[list] = field(default_factory=list)  # [kind, armour] of each hide carried beside the one worn
+    wagon: int = -1  # the wagon it drags, by its place among the world's, or -1
     skinned: bool = False  # a body whose hide has been taken
     regarded: float = 0.0  # how well those who know it regard it, on average, as of this turn
     thefts: int = 0  # possessions it has stolen
@@ -1175,7 +1180,7 @@ class Bitzkey:
     last_tried: dict = field(default_factory=dict)  # the turn after it last chose each action
     carried_seed: int = 0  # kept from raw fruit it ate, up to its capacity, and no weight to it
     crafts: int = 0  # a bit for each craft it has discovered
-    craft_tries: list[int] = field(default_factory=lambda: [0] * 6)  # how often it has tried each
+    craft_tries: list[int] = field(default_factory=lambda: [0] * 7)  # how often it has tried each
     bow_uses: int = 0  # shots left in the bow it carries; 0 for none
     archery: float = 0.0  # its skill at hitting with a bow, 0..1, from its shots
     desire: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])  # for a weapon, armour and a bow, 0..1, from seeing each pay off
@@ -1287,8 +1292,8 @@ class Bitzkey:
 
     @property
     def capacity(self) -> int:
-        """The portions it can carry."""
-        return self.trait("size") + 1
+        """The portions it can carry, the more with a wagon."""
+        return self.trait("size") + 1 + (SHELTER_UNITS if self.wagon >= 0 else 0)
 
     @property
     def load(self) -> int:
@@ -1782,6 +1787,8 @@ class Simulation:
         self.stones_scattered = False
         self.sites: dict[tuple[int, int], int] = {}  # units in each unfinished shelter
         self.shelters: set[tuple[int, int]] = set()
+        self.wagons: list[list] = []  # every wagon made: [x, y, its hitcher or -1, what it holds beyond its hitcher's own load]
+        self.parked: dict[tuple[int, int], list[int]] = {}  # the wagons no one drags, by their squares
         self.arable: set[tuple[int, int]] = set()  # worked land
         self.roads: set[tuple[int, int]] = set()
         self.fertilized: set[tuple[int, int]] = set()  # worked land fed crushed bone, until a seed sprouts there
@@ -2020,13 +2027,15 @@ class Simulation:
             return 2 if agent.weapon == STONE_AXE else 1 if agent.weapon else 0
         if possession == BOW_POSSESSION:
             return 1 if agent.bow_uses > 0 else 0
+        if possession == WAGON_GOOD:
+            return 1 if agent.wagon >= 0 else 0
         return 1 if agent.armour_worn else 0
 
     @classmethod
     def _better_possession(cls, taker: Bitzkey, owner: Bitzkey) -> int | None:
         """The kind of possession owner has most better than taker's, if any."""
         best, most = None, 0
-        for possession in (HIDE_POSSESSION, WEAPON_POSSESSION, ARMOUR_POSSESSION, BOW_POSSESSION):
+        for possession in (HIDE_POSSESSION, WEAPON_POSSESSION, ARMOUR_POSSESSION, BOW_POSSESSION, WAGON_GOOD):
             more = cls._value_of(owner, possession) - cls._value_of(taker, possession)
             if more > most:
                 best, most = possession, more
@@ -2050,6 +2059,11 @@ class Simulation:
         elif possession == WEAPON_POSSESSION:  # the one in hand, likewise
             taker.spare_tools.append([giver.weapon, giver.weapon_uses])
             giver.weapon, giver.weapon_uses = NO_WEAPON, 0
+        elif possession == WAGON_GOOD:  # the wagon, and what it holds beyond the giver's own load
+            wagon = giver.wagon
+            self._unhitch(giver)
+            self._unhitch(taker)
+            self._hitch(taker, wagon)
         else:
             drop_armour(taker)
             taker.armour_worn, taker.armour_uses = giver.armour_worn, giver.armour_uses
@@ -2111,6 +2125,8 @@ class Simulation:
         if good == WEAPON_POSSESSION:
             quality = 1.0 if holder.weapon == STONE_AXE else 0.5 * (1.0 - holder.weapon_uses / GEAR_USES)
             return quality * (0.5 + judge.feeling("aggression"))
+        if good == WAGON_GOOD:  # a mobile shelter and store
+            return 1.0
         if good == BOW_POSSESSION:  # shots left, to one who can use them
             return (holder.bow_uses / BOW_USES if BOW_USES > 0 else 0.0) * (0.5 + judge.archery)
         return 1.0 - holder.armour_uses / GEAR_USES
@@ -2124,7 +2140,7 @@ class Simulation:
         return self._good_worth(judge, other, good) - self._good_worth(judge, judge, good)
 
     def _pass_good(self, giver: Bitzkey, taker: Bitzkey, good: int) -> None:
-        if good < MEAT_GOOD:
+        if good < MEAT_GOOD or good == WAGON_GOOD:
             self._hand_over(giver, taker, good)
             return
         kind = "meat" if good == MEAT_GOOD else "fruit"
@@ -2690,14 +2706,16 @@ class Simulation:
     @staticmethod
     def _possessions(agent: Bitzkey) -> float:
         """Its possessions, for envy: its hide, tool and armour."""
-        return _hides_worth(agent) + _tools_worth(agent) + (0.5 if agent.armour_worn else 0.0) + (0.5 if agent.bow_uses > 0 else 0.0)
+        return (_hides_worth(agent) + _tools_worth(agent) + (0.5 if agent.armour_worn else 0.0) + (0.5 if agent.bow_uses > 0 else 0.0)
+                + (1.0 if agent.wagon >= 0 else 0.0))
 
     @staticmethod
     def _possessions_as(agent: Bitzkey, judge: Bitzkey) -> float:
         """Its possessions as the judge, by its desires, weighs them."""
         desire = judge.desire
         return (_hides_worth(agent) + (1 + desire[WEAPON_DESIRE]) * _tools_worth(agent)
-                + (1 + desire[ARMOUR_DESIRE]) * (0.5 if agent.armour_worn else 0.0) + (1 + desire[BOW_DESIRE]) * (0.5 if agent.bow_uses > 0 else 0.0))
+                + (1 + desire[ARMOUR_DESIRE]) * (0.5 if agent.armour_worn else 0.0) + (1 + desire[BOW_DESIRE]) * (0.5 if agent.bow_uses > 0 else 0.0)
+                + (1.0 if agent.wagon >= 0 else 0.0))
 
     def _gear_seen(self, user: Bitzkey, kind: int) -> None:
         """Those who see gear of that kind pay off, friend or foe, any kind, desire it the more, up to 1."""
@@ -3247,7 +3265,7 @@ class Simulation:
                 agent.last_wellbeing += max(0.0, agent.health) / agent.max_health - share_before  # is no lesson
             plant = agent.species == "plant"
             here = self._climate[agent.y]
-            covered = self.sheltered(agent) or (agent.x, agent.y) in self.shelters or self._warmed_by_fire(agent, here)  # a sheltered infant, or one in a shelter, feels no weather
+            covered = self.sheltered(agent) or self._under_cover(agent) or self._warmed_by_fire(agent, here)  # a sheltered infant, or one in a shelter, feels no weather
             steps = 0.0 if covered else agent.climate_steps(here)
             hungrier = steps > 0 and (not plant or here < agent.climate[0])  # out of its temperature; a plant, too hot
             share = agent.exposure_share(here)  # less for the hardy
@@ -3940,6 +3958,19 @@ class Simulation:
         axe = agent.has_tool(BONE_AXE) or agent.has_tool(STONE_AXE)
         if flora and axe:
             available.add("cut")
+        if (known("make_wagon") and axe and agent.wagon < 0 and agent.carried_stone >= WAGON_STONE and agent.carried_wood >= WAGON_WOOD
+                and not self.sea(agent.x, agent.y)):
+            available.add("make_wagon")
+        wagon_near = None  # a wagon no one drags, within a step
+        for dx, dy in ((0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)):
+            near = self.parked.get(((agent.x + dx) % self.width, agent.y + dy))
+            if near:
+                wagon_near = near[0]
+                break
+        if agent.wagon < 0 and wagon_near is not None:
+            available.add("hitch")
+        if agent.wagon >= 0:
+            available.add("unhitch")
         if agent.armour_worn:
             available.add("drop_armour")
         if agent.carried_stone:
@@ -4156,7 +4187,7 @@ class Simulation:
                      "grass": grass, "grass_here": grass_here, "carrion": carrion, "kill": kill, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
                      "others": others, "defend_target": defend_target, "for_herd": assailant is None,
                      "herd": herd, "herd_near": herd_near, "herd_middle": herd_middle,
-                     "exposure": min(2, discomfort) / 2 * agent.exposure_share(here), "uprootable": uprootable, "eat_meat": eat_meat, "eat_fruit": eat_fruit, "fire": fire, "gear_pile": gear_pile, "gear_kind": gear_kind, "stone_pile": stone_pile, "bone_pile": bone_pile, "wood_pile": wood_pile, "dressable": dressable, "tears": tears, "meat_pile": meat_pile, "fruit_pile": fruit_pile,
+                     "exposure": min(2, discomfort) / 2 * agent.exposure_share(here), "uprootable": uprootable, "eat_meat": eat_meat, "eat_fruit": eat_fruit, "fire": fire, "gear_pile": gear_pile, "gear_kind": gear_kind, "wagon_near": wagon_near, "stone_pile": stone_pile, "bone_pile": bone_pile, "wood_pile": wood_pile, "dressable": dressable, "tears": tears, "meat_pile": meat_pile, "fruit_pile": fruit_pile,
                      "home_distance": home_distance * agent.exposure_share(here),
                      "alert_to": alert_to, "revisit": agent.food_memory and agent.food_memory[:2],
                      "student": students[0] if students else None, "pupil": pupil, "lesson": lesson,
@@ -4164,7 +4195,7 @@ class Simulation:
         situation["land"], situation["war"], situation["ambition"] = land, war, agent.ambition
         situation["admired"], situation["standout"] = admired, standout
         situation["followed"] = agent.followed
-        situation["inside"] = (2 if ACTIONS[agent.last_choice] == "rest" else 1) if (agent.x, agent.y) in self.shelters else 0
+        situation["inside"] = (2 if ACTIONS[agent.last_choice] == "rest" else 1) if self._under_cover(agent) else 0
         if situation["exposure"] > 0 and (situation["inside"] or self.sheltered(agent) or self._warmed_by_fire(agent, here)):
             situation["spared"], situation["exposure"] = situation["exposure"], 0.0  # kept from the weather, it feels none, only relief
         return senses, [ACTIONS.index(action) for action in ACTIONS if action in available], situation
@@ -4440,6 +4471,11 @@ class Simulation:
         for kind, uses in agent.spare_tools:
             self._drop_gear((agent.x, agent.y), GEAR_KINDS[kind - 1], uses)
         agent.spare_tools, agent.spare_hides = [], []  # the body keeps the one worn
+        if agent.wagon >= 0:  # its wagon stands where it fell
+            wagon = self.wagons[agent.wagon]
+            wagon[2] = -1
+            self.parked.setdefault((wagon[0], wagon[1]), []).append(agent.wagon)
+            agent.wagon = -1
         agent.weapon = NO_WEAPON
         agent.armour_worn = NO_ARMOUR
         agent.bow_uses = 0
@@ -4504,6 +4540,9 @@ class Simulation:
         if by_road:
             agent.road_known = min(1.0, agent.road_known + by_road / DAY_LENGTH)
             agent.reward += ROAD_JOY * agent.road_known
+        if agent.wagon >= 0:  # its wagon follows, and each step drags it
+            cells *= 1 + WAGON_DRAG
+            self.wagons[agent.wagon][0], self.wagons[agent.wagon][1] = agent.x, agent.y
         cost = ACTION_FATIGUE + cells * STEP_FATIGUE * (FLIGHT_FATIGUE if agent.terrain == "avian" else 1.0)
         if agent.last_action in ("attacked", "pounced", "defended"):
             cost += STRIKE_FATIGUE
@@ -4610,6 +4649,10 @@ class Simulation:
             self._feed_young(agent, situation["young"])
         elif action == "teach":
             self._teach(agent, situation["student"])
+        elif action == "hitch":
+            self._hitch(agent, situation["wagon_near"])
+        elif action == "unhitch":
+            self._unhitch(agent)
         elif action == "tutor":
             self._tutor(agent, situation["pupil"], situation["lesson"])
         elif action == "take_meat":
@@ -5232,8 +5275,50 @@ class Simulation:
         return any(until > self.turn and abs(x - agent.x) + abs(y - agent.y) <= FIRE_REACH for (x, y), (until, _) in self.fires.items())
 
     def _safe_inside(self, animal: Bitzkey) -> bool:
-        """At rest in a shelter, out of reach."""
-        return ACTIONS[animal.last_choice] == "rest" and (animal.x, animal.y) in self.shelters
+        """At rest in a shelter or a wagon, out of reach."""
+        return ACTIONS[animal.last_choice] == "rest" and self._under_cover(animal)
+
+    def _under_cover(self, animal: Bitzkey) -> bool:
+        """In a shelter, dragging a wagon, or by one no one drags."""
+        return (animal.x, animal.y) in self.shelters or animal.wagon >= 0 or bool(self.parked.get((animal.x, animal.y)))
+
+    @staticmethod
+    def _wagon_load(agent: Bitzkey) -> tuple[str, ...]:
+        """As a wagon's goods: stone, wood, bone, meat, fruit, cooked meat and fruit."""
+        return ("carried_stone", "carried_wood", "carried_bone", "carried_meat", "carried_fruit", "cooked_meat", "cooked_fruit")
+
+    def _hitch(self, agent: Bitzkey, wagon: int | None) -> None:
+        """It drags it, and what it holds comes to its load as far as it has room."""
+        if wagon is None or agent.wagon >= 0:
+            return
+        it = self.wagons[wagon]
+        parked = self.parked.get((it[0], it[1]), [])
+        if wagon in parked:
+            parked.remove(wagon)
+            if not parked:
+                del self.parked[(it[0], it[1])]
+        it[0], it[1], it[2] = agent.x, agent.y, agent.identifier
+        agent.wagon = wagon
+        for good, name in enumerate(self._wagon_load(agent)):
+            while it[3][good] > 0 and agent.load < agent.capacity:
+                it[3][good] -= 1
+                setattr(agent, name, getattr(agent, name) + 1)
+        agent.last_action = "hitched a wagon"
+
+    def _unhitch(self, agent: Bitzkey) -> None:
+        """It leaves it where it stands, with what it can no longer carry."""
+        if agent.wagon < 0:
+            return
+        it = self.wagons[agent.wagon]
+        it[0], it[1], it[2] = agent.x, agent.y, -1
+        self.parked.setdefault((agent.x, agent.y), []).append(agent.wagon)
+        agent.wagon = -1
+        for good, name in enumerate(self._wagon_load(agent)):
+            while agent.load > agent.capacity and getattr(agent, name) > 0:
+                setattr(agent, name, getattr(agent, name) - 1)
+                it[3][good] += 1
+        self._arrange(agent)  # and spare tools or hides it cannot carry fall
+        agent.last_action = "unhitched its wagon"
 
     def _construct(self, agent: Bitzkey) -> None:
         """A unit of what it carries, stone first, into the shelter on its square."""
@@ -5442,7 +5527,8 @@ class Simulation:
         """Perhaps, a craft whose materials it holds."""
         holds = (agent.carried_bone > 0, agent.carried_bone > 0, agent.carried_wood > 0, agent.carried_wood > 0,
                  agent.carried_stone > 0 and agent.carried_bone + agent.carried_wood > 0,
-                 agent.has_tool(STONE_AXE) and agent.carried_wood >= BOW_WOOD and agent.any_hide)
+                 agent.has_tool(STONE_AXE) and agent.carried_wood >= BOW_WOOD and agent.any_hide,
+                 agent.carried_stone >= WAGON_STONE and agent.carried_wood >= WAGON_WOOD and (agent.has_tool(BONE_AXE) or agent.has_tool(STONE_AXE)))
         for craft, held in enumerate(holds):
             if held and not agent.crafts >> craft & 1 and self.random.random() < DISCOVERY_CHANCE * agent.intelligence * (2 if agent.species == "omnivore" else 1):
                 agent.crafts |= 1 << craft
@@ -5455,7 +5541,8 @@ class Simulation:
         section's stones with a stone axe, once it knows shelters or roads: a bit for each, as the C++ version."""
         holds = (agent.carried_bone > 0, agent.carried_bone > 0, agent.carried_wood > 0, agent.carried_wood > 0,
                  agent.carried_stone > 0 and agent.carried_bone + agent.carried_wood > 0,
-                 agent.has_tool(STONE_AXE) and agent.carried_wood >= BOW_WOOD and agent.any_hide)
+                 agent.has_tool(STONE_AXE) and agent.carried_wood >= BOW_WOOD and agent.any_hide,
+                 agent.carried_stone >= WAGON_STONE and agent.carried_wood >= WAGON_WOOD and (agent.has_tool(BONE_AXE) or agent.has_tool(STONE_AXE)))
         sets = sum(1 << craft for craft, held in enumerate(holds) if held and agent.crafts >> craft & 1)
         if agent.shelter_known > 0 and agent.any_tool and agent.carried_stone + agent.carried_wood >= SHELTER_UNITS:
             sets |= 1 << len(CRAFTS)
@@ -5466,7 +5553,7 @@ class Simulation:
     @staticmethod
     def _ready_worth(agent: Bitzkey, sets: int) -> float:
         """The joy of those sets, by their parts: a bow is a kept stone axe, two wood and a hide."""
-        parts = sum(part for craft, part in enumerate((1, 1, 1, 1, 2, 4)) if sets >> craft & 1)
+        parts = sum(part for craft, part in enumerate((1, 1, 1, 1, 2, 4, 6)) if sets >> craft & 1)  # a wagon: an axe and five
         if sets >> len(CRAFTS) & 1:
             parts += SHELTER_UNITS
         if sets >> (len(CRAFTS) + 1) & 1:
@@ -5522,6 +5609,11 @@ class Simulation:
             else:
                 agent.hide, agent.hide_armour = 0, 0.0
             agent.bow_uses = BOW_USES
+        elif action == "make_wagon":  # two stones and three wood, with an axe it keeps; left where it stands, for any to hitch
+            agent.carried_stone -= WAGON_STONE
+            agent.carried_wood -= WAGON_WOOD
+            self.wagons.append([agent.x, agent.y, -1, [0] * 7])
+            self.parked.setdefault((agent.x, agent.y), []).append(len(self.wagons) - 1)
         else:  # a stone axe, of a stone and a bone, or wood if it has no bone
             agent.carried_stone -= 1
             if agent.carried_bone:

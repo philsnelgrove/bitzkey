@@ -213,7 +213,7 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "cooldown": agent.cooldown, "fruit": agent.fruit,
         "last_action": agent.last_action, "brain": numbers.brain(agent.brain), "generation": agent.generation,
         "children": agent.children, "mother": agent.mother, "father": agent.father, "taught_by": agent.taught_by,
-        "carried_meat": agent.carried_meat, "carried_fruit": agent.carried_fruit, "weapon": agent.weapon, "armour": agent.armour_worn, "weapon_uses": agent.weapon_uses, "armour_uses": agent.armour_uses, "bow_uses": agent.bow_uses, "archery": agent.archery, "desire": agent.desire, "tutored_turn": agent.tutored_turn,
+        "carried_meat": agent.carried_meat, "carried_fruit": agent.carried_fruit, "weapon": agent.weapon, "armour": agent.armour_worn, "weapon_uses": agent.weapon_uses, "armour_uses": agent.armour_uses, "bow_uses": agent.bow_uses, "archery": agent.archery, "desire": agent.desire, "wagon": agent.wagon, "tutored_turn": agent.tutored_turn,
         "infant_taught": agent.infant_taught, "crafts": agent.crafts, "craft_tries": agent.craft_tries, "cooked_meat": agent.cooked_meat, "cooked_fruit": agent.cooked_fruit,
         "carried_stone": agent.carried_stone,
         "carried_bone": agent.carried_bone, "carried_wood": agent.carried_wood, "carried_seed": agent.carried_seed, "boredom": float(agent.boredom), "shelter_known": float(agent.shelter_known), "road_known": float(agent.road_known), "cooked_known": float(agent.cooked_known), "plenty": float(agent.plenty), "plenty_known": float(agent.plenty_known), "hide": agent.hide, "hide_armour": float(agent.hide_armour), "spare_tools": [list(tool) for tool in agent.spare_tools], "spare_hides": [[hide[0], float(hide[1])] for hide in agent.spare_hides], "skinned": agent.skinned, "thefts": agent.thefts, "mark": agent.mark, "realm": agent.realm, "standout": agent.standout, "follows": agent.follows, "followers": agent.followers, "leader": agent.leader, "trespass": agent.trespass, "meat_lean": float(agent.meat_lean), "expected": agent.expected, "last_tried": [agent.last_tried.get(action, 0) for action in ACTIONS], "died_turn": agent.died_turn, "assailant": agent.assailant,
@@ -294,11 +294,12 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
     agent.weapon_uses = int(record.get("weapon_uses", 0))
     agent.bow_uses = int(record.get("bow_uses", 0))  # none, in a world saved before archery
     agent.archery = float(record.get("archery", 0.0))
+    agent.wagon = int(record.get("wagon", -1))
     agent.desire = [float(value) for value in record.get("desire", [0.0, 0.0, 0.0])]  # none, in a world saved before desire
     agent.tutored_turn = int(record.get("tutored_turn", -1))
     agent.armour_uses = int(record.get("armour_uses", 0))
     agent.crafts = int(record.get("crafts", 0))
-    agent.craft_tries = (list(record.get("craft_tries", ())) + [0] * 6)[:6]  # five before the bow
+    agent.craft_tries = (list(record.get("craft_tries", ())) + [0] * 7)[:7]  # five before the bow, six before the wagon
     agent.cooked_meat = int(record.get("cooked_meat", 0))
     agent.cooked_fruit = int(record.get("cooked_fruit", 0))
     agent.carried_stone = int(record.get("carried_stone", 0))
@@ -425,6 +426,7 @@ def world_bytes(simulation: Simulation) -> bytes:
                   "claims": [[patch, realm, hold] for patch, land in enumerate(simulation.lands) for realm, hold in land if realm >= 0],
                   "wars": [list(war) for war in simulation.wars], "welcomes": [list(pair) for pair in sorted(simulation.welcome)]},
         "roads": [[y * simulation.width + x, simulation.road_work.get((x, y), 0), int((x, y) in simulation.roads)] for x, y in sorted(simulation.roads | set(simulation.road_work), key=lambda c: (c[1], c[0]))],
+        "wagons": [[wagon[0], wagon[1], wagon[2], list(wagon[3])] for wagon in simulation.wagons],  # x, y, its hitcher or -1, what it holds
         "shelters": [[x, y, simulation.sites.get((x, y), 0), int((x, y) in simulation.shelters), simulation.site_turns.get((x, y), 0), simulation.site_stone.get((x, y), 0)] for y in range(simulation.height) for x in range(simulation.width)
                      if (x, y) in simulation.sites or (x, y) in simulation.shelters],
         "fires": [[x, y, until, lighter, simulation.cooked_on.get((x, y), -world.DAY_LENGTH - 1)] for (x, y), (until, lighter) in sorted(simulation.fires.items(), key=lambda fire: (fire[0][1], fire[0][0])) if until > simulation.turn],
@@ -594,6 +596,10 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
             simulation.site_stone[(x, y)] = built[1] if len(built) > 1 else 0  # all wood, in a world saved before
         if standing:
             simulation.shelters.add((x, y))
+    for x, y, hitched_to, goods in record.get("wagons", ()):  # none in an older world
+        simulation.wagons.append([x, y, hitched_to, list(goods)])
+        if hitched_to < 0:
+            simulation.parked.setdefault((x, y), []).append(len(simulation.wagons) - 1)
     simulation.fires = {(fire[0], fire[1]): (fire[2], fire[3]) for fire in record.get("fires", ())}
     simulation.cooked_on = {(fire[0], fire[1]): fire[4] for fire in record.get("fires", ()) if len(fire) > 4}  # none in an older world
     simulation.stones_scattered = record.get("stones_scattered", False)

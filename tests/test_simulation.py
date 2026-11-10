@@ -4226,6 +4226,29 @@ class MaterialTests(unittest.TestCase):
         Simulation._gear_pays(striker, victim, 6.0)
         self.assertAlmostEqual(victim.reward, 3 * saved)  # the bigger the blow, the more it saved
 
+    def test_a_wagon_is_made_hitched_dragged_and_unhitched_with_what_it_holds(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        maker = Bitzkey(1, encode_dna("omnivore", size=3), 5, 5)
+        maker.weapon = 1  # a bone axe
+        maker.carried_stone, maker.carried_wood = simulation_module.WAGON_STONE, simulation_module.WAGON_WOOD
+        maker.crafts = 1 << 6
+        maker.craft_tries[6] = 10
+        simulation._make_gear(maker, "make_wagon")
+        self.assertEqual(len(simulation.wagons), 1)
+        self.assertEqual((maker.carried_stone, maker.carried_wood, maker.weapon, maker.wagon), (0, 0, 1, -1))  # the axe kept, left for any
+        alone = maker.capacity
+        simulation._hitch(maker, 0)
+        self.assertEqual(maker.capacity, alone + simulation_module.SHELTER_UNITS)
+        self.assertTrue(simulation._under_cover(maker))
+        maker.carried_stone = alone + 2
+        simulation._unhitch(maker)
+        self.assertLessEqual(maker.load, alone)
+        self.assertEqual(simulation.wagons[0][3][0], 2)  # the stones it could not carry, left in the wagon
+        self.assertTrue(simulation._under_cover(maker))  # standing by it
+        simulation._hitch(maker, 0)
+        self.assertEqual(maker.carried_stone, alone + 2)  # and taken up again
+        self.assertEqual(Simulation._value_of(maker, simulation_module.WAGON_GOOD), 1)
+
     def test_tools_and_hides_are_carried_beside_those_in_hand_and_worn(self):
         simulation = Simulation(30, 30, 0, seed=1)
         agent = Bitzkey(1, encode_dna("predator", size=3), 5, 5)
@@ -4265,8 +4288,8 @@ class MaterialTests(unittest.TestCase):
         self.assertGreater(club, 0)
         self.assertAlmostEqual(Simulation._ready_worth(crafter, 1 << 5), 4 * club)  # a bow, four parts
         crafter.road_known = 0.5
-        self.assertEqual(Simulation._ready_sets(crafter) >> 7 & 1, 1)  # a road section's stones, with a stone axe
-        self.assertEqual(Simulation._ready_sets(crafter) >> 6 & 1, 0)  # not a shelter's worth, nor known
+        self.assertEqual(Simulation._ready_sets(crafter) >> (len(simulation_module.CRAFTS) + 1) & 1, 1)  # a road section's stones, with a stone axe
+        self.assertEqual(Simulation._ready_sets(crafter) >> len(simulation_module.CRAFTS) & 1, 0)  # not a shelter's worth, nor known
 
     def test_a_call_answered_by_a_deed_good_for_both_is_a_joy_to_each(self):
         caller = Bitzkey(1, encode_dna("omnivore", size=3), 5, 5)
