@@ -12,7 +12,7 @@ from tools.Simulation import (Death, DAY_LENGTH, FULL_STAMINA, SPAWN_SPREAD, DEA
                               nearby_offsets)
 
 
-from tools.Simulation import ARMOUR_JOY, BUILD_THRILL, CRAFT_JOY, DON_JOY, GEAR_DESIRE, EIGHT_TURN_DAYS, FIRE_COMFORT, TOOL_JOY, WEAPON_FORCE
+from tools.Simulation import ARMOUR_JOY, BUILD_THRILL, COMMUNICATION_JOY, CRAFT_JOY, DON_JOY, GEAR_DESIRE, EIGHT_TURN_DAYS, FIRE_COMFORT, TOOL_JOY, WEAPON_FORCE
 
 def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, unless a test says so
     global _grown, _common, _grazers, _plenty
@@ -4225,6 +4225,23 @@ class MaterialTests(unittest.TestCase):
         self.assertGreater(saved, 0)
         Simulation._gear_pays(striker, victim, 6.0)
         self.assertAlmostEqual(victim.reward, 3 * saved)  # the bigger the blow, the more it saved
+
+    def test_a_call_answered_by_a_deed_good_for_both_is_a_joy_to_each(self):
+        caller = Bitzkey(1, encode_dna("omnivore", size=3), 5, 5)
+        listener = Bitzkey(2, encode_dna("grazer", size=3), 6, 5)
+        listener.answer_to = caller.identifier
+        Simulation._answered(listener, caller, 1.0, 0.0)
+        self.assertEqual((listener.answer_to, listener.reward), (caller.identifier, 0.0))  # the caller untouched: still to answer
+        Simulation._answered(listener, caller, 1.0, 2.0)
+        self.assertAlmostEqual(listener.reward, COMMUNICATION_JOY * 1.0)
+        self.assertAlmostEqual(caller.reward, COMMUNICATION_JOY * 2.0)
+        self.assertEqual(listener.answer_to, -1)  # answered
+        listener.answer_to, caller.reward, listener.reward = caller.identifier, 0.0, 0.0
+        Simulation._answered(listener, caller, 1.0, -2.0)
+        self.assertEqual((listener.reward, caller.reward, listener.answer_to), (0.0, 0.0, -1))  # ill for the caller
+        listener.answer_to = caller.identifier
+        Simulation._answered(listener, caller, -1.0, 2.0)
+        self.assertEqual(caller.reward, 0.0)  # ill for the listener
 
     def test_seeing_gear_pay_off_stirs_a_desire_for_it_and_desire_weighs_in_envy(self):
         simulation = Simulation(30, 30, 0, seed=1)

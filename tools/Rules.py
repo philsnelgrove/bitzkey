@@ -461,6 +461,7 @@ _TABLE: dict[str, list[tuple]] = {
         ("LAND_AMBITION", "Land ambition", "pull to stay in the land of a group it dislikes, and unease in the land of one it likes unless welcome there, times its regard for that group", 0.0, 1.0, 0.01),
         ("WELCOME_LEVEL", "Welcome level", "how well a group's members must think of a colour group, on average, to welcome it in their land as guests who neither trespass nor contest it; above 1 for none", 0.0, 1.5, 0.05),
         ("CALL_PAYOFF", "Call payoff", "joy a caller takes in each of its kind that heard its call and then got away from a hunter or, hungry, ate; times a half and its empathy or sociability", 0.0, 2.0, 0.05),
+        ("COMMUNICATION_JOY", "Communication joy", "share of its own gain each takes when one answers a call it heard, within a day, with a deed good for both: the caller glad to be understood, the listener to understand", 0.0, 2.0, 0.05),
         ("HEEDED_REGARD", "Heeded regard", "how much better one helped so thinks of its caller, of a deed's weight", 0.0, 1.0, 0.01),
         ("LEADER_RALLY", "Leader rally", "share of the chance to panic or break that a follower in sight of its leader overcomes", 0.0, 1.0, 0.05),
         ("LAND_RALLY", "Land rally", "share of the chance to panic, break or be overcome by primal fear that defending its own land overcomes, a born coward's too", 0.0, 1.0, 0.05),

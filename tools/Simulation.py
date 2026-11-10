@@ -396,6 +396,7 @@ CALL_COST = 0.05
 # or, hungry, ate gives it joy (CALL_PAYOFF, three a turn at most) and thinks the better of it (HEEDED_REGARD).
 CALL_PAYOFF, HEEDED_REGARD = 0.0, 0.0  # none by default: what a call earns is left to what it does
 CALL_PAYOFFS_A_TURN = 3
+COMMUNICATION_JOY = 0.5  # a call answered within a day by a deed good for both: each takes this share of its own gain
 # Memory (Brain.py): how many choices back a lesson's error is carried to the memory gates that wrote what the brain
 # read, 0 for none (what it keeps is then only what it was born to), up to MAX_MEMORY_STEPS; and how fast they learn,
 # times the brain's learning rate.
@@ -1187,6 +1188,9 @@ class Bitzkey:
     heard_turn: int = -1  # that turn
     heard_hunger: float = 0.0  # its hunger then
     heard_danger: bool = False  # and whether a hunter was in sight
+    answer_to: int = -1  # the last caller of any kind it heard, its call and when, till answered or a day passes
+    answer_call: int = -1
+    answer_turn: int = -1
     struck_turn: int = -1  # the last turn it was struck
     last_call: int = -1  # its last choice of call, to learn from with its action; -1 for none of its own
     held: list[float] = field(default_factory=lambda: [0.0] * MEMORY_NEURONS)  # what its memory neurons hold (Brain.py)
@@ -2826,6 +2830,9 @@ class Simulation:
                 paid[caller.identifier] = paid.get(caller.identifier, 0) + 1
                 caller.reward += CALL_PAYOFF * (0.5 + max(caller.feeling("empathy"), caller.feeling("sociability")))
                 self._note_deed(listener, caller, 1.0, HEEDED_REGARD, "plain", True)
+        loudest = situation.get("loudest_from")
+        if loudest is not None:  # a call to answer, within a day
+            listener.answer_to, listener.answer_call, listener.answer_turn = loudest.identifier, loudest.call, self.turn
         kin = situation.get("heard_from")
         listener.heard_from = -1 if kin is None else kin.identifier
         listener.heard_call = -1 if kin is None else kin.call
@@ -4123,7 +4130,7 @@ class Simulation:
         )
         situation = {"envy": envied, "claim_from": claim_from, "claim": claim, "gift_to": gift_to, "gift": gift, "trade_with": trade_with, "wanted": wanted_good, "offered": offered_good, "teacher_steps": -1 if teacher is None else abs(teacher.x - agent.x) + abs(teacher.y - agent.y),
                      "mate": mate, "nurseries": nurseries, "young_near": young, "young": own_young, "prey": target, "threat": threat,
-                     "threats": len(threats), "heard_from": heard_from, "quarry": quarry, "shoot_at": shoot_at, "practise_on": practise_on, "hunter": hunter, "suitor": suitor, "suitor_at": suitor and (suitor.x, suitor.y),
+                     "threats": len(threats), "heard_from": heard_from, "loudest_from": caller, "quarry": quarry, "shoot_at": shoot_at, "practise_on": practise_on, "hunter": hunter, "suitor": suitor, "suitor_at": suitor and (suitor.x, suitor.y),
                      "grass": grass, "grass_here": grass_here, "carrion": carrion, "kill": kill, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
                      "others": others, "defend_target": defend_target, "for_herd": assailant is None,
                      "herd": herd, "herd_near": herd_near, "herd_middle": herd_middle,
@@ -4438,7 +4445,13 @@ class Simulation:
         if opponent is not None and opponent.alive:
             self._brawl(agent, opponent)  # in a fight, it fights, unless it flees
         else:
+            caller = self.find_agent(agent.answer_to) if agent.answer_to >= 0 and self.turn - agent.answer_turn <= DAY_LENGTH else None
+            if caller is not None and not caller.alive:
+                caller = None
+            caller_had, had_reward = (caller.reward if caller is not None else 0.0), agent.reward
             self._do(agent, action, situation)
+            if caller is not None:
+                self._answered(agent, caller, agent.reward - had_reward, caller.reward - caller_had)
         if agent.last_action in FED:
             agent.food_memory = (agent.x, agent.y, self.turn)
         if not agent.alive:
@@ -5352,6 +5365,18 @@ class Simulation:
                 agent.crafts |= 1 << craft
                 agent.reward += DISCOVERY_JOY * (0.5 + agent.feeling("curiosity"))
                 self._experience(agent, "discovery")
+
+    @staticmethod
+    def _answered(listener: Bitzkey, caller: Bitzkey, mine: float, theirs: float) -> None:
+        """What it did touched the caller it heard: the call is answered, well or ill; and if well for both, each is
+        glad of it, whatever the call meant, as only they know."""
+        if theirs == 0:
+            return
+        listener.answer_to = -1
+        if mine <= 0 or theirs <= 0 or COMMUNICATION_JOY <= 0:
+            return
+        listener.reward += COMMUNICATION_JOY * mine
+        caller.reward += COMMUNICATION_JOY * theirs
 
     @staticmethod
     def _donned(agent: Bitzkey, had_weapon: bool, had_armour: bool) -> None:
