@@ -2549,14 +2549,30 @@ class Simulation:
             esteem = min(1.0, self._regard_for(agent, other))
             if esteem > best:
                 best, standout = esteem, other
+        # Its standout is remembered out of sight while it lives, is of its group and is held in esteem, until one in
+        # sight is held in more: it has proved itself the better.
+        remembered = self.find_agent(agent.standout) if agent.standout >= 0 else None
+        if remembered is not None and remembered.alive and remembered.species == agent.species and (agent.realm < 0 or remembered.realm == agent.realm):
+            esteem = min(1.0, self._regard_for(agent, remembered))
+            if esteem > 0 and esteem >= best:
+                best, standout = esteem, remembered
         agent.standout = -1 if standout is None else standout.identifier
         agent.followed = min(1.0, followed / LEADER_FOLLOWERS) if agent.leader and LEADER_FOLLOWERS > 0 else 0.0
         if standout is None:
             return {"leader": float(agent.leader)}, min(3, admirers) / 3, 0.0
-        near = self._closeness(agent, (standout.x, standout.y), sight)
-        return ({"leader": float(agent.leader), "standout_leads": float(standout.leader), "standout_esteem": best, "standout_closeness": near,
-                 "standout_east": max(-1.0, min(1.0, (standout.x - agent.x) / max(1, sight))),
-                 "standout_south": max(-1.0, min(1.0, (standout.y - agent.y) / max(1, sight)))}, min(3, admirers) / 3, best * near)
+        away = abs(standout.x - agent.x) + abs(standout.y - agent.y)
+        seen = away <= sight
+        near = self._closeness(agent, (standout.x, standout.y), sight) if seen else 0.0
+        heard = 0.0  # its voice known among the rest, and from where, in sight or out of it
+        if standout.call >= FIRST_CALL and standout.call_turn == self.turn - 1 and away <= call_reach(standout):
+            heard = 1 - away / (call_reach(standout) + 1)
+        found = {"leader": float(agent.leader), "standout_leads": float(standout.leader), "standout_esteem": best, "standout_closeness": near,
+                 "standout_heard": heard}
+        if seen or heard > 0:
+            span = max(1, sight if seen else call_reach(standout))
+            found["standout_east"] = max(-1.0, min(1.0, (standout.x - agent.x) / span))
+            found["standout_south"] = max(-1.0, min(1.0, (standout.y - agent.y) / span))
+        return found, min(3, admirers) / 3, best * near  # at ease in its presence
 
     def _trespass(self, agent: Bitzkey) -> None:
         """A turn in another's land: thought the worse of by those of it who see it from their land, the more each turn."""
