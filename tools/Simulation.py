@@ -631,7 +631,7 @@ TOOL_JOY = 2.0  # the harm a weapon added to a blow, as a share of its victim's 
 ARMOUR_JOY = 2.0  # the harm its armour took off a blow, as a share of its health
 GEAR_EASE = 0.15  # the ease, each turn, of a weapon or bow in hand, and as much again of armour worn
 GEAR_COURAGE = 0.25  # the share of fear's effects a weapon or bow in hand takes off, and as much again armour worn
-DON_JOY = 0.25  # gaining a weapon or bow is TOOL_JOY times this a joy, and armour ARMOUR_JOY times this
+DON_JOY = 0.25  # gaining a weapon or bow is TOOL_JOY times this a joy, and armour ARMOUR_JOY times this; dropping one as much a loss
 GEAR_DESIRE = 0.05  # desire for a kind of gear stirred by seeing it pay off, up to 1; envy counts that gear 1 + desire times
 DESIRE_FADE = 0.999  # the share of a desire for gear kept each turn, so it fades without fresh sights
 WEAPON_DESIRE, ARMOUR_DESIRE, BOW_DESIRE = 0, 1, 2
@@ -4640,10 +4640,13 @@ class Simulation:
         elif action == "drop_weapon":
             self._drop_gear((agent.x, agent.y), GEAR_KINDS[agent.weapon - 1], agent.weapon_uses)
             agent.weapon, agent.weapon_uses = NO_WEAPON, 0
+            if not agent.wielding:  # as glum as gaining it was glad, unless a bow is still in hand
+                agent.reward -= DON_JOY * TOOL_JOY
             agent.last_action = "dropped gear"
         elif action == "drop_armour":
             self._drop_gear((agent.x, agent.y), GEAR_KINDS[agent.armour_worn + 2], agent.armour_uses)
             agent.armour_worn, agent.armour_uses = NO_ARMOUR, 0
+            agent.reward -= DON_JOY * ARMOUR_JOY  # as glum as gaining it was glad
             agent.last_action = "dropped gear"
         elif action == "eat_pile":
             self._eat_pile(agent, situation)
