@@ -210,7 +210,7 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
     return {
         "identifier": agent.identifier, "dna": _genome(agent.dna), "x": agent.x, "y": agent.y,
         "hunger": float(agent.hunger), "health": float(agent.health), "stamina": float(agent.stamina), "age": agent.age,
-        "cooldown": agent.cooldown, "fruit": agent.fruit,
+        "cooldown": agent.cooldown, "fruit": agent.fruit, "picked_by": agent.picked_by,
         "last_action": agent.last_action, "brain": numbers.brain(agent.brain), "generation": agent.generation,
         "children": agent.children, "mother": agent.mother, "father": agent.father, "taught_by": agent.taught_by,
         "carried_meat": agent.carried_meat, "carried_fruit": agent.carried_fruit, "weapon": agent.weapon, "armour": agent.armour_worn, "weapon_uses": agent.weapon_uses, "armour_uses": agent.armour_uses, "bow_uses": agent.bow_uses, "archery": agent.archery, "desire": agent.desire, "wagon": agent.wagon, "tutored_turn": agent.tutored_turn,
@@ -263,6 +263,7 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
     for name in ("age", "cooldown", "generation", "children", "population", "portions", "last_choice"):
         setattr(agent, name, int(record[name]))
     agent.fruit = int(record.get("fruit", -1))  # full, in an older world
+    agent.picked_by = int(record.get("picked_by", -1))
     agent.weathered = float(record.get("weathered", 0.0))  # worlds saved before the weather's grace
     agent.last_forced = bool(record.get("last_forced", False))  # chosen, in a world saved before it was kept
     agent.last_panicked = bool(record.get("last_panicked", False))

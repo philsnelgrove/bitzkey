@@ -213,6 +213,7 @@ _TABLE: dict[str, list[tuple]] = {
          "parent closes, times the hungriest one's hunger and a half and its empathy (at 2, its young half hungry, level with "
          "the best)", 0.0, 5.0, 0.1),
         ("LOYALTY_PULL", "Loyalty pull", "how much more an animal values keeping to its herd, times its loyalty", 0.0, 5.0, 0.05),
+        ("LOYALTY_MARGIN", "Loyalty margin", "how much more esteem, times its loyalty, a follower must hold another in before it may leave its leader for it; past that, the likelier the further, and surer the less loyal", 0.0, 1.0, 0.05),
         ("DOMINANCE_EASE", "Dominance ease", "share less a crowded territory troubles the most dominant, and more the most submissive",
          0.0, 1.0, 0.05),
         ("TRUST_HEED", "Trust heed", "share more the most trusting take in what herd-mates do, and less the least", 0.0, 1.0, 0.05),
@@ -494,6 +495,8 @@ _TABLE: dict[str, list[tuple]] = {
         ("FIRE_FEED_JOY", "Fire feeding joy", "the satisfaction of feeding a fire, so that it burns on", 0.0, 5.0, 0.1),
         ("SEED_FOOD", "Seed food", "how much of a fruit's portion a seed feeds", 0.0, 1.0, 0.05),
         ("PLANTING_JOY", "Planting joy", "the gladness of planting a seed; more if curious", 0.0, 5.0, 0.1),
+        ("HARVEST_JOY", "Harvest joy", "the gladness of picking a fruit from a plant without uprooting it", 0.0, 5.0, 0.05),
+        ("REGROWTH_JOY", "Regrowth joy", "the gladness of seeing a plant it last picked bear fruit again", 0.0, 5.0, 0.05),
         ("DIG_CHANCE", "Dig chance", "chance that digging finds a stone", 0.0, 1.0, 0.05),
         ("COOKED_FOOD", "Cooked food", "times as nourishing as raw", 1.0, 5.0, 0.1),
         ("COOKED_JOY", "Cooked delight", "pleasure of eating a cooked portion, times a half and its taste for cooked food", 0.0, 5.0, 0.1),

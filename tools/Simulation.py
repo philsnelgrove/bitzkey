@@ -231,6 +231,29 @@ OTHER_KIND = 0.4       # how much of that pain reaches it when the victim is of 
 # more, times its loyalty. Dominance: a ready animal breeds with the most dominant willing partner in reach, and
 # a territory's crowding troubles the dominant less and the submissive more, by up to this share.
 LOYALTY_PULL = 0.25
+# Loyalty to a leader: a follower turns from the leader it holds its standout to one held in more esteem only by
+# chance. Not at all unless the new one is esteemed more by its loyalty times LOYALTY_MARGIN; past that, with the
+# share of the way it is from there to the most there can be, raised to its loyalty. A loyal one needs a far better
+# one even to waver; one without loyalty turns to any better on a whim.
+LOYALTY_MARGIN = 0.5
+
+
+def swayed(loyalty: float, margin: float, chance: float) -> bool:
+    need = LOYALTY_MARGIN * loyalty
+    if margin <= need or need >= 1.0:
+        return False
+    return chance < ((margin - need) / (1.0 - need)) ** loyalty
+
+
+def whim(identifier: int, turn: int) -> float:
+    """A chance of its own this turn, 0 to 1, as the C++ draws it."""
+    mask = (1 << 64) - 1
+    z = (((identifier & 0xFFFFFFFF) << 32 | (turn & 0xFFFFFFFF)) + 0x9E3779B97F4A7C15) & mask
+    z = ((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9) & mask
+    z = ((z ^ (z >> 27)) * 0x94D049BB133111EB) & mask
+    return ((z ^ (z >> 31)) >> 11) * 2.0 ** -53
+
+
 PARENTAL_INSTINCT = 2.0  # how much of the gap between feeding its young and its best other option a parent closes, times
                          # the hungriest's hunger and a half and its empathy: at 2, half hungry, level
 INFANT_HERDING = 1.0  # how much more an infant values keeping to its kind, and it herds once a cell from their middle
@@ -690,6 +713,9 @@ FOLLOW_SAFETY = 0.5
 FOLLOW_REACH = 2
 # Agriculture: raw fruit eaten leaves a seed, eaten or planted in worked land; digging works only the medium zone. As the C++ version's.
 SEED_FOOD, PLANTING_JOY = 0.1, 1.0
+# Harvest: a fruit picked from a plant without uprooting it is a small gladness (HARVEST_JOY), and its picker, seeing
+# the plant bear fruit again, is glad of it (REGROWTH_JOY), once for the last picking of it.
+HARVEST_JOY, REGROWTH_JOY = 0.1, 0.5
 # Bone crushed, as the C++ version's: with a stone carried, a club or a stone axe, a bone it carries or one from a pile on
 # its square; a scavenger eats its marrow, a portion of meat as from a pile, or, on worked land, it is fed to the soil,
 # which sprouts the next seed there in half PLANT_GESTATION, a pleasure as planting is (FERTILIZING_JOY, times curiosity).
@@ -1146,6 +1172,7 @@ class Bitzkey:
     age: int = 0
     cooldown: int = 0
     fruit: int = -1  # a plant's fruit left to pick; below 0 while it is full (see fruit_left)
+    picked_by: int = -1  # a plant's last picker, glad to see it bear again (REGROWTH_JOY); -1 for none
     last_action: str = "new"
     brain: Brain | None = None
     generation: int = 0
@@ -2616,7 +2643,8 @@ class Simulation:
         remembered = self.find_agent(agent.standout) if agent.standout >= 0 else None
         if remembered is not None and remembered.alive and remembered.species == agent.species and (agent.realm < 0 or remembered.realm == agent.realm):
             esteem = min(1.0, self._regard_for(agent, remembered))
-            if esteem > 0 and esteem >= best:
+            loyal = remembered.leader and not swayed(agent.feeling("loyalty"), best - esteem, whim(agent.identifier, self.turn))
+            if esteem > 0 and (esteem >= best or loyal):  # a leader is kept against a better as its loyalty bids
                 best, standout = esteem, remembered
         agent.standout = -1 if standout is None else standout.identifier
         agent.followed = min(1.0, followed / LEADER_FOLLOWERS) if agent.leader and LEADER_FOLLOWERS > 0 else 0.0
@@ -3387,6 +3415,11 @@ class Simulation:
                     agent.fruit += 1
                     if agent.fruit >= self.fruit_capacity(agent):
                         agent.fruit = -1
+                    if agent.picked_by >= 0 and REGROWTH_JOY > 0:  # its last picker, seeing it bear again, is glad of it
+                        picker = self.find_agent(agent.picked_by)
+                        if picker is not None and picker.alive and abs(picker.x - agent.x) + abs(picker.y - agent.y) <= picker.sight:
+                            picker.reward += REGROWTH_JOY
+                    agent.picked_by = -1
                 agent.last_action = "photosynthesized"
                 self._seed(agent)
                 continue
@@ -4860,6 +4893,8 @@ class Simulation:
             return
         agent.nourish((PLANT_MEAL + PLANT_MEAL_FOR_SIZE * plant.physique("size")) * agent.browsing * self._plant_yield(plant))
         plant.fruit = self.fruit_left(plant) - 1  # a fruit picked, the plant unhurt
+        plant.picked_by = agent.identifier
+        agent.reward += HARVEST_JOY
         agent.last_action = "browsed"
         self._deed_seen(agent, 0.0, None, "culture", culture="sowing")  # fruit picked without uprooting
         if plant.physique("weapons") > 0:
@@ -5093,6 +5128,8 @@ class Simulation:
             plant.cooldown = PLANT_RECOVERY
         else:
             plant.fruit = self.fruit_left(plant) - 1  # a fruit picked, the plant unhurt
+            plant.picked_by = agent.identifier
+            agent.reward += HARVEST_JOY
             self._deed_seen(agent, 0.0, None, "culture", culture="sowing")
         agent.carried_fruit += 1
         agent.last_action = "took fruit"
