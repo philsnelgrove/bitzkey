@@ -4226,6 +4226,20 @@ class MaterialTests(unittest.TestCase):
         Simulation._gear_pays(striker, victim, 6.0)
         self.assertAlmostEqual(victim.reward, 3 * saved)  # the bigger the blow, the more it saved
 
+    def test_holding_all_a_known_thing_needs_is_a_joy_by_its_parts(self):
+        crafter = Bitzkey(1, encode_dna("predator", size=3), 5, 5)
+        crafter.carried_wood = crafter.carried_stone = 2
+        crafter.hide, crafter.weapon = 1, 3
+        self.assertEqual(Simulation._ready_sets(crafter), 0)  # it knows nothing to make of them
+        crafter.crafts = 1 << 2 | 1 << 5  # the club and the bow
+        self.assertEqual(Simulation._ready_sets(crafter), 1 << 2 | 1 << 5)
+        club = Simulation._ready_worth(crafter, 1 << 2)
+        self.assertGreater(club, 0)
+        self.assertAlmostEqual(Simulation._ready_worth(crafter, 1 << 5), 4 * club)  # a bow, four parts
+        crafter.road_known = 0.5
+        self.assertEqual(Simulation._ready_sets(crafter) >> 7 & 1, 1)  # a road section's stones, with a stone axe
+        self.assertEqual(Simulation._ready_sets(crafter) >> 6 & 1, 0)  # not a shelter's worth, nor known
+
     def test_a_call_answered_by_a_deed_good_for_both_is_a_joy_to_each(self):
         caller = Bitzkey(1, encode_dna("omnivore", size=3), 5, 5)
         listener = Bitzkey(2, encode_dna("grazer", size=3), 6, 5)

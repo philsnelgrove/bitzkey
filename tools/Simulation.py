@@ -636,6 +636,7 @@ DON_JOY = 0.25  # gaining a weapon or bow is TOOL_JOY times this a joy, and armo
 GEAR_DESIRE = 0.05  # desire for a kind of gear stirred by seeing it pay off, up to 1; envy counts that gear 1 + desire times
 DESIRE_FADE = 0.999  # the share of a desire for gear kept each turn, so it fades without fresh sights
 WEAPON_DESIRE, ARMOUR_DESIRE, BOW_DESIRE = 0, 1, 2
+READY_JOY = 0.3  # for each part of a set it holds for what it knows how to make (half plus mostly patience)
 BUILD_THRILL = 1.0  # each stage of a shelter, k of SHELTER_UNITS, thrills BUILD_THRILL * k / SHELTER_UNITS; finishing it, twice BUILD_THRILL (times curiosity, plus SHELTER_LONGING times its shelter memory)
 # A finished shelter keeps the weather off whoever stands in it, hot or cold. Resting inside is a comfort
 # (SHELTER_COMFORT, half standing in one), and each turn of it is remembered, to a full memory after a day, so that
@@ -4440,6 +4441,7 @@ class Simulation:
         passed = len(agent.trail)
         agent.desire = [desire * DESIRE_FADE for desire in agent.desire]
         had = self._possessions_as(agent, agent)
+        ready_before = self._ready_sets(agent)
         fight = self._fight_of(agent.identifier) if action != "flee" else None
         opponent = self.find_agent(fight[1] if fight[0] == agent.identifier else fight[0]) if fight else None
         if opponent is not None and opponent.alive:
@@ -4456,6 +4458,11 @@ class Simulation:
             agent.food_memory = (agent.x, agent.y, self.turn)
         if not agent.alive:
             return
+        if READY_JOY > 0:  # glad to hold all that a thing it knows needs, and as sorry to break the set, but by using or giving it
+            ready_now = self._ready_sets(agent)
+            agent.reward += self._ready_worth(agent, ready_now & ~ready_before)
+            if action not in CRAFTS and action not in ("construct", "build_road", "give", "offer"):
+                agent.reward -= self._ready_worth(agent, ready_before & ~ready_now)
         gained = self._possessions_as(agent, agent) - had
         if gained > 0:
             agent.reward += ENVY_JOY * self._envy_of(agent) * gained  # the envious, glad of better
@@ -5365,6 +5372,30 @@ class Simulation:
                 agent.crafts |= 1 << craft
                 agent.reward += DISCOVERY_JOY * (0.5 + agent.feeling("curiosity"))
                 self._experience(agent, "discovery")
+
+    @staticmethod
+    def _ready_sets(agent: Bitzkey) -> int:
+        """Each recipe it knows whose materials it holds; a shelter's worth of stone or wood with a tool, and a road
+        section's stones with a stone axe, once it knows shelters or roads: a bit for each, as the C++ version."""
+        holds = (agent.carried_bone > 0, agent.carried_bone > 0, agent.carried_wood > 0, agent.carried_wood > 0,
+                 agent.carried_stone > 0 and agent.carried_bone + agent.carried_wood > 0,
+                 agent.weapon == STONE_AXE and agent.carried_wood >= BOW_WOOD and agent.hide > 0)
+        sets = sum(1 << craft for craft, held in enumerate(holds) if held and agent.crafts >> craft & 1)
+        if agent.shelter_known > 0 and agent.weapon and agent.carried_stone + agent.carried_wood >= SHELTER_UNITS:
+            sets |= 1 << len(CRAFTS)
+        if agent.road_known > 0 and agent.weapon == STONE_AXE and agent.carried_stone >= ROAD_STONES:
+            sets |= 1 << (len(CRAFTS) + 1)
+        return sets
+
+    @staticmethod
+    def _ready_worth(agent: Bitzkey, sets: int) -> float:
+        """The joy of those sets, by their parts: a bow is a kept stone axe, two wood and a hide."""
+        parts = sum(part for craft, part in enumerate((1, 1, 1, 1, 2, 4)) if sets >> craft & 1)
+        if sets >> len(CRAFTS) & 1:
+            parts += SHELTER_UNITS
+        if sets >> (len(CRAFTS) + 1) & 1:
+            parts += 1 + ROAD_STONES
+        return READY_JOY * parts * (0.5 + 0.75 * agent.feeling("patience") + 0.25 * agent.intelligence)
 
     @staticmethod
     def _answered(listener: Bitzkey, caller: Bitzkey, mine: float, theirs: float) -> None:
