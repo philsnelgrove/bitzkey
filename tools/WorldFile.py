@@ -216,7 +216,7 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "carried_meat": agent.carried_meat, "carried_fruit": agent.carried_fruit, "weapon": agent.weapon, "armour": agent.armour_worn, "weapon_uses": agent.weapon_uses, "armour_uses": agent.armour_uses, "bow_uses": agent.bow_uses, "archery": agent.archery, "desire": agent.desire, "tutored_turn": agent.tutored_turn,
         "infant_taught": agent.infant_taught, "crafts": agent.crafts, "craft_tries": agent.craft_tries, "cooked_meat": agent.cooked_meat, "cooked_fruit": agent.cooked_fruit,
         "carried_stone": agent.carried_stone,
-        "carried_bone": agent.carried_bone, "carried_wood": agent.carried_wood, "carried_seed": agent.carried_seed, "boredom": float(agent.boredom), "shelter_known": float(agent.shelter_known), "road_known": float(agent.road_known), "cooked_known": float(agent.cooked_known), "plenty": float(agent.plenty), "plenty_known": float(agent.plenty_known), "hide": agent.hide, "hide_armour": float(agent.hide_armour), "skinned": agent.skinned, "thefts": agent.thefts, "mark": agent.mark, "realm": agent.realm, "standout": agent.standout, "follows": agent.follows, "followers": agent.followers, "leader": agent.leader, "trespass": agent.trespass, "meat_lean": float(agent.meat_lean), "expected": agent.expected, "last_tried": [agent.last_tried.get(action, 0) for action in ACTIONS], "died_turn": agent.died_turn, "assailant": agent.assailant,
+        "carried_bone": agent.carried_bone, "carried_wood": agent.carried_wood, "carried_seed": agent.carried_seed, "boredom": float(agent.boredom), "shelter_known": float(agent.shelter_known), "road_known": float(agent.road_known), "cooked_known": float(agent.cooked_known), "plenty": float(agent.plenty), "plenty_known": float(agent.plenty_known), "hide": agent.hide, "hide_armour": float(agent.hide_armour), "spare_tools": [list(tool) for tool in agent.spare_tools], "spare_hides": [[hide[0], float(hide[1])] for hide in agent.spare_hides], "skinned": agent.skinned, "thefts": agent.thefts, "mark": agent.mark, "realm": agent.realm, "standout": agent.standout, "follows": agent.follows, "followers": agent.followers, "leader": agent.leader, "trespass": agent.trespass, "meat_lean": float(agent.meat_lean), "expected": agent.expected, "last_tried": [agent.last_tried.get(action, 0) for action in ACTIONS], "died_turn": agent.died_turn, "assailant": agent.assailant,
         "panicked": agent.panicked, "primal_fear": agent.primal_fear, "rivalry": float(agent.rivalry),
         "own_rivalry": float(agent.own_rivalry), "hunts_grazers": agent.hunts_grazers,
         "hunts_omnivores": agent.hunts_omnivores, "hunts_predators": agent.hunts_predators, "guarded": agent.guarded,
@@ -313,6 +313,8 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
     agent.plenty_known = float(record.get("plenty_known", -1.0))
     agent.hide = int(record.get("hide", 0))
     agent.hide_armour = float(record.get("hide_armour", 0.0))
+    agent.spare_tools = [[int(tool[0]), int(tool[1])] for tool in record.get("spare_tools", [])]  # none, in a world saved before
+    agent.spare_hides = [[int(hide[0]), float(hide[1])] for hide in record.get("spare_hides", [])]
     agent.skinned = bool(record.get("skinned", False))
     agent.thefts = int(record.get("thefts", 0))
     agent.mark = int(record.get("mark", 0))  # none, in an older world

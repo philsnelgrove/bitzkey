@@ -4226,6 +4226,34 @@ class MaterialTests(unittest.TestCase):
         Simulation._gear_pays(striker, victim, 6.0)
         self.assertAlmostEqual(victim.reward, 3 * saved)  # the bigger the blow, the more it saved
 
+    def test_tools_and_hides_are_carried_beside_those_in_hand_and_worn(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        agent = Bitzkey(1, encode_dna("predator", size=3), 5, 5)
+        agent.weapon, agent.hide = 1, 3  # a bone axe, a predator's hide
+        agent.spare_tools.append([3, 0])  # a stone axe
+        agent.spare_hides.append([1, 0.1])  # a grazer's hide
+        simulation._arrange(agent)
+        self.assertEqual(agent.weapon, 3)  # the better to hand
+        self.assertEqual(agent.spare_tools, [[1, 0]])
+        self.assertEqual(agent.hide, 3)  # the finer worn
+        self.assertEqual(agent.load, 2)
+        agent.armour_worn, agent.weapon, agent.spare_tools = 1, 0, [[1, 0]]
+        simulation._arrange(agent)
+        self.assertEqual(agent.weapon, 0)  # no bone axe in hand with armour on, but carried
+        self.assertTrue(agent.has_tool(1))
+        agent.armour_worn, agent.spare_tools, agent.weapon = 0, [[3, 0]], 2
+        agent.carried_wood = simulation_module.BOW_WOOD
+        agent.crafts = 1 << 5
+        agent.craft_tries[5] = 10
+        simulation._arrange(agent)
+        simulation._make_gear(agent, "make_bow")  # the stone axe carried serves, and the poorer hide is spent
+        self.assertEqual(agent.bow_uses, simulation_module.BOW_USES)
+        self.assertEqual(agent.spare_hides, [])
+        self.assertEqual(agent.hide, 3)
+        agent.spare_hides.extend([[1, 0.1] for _ in range(20)])
+        simulation._arrange(agent)
+        self.assertLessEqual(agent.load, agent.capacity)  # what it cannot carry falls
+
     def test_holding_all_a_known_thing_needs_is_a_joy_by_its_parts(self):
         crafter = Bitzkey(1, encode_dna("predator", size=3), 5, 5)
         crafter.carried_wood = crafter.carried_stone = 2

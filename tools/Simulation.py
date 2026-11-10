@@ -632,6 +632,21 @@ TOOL_JOY = 2.0  # the harm a weapon added to a blow, as a share of its victim's 
 ARMOUR_JOY = 2.0  # the harm its armour took off a blow, as a share of its health
 GEAR_EASE = 0.15  # the ease, each turn, of a weapon or bow in hand, and as much again of armour worn
 GEAR_COURAGE = 0.25  # the share of fear's effects a weapon or bow in hand takes off, and as much again armour worn
+
+def _tool_worth(kind: int) -> float:
+    return 1.0 if kind == STONE_AXE else 0.5 if kind else 0.0
+
+
+def _tools_worth(agent) -> float:
+    """In hand and carried."""
+    return _tool_worth(agent.weapon) + sum(_tool_worth(tool[0]) for tool in agent.spare_tools)
+
+
+def _hides_worth(agent) -> float:
+    """Worn and carried."""
+    return agent.hide / 3 + sum(hide[0] / 3 for hide in agent.spare_hides)
+
+
 DON_JOY = 0.25  # gaining a weapon or bow is TOOL_JOY times this a joy, and armour ARMOUR_JOY times this; dropping one as much a loss
 GEAR_DESIRE = 0.05  # desire for a kind of gear stirred by seeing it pay off, up to 1; envy counts that gear 1 + desire times
 DESIRE_FADE = 0.999  # the share of a desire for gear kept each turn, so it fades without fresh sights
@@ -1137,6 +1152,8 @@ class Bitzkey:
     road_known: float = 0.0  # its memory of going by road, 0 to 1 after a day of it (see ROAD_LONGING)
     hide: int = 0  # the hide it wears, by the index of the species it came from, 0 none; a body keeps it
     hide_armour: float = 0.0  # the armour the hide adds
+    spare_tools: list[list[int]] = field(default_factory=list)  # [kind, uses] of each tool carried beside the one in hand
+    spare_hides: list[list] = field(default_factory=list)  # [kind, armour] of each hide carried beside the one worn
     skinned: bool = False  # a body whose hide has been taken
     regarded: float = 0.0  # how well those who know it regard it, on average, as of this turn
     thefts: int = 0  # possessions it has stolen
@@ -1275,7 +1292,8 @@ class Bitzkey:
 
     @property
     def load(self) -> int:
-        return self.carried_meat + self.carried_fruit + self.cooked_meat + self.cooked_fruit + self.carried_stone + self.carried_bone + self.carried_wood
+        return (self.carried_meat + self.carried_fruit + self.cooked_meat + self.cooked_fruit + self.carried_stone + self.carried_bone + self.carried_wood
+                + len(self.spare_tools) + len(self.spare_hides))
 
     @property
     def exhausted(self) -> bool:
@@ -1387,6 +1405,18 @@ class Bitzkey:
     def gear_held(self) -> int:
         """A weapon or bow in hand, and armour worn."""
         return int(self.wielding) + int(self.wearing)
+
+    def has_tool(self, kind: int) -> bool:
+        """In hand or carried: either serves for crafting."""
+        return self.weapon == kind or any(tool[0] == kind for tool in self.spare_tools)
+
+    @property
+    def any_tool(self) -> bool:
+        return bool(self.weapon) or bool(self.spare_tools)
+
+    @property
+    def any_hide(self) -> bool:
+        return self.hide > 0 or bool(self.spare_hides)
 
     @property
     def unafraid(self) -> float:
@@ -2004,11 +2034,6 @@ class Simulation:
 
     def _hand_over(self, giver: Bitzkey, taker: Bitzkey, possession: int) -> None:
         """What the taker had of it falls where it stands."""
-        def drop_weapon(one: Bitzkey) -> None:
-            if one.weapon:
-                self._drop_gear((one.x, one.y), GEAR_KINDS[one.weapon - 1], one.weapon_uses)
-            one.weapon, one.weapon_uses = NO_WEAPON, 0
-
         def drop_armour(one: Bitzkey) -> None:
             if one.armour_worn:
                 self._drop_gear((one.x, one.y), GEAR_KINDS[one.armour_worn + 2], one.armour_uses)
@@ -2019,21 +2044,18 @@ class Simulation:
             if taker.bow_uses > 0:
                 self._drop_gear((taker.x, taker.y), "bow", BOW_USES - taker.bow_uses)
             taker.bow_uses, giver.bow_uses = giver.bow_uses, 0
-        elif possession == HIDE_POSSESSION:
-            taker.hide, taker.hide_armour = giver.hide, giver.hide_armour
+        elif possession == HIDE_POSSESSION:  # the one worn, to the taker's pack: each wears its best (see _arrange)
+            taker.spare_hides.append([giver.hide, giver.hide_armour])
             giver.hide, giver.hide_armour = 0, 0.0
-        elif possession == WEAPON_POSSESSION:
-            drop_weapon(taker)
-            taker.weapon, taker.weapon_uses = giver.weapon, giver.weapon_uses
+        elif possession == WEAPON_POSSESSION:  # the one in hand, likewise
+            taker.spare_tools.append([giver.weapon, giver.weapon_uses])
             giver.weapon, giver.weapon_uses = NO_WEAPON, 0
-            if taker.weapon != STONE_AXE:
-                drop_armour(taker)  # a bone axe or club goes with no armour
         else:
             drop_armour(taker)
             taker.armour_worn, taker.armour_uses = giver.armour_worn, giver.armour_uses
             giver.armour_worn, giver.armour_uses = NO_ARMOUR, 0
-            if taker.weapon in (BONE_AXE, CLUB):
-                drop_weapon(taker)
+        self._arrange(taker)
+        self._arrange(giver)
         self._donned(taker, had_weapon, had_armour)
 
     def _demand(self, agent: Bitzkey, owner: Bitzkey, possession: int) -> None:
@@ -2668,14 +2690,13 @@ class Simulation:
     @staticmethod
     def _possessions(agent: Bitzkey) -> float:
         """Its possessions, for envy: its hide, tool and armour."""
-        return (agent.hide / 3 + (1.0 if agent.weapon == STONE_AXE else 0.5 if agent.weapon else 0.0) + (0.5 if agent.armour_worn else 0.0)
-                + (0.5 if agent.bow_uses > 0 else 0.0))
+        return _hides_worth(agent) + _tools_worth(agent) + (0.5 if agent.armour_worn else 0.0) + (0.5 if agent.bow_uses > 0 else 0.0)
 
     @staticmethod
     def _possessions_as(agent: Bitzkey, judge: Bitzkey) -> float:
         """Its possessions as the judge, by its desires, weighs them."""
         desire = judge.desire
-        return (agent.hide / 3 + (1 + desire[WEAPON_DESIRE]) * (1.0 if agent.weapon == STONE_AXE else 0.5 if agent.weapon else 0.0)
+        return (_hides_worth(agent) + (1 + desire[WEAPON_DESIRE]) * _tools_worth(agent)
                 + (1 + desire[ARMOUR_DESIRE]) * (0.5 if agent.armour_worn else 0.0) + (1 + desire[BOW_DESIRE]) * (0.5 if agent.bow_uses > 0 else 0.0))
 
     def _gear_seen(self, user: Bitzkey, kind: int) -> None:
@@ -2725,10 +2746,9 @@ class Simulation:
         self._wear_weapon(agent)
         agent.last_action = "skinned a body"
         hide = self._hide_from(corpse)
-        if hide <= agent.hide:
-            return  # no better than its own
-        agent.hide_armour = corpse.hide_armour if corpse.hide > SPECIES.index(corpse.species) else HIDE_ARMOUR_SHARE * corpse.physique("armour")
-        agent.hide = hide
+        # Its own hide's armour, or, if it wore a finer one, that one's: worn if better than its own, else carried.
+        agent.spare_hides.append([hide, corpse.hide_armour if corpse.hide > SPECIES.index(corpse.species) else HIDE_ARMOUR_SHARE * corpse.physique("armour")])
+        self._arrange(agent)
         agent.reward += SKINNING_JOY * (0.5 + agent.feeling("curiosity")) * hide / 3
         self._deed_seen(agent, CRAFT_DEED, None, "skill")
 
@@ -3809,10 +3829,10 @@ class Simulation:
         bone_pile = self._nearest_pile(agent, sight, self.bone_piles) if self._any_piles else None
         wood_pile = self._nearest_pile(agent, sight, self.wood_piles) if self._any_piles else None
         gear_pile, gear_kind = None, None
-        heavy = agent.weapon in (BONE_AXE, CLUB)
+        room = agent.load < agent.capacity  # a tool beside those it has, if it has room to carry it
         for kind in GEAR_KINDS[:5] if self._any_piles else ():
             wields = kind in GEAR_KINDS[:3]
-            if (agent.weapon or (kind != "stone_axe" and agent.armour_worn)) if wields else (agent.armour_worn or heavy):
+            if (agent.has_tool(GEAR_KINDS.index(kind) + 1) or not room) if wields else agent.armour_worn:
                 continue
             gear_pile = self._nearest_pile(agent, sight, self.gear_piles[kind])
             if gear_pile:
@@ -3893,20 +3913,20 @@ class Simulation:
             if wood_pile:
                 available.add("take_wood")
         known = lambda action: agent.crafts >> CRAFTS.index(action) & 1
-        if not agent.weapon:
-            if not agent.armour_worn and agent.carried_bone and known("make_bone_axe"):
-                available.add("make_bone_axe")
-            if not agent.armour_worn and agent.carried_wood and known("make_club"):
-                available.add("make_club")
-            if agent.carried_stone and agent.carried_bone + agent.carried_wood and known("make_stone_axe"):
-                available.add("make_stone_axe")
-        if known("make_bow") and agent.weapon == STONE_AXE and agent.carried_wood >= BOW_WOOD and agent.hide > 0 and agent.bow_uses == 0:
+        # A tool beside those it has, one of each kind at most: what it holds in hand goes to its pack (see _arrange).
+        if agent.carried_bone and known("make_bone_axe") and not agent.has_tool(BONE_AXE):
+            available.add("make_bone_axe")
+        if agent.carried_wood and known("make_club") and not agent.has_tool(CLUB):
+            available.add("make_club")
+        if agent.carried_stone and agent.carried_bone + agent.carried_wood and known("make_stone_axe") and not agent.has_tool(STONE_AXE):
+            available.add("make_stone_axe")
+        if known("make_bow") and agent.has_tool(STONE_AXE) and agent.carried_wood >= BOW_WOOD and agent.any_hide and agent.bow_uses == 0:
             available.add("make_bow")
         if shoot_at is not None:
             available.add("shoot")
         if practise_on is not None:
             available.add("practise")
-        if not agent.armour_worn and agent.weapon not in (BONE_AXE, CLUB):
+        if not agent.armour_worn:  # a bone axe or club in hand goes to its pack (see _arrange)
             if agent.carried_bone and known("make_bone_armour"):
                 available.add("make_bone_armour")
             if agent.carried_wood and known("make_wood_armour"):
@@ -3915,9 +3935,10 @@ class Simulation:
             available.add("take_gear")
         if agent.weapon:
             available.add("drop_weapon")
-            if not self.sea(agent.x, agent.y):
-                available.add("dig")
-        if flora and agent.weapon in (BONE_AXE, STONE_AXE):
+        if agent.any_tool and not self.sea(agent.x, agent.y):
+            available.add("dig")
+        axe = agent.has_tool(BONE_AXE) or agent.has_tool(STONE_AXE)
+        if flora and axe:
             available.add("cut")
         if agent.armour_worn:
             available.add("drop_armour")
@@ -3939,7 +3960,7 @@ class Simulation:
         cooked_fruit = self._nearest_pile(agent, reach, self.cooked_fruit_piles) if self._any_piles else None
         eat_fruit = cooked_fruit if seen(cooked_fruit) else fruit_pile or cooked_fruit
         beside_fire = fire is not None and abs(fire[0] - agent.x) + abs(fire[1] - agent.y) <= 1
-        if agent.weapon and agent.carried_stone + agent.carried_wood and (agent.x, agent.y) not in self.shelters and not self.sea(agent.x, agent.y):
+        if agent.any_tool and agent.carried_stone + agent.carried_wood and (agent.x, agent.y) not in self.shelters and not self.sea(agent.x, agent.y):
             available.add("construct")
         square = (agent.x, agent.y)
         if self._can_crush(agent):
@@ -3947,8 +3968,8 @@ class Simulation:
                 available.add("eat_marrow")
             if square in self.arable and square not in self.fertilized:
                 available.add("fertilize")
-        if (agent.weapon in (BONE_AXE, STONE_AXE) and dressable is not None and dressable.species != "plant" and not dressable.skinned
-                and self._hide_from(dressable) > agent.hide):
+        if (axe and dressable is not None and dressable.species != "plant" and not dressable.skinned
+                and (self._hide_from(dressable) > agent.hide or agent.load < agent.capacity)):  # to wear, or carry
             available.add("skin")
         envied = 0.0  # how much better the best possessions it sees are than its own
         if envy > 0:
@@ -4004,9 +4025,9 @@ class Simulation:
                 best_gain, trade_with, wanted_good, offered_good = gain, other, wanted, offered
         if trade_with is not None:
             available.add("offer")
-        if agent.weapon == STONE_AXE and agent.carried_stone >= ROAD_STONES and square not in self.roads and square not in self.shelters and square not in self.sites and not self.sea(*square):
+        if agent.has_tool(STONE_AXE) and agent.carried_stone >= ROAD_STONES and square not in self.roads and square not in self.shelters and square not in self.sites and not self.sea(*square):
             available.add("build_road")
-        if (agent.weapon == CLUB or agent.carried_stone >= FIRE_STONES) and not self.sea(agent.x, agent.y):
+        if (agent.has_tool(CLUB) or agent.carried_stone >= FIRE_STONES) and not self.sea(agent.x, agent.y):
             available.add("light_fire")
         if agent.carried_seed:
             if agent.browsing > 0:
@@ -4416,6 +4437,9 @@ class Simulation:
             self._drop_gear((agent.x, agent.y), GEAR_KINDS[agent.armour_worn + 2], agent.armour_uses)
         if agent.bow_uses > 0:
             self._drop_gear((agent.x, agent.y), "bow", BOW_USES - agent.bow_uses)  # as worn as it was
+        for kind, uses in agent.spare_tools:
+            self._drop_gear((agent.x, agent.y), GEAR_KINDS[kind - 1], uses)
+        agent.spare_tools, agent.spare_hides = [], []  # the body keeps the one worn
         agent.weapon = NO_WEAPON
         agent.armour_worn = NO_ARMOUR
         agent.bow_uses = 0
@@ -4660,6 +4684,7 @@ class Simulation:
         elif action == "drop_weapon":
             self._drop_gear((agent.x, agent.y), GEAR_KINDS[agent.weapon - 1], agent.weapon_uses)
             agent.weapon, agent.weapon_uses = NO_WEAPON, 0
+            self._arrange(agent)  # another it carries to hand
             if not agent.wielding:  # as glum as gaining it was glad, unless a bow is still in hand
                 agent.reward -= DON_JOY * TOOL_JOY
             agent.last_action = "dropped gear"
@@ -5088,6 +5113,57 @@ class Simulation:
             agent.weapon_uses += 1
             if agent.weapon_uses >= GEAR_USES:
                 agent.weapon, agent.weapon_uses = NO_WEAPON, 0
+                Simulation._wield_best(agent)  # another it carries to hand
+
+    @staticmethod
+    def _wield_best(agent: Bitzkey) -> None:
+        """A stone axe first, then a bone axe, then a club, the least worn of each; a bone axe or club only with no armour on."""
+        if agent.weapon:
+            agent.spare_tools.append([agent.weapon, agent.weapon_uses])
+        agent.weapon, agent.weapon_uses = NO_WEAPON, 0
+        rank = lambda tool: (3 if tool[0] == STONE_AXE else 2 if tool[0] == BONE_AXE else 1) * 10000 - tool[1]
+        best = None
+        for tool in agent.spare_tools:
+            if (tool[0] == STONE_AXE or not agent.armour_worn) and (best is None or rank(tool) > rank(best)):
+                best = tool
+        if best is not None:
+            agent.weapon, agent.weapon_uses = best
+            agent.spare_tools.remove(best)
+
+    @staticmethod
+    def _wear_best(agent: Bitzkey) -> None:
+        """The finest hide, by the kind it came from, then its armour."""
+        if agent.hide:
+            agent.spare_hides.append([agent.hide, agent.hide_armour])
+        agent.hide, agent.hide_armour = 0, 0.0
+        if agent.spare_hides:
+            best = max(agent.spare_hides, key=lambda hide: (hide[0], hide[1]))
+            agent.hide, agent.hide_armour = best
+            agent.spare_hides.remove(best)
+
+    def _arrange(self, agent: Bitzkey) -> None:
+        """Both, and what it cannot carry falls, the least worth first: a tool to the pile on its square, a hide lost."""
+        self._wield_best(agent)
+        self._wear_best(agent)
+        while agent.load > agent.capacity and (agent.spare_tools or agent.spare_hides):
+            tool = min(agent.spare_tools, key=lambda one: _tool_worth(one[0]), default=None)
+            hide = min(agent.spare_hides, key=lambda one: one[0], default=None)
+            if hide is None or (tool is not None and _tool_worth(tool[0]) <= hide[0] / 3):
+                self._drop_gear((agent.x, agent.y), GEAR_KINDS[tool[0] - 1], tool[1])
+                agent.spare_tools.remove(tool)
+            else:
+                agent.spare_hides.remove(hide)
+
+    def _spend_tool(self, agent: Bitzkey, kind: int) -> None:
+        """One of that kind, in hand or carried, used up."""
+        if agent.weapon == kind:
+            agent.weapon, agent.weapon_uses = NO_WEAPON, 0
+        else:
+            for tool in agent.spare_tools:
+                if tool[0] == kind:
+                    agent.spare_tools.remove(tool)
+                    break
+        self._arrange(agent)
 
     @staticmethod
     def _wear_armour(agent: Bitzkey) -> None:
@@ -5186,7 +5262,7 @@ class Simulation:
 
     def _can_crush(self, agent: Bitzkey) -> bool:
         """A bone to hand and something to crush it with."""
-        return (agent.weapon in (CLUB, STONE_AXE) or agent.carried_stone > 0) and (agent.carried_bone > 0 or self.bone_piles.get((agent.x, agent.y), 0) > 0)
+        return (agent.has_tool(CLUB) or agent.has_tool(STONE_AXE) or agent.carried_stone > 0) and (agent.carried_bone > 0 or self.bone_piles.get((agent.x, agent.y), 0) > 0)
 
     def _crush_bone(self, agent: Bitzkey) -> bool:
         """Spends the bone it carries, or else one from the pile on its square; False if another took the last first."""
@@ -5286,7 +5362,7 @@ class Simulation:
         """Struck from two stones it carries, which it keeps, or of its club, spent."""
         self.fires[(agent.x, agent.y)] = (self.turn + FIRE_TURNS, agent.identifier)
         if agent.carried_stone < FIRE_STONES:
-            agent.weapon, agent.weapon_uses = NO_WEAPON, 0
+            self._spend_tool(agent, CLUB)
         agent.last_action = "lit a fire"
         agent.reward += FIRE_JOY
         self._deed_seen(agent, FIRE_DEED, None, "skill")
@@ -5366,7 +5442,7 @@ class Simulation:
         """Perhaps, a craft whose materials it holds."""
         holds = (agent.carried_bone > 0, agent.carried_bone > 0, agent.carried_wood > 0, agent.carried_wood > 0,
                  agent.carried_stone > 0 and agent.carried_bone + agent.carried_wood > 0,
-                 agent.weapon == STONE_AXE and agent.carried_wood >= BOW_WOOD and agent.hide > 0)
+                 agent.has_tool(STONE_AXE) and agent.carried_wood >= BOW_WOOD and agent.any_hide)
         for craft, held in enumerate(holds):
             if held and not agent.crafts >> craft & 1 and self.random.random() < DISCOVERY_CHANCE * agent.intelligence * (2 if agent.species == "omnivore" else 1):
                 agent.crafts |= 1 << craft
@@ -5379,11 +5455,11 @@ class Simulation:
         section's stones with a stone axe, once it knows shelters or roads: a bit for each, as the C++ version."""
         holds = (agent.carried_bone > 0, agent.carried_bone > 0, agent.carried_wood > 0, agent.carried_wood > 0,
                  agent.carried_stone > 0 and agent.carried_bone + agent.carried_wood > 0,
-                 agent.weapon == STONE_AXE and agent.carried_wood >= BOW_WOOD and agent.hide > 0)
+                 agent.has_tool(STONE_AXE) and agent.carried_wood >= BOW_WOOD and agent.any_hide)
         sets = sum(1 << craft for craft, held in enumerate(holds) if held and agent.crafts >> craft & 1)
-        if agent.shelter_known > 0 and agent.weapon and agent.carried_stone + agent.carried_wood >= SHELTER_UNITS:
+        if agent.shelter_known > 0 and agent.any_tool and agent.carried_stone + agent.carried_wood >= SHELTER_UNITS:
             sets |= 1 << len(CRAFTS)
-        if agent.road_known > 0 and agent.weapon == STONE_AXE and agent.carried_stone >= ROAD_STONES:
+        if agent.road_known > 0 and agent.has_tool(STONE_AXE) and agent.carried_stone >= ROAD_STONES:
             sets |= 1 << (len(CRAFTS) + 1)
         return sets
 
@@ -5429,19 +5505,22 @@ class Simulation:
         had_weapon, had_armour = agent.wielding, agent.wearing
         if action == "make_bone_axe":
             agent.carried_bone -= 1
-            agent.weapon = BONE_AXE
+            agent.spare_tools.append([BONE_AXE, 0])  # to hand if the best (see _arrange)
         elif action == "make_club":
             agent.carried_wood -= 1
-            agent.weapon = CLUB
+            agent.spare_tools.append([CLUB, 0])
         elif action == "make_bone_armour":
             agent.carried_bone -= 1
-            agent.armour_worn = BONE_ARMOUR
+            agent.armour_worn, agent.armour_uses = BONE_ARMOUR, 0
         elif action == "make_wood_armour":
             agent.carried_wood -= 1
-            agent.armour_worn = WOOD_ARMOUR
-        elif action == "make_bow":  # two wood and the hide it wore, with the stone axe it keeps
+            agent.armour_worn, agent.armour_uses = WOOD_ARMOUR, 0
+        elif action == "make_bow":  # two wood and a hide, the poorest it carries or else the one it wears, with the stone axe it keeps
             agent.carried_wood -= BOW_WOOD
-            agent.hide, agent.hide_armour = 0, 0.0
+            if agent.spare_hides:
+                agent.spare_hides.remove(min(agent.spare_hides, key=lambda hide: (hide[0], hide[1])))
+            else:
+                agent.hide, agent.hide_armour = 0, 0.0
             agent.bow_uses = BOW_USES
         else:  # a stone axe, of a stone and a bone, or wood if it has no bone
             agent.carried_stone -= 1
@@ -5449,14 +5528,11 @@ class Simulation:
                 agent.carried_bone -= 1
             else:
                 agent.carried_wood -= 1
-            agent.weapon = STONE_AXE
+            agent.spare_tools.append([STONE_AXE, 0])
+        self._arrange(agent)
         agent.reward += CRAFT_JOY * (0.5 if action in ("make_bone_armour", "make_wood_armour") else 1.0) * (0.5 + agent.feeling("curiosity"))
         self._donned(agent, had_weapon, had_armour)
         self._deed_seen(agent, CRAFT_DEED, None, "skill", craft, "craft")
-        if action != "make_bow":
-            if action not in ("make_bone_armour", "make_wood_armour"):
-                agent.weapon_uses = 0
-            agent.armour_uses = 0
         agent.last_action = "made gear"
 
     def _take_gear(self, agent: Bitzkey, pile: tuple[int, int], kind: str) -> None:
@@ -5475,9 +5551,10 @@ class Simulation:
         if kind == "bow":
             agent.bow_uses = max(1, BOW_USES - uses)
         elif kind in GEAR_KINDS[:3]:
-            agent.weapon, agent.weapon_uses = GEAR_KINDS.index(kind) + 1, uses
+            agent.spare_tools.append([GEAR_KINDS.index(kind) + 1, uses])  # to hand if the best (see _arrange)
         else:
             agent.armour_worn, agent.armour_uses = GEAR_KINDS.index(kind) - 2, uses
+        self._arrange(agent)
         self._donned(agent, had_weapon, had_armour)
         agent.last_action = "took gear"
 
