@@ -236,6 +236,16 @@ LOYALTY_PULL = 0.25
 # share of the way it is from there to the most there can be, raised to its loyalty. A loyal one needs a far better
 # one even to waver; one without loyalty turns to any better on a whim.
 LOYALTY_MARGIN = 0.5
+# Convictions: a trait at CONVICTION_LEVEL of its full range or more is one it won't break, even starving. Empathy: a
+# grazer won't uproot a plant, and a predator won't hunt, strike or feast on an infant or one carrying young.
+# Tolerance: it won't strike a foe nor drive one from its land, only defend itself and its own; it still hunts to eat.
+CONVICTION_LEVEL = 1.0
+# Scruples, short of conviction: the kinder value uprooting a plant EMPATHY_SCRUPLE less, times their empathy, and a
+# predator likewise hunting, striking or feasting on an infant or one carrying young; the more tolerant value striking
+# a foe or driving one out TOLERANCE_SCRUPLE less, times their tolerance, though not hunting to eat.
+EMPATHY_SCRUPLE, TOLERANCE_SCRUPLE = 1.0, 1.0
+# Sociability: an animal values making an offer this much more, times its sociability.
+SOCIABLE_TRADE = 0.25
 
 
 def swayed(loyalty: float, margin: float, chance: float) -> bool:
@@ -570,6 +580,7 @@ KIND_DIFFERENCE = 0.25
 # breed; between that and twice that, its litter shrinks in proportion.
 FORAGE_RADIUS = 6
 FOOD_NEEDED = 0.0  # 0: no limit, and litters don't follow food
+UPROOT_SORROW = 0.5  # a grazer's sorrow at tearing into a plant, times a half plus its empathy
 UPROOT_FOOD = 3.0  # a starving grazer uproots a plant only with fewer meals a mouth than this about it
 BREED_COOLDOWN = 1.0  # grazers' and omnivores' share of the usual rest after breeding, 20 turns for the least fertile to 5 for the most
 PREDATOR_BREED_COOLDOWN = 0.5  # the same for predators: a short rest
@@ -1731,6 +1742,7 @@ def add_instincts(agent: Bitzkey, valued: list[float], options: list[int], hunge
     valued[HUNT] -= CARRION_AVERSION * scavenger  # and its aversion to killing for itself
     valued[ATTACK] -= CARRION_AVERSION * scavenger
     valued[HERD] += LOYALTY_PULL * agent.feeling("loyalty")  # loyalty: keeping to its herd
+    valued[ACTIONS.index("offer")] += SOCIABLE_TRADE * agent.feeling("sociability")  # sociability: trading
     if agent.infant:  # an infant keeps close to its kind
         valued[HERD] += INFANT_HERDING
     if FEED_YOUNG in options:
@@ -2489,8 +2501,19 @@ class Simulation:
         return (there is not None and self._claims(there, hunter.realm) and self._in_own_land(hunter)
                 and not self._welcomed(hunter.realm, other.realm) and self._is_foe(hunter, other))
 
+    @staticmethod
+    def _convinced(agent: Bitzkey, trait: str) -> bool:
+        return agent.feeling(trait) >= CONVICTION_LEVEL
+
+    @staticmethod
+    def _spares(hunter: Bitzkey, other: Bitzkey) -> bool:
+        """An empathetic predator spares the young and those carrying young, alive or dead."""
+        return hunter.species == "predator" and (other.infant or bool(other.womb)) and Simulation._convinced(hunter, "empathy")
+
     def _preys_on(self, hunter: Bitzkey, other: Bitzkey) -> bool:
-        return self._is_prey(hunter, other) or self._drives_out(hunter, other) or self._grazer_assails(hunter, other)
+        if self._spares(hunter, other):
+            return False
+        return self._is_prey(hunter, other) or (not self._convinced(hunter, "tolerance") and (self._drives_out(hunter, other) or self._grazer_assails(hunter, other)))
 
     def _grazer_assails(self, grazer: Bitzkey, other: Bitzkey) -> bool:
         """A grazer has no prey, but may attack a foe within reach."""
@@ -3763,6 +3786,7 @@ class Simulation:
                 options = [ACTIONS.index("rest")] + [option for option in options if ACTIONS[option] in ("defend", "flee")]
             hungriest = max((min(100.0, child.hunger) for child in situation.get("young", ())), default=0.0)  # of its infants about it
             valued = add_instincts(agent, valued, options, agent.hunger, hungriest)
+            self._add_scruples(agent, valued, situation)
             valued = hope_for_untried(agent, valued, options)
             sights = self._imagine(agent, senses, options, calls_valued, situation) if not idle[index] else {}
             if sights:  # each against the others, so imagining favours none of them over the rest of its options
@@ -3973,7 +3997,7 @@ class Simulation:
         fruit_pile = self._nearest_pile(agent, sight, self.fruit_piles) if self._any_piles else None
         alerted_kill = None
         if agent.kill_alert is not None:  # a pack-mate's alert: a fresh kill it may not see itself
-            alerted_kill = next((corpse for corpse in self._kills.get(agent.kill_alert, ()) if self._feeds_on(agent, corpse)),
+            alerted_kill = next((corpse for corpse in self._kills.get(agent.kill_alert, ()) if self._feeds_on(agent, corpse) and not self._spares(agent, corpse)),
                                 None)
             if kill is None:
                 kill = alerted_kill
@@ -4026,7 +4050,7 @@ class Simulation:
         uprootable = None
         if agent.species == "grazer" and agent.hunger >= UPROOT_HUNGER:
             uprootable = next((other for other in neighbors if other.species == "plant"), None)
-            if uprootable is not None and self._food_supply(agent) < UPROOT_FOOD:
+            if uprootable is not None and self._food_supply(agent) < UPROOT_FOOD and not self._convinced(agent, "empathy"):
                 available.add("uproot")  # starving, with food scarce: it may tear into a plant beside it
         tears = "uproot" in available
         # Food to carry off, with room for it; what it carries to put down; a pile with food in it for this gut.
@@ -4901,6 +4925,27 @@ class Simulation:
             self._defend(plant, agent)  # a plant can't flee, but an armed one strikes back
         self._last_bite(agent)
 
+    def _add_scruples(self, agent: Bitzkey, valued: list[float], situation: dict) -> None:
+        empathy = EMPATHY_SCRUPLE * agent.feeling("empathy")
+        tolerance = TOLERANCE_SCRUPLE * agent.feeling("tolerance")
+        valued[UPROOT] -= empathy
+        quarry, prey, kill = situation.get("quarry"), situation.get("prey"), situation.get("kill")
+
+        def tender(one: Bitzkey | None) -> bool:
+            return one is not None and (one.infant or bool(one.womb))
+
+        if agent.species == "predator":
+            if tender(quarry):
+                valued[HUNT] -= empathy
+            if tender(prey):
+                valued[ATTACK] -= empathy
+            if tender(kill):
+                valued[FEAST] -= empathy
+        if quarry is not None and not self._is_prey(agent, quarry):  # a foe, not food
+            valued[HUNT] -= tolerance
+        if prey is not None and not self._is_prey(agent, prey):
+            valued[ATTACK] -= tolerance
+
     def _uproot(self, agent: Bitzkey, plant: Bitzkey) -> None:
         """A starving grazer, with food scarce about it, tears into a plant beside it, recovering from
         a bite or not: it eats UPROOT_MEALS of a feast on a body of the plant's size, and the plant
@@ -4912,6 +4957,7 @@ class Simulation:
         agent.nourish(UPROOT_MEALS * feast * self._plant_yield(plant))
         plant.health -= UPROOT_BITE
         plant.cooldown = PLANT_RECOVERY
+        agent.reward -= UPROOT_SORROW * (0.5 + agent.feeling("empathy"))  # sorry to have torn into it
         agent.last_action = "uprooted"
         if not plant.alive:
             self._die(plant, "uprooted", agent, "uprooting")
@@ -5126,6 +5172,7 @@ class Simulation:
         if tears:
             plant.health -= UPROOT_BITE
             plant.cooldown = PLANT_RECOVERY
+            agent.reward -= UPROOT_SORROW * (0.5 + agent.feeling("empathy"))
         else:
             plant.fruit = self.fruit_left(plant) - 1  # a fruit picked, the plant unhurt
             plant.picked_by = agent.identifier
@@ -6468,7 +6515,7 @@ class Simulation:
         sx, sy = self.tie_side(agent)
         for dx, dy in SEEN_WITHIN[sight]:
             for corpse in kills.get((x + sx * dx, y + sy * dy), ()):
-                if self._feeds_on(agent, corpse) and agent.can_be(corpse.wet):
+                if self._feeds_on(agent, corpse) and agent.can_be(corpse.wet) and not self._spares(agent, corpse):
                     return corpse
         return None
 
