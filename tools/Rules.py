@@ -443,6 +443,8 @@ _TABLE: dict[str, list[tuple]] = {
         ("TRADE_WARINESS", "Trade wariness", "how much worse an offer seems from one its owner thinks ill of, times that ill regard", 0.0, 2.0, 0.05),
         ("LEADER_FOLLOWERS", "Leader followers", "members of its colour group who must hold one as their standout for it to be recognised a leader, kept until fewer than half as many do; 0 for no leaders", 0, 100, 1),
         ("LEADER_DEFERENCE", "Leader deference", "how much kinder a follower judges its leader's offers; it yields to its leader's demands without a fight", 0.0, 2.0, 0.05),
+        ("RANK_BONUS", "Rank bonus", "share more of each leader's bonuses (deference, rally, joy in followers, allure) for each rank above chief", 0.0, 2.0, 0.05),
+        ("TITLE_REGARD", "Title regard", "esteem a titled leader wins each turn from each who sees it and holds it no foe, times its rank", 0.0, 0.2, 0.005),
         ("LEADER_JOY", "Leader joy", "pleasure a leader takes in its followers in sight, in full with as many as Leader followers", 0.0, 3.0, 0.05),
         ("LEADER_ALLURE", "Leader allure", "how much more joy breeding with a leader gives its partner; a leader is courted first by any that may breed with it", 0.0, 3.0, 0.05),
         ("THEFT_DISREGARD", "Theft disregard", "how much a theft seen costs the thief's regard, twice with its victim; regard instead with those who hold the victim a foe", 0.0, 1.0, 0.05),

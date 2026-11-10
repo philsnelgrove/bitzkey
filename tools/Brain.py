@@ -120,7 +120,7 @@ SENSES = (
     "known_closeness", "known_regard", "known_east", "known_south", "caller_known", "caller_regard", "known_danger", "known_skill",
     "elder_age", "elder_closeness", "elder_east", "elder_south", "student_near",
     "load", "meat_carried", "fruit_carried", "meat_pile_closeness", "fruit_pile_closeness",
-    "stone_carried", "bone_carried", "wood_carried", "stone_pile_closeness", "bone_pile_closeness", "wood_pile_closeness", "gear_pile_closeness", "fire_closeness", "fire_friendly", "wielding", "armoured", "foe_sheltered", "shelter_here", "arable_here", "seed_carried", "boredom", "road_here", "fertilized_here", "hide_worn", "regarded", "envy", "fighting", "foe_closeness", "cooking_smell", "food_plenty", "prey_flanked", "own_land", "foreign_land", "own_land_east", "own_land_south", "trespasser", "war_standing", "marked", "mark_seen", "standout_esteem", "standout_closeness", "standout_east", "standout_south", "leader", "standout_leads", "standout_heard", "land_owner_regard", "bow_carried", "archery",
+    "stone_carried", "bone_carried", "wood_carried", "stone_pile_closeness", "bone_pile_closeness", "wood_pile_closeness", "gear_pile_closeness", "fire_closeness", "fire_friendly", "wielding", "armoured", "foe_sheltered", "shelter_here", "arable_here", "seed_carried", "boredom", "road_here", "fertilized_here", "hide_worn", "regarded", "envy", "fighting", "foe_closeness", "cooking_smell", "food_plenty", "prey_flanked", "own_land", "foreign_land", "own_land_east", "own_land_south", "trespasser", "war_standing", "marked", "mark_seen", "standout_esteem", "standout_closeness", "standout_east", "standout_south", "leader", "standout_leads", "standout_heard", "rank", "standout_rank", "land_owner_regard", "bow_carried", "archery",
 ) + TEMPERAMENT + (    # then its current temperament, mind and social traits, each 0..7 scaled to 0..1
     *(f"inborn_{trait}" for trait in TEMPERAMENT),        # its dot's and social background's traits, as born, 0..1
     *BODY_TRAITS,                                         # its ring's traits, 0..1 (species 0 plant to 1 predator)
@@ -155,7 +155,7 @@ SPARSE_SENSES = frozenset((
     "parent_closeness", "heard_call_5", "heard_call_5_kin", "map_comfort", "caller_known", "known_skill",
     "student_near", "meat_carried", "fruit_carried", "meat_pile_closeness", "stone_carried", "wood_carried",
     "gear_pile_closeness", "fire_closeness", "fire_friendly", "wielding", "foe_sheltered", "shelter_here",
-    "seed_carried", "road_here", "hide_worn", "envy", "fighting", "cooking_smell", "leader", "standout_leads", "standout_heard",
+    "seed_carried", "road_here", "hide_worn", "envy", "fighting", "cooking_smell", "leader", "standout_leads", "standout_heard", "rank", "standout_rank",
     "bow_carried", "archery"))
 _READ_SCALE = np.array([1.0 if name in SIGNED_SENSES else 2.0 for name in SENSES])
 _READ_SHIFT = np.array([0.0 if name in SIGNED_SENSES or name in SPARSE_SENSES else -1.0 for name in SENSES])
