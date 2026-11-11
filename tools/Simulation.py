@@ -725,8 +725,11 @@ FOLLOW_REACH = 2
 # Agriculture: raw fruit eaten leaves a seed, eaten or planted in worked land; digging works only the medium zone. As the C++ version's.
 SEED_FOOD, PLANTING_JOY = 0.1, 1.0
 # Harvest: a fruit picked from a plant without uprooting it is a small gladness (HARVEST_JOY), and its picker, seeing
-# the plant bear fruit again, is glad of it (REGROWTH_JOY), once for the last picking of it.
+# the plant bear fruit again, is glad of it (REGROWTH_JOY for each fruit it bears), once for the last picking of it.
 HARVEST_JOY, REGROWTH_JOY = 0.1, 0.5
+# Farming: a plant on worked land bears ARABLE_FRUIT times as much fruit each morning, and, the land fed bone,
+# FERTILIZED_FRUIT times that again, the bone spent on it.
+ARABLE_FRUIT, FERTILIZED_FRUIT = 2, 2
 # Bone crushed, as the C++ version's: with a stone carried, a club or a stone axe, a bone it carries or one from a pile on
 # its square; a scavenger eats its marrow, a portion of meat as from a pile, or, on worked land, it is fed to the soil,
 # which sprouts the next seed there in half PLANT_GESTATION, a pleasure as planting is (FERTILIZING_JOY, times curiosity).
@@ -3434,14 +3437,15 @@ class Simulation:
                     agent.last_action = "withering"
                     continue
                 agent.health = min(agent.max_health, agent.health + agent.max_health * PLANT_REGROWTH)
-                if agent.fruit >= 0 and self.dawn(agent.x):  # a fruit a morning, until full
-                    agent.fruit += 1
+                if agent.fruit >= 0 and self.dawn(agent.x):  # fruit each morning, until full
+                    grown = self._morning_fruit(agent)
+                    agent.fruit += grown
                     if agent.fruit >= self.fruit_capacity(agent):
                         agent.fruit = -1
                     if agent.picked_by >= 0 and REGROWTH_JOY > 0:  # its last picker, seeing it bear again, is glad of it
                         picker = self.find_agent(agent.picked_by)
                         if picker is not None and picker.alive and abs(picker.x - agent.x) + abs(picker.y - agent.y) <= picker.sight:
-                            picker.reward += REGROWTH_JOY
+                            picker.reward += REGROWTH_JOY * grown  # the gladder the more it bears
                     agent.picked_by = -1
                 agent.last_action = "photosynthesized"
                 self._seed(agent)
@@ -4924,6 +4928,15 @@ class Simulation:
         if plant.physique("weapons") > 0:
             self._defend(plant, agent)  # a plant can't flee, but an armed one strikes back
         self._last_bite(agent)
+
+    def _morning_fruit(self, plant: Bitzkey) -> int:
+        """The fruit a plant bears this morning: more on worked land, more again fed bone, the bone spent."""
+        if (plant.x, plant.y) not in self.arable:
+            return 1
+        if (plant.x, plant.y) not in self.fertilized:
+            return ARABLE_FRUIT
+        self.fertilized.discard((plant.x, plant.y))  # the bone spent on it
+        return ARABLE_FRUIT * FERTILIZED_FRUIT
 
     def _add_scruples(self, agent: Bitzkey, valued: list[float], situation: dict) -> None:
         empathy = EMPATHY_SCRUPLE * agent.feeling("empathy")
