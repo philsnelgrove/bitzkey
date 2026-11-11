@@ -137,10 +137,17 @@ class TimeTravelTests(unittest.TestCase):
         self.click(pg.MOUSEBUTTONDOWN, self.chart.left + 2, self.chart.bottom - 2)  # closes, picks no one
         self.assertEqual((self.graph.sort, self.graph.menu_open, self.graph.selection), ("intellect", False, set()))
 
-    @unittest.skip("its world has no dead Bitzkey to hover since the sea, terrain and stamina; a new seed is due")
     def test_hovering_a_slice_shows_its_details_in_a_tooltip_on_the_screen(self):
+        with unittest.mock.patch("tools.Simulation.CLIMATE_DAMAGE", 0):  # its own world, with one dead on the graph to hover
+            simulation = Simulation(width=30, height=30, population=30, seed=7)
+            for _ in range(60):
+                simulation.advance()
+            simulation._die(next(agent for agent in simulation.living if agent.species != "plant"), "old age")
+            for _ in range(20):
+                simulation.advance()
+        self.graph._now = simulation.turn
         surface = pg.Surface((1200, 820))
-        living = next(agent for agent in self.simulation.living)
+        living = next(agent for agent in simulation.living)
         for agent, known in ((living, True), (living, False)):
             for mouse in ((10, 10), (1190, 810)):
                 box = draw_tooltip(surface, agent, known, mouse)
@@ -148,24 +155,24 @@ class TimeTravelTests(unittest.TestCase):
         self.assertLess(draw_tooltip(surface, living, False, (10, 10)).height,
                         draw_tooltip(surface, living, True, (10, 10)).height)
 
-        self.graph.draw(surface, self.simulation, None)
+        self.graph.draw(surface, simulation, None)
         identifier, top, bottom = self.graph._bars[-1].slices[0]
         self.graph._mouse = (self.graph._bars[-1].left + 1, round((top + bottom) / 2))
         with unittest.mock.patch("display.ColourGraph.draw_tooltip") as tooltip:
-            self.graph.draw(surface, self.simulation, None)
+            self.graph.draw(surface, simulation, None)
         self.assertEqual(tooltip.call_args.args[1].identifier, identifier)
 
-        living = {agent.identifier for agent in self.simulation.living}  # and a dead one: what is known of it
+        living = {agent.identifier for agent in simulation.living}  # and a dead one: what is known of it
         dead = next((bar, slice_) for bar in self.graph._bars for slice_ in bar.slices if slice_[0] not in living)
         bar, (identifier, top, bottom) = dead
         self.graph._mouse = (bar.left + 1, round((top + bottom) / 2))
         with unittest.mock.patch("display.ColourGraph.draw_tooltip") as tooltip:
-            self.graph.draw(surface, self.simulation, None)
+            self.graph.draw(surface, simulation, None)
         shown, known = tooltip.call_args.args[1], tooltip.call_args.args[2]
-        self.assertEqual((shown.identifier, shown.dna, known), (identifier, self.simulation.lineage[identifier], False))
-        self.assertIn(tooltip.call_args.kwargs["note"].split(":")[0], ("Died at turn " + str(self.simulation.death_records[identifier].turn)
-                                                                        if identifier in self.simulation.death_records else "Dead"))
-        self.graph.draw(surface, self.simulation, None)  # and it draws
+        self.assertEqual((shown.identifier, shown.dna, known), (identifier, simulation.lineage[identifier], False))
+        self.assertIn(tooltip.call_args.kwargs["note"].split(":")[0], ("Died at turn " + str(simulation.death_records[identifier].turn)
+                                                                        if identifier in simulation.death_records else "Dead"))
+        self.graph.draw(surface, simulation, None)  # and it draws
 
     def test_the_wheel_zooms_into_the_height_around_the_pointer_and_a_right_drag_pans(self):
         y = self.chart.bottom - self.chart.height // 4

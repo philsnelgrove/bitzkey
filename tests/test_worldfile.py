@@ -33,12 +33,15 @@ class WorldFileTests(unittest.TestCase):
             loaded.advance()
         self.assertEqual(world_bytes(loaded), world_bytes(world))
 
-    @unittest.skip("its world no longer forgets its oldest genome within the run since the sea, terrain and stamina; a new seed is due")
     def test_a_world_that_has_forgotten_its_oldest_genomes_saves_and_loads_them_from_where_they_start(self):
         # Short lives, eight turns a year: breeding free of rest and of heat, which would last years of them.
-        with patch("tools.Census.GRAPH_TURNS", 5), patch("tools.Simulation.BREED_COOLDOWN", 0.0), patch("tools.Simulation.HEAT_FORESIGHT", 0.0),              patch.dict("tools.Simulation.HEAT_CLOSEST", {"grazer": 0.0, "omnivore": 0.0, "predator": 0.0}),              patch.dict("tools.Simulation.HEAT_LENGTH", {"grazer": 0.75, "omnivore": 0.75, "predator": 0.75}):
+        with patch("tools.Census.GRAPH_TURNS", 5), patch("tools.Simulation.CORPSE_TURNS", 5), patch("tools.Simulation.BREED_COOLDOWN", 0.0), patch("tools.Simulation.HEAT_FORESIGHT", 0.0),              patch.dict("tools.Simulation.HEAT_CLOSEST", {"grazer": 0.0, "omnivore": 0.0, "predator": 0.0}),              patch.dict("tools.Simulation.HEAT_LENGTH", {"grazer": 0.75, "omnivore": 0.75, "predator": 0.75}):
             world = Simulation(20, 20, population=30, seed=1, year_length=8)
-            for _ in range(200):
+            for _ in range(20):
+                world.advance()
+            # The oldest still living dies, so the graph, run past it and its body rotted away, forgets its genome.
+            world._die(min(world.living, key=lambda agent: agent.identifier), "old age")
+            for _ in range(20):
                 world.advance()
         data = world_bytes(world)
         loaded = world_from_bytes(data)

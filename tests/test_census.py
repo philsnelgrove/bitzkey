@@ -64,12 +64,15 @@ class CensusTests(unittest.TestCase):
         self.assertEqual([turn for turn, _ in census.snapshots], list(range(4, 15)))
         self.assertEqual(forgot, [False] * 11 + [True] * 4)
 
-    @unittest.skip("its world no longer forgets its oldest genome within the run since the sea, terrain and stamina; a new seed is due")
     def test_a_world_forgets_the_genomes_and_deaths_from_before_its_graph(self):
         # Short lives, eight turns a year: breeding free of rest and of heat, which would last years of them.
-        with patch("tools.Census.GRAPH_TURNS", 5), patch("tools.Simulation.BREED_COOLDOWN", 0.0), patch("tools.Simulation.HEAT_FORESIGHT", 0.0),              patch.dict("tools.Simulation.HEAT_CLOSEST", {"grazer": 0.0, "omnivore": 0.0, "predator": 0.0}),              patch.dict("tools.Simulation.HEAT_LENGTH", {"grazer": 0.75, "omnivore": 0.75, "predator": 0.75}):
+        with patch("tools.Census.GRAPH_TURNS", 5), patch("tools.Simulation.CORPSE_TURNS", 5), patch("tools.Simulation.BREED_COOLDOWN", 0.0), patch("tools.Simulation.HEAT_FORESIGHT", 0.0),              patch.dict("tools.Simulation.HEAT_CLOSEST", {"grazer": 0.0, "omnivore": 0.0, "predator": 0.0}),              patch.dict("tools.Simulation.HEAT_LENGTH", {"grazer": 0.75, "omnivore": 0.75, "predator": 0.75}):
             simulation = Simulation(width=20, height=20, population=30, seed=4, year_length=8)
-            for _ in range(200):
+            for _ in range(20):
+                simulation.advance()
+            # The oldest still living dies, so the graph, run past it and its body rotted away, must forget its genome and death.
+            simulation._die(min(simulation.living, key=lambda agent: agent.identifier), "old age")
+            for _ in range(20):
                 simulation.advance()
 
         start = simulation.census.snapshots[0][0]
