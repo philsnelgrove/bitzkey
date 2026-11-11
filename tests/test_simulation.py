@@ -4086,6 +4086,24 @@ class MaterialTests(unittest.TestCase):
                              [(parent.last_senses, simulation_module.call_output(simulation_module.FIRST_CALL + 2), 4.0),
                               (child.last_senses, 0, 5.0)])
 
+    def test_a_sharer_brings_its_food_to_the_store_nearest_its_herds_middle_gladly(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        sharer = simulation._add_agent(encode_dna("omnivore", size=3), 5, 5)
+        simulation.fires[(9, 5)] = (simulation.turn + 10, -1)
+        simulation.fruit_piles[(3, 5)] = 1
+        self.assertEqual(simulation._herd_store(sharer, (10, 5), 6), (9, 5))  # the fire, nearer the herd's middle
+        self.assertEqual(simulation._herd_store(sharer, (1, 5), 6), (3, 5))  # the pile, nearer a middle the other way
+        sharer.mind["sociability"] = 7.0
+        sharer.carried_fruit, sharer.cooked_meat, sharer.reward = 2, 1, 0.0
+        for _ in range(6):
+            if sharer.cooked_meat:
+                simulation._provision(sharer, (9, 5))
+        self.assertEqual(sharer.carried_fruit + sharer.cooked_meat, 0)
+        self.assertLessEqual(abs(sharer.x - 9) + abs(sharer.y - 5), 1)
+        self.assertEqual((simulation.fruit_piles[(sharer.x, sharer.y)], simulation.cooked_meat_piles[(sharer.x, sharer.y)]), (2, 1))
+        self.assertAlmostEqual(sharer.reward, simulation_module.PROVISION_JOY * Simulation._sharing(sharer))
+        self.assertTrue(Simulation._shares_all(sharer))
+
     def test_worked_land_left_untended_goes_wild_its_bone_with_it(self):
         simulation = Simulation(10, 40, 0, seed=1)
         temperate = max(y for y in range(40) if simulation_module.zone_temperature(y, 40) == simulation_module.MEDIUM)

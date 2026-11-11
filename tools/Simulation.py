@@ -246,6 +246,11 @@ CONVICTION_LEVEL = 1.0
 EMPATHY_SCRUPLE, TOLERANCE_SCRUPLE = 1.0, 1.0
 # Sociability: an animal values making an offer this much more, times its sociability.
 SOCIABLE_TRADE = 0.25
+# The sharing: the strongest of its patience, sociability and empathy, times SHARING_URGE, is added to the worth of
+# carrying food to its herd's store and of taking food up, and taken from eating fruit off a plant, a kill where it
+# lies or what it carries; any of the three at CONVICTION_LEVEL, it eats none of those, only from a pile. Food
+# brought to the store gladdens it, PROVISION_JOY times that strongest.
+SHARING_URGE, PROVISION_JOY = 1.0, 0.5
 
 
 def swayed(loyalty: float, margin: float, chance: float) -> bool:
@@ -4232,6 +4237,12 @@ class Simulation:
             available.add("eat_pile")
         if (agent.carried_meat + agent.cooked_meat > 0 and MEAT_PORTION * agent.digestion > 0) or (agent.carried_fruit + agent.cooked_fruit > 0 and FRUIT_PORTION * agent.browsing > 0):
             available.add("eat_carried")
+        store = None
+        if herd_middle is not None and agent.carried_meat + agent.carried_fruit + agent.cooked_meat + agent.cooked_fruit > 0:
+            store = self._herd_store(agent, herd_middle, sight)
+            available.add("store_food")
+        if self._shares_all(agent):  # its food for the herd's store
+            available -= {"browse", "feast", "eat_carried"}
         alert_to = None
         if herd:  # with a herd to tell: a grazer of a hunter it sees, a hunter of a fresh kill it sees
             if agent.species == "grazer" and seen_hunter is not None:
@@ -4345,7 +4356,7 @@ class Simulation:
                      "threats": len(threats), "heard_from": heard_from, "loudest_from": caller, "quarry": quarry, "shoot_at": shoot_at, "practise_on": practise_on, "hunter": hunter, "suitor": suitor, "suitor_at": suitor and (suitor.x, suitor.y),
                      "grass": grass, "grass_here": grass_here, "carrion": carrion, "kill": kill, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
                      "others": others, "defend_target": defend_target, "for_herd": assailant is None,
-                     "herd": herd, "herd_near": herd_near, "herd_middle": herd_middle,
+                     "herd": herd, "herd_near": herd_near, "herd_middle": herd_middle, "store": store,
                      "exposure": min(2, discomfort) / 2 * agent.exposure_share(here), "uprootable": uprootable, "timber": timber, "eat_meat": eat_meat, "eat_fruit": eat_fruit, "fire": fire, "gear_pile": gear_pile, "gear_kind": gear_kind, "wagon_near": wagon_near, "stone_pile": stone_pile, "bone_pile": bone_pile, "wood_pile": wood_pile, "dressable": dressable, "tears": tears, "meat_pile": meat_pile, "fruit_pile": fruit_pile,
                      "home_distance": home_distance * agent.exposure_share(here),
                      "alert_to": alert_to, "revisit": agent.food_memory and agent.food_memory[:2],
@@ -4823,6 +4834,8 @@ class Simulation:
         elif action == "herd":
             self._move_toward(agent, *situation["herd_middle"])
             agent.last_action = "herded"
+        elif action == "store_food":
+            self._provision(agent, situation["store"])
         elif action == "revisit":
             self._move_toward(agent, *situation["revisit"])
             agent.last_action = "revisited"
@@ -5008,6 +5021,59 @@ class Simulation:
             valued[HUNT] -= tolerance
         if prey is not None and not self._is_prey(agent, prey):
             valued[ATTACK] -= tolerance
+        urge = SHARING_URGE * self._sharing(agent)
+        if urge > 0:  # rather the herd's store than its own mouth
+            for action in ("store_food", "take_fruit", "take_meat"):
+                valued[ACTIONS.index(action)] += urge
+            for action in ("browse", "feast", "eat_carried"):
+                valued[ACTIONS.index(action)] -= urge
+
+    @staticmethod
+    def _sharing(agent: Bitzkey) -> float:
+        """The strongest of its patience, sociability and empathy."""
+        return max(agent.feeling("patience"), agent.feeling("sociability"), agent.feeling("empathy"))
+
+    @classmethod
+    def _shares_all(cls, agent: Bitzkey) -> bool:
+        """Any of the three at its height: food is for the herd's store."""
+        return any(cls._convinced(agent, trait) for trait in ("patience", "sociability", "empathy"))
+
+    def _herd_store(self, agent: Bitzkey, middle: tuple[int, int], sight: int) -> tuple[int, int]:
+        """The food piles, fires and shelters it sees, the one nearest its herd's middle; else that middle, to begin one."""
+        best, best_far = None, 0
+        sx, sy = self.tie_side(agent)
+        for dx, dy in SEEN_WITHIN[sight]:
+            cell = (agent.x + sx * dx, agent.y + sy * dy)
+            if not (0 <= cell[0] < self.width and 0 <= cell[1] < self.height):
+                continue
+            if not (self.meat_piles.get(cell, 0) > 0 or self.fruit_piles.get(cell, 0) > 0 or self.cooked_meat_piles.get(cell, 0) > 0
+                    or self.cooked_fruit_piles.get(cell, 0) > 0 or self.fires.get(cell, (0,))[0] > self.turn or cell in self.shelters):
+                continue
+            far = abs(cell[0] - middle[0]) + abs(cell[1] - middle[1])
+            if best is None or far < best_far:
+                best, best_far = cell, far
+        return best if best is not None else middle
+
+    def _provision(self, agent: Bitzkey, store: tuple[int, int]) -> None:
+        """Its food brought to its herd's store and put down: beside a fire, else on the store itself."""
+        reach = 1 if self.fires.get(store, (0,))[0] > self.turn else 0
+        far = lambda: abs(store[0] - agent.x) + abs(store[1] - agent.y)
+        if far() > reach:
+            self._move_toward(agent, *store)
+        if far() > reach:
+            agent.last_action = "carried food to its herd"
+            return
+        if agent.carried_meat + agent.carried_fruit + agent.cooked_meat + agent.cooked_fruit <= 0:  # gone since it chose
+            agent.last_action = "had nothing to store"
+            return
+        here = (agent.x, agent.y)
+        self._add_to_pile(self.meat_piles, here, agent.carried_meat)
+        self._add_to_pile(self.fruit_piles, here, agent.carried_fruit)
+        self._add_to_pile(self.cooked_meat_piles, here, agent.cooked_meat)
+        self._add_to_pile(self.cooked_fruit_piles, here, agent.cooked_fruit)
+        agent.carried_meat = agent.carried_fruit = agent.cooked_meat = agent.cooked_fruit = 0
+        agent.reward += PROVISION_JOY * self._sharing(agent)
+        agent.last_action = "stored food for its herd"
 
     def _uproot(self, agent: Bitzkey, plant: Bitzkey) -> None:
         """A starving grazer, with food scarce about it, tears into a plant beside it, recovering from
