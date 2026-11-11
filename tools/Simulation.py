@@ -643,14 +643,18 @@ FIRE_TURNS = 24  # a day, and another for each wood fed to it; a club lights one
 FIRE_PANIC = 0.25  # the chance an animal panics, seeing a fire not its own or its herd's
 FIRE_JOY = 2.0  # the sense of accomplishment in lighting a fire
 FIRE_COMFORT = 0.3  # the comfort of seeing a fire that is its own or its herd's, as an unfamiliar one frightens
-COOKED_FOOD = 1.5  # times as nourishing as raw
-# The taste for cooked food: each cooked portion eaten adds a fifth to its taste for it (cooked_known, 0 to 1), and is a
+COOKED_FOOD = 2.0  # times as nourishing as raw
+CARRIED_SPOIL = 0.02  # the chance each turn a raw portion carried goes off; cooked food keeps
+# The taste for cooked food: each cooked portion eaten adds a third to its taste for it (cooked_known, 0 to 1), and is a
 # delight (COOKED_JOY, times a half and the taste). Once it knows that taste, a raw portion, from a pile or carried, is
 # a letdown (RAW_DISTASTE times the taste), and cooking a pleasure (COOK_JOY, times a half and the taste). Cooked food,
 # and a fire cooked on within the day, are smelt SMELL_REACH times as far as it sees; cooked food smelt is food sought,
 # and in sight it is taken before raw.
-COOKED_TASTE = 0.2
-COOKED_JOY, RAW_DISTASTE, COOK_JOY, SMELL_REACH = 1.0, 0.5, 0.5, 2.0
+COOKED_TASTE = 1.0 / 3
+COOKED_JOY, RAW_DISTASTE, COOK_JOY, SMELL_REACH = 1.0, 0.5, 1.0, 2.0
+# A sense of taste, inborn: a cooked portion is tasty (TASTE_JOY, times its appetite), a raw portion, from a pile or
+# carried, as much the opposite, over and above the taste it learns.
+TASTE_JOY = 1.0
 SITE_TURNS = 100  # an unfinished shelter left this long falls in, leaving its stone and wood in piles
 SHELTER_UNITS = 7  # of stone or wood, any mix, to finish a shelter; until then each takes a space of the square
 FIRE_REACH = 2  # squares off, a fire shelters an animal from the cold
@@ -3406,6 +3410,11 @@ class Simulation:
             agent.hunger = min(100.0, agent.hunger + agent.digest(burn))  # meat lasts; hunger stops at full
             if agent.cooldown:
                 agent.cooldown -= 1
+            if agent.carried_meat + agent.carried_fruit > 0 and self.random.random() < CARRIED_SPOIL:  # raw food carried goes off
+                if agent.carried_meat > 0:
+                    agent.carried_meat -= 1
+                else:
+                    agent.carried_fruit -= 1
             if agent.health < agent.max_health and agent.hunger < 65:
                 agent.heal(0.005 * (1 + LAND_HEALING if self._in_own_land(agent) else 1.0))
             # A tenth of its health a step, part steps in part; a plant takes one step in its stride,
@@ -5229,9 +5238,11 @@ class Simulation:
     @staticmethod
     def _taste(agent: Bitzkey, cooked: bool) -> None:
         """The delight of a cooked portion, or the letdown of a raw one once it knows better."""
+        tasty = TASTE_JOY * agent.feeling("appetite")  # its sense of taste, the keener the hungrier its nature
         if not cooked:
-            agent.reward -= RAW_DISTASTE * agent.cooked_known
+            agent.reward -= tasty + RAW_DISTASTE * agent.cooked_known
             return
+        agent.reward += tasty
         agent.cooked_known = min(1.0, agent.cooked_known + COOKED_TASTE)
         agent.reward += COOKED_JOY * (0.5 + agent.cooked_known)
 

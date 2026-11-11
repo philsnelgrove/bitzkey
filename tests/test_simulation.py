@@ -3997,17 +3997,18 @@ class MaterialTests(unittest.TestCase):
         eater = simulation._add_agent(encode_dna("omnivore", size=3, sight=0), 5, 20)
         simulation._index_cells()
         eater.hunger, eater.reward = 90.0, 0.0
-        Simulation._taste(eater, False)  # raw, knowing nothing better
-        self.assertEqual(eater.reward, 0.0)
+        tasty = simulation_module.TASTE_JOY * eater.feeling("appetite")
+        Simulation._taste(eater, False)  # raw, knowing nothing better: only untasty
+        self.assertAlmostEqual(eater.reward, -tasty)
         eater.cooked_meat = 1
         simulation._eat_carried(eater)  # a cooked portion eaten tastes
         self.assertAlmostEqual(eater.cooked_known, simulation_module.COOKED_TASTE)
         eater.reward = 0.0
         Simulation._taste(eater, True)
-        self.assertAlmostEqual(eater.reward, simulation_module.COOKED_JOY * (0.5 + 2 * simulation_module.COOKED_TASTE))
+        self.assertAlmostEqual(eater.reward, tasty + simulation_module.COOKED_JOY * (0.5 + 2 * simulation_module.COOKED_TASTE))
         eater.reward = 0.0
         Simulation._taste(eater, False)
-        self.assertAlmostEqual(eater.reward, -simulation_module.RAW_DISTASTE * 2 * simulation_module.COOKED_TASTE)  # now a letdown
+        self.assertAlmostEqual(eater.reward, -tasty - simulation_module.RAW_DISTASTE * 2 * simulation_module.COOKED_TASTE)  # untasty, now a letdown
 
         simulation.meat_piles[(6, 20)] = 1  # raw and cooked beside it: the cooked first
         simulation.cooked_meat_piles[(6, 20)] = 1
