@@ -4095,7 +4095,11 @@ class Simulation:
         if agent.any_tool and not self.sea(agent.x, agent.y):
             available.add("dig")
         axe = agent.has_tool(BONE_AXE) or agent.has_tool(STONE_AXE)
-        if flora and axe:
+        timber = None  # a plant beside it to fell, bare or bearing, else the bearing one it sees
+        if axe:
+            timber = next((other for other in neighbors if other.species == "plant" and other.alive), None) or flora
+        # A farmed plant, on worked land, the kindest won't fell; a wild one is fair game.
+        if timber is not None and not ((timber.x, timber.y) in self.arable and self._convinced(agent, "empathy")):
             available.add("cut")
         if (known("make_wagon") and axe and agent.wagon < 0 and agent.carried_stone >= WAGON_STONE and agent.carried_wood >= WAGON_WOOD
                 and not self.sea(agent.x, agent.y)):
@@ -4326,7 +4330,7 @@ class Simulation:
                      "grass": grass, "grass_here": grass_here, "carrion": carrion, "kill": kill, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
                      "others": others, "defend_target": defend_target, "for_herd": assailant is None,
                      "herd": herd, "herd_near": herd_near, "herd_middle": herd_middle,
-                     "exposure": min(2, discomfort) / 2 * agent.exposure_share(here), "uprootable": uprootable, "eat_meat": eat_meat, "eat_fruit": eat_fruit, "fire": fire, "gear_pile": gear_pile, "gear_kind": gear_kind, "wagon_near": wagon_near, "stone_pile": stone_pile, "bone_pile": bone_pile, "wood_pile": wood_pile, "dressable": dressable, "tears": tears, "meat_pile": meat_pile, "fruit_pile": fruit_pile,
+                     "exposure": min(2, discomfort) / 2 * agent.exposure_share(here), "uprootable": uprootable, "timber": timber, "eat_meat": eat_meat, "eat_fruit": eat_fruit, "fire": fire, "gear_pile": gear_pile, "gear_kind": gear_kind, "wagon_near": wagon_near, "stone_pile": stone_pile, "bone_pile": bone_pile, "wood_pile": wood_pile, "dressable": dressable, "tears": tears, "meat_pile": meat_pile, "fruit_pile": fruit_pile,
                      "home_distance": home_distance * agent.exposure_share(here),
                      "alert_to": alert_to, "revisit": agent.food_memory and agent.food_memory[:2],
                      "student": students[0] if students else None, "pupil": pupil, "lesson": lesson,
@@ -4832,7 +4836,7 @@ class Simulation:
         elif action == "practise":
             self._shoot(agent, situation["practise_on"], True)
         elif action == "cut":
-            self._cut(agent, situation["flora"])
+            self._cut(agent, situation["timber"])
         elif action == "dig":
             self._dig(agent)
         elif action == "eat_seed":
@@ -4942,6 +4946,9 @@ class Simulation:
         empathy = EMPATHY_SCRUPLE * agent.feeling("empathy")
         tolerance = TOLERANCE_SCRUPLE * agent.feeling("tolerance")
         valued[UPROOT] -= empathy
+        timber = situation.get("timber")
+        if timber is not None and (timber.x, timber.y) in self.arable:  # a farmed plant; a wild one is fair game
+            valued[ACTIONS.index("cut")] -= empathy
         quarry, prey, kill = situation.get("quarry"), situation.get("prey"), situation.get("kill")
 
         def tender(one: Bitzkey | None) -> bool:
@@ -5398,6 +5405,8 @@ class Simulation:
         if abs(plant.x - agent.x) + abs(plant.y - agent.y) > 1 or not plant.alive:
             agent.last_action = "sought plants"
             return
+        if (plant.x, plant.y) in self.arable:  # sorry to fell a farmed one
+            agent.reward -= UPROOT_SORROW * (0.5 + agent.feeling("empathy"))
         plant.health = 0
         self._wear_weapon(agent)
         agent.last_action = "cut down a plant"
