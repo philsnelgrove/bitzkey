@@ -422,6 +422,7 @@ def world_bytes(simulation: Simulation) -> bytes:
                      + [[x, y, kind, count, 0] for kind, piles in ((10, simulation.cooked_meat_piles), (11, simulation.cooked_fruit_piles))
                         for (x, y), count in sorted(piles.items())],
         "arable": sorted(y * simulation.width + x for x, y in simulation.arable),
+        "tended": sorted([y * simulation.width + x, simulation.tended.get((x, y), 0)] for x, y in simulation.arable),
         "fertilized": sorted(y * simulation.width + x for x, y in simulation.fertilized),
         "fights": [list(fight) for fight in simulation.fights],
         "lands": {"patch": simulation.land_patch, "columns": simulation.land_columns, "squares": len(simulation.lands), "next_realm": simulation.next_realm,
@@ -571,6 +572,8 @@ def _world_from(record: Mapping, numbers: _Reader, format_: int) -> Simulation:
         if kind >= 3:
             simulation.pile_turns[(x, y, "bone" if kind == 3 else "wood")] = dropped
     simulation.arable = {(cell % simulation.width, cell // simulation.width) for cell in record.get("arable", ())}  # none in an older world
+    simulation.tended = {square: simulation.turn for square in simulation.arable}  # in an older world, tended as it is loaded
+    simulation.tended.update(((cell % simulation.width, cell // simulation.width), turn) for cell, turn in record.get("tended", ()))
     simulation.fights = [[int(a), int(b), int(c), bool(d)] for a, b, c, d in record.get("fights", ())]  # none in an older world
     simulation.realms, simulation.lands, simulation.wars, simulation.welcome = {}, [], [], set()
     if "lands" in record:  # none, in a world saved before lands: counted afresh

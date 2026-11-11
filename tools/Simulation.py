@@ -734,6 +734,8 @@ HARVEST_JOY, REGROWTH_JOY = 0.1, 0.5
 # Farming: a plant on worked land bears ARABLE_FRUIT times as much fruit each morning, and, the land fed bone,
 # FERTILIZED_FRUIT times that again, the bone spent on it.
 ARABLE_FRUIT, FERTILIZED_FRUIT = 2, 2
+# Worked land no one tends (digs, sows, feeds bone or picks fruit on) for FALLOW_YEARS goes wild, its bone with it; 0, never.
+FALLOW_YEARS = 1.0
 # Bone crushed, as the C++ version's: with a stone carried, a club or a stone axe, a bone it carries or one from a pile on
 # its square; a scavenger eats its marrow, a portion of meat as from a pile, or, on worked land, it is fed to the soil,
 # which sprouts the next seed there in half PLANT_GESTATION, a pleasure as planting is (FERTILIZING_JOY, times curiosity).
@@ -1851,6 +1853,7 @@ class Simulation:
         self.wagons: list[list] = []  # every wagon made: [x, y, its hitcher or -1, what it holds beyond its hitcher's own load]
         self.parked: dict[tuple[int, int], list[int]] = {}  # the wagons no one drags, by their squares
         self.arable: set[tuple[int, int]] = set()  # worked land
+        self.tended: dict[tuple[int, int], int] = {}  # the turn each worked square was last tended
         self.roads: set[tuple[int, int]] = set()
         self.fertilized: set[tuple[int, int]] = set()  # worked land fed crushed bone, until a seed sprouts there
         self.fights: list[list] = []  # each [taker, owner, possession, taken], changed only between turns
@@ -3482,6 +3485,7 @@ class Simulation:
         if self._any_piles:
             self._spoil_piles()
             self._rot_materials()
+        self._go_fallow()
         for agent in self.agents:  # bodies rotted away, not eaten to the last portion, may feed a new plant
             if (agent.died_turn is not None and self.turn - agent.died_turn >= CORPSE_TURNS and agent.species != "plant"
                     and agent.portions > 0 and CORPSE_PLANT and self.random.random() < CORPSE_PLANT):
@@ -4941,6 +4945,7 @@ class Simulation:
         agent.nourish((PLANT_MEAL + PLANT_MEAL_FOR_SIZE * plant.physique("size")) * agent.browsing * self._plant_yield(plant))
         plant.fruit = self.fruit_left(plant) - 1  # a fruit picked, the plant unhurt
         plant.picked_by = agent.identifier
+        self._tend(plant.x, plant.y)
         agent.reward += HARVEST_JOY
         agent.last_action = "browsed"
         self._deed_seen(agent, 0.0, None, "culture", culture="sowing")  # fruit picked without uprooting
@@ -5134,6 +5139,20 @@ class Simulation:
         agent.last_action = "feasted"
         self._eat_portion(corpse)
 
+    def _tend(self, x: int, y: int) -> None:
+        if (x, y) in self.arable:
+            self.tended[(x, y)] = self.turn
+
+    def _go_fallow(self) -> None:
+        """Worked land untended FALLOW_YEARS gone wild, its bone with it."""
+        if FALLOW_YEARS <= 0:
+            return
+        untended = FALLOW_YEARS * YEAR_LENGTH
+        for cell in [cell for cell in self.arable if self.turn - self.tended.get(cell, 0) >= untended]:
+            self.arable.discard(cell)
+            self.fertilized.discard(cell)
+            self.tended.pop(cell, None)
+
     def _spoil_piles(self) -> None:
         """Those left PILE_LASTS corpses' lifetimes since their last drop are gone."""
         life = PILE_LASTS * CORPSE_TURNS
@@ -5211,6 +5230,7 @@ class Simulation:
         else:
             plant.fruit = self.fruit_left(plant) - 1  # a fruit picked, the plant unhurt
             plant.picked_by = agent.identifier
+            self._tend(plant.x, plant.y)
             agent.reward += HARVEST_JOY
             self._deed_seen(agent, 0.0, None, "culture", culture="sowing")
         agent.carried_fruit += 1
@@ -5445,6 +5465,7 @@ class Simulation:
     def _plant_seed(self, agent: Bitzkey) -> None:
         """A plant at home where it is sown, sprouting as any seed does."""
         agent.carried_seed -= 1
+        self._tend(agent.x, agent.y)
         dna = make_dna(SPECIES.index("plant"), self.random)
         dna = dna & ~(0x3 << TEMPERATURE_SHIFT) | zone_temperature(agent.y, self.height) << TEMPERATURE_SHIFT
         self.seeds.append((agent.x, agent.y, with_terrain(dna, "terrestrial"), 0, self.turn))
@@ -5459,6 +5480,7 @@ class Simulation:
         agent.last_action = "dug"
         if zone_temperature(agent.y, self.height) == MEDIUM or self.watered(agent.x, agent.y):  # only temperate land, or hot land near water, can be worked
             self.arable.add((agent.x, agent.y))
+            self._tend(agent.x, agent.y)
         if self.random.random() >= DIG_CHANCE:
             return
         if agent.load < agent.capacity:
@@ -5590,6 +5612,7 @@ class Simulation:
         if not self._crush_bone(agent):
             return
         self.fertilized.add((agent.x, agent.y))
+        self._tend(agent.x, agent.y)
         agent.reward += FERTILIZING_JOY * (0.5 + agent.feeling("curiosity"))
         agent.last_action = "fertilized the land"
         self._deed_seen(agent, CRAFT_DEED, None, "skill")
@@ -5737,6 +5760,7 @@ class Simulation:
             plant = situation["flora"]
             plant.fruit = self.fruit_left(plant) - 1
             plant.picked_by = agent.identifier
+            self._tend(plant.x, plant.y)
             agent.reward += HARVEST_JOY
             agent.carried_fruit += 1
         elif source == "fruit_pile":

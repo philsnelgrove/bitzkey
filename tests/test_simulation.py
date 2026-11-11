@@ -4068,6 +4068,25 @@ class MaterialTests(unittest.TestCase):
         simulation._eat_marrow(grazer)
         self.assertEqual(grazer.meat_lean, 0.0)  # only grazers lean
 
+    def test_worked_land_left_untended_goes_wild_its_bone_with_it(self):
+        simulation = Simulation(10, 40, 0, seed=1)
+        temperate = max(y for y in range(40) if simulation_module.zone_temperature(y, 40) == simulation_module.MEDIUM)
+        farmer = simulation._add_agent(encode_dna("omnivore", size=3), 6, temperate)
+        farmer.weapon = 2
+        simulation._dig(farmer)
+        simulation.fertilized.add((6, temperate))
+        self.assertEqual(simulation.tended[(6, temperate)], simulation.turn)
+        simulation._go_fallow()
+        self.assertIn((6, temperate), simulation.arable)  # tended just now
+        with patch("tools.Simulation.FALLOW_YEARS", 0):
+            simulation._go_fallow()
+        self.assertIn((6, temperate), simulation.arable)  # never, at 0
+        simulation.advance()
+        with patch("tools.Simulation.FALLOW_YEARS", 1e-9):  # as if a year had passed untended
+            simulation._go_fallow()
+        self.assertNotIn((6, temperate), simulation.arable)
+        self.assertNotIn((6, temperate), simulation.fertilized)
+
     def test_crushed_bone_gives_a_scavenger_marrow_or_fertilizes_worked_land(self):
         simulation = Simulation(10, 40, 0, seed=1)
         temperate = max(y for y in range(40) if simulation_module.zone_temperature(y, 40) == simulation_module.MEDIUM)

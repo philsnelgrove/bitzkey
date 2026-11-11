@@ -502,6 +502,7 @@ _TABLE: dict[str, list[tuple]] = {
         ("HARVEST_JOY", "Harvest joy", "the gladness of picking a fruit from a plant without uprooting it", 0.0, 5.0, 0.05),
         ("REGROWTH_JOY", "Regrowth joy", "the gladness of seeing a plant it last picked bear fruit again", 0.0, 5.0, 0.05),
         ("ARABLE_FRUIT", "Arable fruit", "times as much fruit a plant on worked land bears each morning", 1, 5, 1),
+        ("FALLOW_YEARS", "Fallow years", "years worked land lies untended before it goes wild, its bone with it; 0, never", 0.0, 10.0, 0.25),
         ("FERTILIZED_FRUIT", "Fertilized fruit", "times as much again on worked land fed bone; the bone is spent", 1, 5, 1),
         ("DIG_CHANCE", "Dig chance", "chance that digging finds a stone", 0.0, 1.0, 0.05),
         ("COOKED_FOOD", "Cooked food", "times as nourishing as raw", 1.0, 5.0, 0.1),
