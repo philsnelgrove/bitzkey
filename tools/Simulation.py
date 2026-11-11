@@ -246,11 +246,13 @@ CONVICTION_LEVEL = 1.0
 EMPATHY_SCRUPLE, TOLERANCE_SCRUPLE = 1.0, 1.0
 # Sociability: an animal values making an offer this much more, times its sociability.
 SOCIABLE_TRADE = 0.25
-# The sharing: the strongest of its patience, sociability and empathy, times SHARING_URGE, is added to the worth of
-# carrying food to its herd's store and of taking food up, and taken from eating fruit off a plant, a kill where it
-# lies or what it carries; any of the three at CONVICTION_LEVEL, it eats none of those, only from a pile. Food
-# brought to the store gladdens it, PROVISION_JOY times that strongest.
-SHARING_URGE, PROVISION_JOY = 1.0, 0.5
+# Its generosity: the strongest of its patience, sociability and empathy, less the strongest of its dominance,
+# aggression and appetite, from -1 to 1. Food brought to its herd's store gladdens it by SHARE_JOY times that, and
+# eating fruit off a plant, a kill where it lies or what it carries, with a herd to share with, by SELFISH_JOY times
+# less: the generous glad to share and uneasy at keeping, the greedy the other way about.
+SHARE_JOY, SELFISH_JOY = 0.5, 0.1
+# And with a friend in sight there, KIN_SHARE_JOY times its kinship besides, however greedy it is.
+KIN_SHARE_JOY = 1.0
 
 
 def swayed(loyalty: float, margin: float, chance: float) -> bool:
@@ -4241,8 +4243,6 @@ class Simulation:
         if herd_middle is not None and agent.carried_meat + agent.carried_fruit + agent.cooked_meat + agent.cooked_fruit > 0:
             store = self._herd_store(agent, herd_middle, sight)
             available.add("store_food")
-        if self._shares_all(agent):  # its food for the herd's store
-            available -= {"browse", "feast", "eat_carried"}
         alert_to = None
         if herd:  # with a herd to tell: a grazer of a hunter it sees, a hunter of a fresh kill it sees
             if agent.species == "grazer" and seen_hunter is not None:
@@ -4777,10 +4777,14 @@ class Simulation:
             agent.last_action = "foraged"
         elif action == "browse":
             self._browse(agent, situation["flora"])
+            if situation["herd_middle"] is not None and agent.last_action == "browsed":  # kept from its herd
+                agent.reward -= SELFISH_JOY * self._generosity(agent)
         elif action == "uproot":
             self._uproot(agent, situation["uprootable"])
         elif action == "feast":
             self._feast(agent, situation["kill"])
+            if situation["herd_middle"] is not None and agent.last_action == "feasted":
+                agent.reward -= SELFISH_JOY * self._generosity(agent)
         elif action == "scavenge":
             self._scavenge(agent, situation["carrion"])
         elif action == "rest" and situation.get("frozen"):
@@ -4940,6 +4944,8 @@ class Simulation:
             self._eat_pile(agent, situation)
         elif action == "eat_carried":
             self._eat_carried(agent)
+            if situation["herd_middle"] is not None and agent.last_action == "ate what it carried":
+                agent.reward -= SELFISH_JOY * self._generosity(agent)
         elif action in HEADINGS:
             dx, dy, walk, went = HEADINGS[action]
             cells = 1 if walk else agent.steps
@@ -5021,22 +5027,12 @@ class Simulation:
             valued[HUNT] -= tolerance
         if prey is not None and not self._is_prey(agent, prey):
             valued[ATTACK] -= tolerance
-        urge = SHARING_URGE * self._sharing(agent)
-        if urge > 0:  # rather the herd's store than its own mouth
-            for action in ("store_food", "take_fruit", "take_meat"):
-                valued[ACTIONS.index(action)] += urge
-            for action in ("browse", "feast", "eat_carried"):
-                valued[ACTIONS.index(action)] -= urge
 
     @staticmethod
-    def _sharing(agent: Bitzkey) -> float:
-        """The strongest of its patience, sociability and empathy."""
-        return max(agent.feeling("patience"), agent.feeling("sociability"), agent.feeling("empathy"))
-
-    @classmethod
-    def _shares_all(cls, agent: Bitzkey) -> bool:
-        """Any of the three at its height: food is for the herd's store."""
-        return any(cls._convinced(agent, trait) for trait in ("patience", "sociability", "empathy"))
+    def _generosity(agent: Bitzkey) -> float:
+        """The strongest of its patience, sociability and empathy, less that of its dominance, aggression and appetite."""
+        return (max(agent.feeling("patience"), agent.feeling("sociability"), agent.feeling("empathy"))
+                - max(agent.feeling("dominance"), agent.feeling("aggression"), agent.feeling("appetite")))
 
     def _herd_store(self, agent: Bitzkey, middle: tuple[int, int], sight: int) -> tuple[int, int]:
         """The food piles, fires and shelters it sees, the one nearest its herd's middle; else that middle, to begin one."""
@@ -5072,7 +5068,9 @@ class Simulation:
         self._add_to_pile(self.cooked_meat_piles, here, agent.cooked_meat)
         self._add_to_pile(self.cooked_fruit_piles, here, agent.cooked_fruit)
         agent.carried_meat = agent.carried_fruit = agent.cooked_meat = agent.cooked_fruit = 0
-        agent.reward += PROVISION_JOY * self._sharing(agent)
+        agent.reward += SHARE_JOY * self._generosity(agent)  # glad to share, or, the greedy, uneasy
+        if any(other is not agent and other.alive and self._is_friend(agent, other) for other in self._nearby(agent, agent.sight)):
+            agent.reward += KIN_SHARE_JOY * agent.feeling("kinship")  # a friend there to share with: glad by its kinship, greedy or not
         agent.last_action = "stored food for its herd"
 
     def _uproot(self, agent: Bitzkey, plant: Bitzkey) -> None:

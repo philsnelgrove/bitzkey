@@ -216,8 +216,9 @@ _TABLE: dict[str, list[tuple]] = {
         ("LOYALTY_MARGIN", "Loyalty margin", "how much more esteem, times its loyalty, a follower must hold another in before it may leave its leader for it; past that, the likelier the further, and surer the less loyal", 0.0, 1.0, 0.05),
         ("CONVICTION_LEVEL", "Conviction level", "share of its full range at which empathy or tolerance becomes a conviction kept even starving: an empathetic grazer won't uproot, an empathetic predator spares the young and those carrying young, a tolerant animal strikes no foe and drives none out", 0.0, 1.0, 0.05),
         ("SOCIABLE_TRADE", "Sociable trade", "how much more an animal values making an offer, times its sociability", 0.0, 5.0, 0.05),
-        ("SHARING_URGE", "Sharing urge", "times the strongest of its patience, sociability and empathy, added to the worth of bringing food to its herd's store and taking food up, and taken from eating fruit off a plant, a kill where it lies or what it carries", 0.0, 5.0, 0.1),
-        ("PROVISION_JOY", "Provisioning joy", "pleasure of bringing food to its herd's store, times the strongest of its patience, sociability and empathy", 0.0, 5.0, 0.1),
+        ("SHARE_JOY", "Share joy", "pleasure of bringing food to its herd's store, times its generosity: the strongest of its patience, sociability and empathy, less the strongest of its dominance, aggression and appetite; the greedy are uneasy", 0.0, 5.0, 0.1),
+        ("SELFISH_JOY", "Selfish unease", "unease at eating fruit off a plant, a kill where it lies or what it carries with a herd to share with, times its generosity; the greedy are gratified", 0.0, 5.0, 0.05),
+        ("KIN_SHARE_JOY", "Kin sharing joy", "pleasure of bringing food to its herd's store with a friend in sight there, times its kinship, whatever its generosity", 0.0, 5.0, 0.1),
         ("EMPATHY_SCRUPLE", "Empathy scruple", "how much less an animal values uprooting a plant, times its empathy, and a predator hunting, striking or feasting on the young or those carrying young", 0.0, 5.0, 0.05),
         ("TOLERANCE_SCRUPLE", "Tolerance scruple", "how much less an animal values striking a foe or driving one out, times its tolerance; hunting to eat is untouched", 0.0, 5.0, 0.05),
         ("DOMINANCE_EASE", "Dominance ease", "share less a crowded territory troubles the most dominant, and more the most submissive",
@@ -719,7 +720,7 @@ def apply(values: Mapping[str, float]) -> None:
 
 
 def changed(values: Mapping[str, float]) -> dict[str, float]:
-    return {key: value for key, value in values.items() if value != DEFAULTS[key]}
+    return {key: value for key, value in values.items() if key in DEFAULTS and value != DEFAULTS[key]}  # a rule since retired is dropped
 
 
 def shown(rule: Rule, value: float) -> str:

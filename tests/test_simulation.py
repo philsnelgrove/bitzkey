@@ -4086,7 +4086,7 @@ class MaterialTests(unittest.TestCase):
                              [(parent.last_senses, simulation_module.call_output(simulation_module.FIRST_CALL + 2), 4.0),
                               (child.last_senses, 0, 5.0)])
 
-    def test_a_sharer_brings_its_food_to_the_store_nearest_its_herds_middle_gladly(self):
+    def test_a_sharer_brings_its_food_to_the_store_nearest_its_herds_middle_glad_as_it_is_generous(self):
         simulation = Simulation(30, 30, 0, seed=1)
         sharer = simulation._add_agent(encode_dna("omnivore", size=3), 5, 5)
         simulation.fires[(9, 5)] = (simulation.turn + 10, -1)
@@ -4101,8 +4101,24 @@ class MaterialTests(unittest.TestCase):
         self.assertEqual(sharer.carried_fruit + sharer.cooked_meat, 0)
         self.assertLessEqual(abs(sharer.x - 9) + abs(sharer.y - 5), 1)
         self.assertEqual((simulation.fruit_piles[(sharer.x, sharer.y)], simulation.cooked_meat_piles[(sharer.x, sharer.y)]), (2, 1))
-        self.assertAlmostEqual(sharer.reward, simulation_module.PROVISION_JOY * Simulation._sharing(sharer))
-        self.assertTrue(Simulation._shares_all(sharer))
+        self.assertGreater(Simulation._generosity(sharer), 0)
+        self.assertAlmostEqual(sharer.reward, simulation_module.SHARE_JOY * Simulation._generosity(sharer))
+        for trait in ("patience", "sociability", "empathy"):
+            sharer.mind[trait] = 0.0
+        sharer.mind["appetite"] = 7.0  # the greedy
+        self.assertLess(Simulation._generosity(sharer), 0)
+        sharer.carried_fruit, sharer.reward = 1, 0.0
+        simulation._provision(sharer, (9, 5))
+        self.assertLess(sharer.reward, 0)  # uneasy to give it up
+        friend = simulation._add_agent(encode_dna("omnivore", size=3), sharer.x, sharer.y + 1)
+        simulation._index_cells()
+        sharer.known.append(simulation_module.Acquaintance(friend.identifier, simulation_module.REGARD_STRONG, 0))
+        sharer.mind["kinship"] = 7.0
+        sharer.carried_fruit, sharer.reward = 1, 0.0
+        simulation._provision(sharer, (9, 5))
+        self.assertAlmostEqual(sharer.reward, simulation_module.SHARE_JOY * Simulation._generosity(sharer)
+                               + simulation_module.KIN_SHARE_JOY * sharer.feeling("kinship"))
+        self.assertGreater(sharer.reward, 0)  # greedy, yet glad to share with a friend
 
     def test_worked_land_left_untended_goes_wild_its_bone_with_it(self):
         simulation = Simulation(10, 40, 0, seed=1)
