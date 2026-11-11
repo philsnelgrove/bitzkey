@@ -354,6 +354,7 @@ _TABLE: dict[str, list[tuple]] = {
         ("TUTOR_JOY", "Tutor joy", "joy of giving one of its kind a lesson in a craft or skill, the more for the empathetic", 0.0, 5.0, 0.05),
         ("TUTOR_PRACTICE", "Tutored practice", "share of a try, or of a shot's lesson, that a lesson from a tutor is worth", 0.0, 1.0, 0.05),
         ("WATCH_LEARNING", "Watch learning", "chance that a craft seen done by one of its kind it holds no foe is learnt from the watching, and share of a shot's lesson a hit seen with a bow teaches; 0 for none", 0.0, 1.0, 0.01),
+        ("CHILD_CALL_LEARNING", "Child call learning", "share of its own learning a child that hears its parent call learns to make that call where the parent made it, and, hearing it, what the parent then did; 0 for none", 0.0, 2.0, 0.05),
         ("ELDER_COMFORT", "Elder comfort", "gladness at staying near the elder who taught it, more if trusting; 0 for none", 0.0, 2.0, 0.05),
         ("ELDER_REACH", "Elder reach", "steps from the elder who taught it within which a student is glad of it", 0, 20, 1),
         ("FOLLOW_SAFETY", "Follow safety", "share of its dread spared, and felt as relief, with a friend or one it holds skilled close by; 0 for none", 0.0, 1.0, 0.05),

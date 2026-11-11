@@ -722,6 +722,9 @@ PROTECTION_JOY = 1.0
 SKILL_HELD = 0.5  # the skill at which another is held skilled
 SKILL_COMFORT = 0.5
 WATCH_LEARNING = 0.25
+# A child that hears its parent call learns, at this share of its own learning, to make that call where the parent
+# made it, and, hearing it, what the parent then did; 0, not at all.
+CHILD_CALL_LEARNING = 1.0
 ELDER_COMFORT = 0.5
 ELDER_REACH = 3
 FOLLOW_SAFETY = 0.5
@@ -4496,6 +4499,18 @@ class Simulation:
             if abs(valued[output]) > VALUE_LIMIT:
                 agent.brain.learn(senses, output, max(-VALUE_LIMIT, min(VALUE_LIMIT, valued[output])), rate)
 
+    def _parent_lessons(self, child: Bitzkey, target: float, call_target: float) -> list[tuple]:
+        """A child hearing its parent call: the call, in the parent's situation, valued as its own best call, to copy;
+        and what the parent then did, in its own senses holding the call, valued as its own turn, to take in."""
+        if (CHILD_CALL_LEARNING <= 0 or not child.infant or child.heard_turn != self.turn or child.heard_from < 0
+                or child.heard_from not in (child.mother, child.father)):
+            return []
+        parent = self.find_agent(child.heard_from)
+        if parent is None or not parent.alive or parent.last_senses is None:
+            return []
+        lessons = [(parent.last_senses, call_output(parent.last_call), call_target)] if parent.last_call >= FIRST_CALL else []
+        return lessons + [(child.last_senses, parent.last_choice, target)]
+
     def _learn_batch(self, batch: BrainBatch, lessons: list[tuple | None]) -> None:
         """_learn, with replays, for every brain of a batch at once, each (agent, target, outcome, call target) or None
         for a brain with nothing to learn this turn; then the weights go back to the brains. Last, each learns from its
@@ -4541,6 +4556,14 @@ class Simulation:
             for row, call in enumerate(calls):
                 if call is not None:
                     senses[row], actions[row], targets[row], rates[row] = call
+            batch.learn(senses, actions, targets, rates)
+        taught = [self._parent_lessons(lesson[0], lesson[1], lesson[3]) if lesson is not None else [] for lesson in lessons]
+        for turn in range(max(map(len, taught), default=0)):  # a child's lessons from its parent's call
+            senses, rates = np.zeros((size, len(SENSES))), np.zeros(size)
+            for row, parent_lessons in enumerate(taught):
+                if turn < len(parent_lessons):
+                    senses[row], actions[row], targets[row] = parent_lessons[turn]
+                    rates[row] = self._learning_rate(lessons[row][0]) * CHILD_CALL_LEARNING
             batch.learn(senses, actions, targets, rates)
         batch.write_back()
         for lesson in lessons:  # and back in time: what its memory held, which the choice read, taught to the gates that wrote it

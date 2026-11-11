@@ -4068,6 +4068,24 @@ class MaterialTests(unittest.TestCase):
         simulation._eat_marrow(grazer)
         self.assertEqual(grazer.meat_lean, 0.0)  # only grazers lean
 
+    def test_a_child_hearing_its_parent_call_learns_the_call_and_what_the_parent_did_a_strangers_not(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        parent = simulation._add_agent(encode_dna("grazer"), 5, 5)
+        stranger = simulation._add_agent(encode_dna("grazer"), 4, 5)
+        child = simulation._add_agent(encode_dna("grazer"), 6, 5)
+        child.mother = parent.identifier
+        for caller in (parent, stranger):
+            caller.last_senses, caller.last_call, caller.last_choice = [1.0] + [0.0] * (len(simulation_module.SENSES) - 1), simulation_module.FIRST_CALL + 2, 0
+        child.last_senses = [0.0, 1.0] + [0.0] * (len(simulation_module.SENSES) - 2)
+        child.heard_turn = simulation.turn
+        with patch.object(type(child), "infant", new=property(lambda self: True)):
+            child.heard_from = stranger.identifier
+            self.assertEqual(simulation._parent_lessons(child, 5.0, 4.0), [])  # a stranger's call
+            child.heard_from = parent.identifier
+            self.assertEqual(simulation._parent_lessons(child, 5.0, 4.0),
+                             [(parent.last_senses, simulation_module.call_output(simulation_module.FIRST_CALL + 2), 4.0),
+                              (child.last_senses, 0, 5.0)])
+
     def test_worked_land_left_untended_goes_wild_its_bone_with_it(self):
         simulation = Simulation(10, 40, 0, seed=1)
         temperate = max(y for y in range(40) if simulation_module.zone_temperature(y, 40) == simulation_module.MEDIUM)
