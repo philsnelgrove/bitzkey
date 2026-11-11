@@ -3711,6 +3711,24 @@ class MaterialTests(unittest.TestCase):
         simulation._cook(lighter)
         self.assertEqual((lighter.carried_meat, lighter.cooked_meat), (0, 1))
 
+    def test_beside_a_fire_an_animal_cooks_food_at_hand_without_carrying_it_there(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        cook = Bitzkey(1, encode_dna("omnivore", size=3), 5, 5)
+        simulation.fruit_piles[(6, 5)] = 2
+        self.assertEqual(simulation._food_to_cook(cook, None, None, None, (6, 5)), "fruit_pile")
+        simulation._cook_at_hand(cook, {"kill": None, "flora": None, "meat_pile": None, "fruit_pile": (6, 5), "fire": (5, 5)})
+        self.assertEqual(simulation.fruit_piles[(6, 5)], 1)
+        self.assertEqual((cook.carried_fruit, cook.cooked_fruit), (0, 1))
+
+    def test_food_gone_between_choosing_and_acting_is_never_taken_below_nothing(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        eater = Bitzkey(1, encode_dna("omnivore", size=3), 5, 5)
+        other = Bitzkey(2, encode_dna("omnivore", size=3), 6, 5)
+        simulation._eat_carried(eater)
+        simulation._cook(eater)
+        simulation._pass_good(eater, other, simulation_module.MEAT_GOOD)
+        self.assertEqual((eater.carried_meat, eater.carried_fruit, eater.cooked_meat, other.carried_meat), (0, 0, 0, 0))
+
     def test_seven_units_make_a_shelter_that_doubles_a_square(self):
         simulation = Simulation(30, 30, 0, seed=1)
         builder = Bitzkey(1, encode_dna("omnivore", size=7), 5, 5)

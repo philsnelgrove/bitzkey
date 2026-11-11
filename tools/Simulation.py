@@ -651,7 +651,7 @@ CARRIED_SPOIL = 0.02  # the chance each turn a raw portion carried goes off; coo
 # and a fire cooked on within the day, are smelt SMELL_REACH times as far as it sees; cooked food smelt is food sought,
 # and in sight it is taken before raw.
 COOKED_TASTE = 1.0 / 3
-COOKED_JOY, RAW_DISTASTE, COOK_JOY, SMELL_REACH = 1.0, 0.5, 1.0, 2.0
+COOKED_JOY, RAW_DISTASTE, COOK_JOY, SMELL_REACH = 1.0, 0.5, 1.0, 3.0
 # A sense of taste, inborn: a cooked portion is tasty (TASTE_JOY, times its appetite), a raw portion, from a pile or
 # carried, as much the opposite, over and above the taste it learns.
 TASTE_JOY = 1.0
@@ -2208,7 +2208,7 @@ class Simulation:
         if getattr(giver, f"cooked_{kind}") > 0:
             setattr(giver, f"cooked_{kind}", getattr(giver, f"cooked_{kind}") - 1)
             setattr(taker, f"cooked_{kind}", getattr(taker, f"cooked_{kind}") + 1)
-        else:
+        elif getattr(giver, f"carried_{kind}") > 0:
             setattr(giver, f"carried_{kind}", getattr(giver, f"carried_{kind}") - 1)
             setattr(taker, f"carried_{kind}", getattr(taker, f"carried_{kind}") + 1)
 
@@ -4219,11 +4219,11 @@ class Simulation:
                 available.add("plant_seed")
         if beside_fire and agent.carried_wood:
             available.add("feed_fire")
-        if beside_fire and agent.carried_meat + agent.carried_fruit:
+        if beside_fire and self._food_to_cook(agent, kill, flora, meat_pile, fruit_pile):
             available.add("cook")
         if (eat_meat and MEAT_PORTION * agent.digestion > 0) or (eat_fruit and FRUIT_PORTION * agent.browsing > 0):
             available.add("eat_pile")
-        if (agent.carried_meat + agent.cooked_meat and MEAT_PORTION * agent.digestion > 0) or (agent.carried_fruit + agent.cooked_fruit and FRUIT_PORTION * agent.browsing > 0):
+        if (agent.carried_meat + agent.cooked_meat > 0 and MEAT_PORTION * agent.digestion > 0) or (agent.carried_fruit + agent.cooked_fruit > 0 and FRUIT_PORTION * agent.browsing > 0):
             available.add("eat_carried")
         alert_to = None
         if herd:  # with a herd to tell: a grazer of a hunter it sees, a hunter of a fresh kill it sees
@@ -4814,21 +4814,27 @@ class Simulation:
         elif action == "take_fruit":
             self._take_fruit(agent, situation)
         elif action == "drop_meat":
-            if agent.carried_meat:
+            if agent.carried_meat > 0:
                 agent.carried_meat -= 1
                 self._add_to_pile(self.meat_piles, (agent.x, agent.y), 1)
-            else:
+                agent.last_action = "dropped meat"
+            elif agent.cooked_meat > 0:
                 agent.cooked_meat -= 1
                 self._add_to_pile(self.cooked_meat_piles, (agent.x, agent.y), 1)
-            agent.last_action = "dropped meat"
+                agent.last_action = "dropped meat"
+            else:  # gone since it chose: spoilt, eaten or passed on
+                agent.last_action = "had nothing to drop"
         elif action == "drop_fruit":
-            if agent.carried_fruit:
+            if agent.carried_fruit > 0:
                 agent.carried_fruit -= 1
                 self._add_to_pile(self.fruit_piles, (agent.x, agent.y), 1)
-            else:
+                agent.last_action = "dropped fruit"
+            elif agent.cooked_fruit > 0:
                 agent.cooked_fruit -= 1
                 self._add_to_pile(self.cooked_fruit_piles, (agent.x, agent.y), 1)
-            agent.last_action = "dropped fruit"
+                agent.last_action = "dropped fruit"
+            else:
+                agent.last_action = "had nothing to drop"
         elif action in ("take_stone", "take_bone", "take_wood"):
             self._take_material(agent, situation[action[5:] + "_pile"], action[5:])
         elif action in ("drop_stone", "drop_bone", "drop_wood"):
@@ -4875,7 +4881,7 @@ class Simulation:
         elif action == "feed_fire":
             self._feed_fire(agent, situation["fire"])
         elif action == "cook":
-            self._cook(agent, situation["fire"])
+            self._cook_at_hand(agent, situation)
         elif action == "take_gear":
             self._take_gear(agent, situation["gear_pile"], situation["gear_kind"])
         elif action == "drop_weapon":
@@ -5266,16 +5272,20 @@ class Simulation:
 
     def _eat_carried(self, agent: Bitzkey) -> None:
         """A portion of whichever it carries would fill it more."""
-        meat = MEAT_PORTION * agent.digestion * (COOKED_FOOD if agent.cooked_meat else 1.0) if agent.carried_meat + agent.cooked_meat else 0.0
-        fruit = FRUIT_PORTION * agent.browsing * (COOKED_FOOD if agent.cooked_fruit else 1.0) if agent.carried_fruit + agent.cooked_fruit else 0.0
-        eats_meat = meat >= fruit
-        self._taste(agent, bool(agent.cooked_meat if eats_meat else agent.cooked_fruit))
+        has_meat, has_fruit = agent.carried_meat + agent.cooked_meat > 0, agent.carried_fruit + agent.cooked_fruit > 0
+        if not has_meat and not has_fruit:  # gone since it chose: spoilt, or passed on
+            agent.last_action = "found nothing carried"
+            return
+        meat = MEAT_PORTION * agent.digestion * (COOKED_FOOD if agent.cooked_meat > 0 else 1.0) if has_meat else 0.0
+        fruit = FRUIT_PORTION * agent.browsing * (COOKED_FOOD if agent.cooked_fruit > 0 else 1.0) if has_fruit else 0.0
+        eats_meat = has_meat and (not has_fruit or meat >= fruit)
+        self._taste(agent, (agent.cooked_meat if eats_meat else agent.cooked_fruit) > 0)
         if eats_meat:  # the cooked first
-            if agent.cooked_meat:
+            if agent.cooked_meat > 0:
                 agent.cooked_meat -= 1
             else:
                 agent.carried_meat -= 1
-        elif agent.cooked_fruit:
+        elif agent.cooked_fruit > 0:
             agent.cooked_fruit -= 1
         else:
             agent.carried_fruit -= 1
@@ -5689,9 +5699,57 @@ class Simulation:
                 self._note_deed(defender, other, DEFENCE_DEED, SHARED_BOND)
         self._deed_seen(defender, DEFENCE_DEED, assailant)
 
+    def _food_to_cook(self, agent: Bitzkey, kill, flora, meat_pile, fruit_pile) -> str | None:
+        """Raw food for its own gut to cook: what it carries, else, with room for it, a fresh kill, a meat pile, a
+        bearing plant or a fruit pile beside it."""
+        if agent.carried_meat > 0 or agent.carried_fruit > 0:
+            return "carried"
+        if agent.load >= agent.capacity:
+            return None
+        beside = lambda x, y: abs(x - agent.x) + abs(y - agent.y) <= 1
+        if MEAT_PORTION * agent.digestion > 0:
+            if kill is not None and beside(kill.x, kill.y) and self._fresh(kill) and kill.meat > 0 and kill.portions > 0:
+                return "kill"
+            if meat_pile and beside(*meat_pile) and self.meat_piles.get(meat_pile, 0) > 0:
+                return "meat_pile"
+        if FRUIT_PORTION * agent.browsing > 0:
+            if flora is not None and flora.alive and beside(flora.x, flora.y) and self.fruit_left(flora) > 0:
+                return "plant"
+            if fruit_pile and beside(*fruit_pile) and self.fruit_piles.get(fruit_pile, 0) > 0:
+                return "fruit_pile"
+        return None
+
+    def _cook_at_hand(self, agent: Bitzkey, situation: dict) -> None:
+        """That, taken up raw and cooked on the fire beside it."""
+        source = self._food_to_cook(agent, situation["kill"], situation["flora"], situation["meat_pile"], situation["fruit_pile"])
+        if source is None:  # gone since it chose
+            agent.last_action = "had nothing to cook"
+            return
+        if source == "kill":
+            corpse = situation["kill"]
+            corpse.meat -= corpse.meat / corpse.portions
+            self._eat_portion(corpse)
+            agent.carried_meat += 1
+        elif source == "meat_pile":
+            self._add_to_pile(self.meat_piles, situation["meat_pile"], -1)
+            agent.carried_meat += 1
+        elif source == "plant":  # picked, the plant unhurt
+            plant = situation["flora"]
+            plant.fruit = self.fruit_left(plant) - 1
+            plant.picked_by = agent.identifier
+            agent.reward += HARVEST_JOY
+            agent.carried_fruit += 1
+        elif source == "fruit_pile":
+            self._add_to_pile(self.fruit_piles, situation["fruit_pile"], -1)
+            agent.carried_fruit += 1
+        self._cook(agent, situation["fire"])
+
     def _cook(self, agent: Bitzkey, fire: tuple[int, int] | None = None) -> None:
         """What it carries, raw, carried on cooked."""
-        if agent.carried_meat:
+        if agent.carried_meat <= 0 and agent.carried_fruit <= 0:
+            agent.last_action = "had nothing to cook"
+            return
+        if agent.carried_meat > 0:
             agent.carried_meat -= 1
             agent.cooked_meat += 1
         else:
