@@ -4355,6 +4355,24 @@ class MaterialTests(unittest.TestCase):
         self.assertEqual(maker.carried_stone, alone + 2)  # and taken up again
         self.assertEqual(Simulation._value_of(maker, simulation_module.WAGON_GOOD), 1)
 
+    def test_one_who_sees_the_caller_it_hears_may_read_what_it_meant_by_its_intellect(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        caller = simulation._add_agent(encode_dna("predator", size=3), 10, 10)
+        listener = simulation._add_agent(encode_dna("predator", size=3, sight=4), 12, 10)
+        simulation._index_cells()
+        caller.last_senses, caller.last_call, caller.last_choice = [0.0] * len(SENSES), simulation_module.FIRST_CALL, ACTIONS.index("hunt")
+        listener.last_senses, listener.heard_from, listener.heard_turn = [0.0] * len(SENSES), caller.identifier, simulation.turn
+        listener.mind["intellect"] = 0.0
+        self.assertEqual(simulation._body_language_lessons(listener, 1.0, 5.0), [])  # none of it, however plainly seen
+        listener.mind["intellect"] = 7.0
+        with patch("tools.Simulation.BODY_LANGUAGE", 1.0):  # read whenever seen
+            listener.x = 25  # out of sight: only heard
+            self.assertEqual(simulation._body_language_lessons(listener, 1.0, 5.0), [])
+            listener.x = 12
+            lessons = simulation._body_language_lessons(listener, 1.0, 5.0)
+        self.assertEqual([(action, target) for _, action, target in lessons],
+                         [(simulation_module.call_output(simulation_module.FIRST_CALL), 5.0), (ACTIONS.index("hunt"), 1.0)])
+
     def test_a_whole_fruit_may_be_planted_and_feeds_the_ground_as_if_fertilized(self):
         simulation = Simulation(30, 30, 0, seed=1)
         farmer = simulation._add_agent(encode_dna("omnivore", size=3), 5, 5)

@@ -1998,5 +1998,7 @@
 "had nothing to light a fire with": "non aveva nulla per accendere un fuoco",
 "This world now plays by {#} rule changed from the defaults.": "Questo mondo ora segue {#} regola cambiata rispetto ai valori predefiniti.",
 "This world now plays by {#} rules changed from the defaults.": "Questo mondo ora segue {#} regole cambiate rispetto ai valori predefiniti.",
-"LAST CALL": "ULTIMO RICHIAMO"
+"LAST CALL": "ULTIMO RICHIAMO",
+"Body language": "Linguaggio del corpo",
+"chance, for each point of its intellect, that one who sees the caller of its kind it hears understands what it meant: it learns to make that call where the caller made it, and, hearing it, what the caller then did; 0 for none": "probabilità, per ogni punto d'intelletto, che chi vede il richiamante della sua specie che sente capisca cosa intendeva: impara a fare quel richiamo dove l'altro l'ha fatto e, sentendolo, ciò che l'altro ha fatto poi; 0 per nessuna"
 }

@@ -750,6 +750,10 @@ WATCH_LEARNING = 0.25
 # A child that hears its parent call learns, at this share of its own learning, to make that call where the parent
 # made it, and, hearing it, what the parent then did; 0, not at all.
 CHILD_CALL_LEARNING = 1.0
+# Body language: one that sees the caller of its kind it hears may read what it meant, a chance of BODY_LANGUAGE for
+# each point of its intellect (none at 0): it learns, as a child its parent's call, to make that call where the caller
+# made it and, hearing it, what the caller then did. Unseen, or not read, a call is only what its own turns teach it.
+BODY_LANGUAGE = 0.1
 ELDER_COMFORT = 0.5
 ELDER_REACH = 3
 FOLLOW_SAFETY = 0.5
@@ -4562,6 +4566,22 @@ class Simulation:
         lessons = [(parent.last_senses, call_output(parent.last_call), call_target)] if parent.last_call >= FIRST_CALL else []
         return lessons + [(child.last_senses, parent.last_choice, target)]
 
+    def _body_language_lessons(self, listener: Bitzkey, target: float, call_target: float) -> list[tuple]:
+        """One that sees the caller of its kind it hears, reading what it meant by its intellect (see BODY_LANGUAGE): the
+        call, in the caller's situation, to make; and what the caller then did, in its own senses, to take in."""
+        if BODY_LANGUAGE <= 0 or listener.heard_turn != self.turn or listener.heard_from < 0:
+            return []
+        if CHILD_CALL_LEARNING > 0 and listener.infant and listener.heard_from in (listener.mother, listener.father):
+            return []  # its parent's call, learnt as a child learns it
+        caller = self.find_agent(listener.heard_from)
+        if caller is None or not caller.alive or caller.last_senses is None or caller.last_call < FIRST_CALL:
+            return []
+        if abs(caller.x - listener.x) + abs(caller.y - listener.y) > self._sight_now(listener):
+            return []  # heard, but not seen
+        if whim(~listener.identifier, self.turn) >= BODY_LANGUAGE * listener.mind["intellect"]:
+            return []  # seen, but not read
+        return [(caller.last_senses, call_output(caller.last_call), call_target), (listener.last_senses, caller.last_choice, target)]
+
     def _learn_batch(self, batch: BrainBatch, lessons: list[tuple | None]) -> None:
         """_learn, with replays, for every brain of a batch at once, each (agent, target, outcome, call target) or None
         for a brain with nothing to learn this turn; then the weights go back to the brains. Last, each learns from its
@@ -4615,6 +4635,14 @@ class Simulation:
                 if turn < len(parent_lessons):
                     senses[row], actions[row], targets[row] = parent_lessons[turn]
                     rates[row] = self._learning_rate(lessons[row][0]) * CHILD_CALL_LEARNING
+            batch.learn(senses, actions, targets, rates)
+        read = [self._body_language_lessons(lesson[0], lesson[1], lesson[3]) if lesson is not None else [] for lesson in lessons]
+        for turn in range(max(map(len, read), default=0)):  # and from a caller seen, its body language read
+            senses, rates = np.zeros((size, len(SENSES))), np.zeros(size)
+            for row, seen in enumerate(read):
+                if turn < len(seen):
+                    senses[row], actions[row], targets[row] = seen[turn]
+                    rates[row] = self._learning_rate(lessons[row][0])
             batch.learn(senses, actions, targets, rates)
         batch.write_back()
         for lesson in lessons:  # and back in time: what its memory held, which the choice read, taught to the gates that wrote it
