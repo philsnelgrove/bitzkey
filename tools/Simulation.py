@@ -20,7 +20,7 @@ import numpy as np
 
 import tools.Brain as brain_rules  # its rules, as they now stand
 from tools.Brain import (ACTIONS, ALERT_CALL, CALLS, FIRST_CALL, FORESEEN, FORESIGHT, MEMORY_GATES, MEMORY_NEURONS, OUTPUTS, SENSES, SILENT, Brain, BrainBatch, call_output,
-                         choice_odds, depth_for, gene_senses, imagining, make_senses, memory_after, width_for)
+                         choice_odds, depth_for, gene_senses, imagined_call, imagining, make_senses, memory_after, width_for)
 from tools.Genome import (GENOME, SPECIES, TEMPERAMENT, TRAIT_MAX, body_word, color_from_word, colour_difference, cross, decode_nocturnal, dot_difference,
                           inherit_mind,
                           ring_difference, social_difference, social_word, BODY_MUTATION_CHANCE, COLD_TOLERANCE,
@@ -4526,6 +4526,8 @@ class Simulation:
         rate = self._learning_rate(agent) * FORESIGHT_LEARNING
         if rate > 0:
             agent.brain.learn(imagining(agent.last_senses, agent.last_choice), FORESIGHT + thing, change[thing], rate)
+            if agent.last_call >= 0:  # and what it called, or its silence, as if it had pictured that: what follows a call
+                agent.brain.learn(imagining(agent.last_senses, imagined_call(agent.last_call)), FORESIGHT + thing, change[thing], rate)
 
     def _imagine(self, agent: Bitzkey, senses: Sequence[float], options: Sequence[int], valued: Sequence[float], situation: dict) -> dict[int, list[float]]:
         """What it foresees would come of each of its best-valued options, if it is free to think."""

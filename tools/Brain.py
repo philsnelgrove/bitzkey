@@ -207,6 +207,11 @@ def width_for(intellect: int) -> int:
     return BASE_WIDTH + WIDTH_STEP * max(0, intellect - MAX_DEPTH)
 
 
+def imagined_call(call: int) -> int:
+    """A call (or silence) pictured is numbered after the actions, so foresight may learn what follows a call too."""
+    return len(ACTIONS) + call
+
+
 def imagining(senses: Sequence[float], action: int) -> list[float]:
     """The same senses, picturing itself taking `action`."""
     return [*senses[:IMAGINED_SENSE], *(1.0 if action >> bit & 1 else -1.0 for bit in range(IMAGINED_BITS))]
