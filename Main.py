@@ -17,8 +17,8 @@ from config.Globals import Config
 from display import Sound, Window
 from display.Dialog import Dialog
 from display.Report import Report
-from display.Inspector import draw_details
-from display.Look import (DOT_RADIUS_RANGE, EXPORTING, GRASS, GRID, GROUND_VARIANTS, GROUNDS, NIGHT, RING_WIDTH, SEA_GRASS, TEXTURE_FROM,
+from display.Inspector import draw_details, draw_portrait
+from display.Look import (MAP_MARKS_RADIUS, draw_crown, draw_flag, draw_gear, draw_hide, genome_colour, DOT_RADIUS_RANGE, EXPORTING, GRASS, GRID, GROUND_VARIANTS, GROUNDS, NIGHT, RING_WIDTH, SEA_GRASS, TEXTURE_FROM,
                           grass_tuft, ground_tile, bitzkey_layer, dot_radius, draw_pile, draw_reticle,
                           map_dot_radii, draw_bitzkey, sea_colour, zone_colour)
 from display.Setup import EXPORT_DIR, SetupScreen
@@ -214,6 +214,8 @@ class BitzkeyApp:
         self._add_button: pg.Rect | None = None
         self._catalog_button: pg.Rect | None = None
         self._exemplar_cards: list[tuple[pg.Rect, int]] = []  # each card beside the map, and whom it shows
+        self._herd_flags: list[tuple[pg.Rect, int]] = []  # each herd flag drawn where it may be clicked, and whose herd
+        self._leader_chips: list[tuple[pg.Rect, int]] = []  # each leader drawn small, and who
         # A left press on the map, while it is held: where it began and whether CTRL was down.
         self._marquee_from: tuple[tuple[int, int], bool] | None = None
         self._exemplar_titles: list[pg.Rect] = []  # each card's title, a menu of statistics, card by card
@@ -445,6 +447,12 @@ class BitzkeyApp:
             return
         if titled := [slot for slot, title in enumerate(self._exemplar_titles) if title.collidepoint(position)]:
             self._exemplar_menu = titled[0]
+            return
+        if flagged := [identifier for box, identifier in self._herd_flags if box.collidepoint(position)]:
+            self._select_herd(flagged[0])
+            return
+        if led := [identifier for box, identifier in self._leader_chips if box.collidepoint(position)]:
+            self._select(led[0])
             return
         if self._deaths_button and self._deaths_button.collidepoint(position):
             self._open_death_report()
@@ -838,6 +846,25 @@ class BitzkeyApp:
         else:
             before = [identifier for identifier in identifiers if identifier < self.selected_id]
             self._select(before[-1] if before else identifiers[-1])
+
+    def _marks_of(self, agent: Bitzkey, wagon: bool = False) -> dict:
+        """Its herd's colour and the one it follows, for its portrait; and its wagon, if asked."""
+        if agent.species == "plant" or not agent.alive:
+            return {}
+        realm = self.simulation.realms.get(agent.realm) if agent.realm >= 0 else None
+        leader = self.simulation.find_agent(agent.follows) if agent.follows >= 0 and agent.follows != agent.identifier else None
+        return {"herd": genome_colour(realm.ring) if realm else None, "leader": leader if leader is not None and leader.alive else None,
+                "wagon": wagon and agent.wagon >= 0}
+
+    def _select_herd(self, identifier: int) -> None:
+        """The whole of its herd on the map, it still in the inspector."""
+        agent = self.simulation.find_agent(identifier)
+        if agent is None or agent.realm < 0:
+            return
+        herd = {other.identifier for other in self.simulation.living if other.realm == agent.realm}
+        self.graph.select(herd)  # the map and the graph share one selection
+        self.selected_id, self.show_insights = identifier, False
+        self._say(f"Selected its herd: {len(herd)}.")
 
     def _select(self, identifier: int) -> None:
         self.selected_id = identifier
@@ -1319,6 +1346,7 @@ class BitzkeyApp:
         """Five cards a side, evenly spaced, each the living animal that stands out in its way; a
         click selects it."""
         self._exemplar_cards, self._exemplar_titles = [], []
+        self._herd_flags, self._leader_chips = [], []  # drawn afresh each frame, with the cards and the panel
         exemplars = self._exemplars()
         gap = UI(8)
         for column, picks in zip(self._exemplar_columns(), (exemplars[:5], exemplars[5:])):
@@ -1342,7 +1370,12 @@ class BitzkeyApp:
                     continue
                 radius = max(1, min(UI(16), height // 5))
                 point = (card.left + UI(10) + radius + RING_WIDTH, card.top + (height + UI(20)) // 2)
-                draw_bitzkey(self.screen, agent.dna, point, radius)
+                marks = self._marks_of(agent)
+                flag, chip = draw_portrait(self.screen, agent, point, radius, RING_WIDTH, True, **marks)
+                if flag:
+                    self._herd_flags.append((flag, agent.identifier))
+                if chip:
+                    self._leader_chips.append((chip, marks["leader"].identifier))
                 x = point[0] + radius + UI(12)
                 self._text(f"#{agent.identifier:03d}", (x, point[1] - UI(24)), (231, 236, 222), self.small)
                 kind = f"{tr(agent.terrain)} {tr(agent.species)}"  # its own line, so a long name fits
@@ -1415,8 +1448,13 @@ class BitzkeyApp:
                            (238, 183, 110), self.small)
             return
 
-        draw_details(self.screen, agent, x, lambda offset: UI(332 + offset), width,
-                     here=self.simulation.temperature(agent.y))
+        marks = self._marks_of(agent, wagon=True)
+        flag, chip = draw_details(self.screen, agent, x, lambda offset: UI(332 + offset), width,
+                                  here=self.simulation.temperature(agent.y), marks=marks)
+        if flag:
+            self._herd_flags.append((flag, agent.identifier))
+        if chip:
+            self._leader_chips.append((chip, marks["leader"].identifier))
         mouse = pg.mouse.get_pos()  # the mouse over a colour chit or a trait: a popup of it, drawn last
         self._word_popup = next((part for part, spot in enumerate(Inspector.LAST_SWATCHES) if spot and spot.collidepoint(mouse)), None)
         self._trait_popup = next((spot for rect, spot in Inspector.LAST_TRAITS if rect.collidepoint(mouse)), None)
@@ -1443,32 +1481,19 @@ class BitzkeyApp:
 
     def _draw_bitzkey(self, agent: Bitzkey, point: tuple[int, int], radius: int, opacity: float = 1.0) -> None:
         draw_bitzkey(self.screen, agent.dna, point, radius, alive=agent.alive, opacity=opacity)
-        if agent.alive and agent.leader:  # recognised a leader: a small gold crown above it
-            half = high = max(3, radius * 3 // 4)
-            foot, cx = point[1] - radius - RING_WIDTH - 1, point[0]
-            pg.draw.polygon(self.screen, (236, 190, 60), [(cx - half, foot), (cx + half, foot), (cx + half, foot - high), (cx + half // 2, foot - high // 2),
-                                                          (cx, foot - high), (cx - half // 2, foot - high // 2), (cx - half, foot - high)])
-        size, (x, y) = max(2, radius * 3 // 5), point  # a small shield at its lower left, a small tool at its upper right
-        if agent.armour_worn:  # a shield: flat across the top, narrowing to a point below
-            cx, cy = x - radius, y + radius * 3 // 5
-            pg.draw.polygon(self.screen, (236, 226, 205) if agent.armour_worn == 1 else (122, 80, 44),
-                            [(cx - size, cy - size), (cx + size, cy - size), (cx + size, cy), (cx, cy + size), (cx - size, cy)])
-        wields = agent.weapon or (4 if agent.carried_stone else 0)
-        if not wields:
+        if agent.species == "plant":
             return
-        cx, cy = x + radius, y - radius * 3 // 5
-        colour = (122, 80, 44) if wields == 2 else (236, 226, 205) if wields == 1 else (136, 138, 142)
-
-        def at(along: float, across: float) -> tuple[int, int]:  # along the handle, foot (-1) to tip (1), and across it
-            return cx + round((along + across) * size), cy + round((across - along) * size)
-        if wields == 4:  # a stone carried: a pebble
-            pg.draw.circle(self.screen, colour, (cx, cy), max(2, size * 2 // 3))
-        elif wields == 2:  # a club: thin at the grip, heavy at the head
-            pg.draw.polygon(self.screen, colour, [at(-1, 0.12), at(1, 0.4), at(1, -0.4), at(-1, -0.12)])
-            pg.draw.circle(self.screen, colour, at(1, 0), max(2, size * 3 // 5))
-        else:  # an axe, of bone or stone: a handle, and a blade at its tip
-            pg.draw.line(self.screen, colour, at(-1, 0), at(0.9, 0), max(1, size // 2))
-            pg.draw.polygon(self.screen, colour, [at(0.45, 0), at(1, 0), at(1.15, -0.75), at(0.3, -0.75)])  # the blade flares from the haft
+        draw_hide(self.screen, agent.hide, point, radius)
+        draw_gear(self.screen, agent.weapon or (4 if agent.carried_stone else 0), agent.armour_worn, point, radius)
+        if radius >= UI(MAP_MARKS_RADIUS) and agent.alive:  # near enough to see its herd's flag and the one it follows
+            marks = self._marks_of(agent)
+            if marks.get("herd") is not None:
+                draw_flag(self.screen, marks["herd"], point, radius)
+            if marks.get("leader") is not None:
+                small = max(2, radius * 2 // 5)
+                draw_bitzkey(self.screen, marks["leader"].dna, (point[0] - radius + small // 2, point[1] - radius + small // 2), small, ring_width=1)
+        if agent.alive and agent.leader:  # recognised a leader: a crown above it, a star for each rank
+            draw_crown(self.screen, point, radius, agent.rank)
 
     def _corpse_opacity(self, agent: Bitzkey) -> float:
         """How visible a Bitzkey is: fully while alive, then fading as its corpse decays, gone

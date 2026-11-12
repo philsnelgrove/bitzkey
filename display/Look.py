@@ -305,3 +305,122 @@ def ground_tile(ground: str, size: int, variant: int) -> pg.Surface:
             _lines(tile, (225, 238, 255, 85), [(cx - span + 2 * span * step / 6, cy - math.sin(step / 6 * math.pi) * s * 0.08) for step in range(7)])
     _tiles[key] = tile
     return tile
+
+# Marks drawn about a Bitzkey, as the C++ version draws them (Look.cpp): its shield at its lower left and its tool at its
+# lower right, the hide it wears below it, a leader's crown and stars above it, its herd's flag at its upper right, and,
+# beside the property panel's portrait, a wagon. A dot on the map this big (design pixels) shows its flag and leader.
+MAP_MARKS_RADIUS = 6
+MAX_STARS = 7
+DARK_EDGE = (24, 30, 30)
+PELTS = ((0, 0, 0), (201, 176, 128), (139, 98, 62), (118, 120, 128))  # by the species a hide came from
+
+
+def draw_gear(surface: pg.Surface, wields: int, wears: int, point: tuple[int, int], radius: int) -> None:
+    """A small shield at its lower left, a small tool at its lower right (its upper right is its herd's flag's)."""
+    (x, y), size = point, max(2, radius * 3 // 5)
+    if wears:  # a shield: flat across the top, narrowing to a point below
+        cx, cy = x - radius, y + radius * 3 // 5
+        pg.draw.polygon(surface, (236, 226, 205) if wears == 1 else (122, 80, 44),
+                        [(cx - size, cy - size), (cx + size, cy - size), (cx + size, cy), (cx, cy + size), (cx - size, cy)])
+    if not wields:
+        return
+    cx, cy = x + radius, y + radius * 3 // 5
+    colour = (122, 80, 44) if wields == 2 else (236, 226, 205) if wields == 1 else (136, 138, 142)
+
+    def at(along: float, across: float) -> tuple[int, int]:  # along the handle, foot (-1) to tip (1), and across it
+        return cx + round((along + across) * size), cy + round((across - along) * size)
+    if wields == 4:  # a stone carried: a pebble
+        pg.draw.circle(surface, colour, (cx, cy), max(2, size * 2 // 3))
+    elif wields == 2:  # a club: thin at the grip, heavy at the head
+        pg.draw.polygon(surface, colour, [at(-1, 0.12), at(1, 0.4), at(1, -0.4), at(-1, -0.12)])
+        pg.draw.circle(surface, colour, at(1, 0), max(2, size * 3 // 5))
+    else:  # an axe, of bone or stone: a handle, and a blade at its tip
+        pg.draw.line(surface, colour, at(-1, 0), at(0.9, 0), max(1, size // 2))
+        pg.draw.polygon(surface, colour, [at(0.45, 0), at(1, 0), at(1.15, -0.75), at(0.3, -0.75)])  # the blade flares from the haft
+
+
+def draw_hide(surface: pg.Surface, hide: int, point: tuple[int, int], radius: int) -> None:
+    """The hide it wears, a stretched pelt below it, in the colour of the animal it came from; a predator's striped."""
+    if hide <= 0:
+        return
+    x, y = point
+    pelt = PELTS[min(3, max(1, hide))]
+    edge = _scaled(pelt, 0.6)
+    w, h = max(3, radius // 2), max(2, radius * 3 // 8)
+    cy = y + radius + h // 3
+
+    def shape(grow: int) -> list[tuple[int, int]]:
+        return [(x - w // 2 - grow, cy - h - grow), (x - w // 4, cy - h // 2), (x + w // 4, cy - h // 2), (x + w // 2 + grow, cy - h - grow),
+                (x + w // 2 - w // 6, cy), (x + w // 2 + grow, cy + h + grow), (x + w // 4, cy + h // 2), (x - w // 4, cy + h // 2),
+                (x - w // 2 - grow, cy + h + grow), (x - w // 2 + w // 6, cy)]
+    pg.draw.polygon(surface, edge, shape(1))
+    pg.draw.polygon(surface, pelt, shape(0))
+    if hide == 3:
+        for dx in (-w // 4, 0, w // 4):
+            pg.draw.line(surface, edge, (x + dx, cy - h // 2), (x + dx, cy + h // 2), max(1, w // 10))
+
+
+def flag_box(point: tuple[int, int], radius: int) -> pg.Rect:
+    """Where draw_flag draws, to click."""
+    size = max(4, radius * 3 // 5)
+    return pg.Rect(point[0] + radius - size // 4, point[1] - radius - size, size + size // 2, size + size // 2)
+
+
+def draw_flag(surface: pg.Surface, colour, point: tuple[int, int], radius: int) -> None:
+    """Its herd's flag at its upper right: a pole and a pennant in the herd's colour, outlined to stand out on any ground."""
+    box = flag_box(point, radius)
+    pole, top, foot, size = box.left + 1, box.top, box.bottom, box.height * 2 // 3
+    pg.draw.line(surface, DARK_EDGE, (pole, top), (pole, foot), max(2, size // 4))
+    pg.draw.line(surface, (222, 214, 196), (pole, top), (pole, foot), max(1, size // 8))
+    pg.draw.polygon(surface, DARK_EDGE, [(pole - 1, top - 1), (pole + size + 2, top + size // 3), (pole - 1, top + size * 2 // 3 + 1)])
+    pg.draw.polygon(surface, colour, [(pole, top), (pole + size, top + size // 3), (pole, top + size * 2 // 3)])
+    pg.draw.polygon(surface, _mixed(colour, (255, 255, 255), 0.3), [(pole, top), (pole + size, top + size // 3), (pole, top + size // 3)])  # lit above
+
+
+def draw_wagon(surface: pg.Surface, point: tuple[int, int], size: int) -> None:
+    """A small wagon centred at the point, about `size` across: a box on two wheels, its planks marked, and its shaft."""
+    x, y = point
+    wood, dark, wheel = (150, 104, 62), (96, 64, 38), (70, 54, 40)
+    w, h = max(8, size), max(4, size * 2 // 5)
+    left, top = x - w // 2, y - h // 2 - size // 8
+    pg.draw.rect(surface, DARK_EDGE, (left - 1, top - 1, w + 2, h + 2))
+    pg.draw.rect(surface, wood, (left, top, w, h))
+    for plank in (1, 2):
+        pg.draw.line(surface, dark, (left + 1, top + plank * h // 3), (left + w - 2, top + plank * h // 3))
+    r = max(2, size // 5)
+    for wx in (left + w // 4, left + w * 3 // 4):
+        pg.draw.circle(surface, DARK_EDGE, (wx, top + h + r // 2), r + 1)
+        pg.draw.circle(surface, wheel, (wx, top + h + r // 2), r)
+        pg.draw.circle(surface, (196, 176, 140), (wx, top + h + r // 2), max(1, r // 3))
+    pg.draw.line(surface, dark, (left + w, top + h // 2), (left + w + size // 3, top + h // 2 - size // 6), max(1, size // 10))
+
+
+def draw_crown(surface: pg.Surface, point: tuple[int, int], radius: int, rank: int = 1) -> None:
+    """A leader's crown above it, shaded gold, and a star over it for each rank: a chief one, a king six."""
+    x, y = point
+    half = high = max(3, radius * 3 // 4)
+    foot = y - radius - RING_WIDTH - 1
+
+    def outline(grow: int) -> list[tuple[int, int]]:
+        return [(x - half - grow, foot + grow), (x + half + grow, foot + grow), (x + half + grow, foot - high - grow), (x + half // 2, foot - high // 2 - grow),
+                (x, foot - high - grow), (x - half // 2, foot - high // 2 - grow), (x - half - grow, foot - high - grow)]
+    pg.draw.polygon(surface, (92, 64, 14), outline(1))
+    pg.draw.polygon(surface, (206, 152, 36), outline(0))
+    pg.draw.polygon(surface, (246, 204, 82), [(x - half, foot), (x, foot), (x, foot - high), (x - half // 2, foot - high // 2), (x - half, foot - high)])  # the lit side
+    band = max(1, high // 4)
+    pg.draw.rect(surface, (252, 226, 128), (x - half, foot - band, 2 * half + 1, band + 1))
+    for tip in (x - half, x, x + half):
+        pg.draw.circle(surface, (255, 240, 170), (tip, foot - high), max(1, half // 5))  # its points' pearls
+    pg.draw.circle(surface, (196, 40, 52), (x, foot - band // 2), max(1, half // 4))  # a jewel
+    stars = min(max(rank, 0), MAX_STARS)
+    outer = max(2, radius // 3)
+    inner = max(1, outer * 2 // 5)
+    cy, step = foot - high - outer - 2, 2 * outer + max(1, outer // 2)
+    for star in range(stars):
+        cx = x + (2 * star - (stars - 1)) * step // 2
+        corners = []
+        for corner in range(10):
+            angle = -math.pi / 2 + corner * math.pi / 5
+            reach = inner if corner % 2 else outer
+            corners.append((cx + round(reach * math.cos(angle)), cy + round(reach * math.sin(angle))))
+        pg.draw.polygon(surface, (250, 228, 140), corners)

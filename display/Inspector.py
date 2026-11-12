@@ -9,7 +9,8 @@ from collections.abc import Callable
 import pygame as pg
 
 from display.Icons import draw_icon
-from display.Look import DOT_RADIUS_RANGE, ICON_MIN_RADIUS, RING_WIDTH, dot_radius, draw_bitzkey, genome_colour
+from display.Look import (DOT_RADIUS_RANGE, ICON_MIN_RADIUS, RING_WIDTH, dot_radius, draw_bitzkey, draw_crown, draw_flag, draw_gear, draw_hide,
+                          draw_wagon, flag_box, genome_colour)
 from display.Language import as_shown, tr
 from display.Ui import UI, wrapped_lines
 from tools.Genome import (BODY_TRAITS, MIND_TRAITS, NEURODIVERGENCE_MAX, NEURODIVERGENCE_SHIFT, SOCIAL_TRAITS, SPECIES, TEMPERATURES,
@@ -188,8 +189,36 @@ def draw_trait_popup(screen: pg.Surface, agent: Bitzkey, spot: tuple[str, str], 
         y += line
 
 
+def draw_portrait(screen: pg.Surface, agent: Bitzkey, point: tuple[int, int], radius: int, ring: int, alive: bool = True,
+                  herd=None, leader: Bitzkey | None = None, wagon: bool = False) -> tuple[pg.Rect | None, pg.Rect | None]:
+    """A Bitzkey as it looks on the map: its chip, its gear and hide, a leader's crown and stars, its herd's flag at its upper
+    right and the one it follows, small, at its upper left; and a wagon beside it. Returns where it drew the flag and the
+    leader, to click."""
+    draw_bitzkey(screen, agent.dna, point, radius, ring_width=ring, alive=alive)
+    if agent.species == "plant":
+        return None, None
+    reach = radius + ring  # its marks just clear of its ring
+    draw_hide(screen, agent.hide, point, reach)
+    draw_gear(screen, agent.weapon or (4 if agent.carried_stone else 0), agent.armour_worn, point, radius)
+    if agent.alive and agent.leader:
+        draw_crown(screen, point, radius, agent.rank)
+    flag = chip = None
+    if herd is not None:
+        draw_flag(screen, herd, point, reach)
+        flag = flag_box(point, reach)
+    if leader is not None:  # the one it follows, small, at its upper left
+        small = max(3, reach * 2 // 5)
+        lx, ly = point[0] - reach + small // 2, point[1] - reach + small // 2
+        draw_bitzkey(screen, leader.dna, (lx, ly), small, ring_width=max(1, small // 3), alive=leader.alive)
+        chip = pg.Rect(lx - small - 2, ly - small - 2, 2 * small + 4, 2 * small + 4)
+    if wagon:
+        draw_wagon(screen, (point[0] + reach + max(8, reach * 3 // 4), point[1] + reach // 2), max(10, reach))
+    return flag, chip
+
+
 def draw_details(screen: pg.Surface, agent: Bitzkey, x: int, at: Callable[[float], int], width: int,
-                 known: bool = True, here: float | None = None, note: str | None = None) -> None:
+                 known: bool = True, here: float | None = None, note: str | None = None,
+                 marks: dict | None = None) -> tuple[pg.Rect | None, pg.Rect | None]:
     """Draw the details from x across `width`; `at` turns a design offset from their top into a
     screen y. A Bitzkey not `known` is one no longer (or not yet) in the world, rebuilt from its
     genome, so only what its genes fix is shown, with `note` (how it died, say) beneath. `here` is the
@@ -199,7 +228,7 @@ def draw_details(screen: pg.Surface, agent: Bitzkey, x: int, at: Callable[[float
     # At twice the size it has on the map, beside its name and its colours: never so small that it loses its social
     # background and icon, as the exemplar cards draw it, its ring in proportion.
     radius = 2 * dot_radius(int(agent.body["size"]), UI(DOT_RADIUS_RANGE[1]), UI(ICON_MIN_RADIUS))
-    draw_bitzkey(screen, agent.dna, (x + UI(16), at(16)), radius, ring_width=max(RING_WIDTH, radius // 4), alive=agent.alive or not known)
+    spots = draw_portrait(screen, agent, (x + UI(16), at(16)), radius, max(RING_WIDTH, radius // 4), agent.alive or not known, **(marks or {}))
     draw_icon(screen, agent.species, (x + width - UI(12), at(11)), UI(9), (220, 229, 211))
     _text(screen, as_shown(f"#{agent.identifier:03d}  {tr(agent.species).upper()}  {tr('nocturnal' if agent.nocturnal else 'diurnal').upper()}"),
           (x + UI(40), at(0)), (238, 238, 220), font)
@@ -301,6 +330,7 @@ def draw_details(screen: pg.Surface, agent: Bitzkey, x: int, at: Callable[[float
         odds = sorted(agent.odds.items(), key=lambda item: -item[1])[:3]
         line = tr("CHANCES") + "  " + "   ".join(f"{tr(action)} {chance:.0%}" for action, chance in odds)  # each in the language shown
         _text(screen, as_shown(line), (x, at(next_line)), (175, 192, 172), small)
+    return spots
 
 
 def draw_tooltip(screen: pg.Surface, agent: Bitzkey, known: bool, mouse: tuple[int, int],
