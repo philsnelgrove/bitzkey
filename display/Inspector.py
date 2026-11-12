@@ -9,7 +9,7 @@ from collections.abc import Callable
 import pygame as pg
 
 from display.Icons import draw_icon
-from display.Look import DOT_RADIUS_RANGE, RING_WIDTH, dot_radius, draw_bitzkey, genome_colour
+from display.Look import DOT_RADIUS_RANGE, ICON_MIN_RADIUS, RING_WIDTH, dot_radius, draw_bitzkey, genome_colour
 from display.Language import as_shown, tr
 from display.Ui import UI, wrapped_lines
 from tools.Genome import (BODY_TRAITS, MIND_TRAITS, NEURODIVERGENCE_MAX, NEURODIVERGENCE_SHIFT, SOCIAL_TRAITS, SPECIES, TEMPERATURES,
@@ -196,9 +196,10 @@ def draw_details(screen: pg.Surface, agent: Bitzkey, x: int, at: Callable[[float
     temperature where it is."""
     font, small = UI.font("segoeui", 15), UI.font("segoeui", 12)
     mono_small = UI.font("consolas", 12)
-    # At twice the size it has on the map, beside its name and its colours
-    draw_bitzkey(screen, agent.dna, (x + UI(16), at(16)), 2 * dot_radius(int(agent.body["size"]), UI(DOT_RADIUS_RANGE[1])),
-                 ring_width=2 * RING_WIDTH, alive=agent.alive or not known)
+    # At twice the size it has on the map, beside its name and its colours: never so small that it loses its social
+    # background and icon, as the exemplar cards draw it, its ring in proportion.
+    radius = 2 * dot_radius(int(agent.body["size"]), UI(DOT_RADIUS_RANGE[1]), UI(ICON_MIN_RADIUS))
+    draw_bitzkey(screen, agent.dna, (x + UI(16), at(16)), radius, ring_width=max(RING_WIDTH, radius // 4), alive=agent.alive or not known)
     draw_icon(screen, agent.species, (x + width - UI(12), at(11)), UI(9), (220, 229, 211))
     _text(screen, as_shown(f"#{agent.identifier:03d}  {tr(agent.species).upper()}  {tr('nocturnal' if agent.nocturnal else 'diurnal').upper()}"),
           (x + UI(40), at(0)), (238, 238, 220), font)

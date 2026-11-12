@@ -284,7 +284,7 @@
 "EXPERIENCES": "Expériences",
 "Export all selected": "Exporter toute la sélection",
 "EXPORT ALL SELECTED ({#})": "Exporter toute la sélection ({#})",
-"extra force at prey that a herd-mate is also alongside": "force supplémentaire contre une proie qu'un membre du troupeau attaque aussi",
+"extra force at prey for each herd-mate also alongside it, up to three": "force en plus contre une proie pour chaque compagnon de meute à ses côtés, jusqu'à trois",
 "Far too cold, warmer to the south": "Bien trop froid, plus chaud au sud",
 "Faster (+)": "Plus vite (+)",
 "FASTEST": "Le plus rapide",
@@ -1980,5 +1980,17 @@
 "pleasure of bringing food to its herd's store with a friend in sight there, times its kinship, whatever its generosity": "plaisir d'apporter de la nourriture à la réserve de son troupeau avec un ami en vue, fois son attachement, quelle que soit sa générosité",
 "worked on a craft": "a travaillé à un ouvrage",
 "Gluttony unease": "Malaise de la gourmandise",
-"unease at a meal eaten while less than half hungry, the more the fuller, times what it lacks of gluttony (a half, plus half its appetite, less half its kinship); none to the wholly gluttonous": "malaise d'un repas pris à moins de mi-faim, fois ce qui lui manque de gourmandise (une moitié, plus la moitié de son appétit, moins la moitié de son attachement) ; aucun pour le parfait glouton (d'autant plus qu'il est rassasié)"
+"unease at a meal eaten while less than half hungry, the more the fuller, times what it lacks of gluttony (a half, plus half its appetite, less half its kinship); none to the wholly gluttonous": "malaise d'un repas pris à moins de mi-faim, fois ce qui lui manque de gourmandise (une moitié, plus la moitié de son appétit, moins la moitié de son attachement) ; aucun pour le parfait glouton (d'autant plus qu'il est rassasié)",
+"Off-hours sight": "Vision hors de ses heures",
+"how far an animal awake out of its own hours sees, in the dark if active by day, in the light if active by night, as a share of its sight; calls carry as far as ever": "jusqu'où voit un animal éveillé hors de ses heures, dans le noir s'il est diurne, en plein jour s'il est nocturne, en part de sa vue ; les appels portent aussi loin",
+"CRAFT_ARROWS": "Façonner des flèches",
+"crafted arrows": "a façonné des flèches",
+"had nothing to craft": "n'avait rien à façonner",
+"MOVING": "DÉPLACEMENT",
+"HUNTING AND FIGHTING": "CHASSE ET COMBAT",
+"FAMILY AND SOCIETY": "FAMILLE ET SOCIÉTÉ",
+"MATERIALS": "MATÉRIAUX",
+"CRAFTING AND GEAR": "ARTISANAT ET ÉQUIPEMENT",
+"FIRE AND BUILDING": "FEU ET CONSTRUCTION",
+"FARMING": "AGRICULTURE"
 }

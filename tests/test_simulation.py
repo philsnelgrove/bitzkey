@@ -6,7 +6,7 @@ import tools.Simulation as simulation_module
 
 from tools.Brain import ACTIONS, ALERT_CALL, SENSES, Brain
 from tools.Exchange import Imported
-from tools.Genome import decode_body, encode_dna
+from tools.Genome import NOCTURNAL, decode_body, encode_dna
 from tools.Simulation import (Death, DAY_LENGTH, FULL_STAMINA, SPAWN_SPREAD, DEATH_PENALTY, PARENT_GRIEF, PARENT_JOY, BREED_COOLDOWN, PREGNANT_REMORSE, ATTACK_JOY, FEAST_JOY, FRESH_KILL_MEALS, KILL_MEAL, KILL_MEAL_FOR_SIZE, BIRTH_REACH, PLANT_GESTATION, Bitzkey, gestation, CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, PLANT_MEAL, PLANT_MEAL_FOR_SIZE, SEED_OFFSETS,
                               SIGHT_OFFSETS, SPAWN_SPREAD, UPROOT_BITE, UPROOT_MEALS, Simulation, litter_size,
                               nearby_offsets)
@@ -16,7 +16,7 @@ from tools.Simulation import ARMOUR_JOY, BUILD_THRILL, COMMUNICATION_JOY, CRAFT_
 
 def setUpModule():  # grown bodies: a Bitzkey made at age 0 isn't feeble here, unless a test says so
     global _grown, _common, _grazers, _plenty
-    _grown = patch.multiple("tools.Simulation", FEEBLE_YOUTH=0.0, SMALL_HIDING=0.0, DEFAULT_YEAR_LENGTH=360, SLEEP=0, GRAZER_SPAWN_GROUP=5,
+    _grown = patch.multiple("tools.Simulation", OFF_HOURS_SIGHT=1.0, FEEBLE_YOUTH=0.0, SMALL_HIDING=0.0, DEFAULT_YEAR_LENGTH=360, SLEEP=0, GRAZER_SPAWN_GROUP=5,
                             GRAZER_INFANCY=1.0, GRAZER_GESTATION=1.0,  # grazers as other animals, unless a test says so
                             **EIGHT_TURN_DAYS)  # and small grazer groups, so a test's world stays small  # and 360-turn years, no sleeping, spans in eight-turn days
     _grown.start()
@@ -1197,6 +1197,17 @@ class NewTraitTests(unittest.TestCase):
         prey.health = prey.max_health
         simulation._attack(hunter, prey)
         self.assertAlmostEqual(prey.max_health - prey.health, alone * 1.5)
+        simulation._add_agent(dna, 9, 11)  # and a second: each adds
+        simulation._index_cells()
+        prey.health = prey.max_health
+        simulation._attack(hunter, prey)
+        self.assertAlmostEqual(prey.max_health - prey.health, alone * 2.0)
+        for x, y in ((10, 12), (11, 12)):  # three count at most
+            simulation._add_agent(dna, x, y)
+        simulation._index_cells()
+        prey.health = prey.max_health
+        simulation._attack(hunter, prey)
+        self.assertAlmostEqual(prey.max_health - prey.health, alone * 2.5)
         for x in range(4, 9):
             simulation._add_agent(dna, x, 10)
         simulation._index_cells()
@@ -4338,6 +4349,48 @@ class MaterialTests(unittest.TestCase):
         simulation._hitch(maker, 0)
         self.assertEqual(maker.carried_stone, alone + 2)  # and taken up again
         self.assertEqual(Simulation._value_of(maker, simulation_module.WAGON_GOOD), 1)
+
+    def test_arrows_restore_a_bow_its_own_or_anothers_beside_it_empty_or_not(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        bow = simulation_module.CRAFTS.index("make_bow")
+        archer = simulation._add_agent(encode_dna("predator", size=3), 5, 5)
+        archer.crafts = 1 << bow
+        archer.bow, archer.bow_uses, archer.carried_wood = True, 3, 1
+        simulation._index_cells()
+        simulation._craft_arrows(archer, archer)
+        self.assertEqual((archer.bow_uses, archer.carried_wood, archer.craft_tries[bow]), (simulation_module.BOW_USES, 0, 1))
+        self.assertGreater(archer.reward, 0)
+        fletcher = simulation._add_agent(encode_dna("predator", size=3), 10, 10)
+        friend = simulation._add_agent(encode_dna("predator", size=3), 11, 10)
+        fletcher.crafts = 1 << bow
+        simulation._add_to_pile(simulation.wood_piles, (10, 11), 1)  # a wood at hand, not carried
+        friend.bow, friend.bow_uses = True, 0  # its arrows spent, the bow kept, empty
+        simulation._index_cells()
+        regard = simulation._regard_for(friend, fletcher)
+        simulation._craft_arrows(fletcher, friend)
+        self.assertEqual(friend.bow_uses, simulation_module.BOW_USES)
+        self.assertNotIn((10, 11), simulation.wood_piles)
+        self.assertGreater(simulation._regard_for(friend, fletcher), regard)  # a gift
+        friend.bow, friend.bow_uses = False, 0  # no bow at all
+        simulation._add_to_pile(simulation.wood_piles, (10, 11), 1)
+        simulation._craft_arrows(fletcher, friend)
+        self.assertEqual((friend.bow_uses, fletcher.last_action), (0, "had nothing to craft"))
+
+    @patch("tools.Simulation.OFF_HOURS_SIGHT", 0.5)  # the rule as it stands, here alone
+    def test_each_sees_less_out_of_its_own_hours(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        dark = next(x for x in range(30) if simulation.night(x))
+        light = next(x for x in range(30) if not simulation.night(x))
+        agent = simulation._add_agent(encode_dna("grazer", sight=4), dark, 5)
+        self.assertFalse(agent.nocturnal)
+        self.assertEqual(simulation._sight_now(agent), max(1, round(agent.sight * simulation_module.OFF_HOURS_SIGHT)))
+        self.assertLess(simulation._sight_now(agent), agent.sight)
+        agent.x = light
+        self.assertEqual(simulation._sight_now(agent), agent.sight)
+        night_owl = simulation._add_agent(encode_dna("grazer", sight=4) | NOCTURNAL, light, 6)
+        self.assertLess(simulation._sight_now(night_owl), night_owl.sight)  # the nocturnal, dazzled by day
+        night_owl.x = dark
+        self.assertEqual(simulation._sight_now(night_owl), night_owl.sight)  # and at home in the dark
 
     def test_gluttony_rises_with_appetite_falls_with_kinship_and_a_needless_meal_is_an_unease(self):
         agent = Bitzkey(1, encode_dna("grazer", size=3), 5, 5)

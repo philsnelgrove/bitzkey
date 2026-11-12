@@ -271,7 +271,7 @@ SHORT_ACTIONS = {"eat": "eat", "forage": "forage", "browse": "browse", "uproot":
                  "walk_south": "walk S", "walk_east": "walk E", "walk_west": "walk W",
                  "revisit": "revisit", "feed_young": "feed", "teach": "teach",
                  "take_meat": "take M", "take_fruit": "take F", "drop_meat": "drop M", "drop_fruit": "drop F", "eat_pile": "pile", "eat_carried": "carried",
-                 "take_stone": "take S", "take_bone": "take B", "take_wood": "take W", "drop_stone": "drop S", "drop_bone": "drop B", "drop_wood": "drop W", "dress": "dress", "make_bone_axe": "mk baxe", "make_bone_armour": "mk barm", "make_club": "mk club", "make_wood_armour": "mk warm", "make_stone_axe": "mk saxe", "make_bow": "mk bow", "make_wagon": "mk wagn", "take_gear": "gear", "drop_weapon": "drop wp", "drop_armour": "drop ar", "cut": "cut", "dig": "dig", "light_fire": "light", "feed_fire": "stoke", "cook": "cook", "construct": "build", "eat_seed": "eat sd", "plant_seed": "plant", "build_road": "road", "eat_marrow": "marrow", "fertilize": "fert", "skin": "skin", "demand": "demand", "steal": "steal", "give": "give", "offer": "offer", "shoot": "shoot", "practise": "practise", "tutor": "tutor", "hitch": "hitch", "unhitch": "unhitch", "store_food": "store"}
+                 "take_stone": "take S", "take_bone": "take B", "take_wood": "take W", "drop_stone": "drop S", "drop_bone": "drop B", "drop_wood": "drop W", "dress": "dress", "make_bone_axe": "mk baxe", "make_bone_armour": "mk barm", "make_club": "mk club", "make_wood_armour": "mk warm", "make_stone_axe": "mk saxe", "make_bow": "mk bow", "make_wagon": "mk wagn", "take_gear": "gear", "drop_weapon": "drop wp", "drop_armour": "drop ar", "cut": "cut", "dig": "dig", "light_fire": "light", "feed_fire": "stoke", "cook": "cook", "construct": "build", "eat_seed": "eat sd", "plant_seed": "plant", "build_road": "road", "eat_marrow": "marrow", "fertilize": "fert", "skin": "skin", "demand": "demand", "steal": "steal", "give": "give", "offer": "offer", "shoot": "shoot", "practise": "practise", "tutor": "tutor", "hitch": "hitch", "unhitch": "unhitch", "store_food": "store", "craft_arrows": "arrows"}
 CELL = 7  # characters to a column of figures
 SITUATION = 42  # characters to the situations' column
 
@@ -283,6 +283,23 @@ DEADLIEST = 10  # the killers the death report names
 AGE_BANDS = (0, 1, 10, 30, 90, 180, 360, 720)
 AGE_BAND_NAMES = ("under a day", "1-9 days", "10-29 days", "30-89 days", "90-179 days", "180-359 days", "1-2 years",
                   "over 2 years")
+
+
+# The insights panel lists the actions by topic, alphabetically within each, as the C++ version does.
+ACTION_TOPICS = {
+    "FOOD": ("eat", "forage", "browse", "uproot", "scavenge", "feast", "revisit", "take_meat", "take_fruit", "drop_meat", "drop_fruit",
+             "eat_pile", "eat_carried", "eat_seed", "eat_marrow", "store_food"),
+    "MOVING": ("rest", "flee", "herd", "go_north", "go_south", "go_east", "go_west", "walk_north", "walk_south", "walk_east", "walk_west",
+               "hitch", "unhitch"),
+    "HUNTING AND FIGHTING": ("hunt", "attack", "defend", "shoot", "practise"),
+    "FAMILY AND SOCIETY": ("court", "breed", "feed_young", "teach", "tutor", "demand", "steal", "give", "offer"),
+    "MATERIALS": ("take_stone", "take_bone", "take_wood", "drop_stone", "drop_bone", "drop_wood", "dress", "cut", "skin"),
+    "CRAFTING AND GEAR": ("make_bone_axe", "make_bone_armour", "make_club", "make_wood_armour", "make_stone_axe", "make_bow", "make_wagon",
+                          "take_gear", "drop_weapon", "drop_armour", "craft_arrows"),
+    "FIRE AND BUILDING": ("light_fire", "feed_fire", "cook", "construct", "build_road"),
+    "FARMING": ("dig", "plant_seed", "fertilize"),
+}
+ACTIONS_BY_TOPIC = [(topic, sorted(actions)) for topic, actions in ACTION_TOPICS.items()]
 
 
 class DeathTally:

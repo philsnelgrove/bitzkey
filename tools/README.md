@@ -4,11 +4,11 @@ Bitzkeys began as an arena of sorts.  It was a test to see who would be the last
 So, we started implementing rules... some of them are natural laws, and some of them are instinct.  The goal of these rules was to bring balance to the world.  The first such rules nerfed omnivores by buffing the food gathering of grazers and predators.
 The coming years brought numerous tweaks, balances and special case considerations.  What follows below, is a complete list of every rule and it's definition.  These are all configurable in the sim client.
 
-There are 467 rules in 13 sections. Each gives its default, the range it may be set within and the step it moves by. Rules declared together in the code, because they shape one behaviour, are listed as numbered subsections of the first of them; where such a rule sits in another section, the connection is noted beneath it.
+There are 468 rules in 13 sections. Each gives its default, the range it may be set within and the step it moves by. Rules declared together in the code, because they shape one behaviour, are listed as numbered subsections of the first of them; where such a rule sits in another section, the connection is noted beneath it.
 
 ## Contents
 
-1. [World](#1-world) (14 rules)
+1. [World](#1-world) (15 rules)
 2. [Bodies](#2-bodies) (36 rules)
 3. [Breeding](#3-breeding) (33 rules)
 4. [Feelings](#4-feelings) (25 rules)
@@ -42,67 +42,73 @@ Steps from water within which hot land grows grass and can be tilled; 0: none.
 
 Default **7**; from 0 to 20, in steps of 1.
 
-#### 1.2.2 Corpse turns (`CORPSE_TURNS`)
+### 1.3 Off-hours sight (`OFF_HOURS_SIGHT`)
+
+How far an animal awake out of its own hours sees, in the dark if active by day, in the light if active by night, as a share of its sight; calls carry as far as ever.
+
+Default **0.5**; from 0.1 to 1, in steps of 0.05.
+
+#### 1.3.1 Corpse turns (`CORPSE_TURNS`)
 
 Turns a corpse lasts while its meat rots away.
 
 Default **90**; from 1 to 1500, in steps of 5.
 
-#### 1.2.3 Corpse plant (`CORPSE_PLANT`)
+#### 1.3.2 Corpse plant (`CORPSE_PLANT`)
 
 Chance an animal's body that rots away entirely leaves the seed of a new plant.
 
 Default **0.1**; from 0 to 1, in steps of 0.05.
 
-### 1.3 Square space (`CELL_SPACE`)
+### 1.4 Square space (`CELL_SPACE`)
 
 Spaces in a square; a Bitzkey takes 1 + its size, and none is born, moves or spawns into a square without room.
 
 Default **10**; from 1 to 80, in steps of 1.
 
-### 1.4 Spawn spread (`SPAWN_SPREAD`)
+### 1.5 Spawn spread (`SPAWN_SPREAD`)
 
 A starting group appears within this many cells of its centre.
 
 Default **2**; from 0 to 4, in steps of 1.
 
-### 1.5 Think on the GPU (`USE_GPU`)
+### 1.6 Think on the GPU (`USE_GPU`)
 
 C++ only: 1 thinks and learns on every GPU found, in floats; 0 on the CPU, exactly.
 
 Default **0**; from 0 to 1, in steps of 1.
 
-#### 1.5.1 Spawn at home (`SPAWN_AT_HOME`)
+#### 1.6.1 Spawn at home (`SPAWN_AT_HOME`)
 
 1: starting and imported groups appear where their home temperature is usual; 0: anywhere.
 
 Default **1**; from 0 to 1, in steps of 1.
 
-### 1.6 Day length (`DAY_LENGTH`)
+### 1.7 Day length (`DAY_LENGTH`)
 
 Turns in a day; night covers half the map and moves round it once a day.
 
 Default **24**; from 2 to 100, in steps of 1.
 
-#### 1.6.1 Sleep (`SLEEP`)
+#### 1.7.1 Sleep (`SLEEP`)
 
 1: an animal rests through its night (the dark if diurnal, the light if nocturnal) unless startled awake; 0: never forced to.
 
 Default **1**; from 0 to 1, in steps of 1.
 
-### 1.7 Biome groups (`BIOME_GROUPS`)
+### 1.8 Biome groups (`BIOME_GROUPS`)
 
 A world started with any Bitzkeys has this many groups of each species native to every biome, each stretch of land or sea in a climate zone, on top of its population; 0: none.
 
 Default **1**; from 0 to 10, in steps of 1.
 
-### 1.8 Biome size (`BIOME_SIZE`)
+### 1.9 Biome size (`BIOME_SIZE`)
 
 The fewest squares a stretch of land or sea in a climate zone needs to count as a biome.
 
 Default **25**; from 1 to 1000, in steps of 5.
 
-### 1.9 Graph turns (`GRAPH_TURNS`)
+### 1.10 Graph turns (`GRAPH_TURNS`)
 
 Turns of the past the graph and death report cover; deaths and genomes older than that are forgotten.
 
@@ -1322,7 +1328,7 @@ Default **6**; from 1 to 20, in steps of 1.
 
 Steps a call carries, times a half and its caller's size (as a share of its range): the larger, the further.
 
-Default **8**; from 1 to 10, in steps of 1.
+Default **16**; from 1 to 30, in steps of 1.
 
 #### 6.24.1 Call cost (`CALL_COST`)
 
@@ -1532,7 +1538,7 @@ Default **0.25**; from 0 to 1, in steps of 0.05.
 
 ### 7.6 Pack bonus (`PACK_BONUS`)
 
-Extra force at prey that a herd-mate is also alongside.
+Extra force at prey for each herd-mate also alongside it, up to three.
 
 Default **0.5**; from 0 to 5, in steps of 0.05.
 
@@ -1572,31 +1578,25 @@ Squares to each stone scattered, once in a world's life.
 
 Default **100**; from 10 to 1000, in steps of 10.
 
-#### 7.10.1 Bow uses (`BOW_USES`)
-
-Shots a bow makes before it is spent.
-
-Default **20**; from 1 to 100, in steps of 1.
-
-#### 7.10.2 Archery joy (`ARCHERY_JOY`)
+#### 7.10.1 Archery joy (`ARCHERY_JOY`)
 
 Joy of a hit with a bow, in practice too, the more for the skilled.
 
 Default **1**; from 0 to 5, in steps of 0.05.
 
-#### 7.10.3 Archery regard (`ARCHERY_REGARD`)
+#### 7.10.2 Archery regard (`ARCHERY_REGARD`)
 
 Respect of all who see a hit with a bow, of a deed's weight, in skill and liking.
 
 Default **0.1**; from 0 to 1, in steps of 0.01.
 
-#### 7.10.4 Archery learning (`ARCHERY_LEARNING`)
+#### 7.10.3 Archery learning (`ARCHERY_LEARNING`)
 
 Share of the skill left to learn that each shot with a bow teaches.
 
 Default **0.05**; from 0 to 0.5, in steps of 0.01.
 
-#### 7.10.5 Least armour (`ARMOUR_LEAST`)
+#### 7.10.4 Least armour (`ARMOUR_LEAST`)
 
 The armour worn armour counts from, at the least.
 
@@ -2178,121 +2178,127 @@ The chance each turn a raw portion carried goes off; cooked food keeps.
 
 Default **0.02**; from 0 to 0.5, in steps of 0.005.
 
-### 7.30 Fire feeding joy (`FIRE_FEED_JOY`)
+### 7.30 Bow uses (`BOW_USES`)
+
+Shots a bow makes before it is spent.
+
+Default **20**; from 1 to 100, in steps of 1.
+
+### 7.31 Fire feeding joy (`FIRE_FEED_JOY`)
 
 The satisfaction of feeding a fire, so that it burns on.
 
 Default **1**; from 0 to 5, in steps of 0.1.
 
-### 7.31 Seed food (`SEED_FOOD`)
+### 7.32 Seed food (`SEED_FOOD`)
 
 How much of a fruit's portion a seed feeds.
 
 Default **0.1**; from 0 to 1, in steps of 0.05.
 
-#### 7.31.1 Planting joy (`PLANTING_JOY`)
+#### 7.32.1 Planting joy (`PLANTING_JOY`)
 
 The gladness of planting a seed; more if curious.
 
 Default **1**; from 0 to 5, in steps of 0.1.
 
-### 7.32 Harvest joy (`HARVEST_JOY`)
+### 7.33 Harvest joy (`HARVEST_JOY`)
 
 The gladness of picking a fruit from a plant without uprooting it.
 
 Default **0.1**; from 0 to 5, in steps of 0.05.
 
-#### 7.32.1 Regrowth joy (`REGROWTH_JOY`)
+#### 7.33.1 Regrowth joy (`REGROWTH_JOY`)
 
 The gladness of seeing a plant it last picked bear fruit again.
 
 Default **0.5**; from 0 to 5, in steps of 0.05.
 
-### 7.33 Arable fruit (`ARABLE_FRUIT`)
+### 7.34 Arable fruit (`ARABLE_FRUIT`)
 
 Times as much fruit a plant on worked land bears each morning.
 
 Default **2**; from 1 to 5, in steps of 1.
 
-#### 7.33.1 Fertilized fruit (`FERTILIZED_FRUIT`)
+#### 7.34.1 Fertilized fruit (`FERTILIZED_FRUIT`)
 
 Times as much again on worked land fed bone; the bone is spent.
 
 Default **2**; from 1 to 5, in steps of 1.
 
-### 7.34 Fallow years (`FALLOW_YEARS`)
+### 7.35 Fallow years (`FALLOW_YEARS`)
 
 Years worked land lies untended before it goes wild, its bone with it; 0, never.
 
 Default **1**; from 0 to 10, in steps of 0.25.
 
-### 7.35 Cooked delight (`COOKED_JOY`)
+### 7.36 Cooked delight (`COOKED_JOY`)
 
 Pleasure of eating a cooked portion, times a half and its taste for cooked food.
 
 Default **1**; from 0 to 5, in steps of 0.1.
 
-#### 7.35.1 Raw distaste (`RAW_DISTASTE`)
+#### 7.36.1 Raw distaste (`RAW_DISTASTE`)
 
 Letdown of eating a raw portion once it knows the taste of cooked, times that taste.
 
 Default **0.5**; from 0 to 5, in steps of 0.1.
 
-#### 7.35.2 Cooking joy (`COOK_JOY`)
+#### 7.36.2 Cooking joy (`COOK_JOY`)
 
 Pleasure of cooking a portion, times a half and its taste for cooked food.
 
 Default **1**; from 0 to 5, in steps of 0.1.
 
-#### 7.35.3 Smell reach (`SMELL_REACH`)
+#### 7.36.3 Smell reach (`SMELL_REACH`)
 
 How many times as far as it sees an animal smells cooked food and a fire cooked on.
 
 Default **3**; from 1 to 4, in steps of 0.1.
 
-### 7.36 Taste joy (`TASTE_JOY`)
+### 7.37 Taste joy (`TASTE_JOY`)
 
 How tasty a cooked portion is, and how untasty a raw one from a pile or carried, times its appetite.
 
 Default **1**; from 0 to 5, in steps of 0.1.
 
-### 7.37 Fresh kill turns (`FRESH_KILL_TURNS`)
+### 7.38 Fresh kill turns (`FRESH_KILL_TURNS`)
 
 Turns after the one it died in that a body is a fresh kill.
 
 Default **9**; from 0 to 30, in steps of 1.
 
-#### 7.37.1 Fresh kill meals (`FRESH_KILL_MEALS`)
+#### 7.38.1 Fresh kill meals (`FRESH_KILL_MEALS`)
 
 Times the kill meal a predator or omnivore gets eating a fresh kill.
 
 Default **3**; from 0 to 10, in steps of 0.5.
 
-### 7.38 Kind difference (`KIND_DIFFERENCE`)
+### 7.39 Kind difference (`KIND_DIFFERENCE`)
 
 Predators whose rings differ no more are one kind, to hunt and breed with.
 
 Default **0.25**; from 0 to 1, in steps of 0.01.
 
-### 7.39 Flee range (`FLEE_RANGE`)
+### 7.40 Flee range (`FLEE_RANGE`)
 
 A hunter is only worth fleeing within this many steps, unless alarmed.
 
 Default **3**; from 0 to 12, in steps of 1.
 
-#### 7.39.1 Herd vigilance (`HERD_VIGILANCE`)
+#### 7.40.1 Herd vigilance (`HERD_VIGILANCE`)
 
 How far a close herd shrinks that range.
 
 Default **0.5**; from 0 to 1, in steps of 0.05.
 
-### 7.40 Prey switching (`SWITCH_SHARE`)
+### 7.41 Prey switching (`SWITCH_SHARE`)
 
 A prey is hunted while it is at least this share of the food.
 
 Default **0.5**; from 0 to 1, in steps of 0.05.
 
-#### 7.40.1 Omnivores' last resort (`OMNIVORE_PREDATOR_FOOD`)
+#### 7.41.1 Omnivores' last resort (`OMNIVORE_PREDATOR_FOOD`)
 
 An omnivore hunts predators only while no more grazers, plants and grassy cells than this are near.
 

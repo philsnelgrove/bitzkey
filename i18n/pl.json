@@ -284,7 +284,7 @@
 "EXPERIENCES": "Doświadczenia",
 "Export all selected": "Eksportuj cały wybór",
 "EXPORT ALL SELECTED ({#})": "Eksportuj cały wybór ({#})",
-"extra force at prey that a herd-mate is also alongside": "dodatkowa siła przeciw ofierze, przy której jest też towarzysz ze stada",
+"extra force at prey for each herd-mate also alongside it, up to three": "dodatkowa siła przeciw zdobyczy za każdego towarzysza stada obok niej, do trzech",
 "Far too cold, warmer to the south": "O wiele za zimno, cieplej na południu",
 "Faster (+)": "Szybciej (+)",
 "FASTEST": "Najszybszy",
@@ -1980,5 +1980,17 @@
 "pleasure of bringing food to its herd's store with a friend in sight there, times its kinship, whatever its generosity": "przyjemność przynoszenia jedzenia do zapasów stada, gdy widać tam przyjaciela, razy jego przywiązanie, bez względu na hojność",
 "worked on a craft": "pracował nad wyrobem",
 "Gluttony unease": "Niepokój obżarstwa",
-"unease at a meal eaten while less than half hungry, the more the fuller, times what it lacks of gluttony (a half, plus half its appetite, less half its kinship); none to the wholly gluttonous": "niepokój przy posiłku zjedzonym, gdy głód nie sięga połowy, razy to, czego mu brak do obżarstwa (połowa plus pół apetytu minus pół przywiązania); żaden u zupełnego żarłoka (tym większy, im bardziej syty)"
+"unease at a meal eaten while less than half hungry, the more the fuller, times what it lacks of gluttony (a half, plus half its appetite, less half its kinship); none to the wholly gluttonous": "niepokój przy posiłku zjedzonym, gdy głód nie sięga połowy, razy to, czego mu brak do obżarstwa (połowa plus pół apetytu minus pół przywiązania); żaden u zupełnego żarłoka (tym większy, im bardziej syty)",
+"Off-hours sight": "Wzrok poza swoją porą",
+"how far an animal awake out of its own hours sees, in the dark if active by day, in the light if active by night, as a share of its sight; calls carry as far as ever": "jak daleko widzi zwierzę czuwające poza swoją porą, w ciemności jeśli dzienne, w świetle jeśli nocne, jako część jego wzroku; zawołania niosą się jak zawsze",
+"CRAFT_ARROWS": "Robienie strzał",
+"crafted arrows": "zrobił strzały",
+"had nothing to craft": "nie miał z czego robić",
+"MOVING": "RUCH",
+"HUNTING AND FIGHTING": "ŁOWY I WALKA",
+"FAMILY AND SOCIETY": "RODZINA I SPOŁECZNOŚĆ",
+"MATERIALS": "MATERIAŁY",
+"CRAFTING AND GEAR": "RZEMIOSŁO I EKWIPUNEK",
+"FIRE AND BUILDING": "OGIEŃ I BUDOWANIE",
+"FARMING": "ROLNICTWO"
 }

@@ -284,7 +284,7 @@
 "EXPERIENCES": "Esperienze",
 "Export all selected": "Esporta tutta la selezione",
 "EXPORT ALL SELECTED ({#})": "Esporta tutta la selezione ({#})",
-"extra force at prey that a herd-mate is also alongside": "forza in più contro una preda accanto alla quale c'è anche un compagno di branco",
+"extra force at prey for each herd-mate also alongside it, up to three": "forza in più contro la preda per ogni compagno di branco al suo fianco, fino a tre",
 "Far too cold, warmer to the south": "Troppo freddo, più caldo a sud",
 "Faster (+)": "Più veloce (+)",
 "FASTEST": "Il più veloce",
@@ -1980,5 +1980,17 @@
 "pleasure of bringing food to its herd's store with a friend in sight there, times its kinship, whatever its generosity": "piacere di portare cibo alla scorta del branco con un amico in vista lì, per il suo attaccamento, qualunque sia la sua generosità",
 "worked on a craft": "ha lavorato a un manufatto",
 "Gluttony unease": "Disagio della gola",
-"unease at a meal eaten while less than half hungry, the more the fuller, times what it lacks of gluttony (a half, plus half its appetite, less half its kinship); none to the wholly gluttonous": "disagio per un pasto consumato con meno di mezza fame, per quanto gli manca di golosità (metà, più metà appetito, meno metà attaccamento); nessuno per il goloso del tutto (tanto più quanto è sazio)"
+"unease at a meal eaten while less than half hungry, the more the fuller, times what it lacks of gluttony (a half, plus half its appetite, less half its kinship); none to the wholly gluttonous": "disagio per un pasto consumato con meno di mezza fame, per quanto gli manca di golosità (metà, più metà appetito, meno metà attaccamento); nessuno per il goloso del tutto (tanto più quanto è sazio)",
+"Off-hours sight": "Vista fuori orario",
+"how far an animal awake out of its own hours sees, in the dark if active by day, in the light if active by night, as a share of its sight; calls carry as far as ever": "quanto lontano vede un animale sveglio fuori dalle sue ore, al buio se diurno, alla luce se notturno, come quota della sua vista; i richiami arrivano lontano come sempre",
+"CRAFT_ARROWS": "Fabbricare frecce",
+"crafted arrows": "ha fabbricato frecce",
+"had nothing to craft": "non aveva nulla da fabbricare",
+"MOVING": "MOVIMENTO",
+"HUNTING AND FIGHTING": "CACCIA E LOTTA",
+"FAMILY AND SOCIETY": "FAMIGLIA E SOCIETÀ",
+"MATERIALS": "MATERIALI",
+"CRAFTING AND GEAR": "ARTIGIANATO E EQUIPAGGIAMENTO",
+"FIRE AND BUILDING": "FUOCO E COSTRUZIONE",
+"FARMING": "AGRICOLTURA"
 }

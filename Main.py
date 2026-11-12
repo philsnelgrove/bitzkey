@@ -33,7 +33,7 @@ from display.WorldFiles import choose_save_path
 from tools.Exchange import Imported, bitzkey_record, export_bitzkeys, format_records
 from tools.Genome import genome_record
 from tools.Genome import SPECIES, TEMPERAMENT, TERRAINS, TRAIT_MAX, decode_climate
-from tools.Insights import ANIMALS, brain_matrix_lines, brain_report, death_report_lines
+from tools.Insights import ACTIONS_BY_TOPIC, ANIMALS, brain_matrix_lines, brain_report, death_report_lines
 from tools import Catalog, Rules
 from tools import Simulation as world
 from tools.Simulation import DEPLOY_GROUP, SEASONS, SPECIES, Bitzkey, Simulation, month, season, year
@@ -1556,12 +1556,15 @@ class BitzkeyApp:
             pg.draw.rect(self.screen, (44, 57, 52), button, border_radius=UI(5))
             draw_label(self.screen, UI.font("segoeui", 13, bold=True), "DEATH REPORT", (220, 229, 211), button)
         y = heading("BEHAVIOUR", "% of chances taken, recent turns", INSIGHTS_TOP + 11)
-        for action in ACTIONS:
-            self._text(action.upper(), (x, at(y)), (149, 170, 150), self.small)
-            for column, species in zip(columns, ANIMALS):
-                share, _ = insights.rate(action, species)
-                self._text("  -" if share is None else f"{share:>4.0%}", (column, at(y)), (231, 236, 222), self.mono)
-            y += 17
+        for topic, actions in ACTIONS_BY_TOPIC:  # by topic, alphabetically within each
+            self._text(topic, (x, at(y + 4)), (220, 229, 211), self.small)
+            y += 21
+            for action in actions:
+                self._text(action.upper(), (x, at(y)), (149, 170, 150), self.small)
+                for column, species in zip(columns, ANIMALS):
+                    share, _ = insights.rate(action, species)
+                    self._text("  -" if share is None else f"{share:>4.0%}", (column, at(y)), (231, 236, 222), self.mono)
+                y += 17
 
         blocks = (
             ("LEAST KEEN TO BREED", insights.extremes("breed", 3, lowest=True)),
@@ -1625,16 +1628,22 @@ class BitzkeyApp:
         self._text("the group most likely to take each chance", (x, at(y + 36)), (116, 139, 124), self.small)
         y += 60
         shown = False
-        for action in ACTIONS:
-            groups = insights.extremes(action, 1, lowest=False)
-            if not groups:
-                continue
-            label, share, _ = groups[0]
-            self._text(action.upper(), (x, at(y)), (149, 170, 150), self.small)
-            self._text(self._fit(label, width - UI(124)), (x + UI(76), at(y)), (175, 192, 172), self.small)
-            self._text(f"{share:>4.0%}", (x + width - UI(40), at(y)), (231, 236, 222), self.mono)
-            y += 18
-            shown = True
+        for topic, actions in ACTIONS_BY_TOPIC:
+            headed = False
+            for action in actions:
+                groups = insights.extremes(action, 1, lowest=False)
+                if not groups:
+                    continue
+                if not headed:
+                    self._text(topic, (x, at(y + 4)), (220, 229, 211), self.small)
+                    y += 21
+                    headed = True
+                label, share, _ = groups[0]
+                self._text(action.upper(), (x, at(y)), (149, 170, 150), self.small)
+                self._text(self._fit(label, width - UI(124)), (x + UI(76), at(y)), (175, 192, 172), self.small)
+                self._text(f"{share:>4.0%}", (x + width - UI(40), at(y)), (231, 236, 222), self.mono)
+                y += 18
+                shown = True
         if not shown:
             self._text("not enough chances yet", (x, at(y)), (116, 139, 124), self.small)
             y += 18

@@ -284,7 +284,7 @@
 "EXPERIENCES": "Erfahrungen",
 "Export all selected": "Gesamte Auswahl exportieren",
 "EXPORT ALL SELECTED ({#})": "Gesamte Auswahl exportieren ({#})",
-"extra force at prey that a herd-mate is also alongside": "zusätzliche Kraft gegen Beute, bei der auch ein Herdengenosse ist",
+"extra force at prey for each herd-mate also alongside it, up to three": "zusätzliche Wucht gegen Beute für jeden Herdengenossen daneben, bis zu drei",
 "Far too cold, warmer to the south": "Viel zu kalt, im Süden wärmer",
 "Faster (+)": "Schneller (+)",
 "FASTEST": "Am schnellsten",
@@ -1980,5 +1980,17 @@
 "pleasure of bringing food to its herd's store with a friend in sight there, times its kinship, whatever its generosity": "Freude, Futter zum Vorrat der Herde zu bringen, wenn dort ein Freund in Sicht ist, mal seiner Verbundenheit, wie großzügig es auch ist",
 "worked on a craft": "arbeitete an einem Werkstück",
 "Gluttony unease": "Unbehagen der Völlerei",
-"unease at a meal eaten while less than half hungry, the more the fuller, times what it lacks of gluttony (a half, plus half its appetite, less half its kinship); none to the wholly gluttonous": "Unbehagen bei einer Mahlzeit, die es weniger als halb hungrig isst, mal dem, was ihm an Völlerei fehlt (die Hälfte, plus halber Appetit, minus halbe Verbundenheit); keines für den völlig Gefräßigen (je satter, desto mehr)"
+"unease at a meal eaten while less than half hungry, the more the fuller, times what it lacks of gluttony (a half, plus half its appetite, less half its kinship); none to the wholly gluttonous": "Unbehagen bei einer Mahlzeit, die es weniger als halb hungrig isst, mal dem, was ihm an Völlerei fehlt (die Hälfte, plus halber Appetit, minus halbe Verbundenheit); keines für den völlig Gefräßigen (je satter, desto mehr)",
+"Off-hours sight": "Sicht außerhalb der eigenen Zeit",
+"how far an animal awake out of its own hours sees, in the dark if active by day, in the light if active by night, as a share of its sight; calls carry as far as ever": "wie weit ein Tier sieht, das außerhalb seiner eigenen Stunden wach ist, im Dunkeln wenn tagaktiv, im Hellen wenn nachtaktiv, als Anteil seiner Sicht; Rufe tragen so weit wie immer",
+"CRAFT_ARROWS": "Pfeile fertigen",
+"crafted arrows": "fertigte Pfeile",
+"had nothing to craft": "hatte nichts zu fertigen",
+"MOVING": "BEWEGUNG",
+"HUNTING AND FIGHTING": "JAGD UND KAMPF",
+"FAMILY AND SOCIETY": "FAMILIE UND GEMEINSCHAFT",
+"MATERIALS": "MATERIALIEN",
+"CRAFTING AND GEAR": "HANDWERK UND AUSRÜSTUNG",
+"FIRE AND BUILDING": "FEUER UND BAUEN",
+"FARMING": "ACKERBAU"
 }

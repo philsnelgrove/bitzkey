@@ -284,7 +284,7 @@
 "EXPERIENCES": "חוויות",
 "Export all selected": "ייצוא כל הנבחרים",
 "EXPORT ALL SELECTED ({#})": "ייצוא כל הנבחרים ({#})",
-"extra force at prey that a herd-mate is also alongside": "כוח נוסף מול טרף שגם חבר עדר נמצא לידו",
+"extra force at prey for each herd-mate also alongside it, up to three": "כוח נוסף נגד טרף על כל חבר עדר לצדו, עד שלושה",
 "Far too cold, warmer to the south": "קר מדי, חם יותר בדרום",
 "Faster (+)": "מהר יותר (+)",
 "FASTEST": "המהיר ביותר",
@@ -1980,5 +1980,17 @@
 "pleasure of bringing food to its herd's store with a friend in sight there, times its kinship, whatever its generosity": "ההנאה מהבאת מזון למחסן העדר כשחבר נראה שם, כפול קרבתו, תהא נדיבותו אשר תהא",
 "worked on a craft": "עבד על מלאכה",
 "Gluttony unease": "אי-נוחות הזלילה",
-"unease at a meal eaten while less than half hungry, the more the fuller, times what it lacks of gluttony (a half, plus half its appetite, less half its kinship); none to the wholly gluttonous": "אי-נוחות מארוחה שנאכלת ברעב של פחות ממחצית, כפול מה שחסר לו מזלילה (חצי, ועוד חצי תיאבונו, פחות חצי קרבתו); אין כלל לזללן גמור (ככל שהוא שבע יותר, כך יותר)"
+"unease at a meal eaten while less than half hungry, the more the fuller, times what it lacks of gluttony (a half, plus half its appetite, less half its kinship); none to the wholly gluttonous": "אי-נוחות מארוחה שנאכלת ברעב של פחות ממחצית, כפול מה שחסר לו מזלילה (חצי, ועוד חצי תיאבונו, פחות חצי קרבתו); אין כלל לזללן גמור (ככל שהוא שבע יותר, כך יותר)",
+"Off-hours sight": "ראייה מחוץ לשעותיו",
+"how far an animal awake out of its own hours sees, in the dark if active by day, in the light if active by night, as a share of its sight; calls carry as far as ever": "כמה רחוק רואה בעל חיים ער מחוץ לשעותיו, בחושך אם הוא יומי, באור אם הוא לילי, כחלק מראייתו; קריאות נישאות רחוק כתמיד",
+"CRAFT_ARROWS": "הכנת חצים",
+"crafted arrows": "הכין חצים",
+"had nothing to craft": "לא היה לו מה להכין",
+"MOVING": "תנועה",
+"HUNTING AND FIGHTING": "ציד ולחימה",
+"FAMILY AND SOCIETY": "משפחה וחברה",
+"MATERIALS": "חומרים",
+"CRAFTING AND GEAR": "מלאכה וציוד",
+"FIRE AND BUILDING": "אש ובנייה",
+"FARMING": "חקלאות"
 }

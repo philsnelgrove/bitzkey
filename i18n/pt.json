@@ -284,7 +284,7 @@
 "EXPERIENCES": "Experiências",
 "Export all selected": "Exportar toda a seleção",
 "EXPORT ALL SELECTED ({#})": "Exportar toda a seleção ({#})",
-"extra force at prey that a herd-mate is also alongside": "força extra contra uma presa ao lado da qual também está um companheiro de bando",
+"extra force at prey for each herd-mate also alongside it, up to three": "força extra contra a presa por cada companheiro de manada ao seu lado, até três",
 "Far too cold, warmer to the south": "Frio demais, mais quente ao sul",
 "Faster (+)": "Mais rápido (+)",
 "FASTEST": "O mais rápido",
@@ -1980,5 +1980,17 @@
 "pleasure of bringing food to its herd's store with a friend in sight there, times its kinship, whatever its generosity": "prazer de levar comida à reserva da manada com um amigo à vista ali, vezes o seu apego, seja qual for a sua generosidade",
 "worked on a craft": "trabalhou numa peça",
 "Gluttony unease": "Inquietação da gula",
-"unease at a meal eaten while less than half hungry, the more the fuller, times what it lacks of gluttony (a half, plus half its appetite, less half its kinship); none to the wholly gluttonous": "inquietação ao comer com menos de meia fome, vezes o que lhe falta de gula (metade, mais meio apetite, menos meio apego); nenhuma para o glutão completo (tanto mais quanto mais saciado)"
+"unease at a meal eaten while less than half hungry, the more the fuller, times what it lacks of gluttony (a half, plus half its appetite, less half its kinship); none to the wholly gluttonous": "inquietação ao comer com menos de meia fome, vezes o que lhe falta de gula (metade, mais meio apetite, menos meio apego); nenhuma para o glutão completo (tanto mais quanto mais saciado)",
+"Off-hours sight": "Visão fora de horas",
+"how far an animal awake out of its own hours sees, in the dark if active by day, in the light if active by night, as a share of its sight; calls carry as far as ever": "até onde vê um animal acordado fora das suas horas, no escuro se diurno, à luz se noturno, como parte da sua visão; os chamados chegam tão longe como sempre",
+"CRAFT_ARROWS": "Fazer flechas",
+"crafted arrows": "fez flechas",
+"had nothing to craft": "não tinha nada para fazer",
+"MOVING": "MOVIMENTO",
+"HUNTING AND FIGHTING": "CAÇA E LUTA",
+"FAMILY AND SOCIETY": "FAMÍLIA E SOCIEDADE",
+"MATERIALS": "MATERIAIS",
+"CRAFTING AND GEAR": "OFÍCIOS E EQUIPAMENTO",
+"FIRE AND BUILDING": "FOGO E CONSTRUÇÃO",
+"FARMING": "AGRICULTURA"
 }

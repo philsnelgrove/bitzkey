@@ -13,6 +13,16 @@ def animal(nocturnal: bool, terrain: str = "terrestrial") -> int:
     return encode_dna("grazer", terrain=terrain) | (NOCTURNAL if nocturnal else 0)
 
 
+def setUpModule():  # written before the dark dimmed sight: they see as in their own hours
+    global _unhindered
+    _unhindered = patch("tools.Simulation.OFF_HOURS_SIGHT", 1.0)
+    _unhindered.start()
+
+
+def tearDownModule():
+    _unhindered.stop()
+
+
 class DayTests(unittest.TestCase):
     def test_a_new_worlds_year_is_360_days_of_24_turns(self):
         self.assertEqual((DAY_LENGTH, 24 * DAYS_IN_YEAR), (24, 8640))
