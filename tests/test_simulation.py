@@ -4339,6 +4339,66 @@ class MaterialTests(unittest.TestCase):
         self.assertEqual(maker.carried_stone, alone + 2)  # and taken up again
         self.assertEqual(Simulation._value_of(maker, simulation_module.WAGON_GOOD), 1)
 
+    def test_crafting_takes_from_piles_work_and_friends_and_a_bow_or_wagon_is_worked_on_in_parts(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+
+        def knows(agent, craft):
+            agent.crafts |= 1 << craft
+            agent.craft_tries[craft] = simulation_module.CRAFT_TRIES
+        archer = simulation._add_agent(encode_dna("predator", size=1), 5, 5)  # from a pile beside it
+        archer.weapon, archer.hide = 3, 1  # a stone axe, a grazer's hide
+        knows(archer, 5)
+        simulation._add_to_pile(simulation.wood_piles, (6, 5), simulation_module.BOW_WOOD)
+        self.assertTrue(simulation._can_finish(archer, "make_bow"))
+        simulation._make_gear(archer, "make_bow")
+        self.assertEqual(archer.bow_uses, simulation_module.BOW_USES)
+        self.assertNotIn((6, 5), simulation.wood_piles)
+        first = simulation._add_agent(encode_dna("predator", size=1), 10, 10)  # worked on in parts
+        second = simulation._add_agent(encode_dna("predator", size=1), 10, 10)
+        finisher = simulation._add_agent(encode_dna("predator", size=3), 10, 10)
+        for one in (first, second, finisher):
+            knows(one, 5)
+        first.carried_wood, second.carried_wood = 1, 3
+        second.spare_hides.append([1, 0.1])
+        finisher.weapon = 3
+        self.assertFalse(simulation._can_finish(first, "make_bow"))
+        self.assertTrue(simulation._can_add(first, 5))
+        simulation._make_gear(first, "make_bow")
+        self.assertEqual((first.carried_wood, first.last_action), (0, "worked on a craft"))
+        simulation._make_gear(second, "make_bow")
+        self.assertEqual(second.carried_wood, 2)  # only what the work lacked
+        self.assertEqual(simulation.works[(10, 10)][:5], [5, 0, 0, simulation_module.BOW_WOOD, 1])
+        self.assertFalse(simulation._can_add(second, 5))
+        second.carried_wood = 0
+        self.assertTrue(simulation._can_finish(finisher, "make_bow"))
+        simulation._make_gear(finisher, "make_bow")
+        self.assertEqual(finisher.bow_uses, simulation_module.BOW_USES)
+        self.assertNotIn((10, 10), simulation.works)  # finished
+        wright = simulation._add_agent(encode_dna("omnivore", size=3), 15, 15)  # from a friend's pack
+        friend = simulation._add_agent(encode_dna("omnivore", size=3), 16, 15)
+        wright.weapon = 1
+        knows(wright, 6)
+        friend.crafts = 1 << 6
+        friend.carried_stone, friend.carried_wood = simulation_module.WAGON_STONE, simulation_module.WAGON_WOOD
+        simulation._index_cells()
+        self.assertFalse(simulation._can_finish(wright, "make_wagon"))  # a stranger's pack is not at hand
+        wright.known.append(simulation_module.Acquaintance(friend.identifier, simulation_module.REGARD_STRONG, 0))
+        self.assertTrue(simulation._can_finish(wright, "make_wagon"))
+        simulation._make_gear(wright, "make_wagon")
+        self.assertEqual(len(simulation.wagons), 1)
+        self.assertEqual(friend.carried_stone + friend.carried_wood, 0)
+        self.assertEqual(friend.craft_tries[6], 1)  # a hand in it
+        self.assertAlmostEqual(friend.reward, simulation_module.SHARE_JOY * Simulation._generosity(friend))
+        idler = simulation._add_agent(encode_dna("omnivore", size=3), 20, 20)  # left untouched, it falls apart
+        knows(idler, 6)
+        idler.carried_stone = 1
+        simulation._make_gear(idler, "make_wagon")
+        self.assertEqual(simulation.works[(20, 20)][1], 1)
+        with patch("tools.Simulation.SITE_TURNS", 0):
+            simulation._rot_works()
+        self.assertNotIn((20, 20), simulation.works)
+        self.assertEqual(simulation.stone_piles[(20, 20)], 1)
+
     def test_tools_and_hides_are_carried_beside_those_in_hand_and_worn(self):
         simulation = Simulation(30, 30, 0, seed=1)
         agent = Bitzkey(1, encode_dna("predator", size=3), 5, 5)

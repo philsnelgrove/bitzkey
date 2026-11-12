@@ -669,6 +669,15 @@ FIRE_REACH = 2  # squares off, a fire shelters an animal from the cold
 # made to work: the chance rises with each try to certainty at CRAFT_TRIES, the sooner the cleverer. A failure spends
 # nothing, and is a small thrill of discovery to the curious.
 CRAFTS = ("make_bone_axe", "make_bone_armour", "make_club", "make_wood_armour", "make_stone_axe", "make_bow", "make_wagon")
+# Crafting at hand: a craft takes its materials from the pack first, then the work begun on its square, then piles on
+# its square and those beside it, then the packs of friends within a step, each of whom shares in the making (a try
+# at the craft, if it knows it, and the sharing's joy or unease, SHARE_JOY times its generosity by its share). One who
+# knows a bow or a wagon but lacks a part or the tool puts what it carries of one into work on its square (BUILD_THRILL
+# by its share of the parts, times curiosity), for any who knows the craft to finish; work left SITE_TURNS untouched
+# falls apart, its stone, bone and wood in piles there, its hide lost. What each craft needs, as CRAFTS run (stone,
+# bone, wood, hide); a stone axe, a stone and a bone or wood.
+CRAFT_NEEDS = ((0, 1, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0, 0, 1, 0), (1, 0, 0, 0), (0, 0, 2, 1), (2, 0, 3, 0))
+AT_HAND = ((0, 0), (1, 0), (-1, 0), (0, 1), (0, -1))  # its square, then those beside it
 DISCOVERY_CHANCE = 0.0005  # rare: a find is news, and a taught recipe spreads it
 DISCOVERY_JOY = 5.0  # the joy of first discovering a craft (times curiosity), so its finder comes to prize the materials
 CRAFT_TRIES = 10
@@ -1859,6 +1868,7 @@ class Simulation:
         self.wood_piles: dict[tuple[int, int], int] = {}
         self.stones_scattered = False
         self.sites: dict[tuple[int, int], int] = {}  # units in each unfinished shelter
+        self.works: dict[tuple[int, int], list[int]] = {}  # each bow or wagon begun: [craft, stone, bone, wood, hide, turn last worked]
         self.shelters: set[tuple[int, int]] = set()
         self.wagons: list[list] = []  # every wagon made: [x, y, its hitcher or -1, what it holds beyond its hitcher's own load]
         self.parked: dict[tuple[int, int], list[int]] = {}  # the wagons no one drags, by their squares
@@ -3496,6 +3506,7 @@ class Simulation:
             self._spoil_piles()
             self._rot_materials()
         self._go_fallow()
+        self._rot_works()
         for agent in self.agents:  # bodies rotted away, not eaten to the last portion, may feed a new plant
             if (agent.died_turn is not None and self.turn - agent.died_turn >= CORPSE_TURNS and agent.species != "plant"
                     and agent.portions > 0 and CORPSE_PLANT and self.random.random() < CORPSE_PLANT):
@@ -4094,22 +4105,23 @@ class Simulation:
                 available.add("take_wood")
         known = lambda action: agent.crafts >> CRAFTS.index(action) & 1
         # A tool beside those it has, one of each kind at most: what it holds in hand goes to its pack (see _arrange).
-        if agent.carried_bone and known("make_bone_axe") and not agent.has_tool(BONE_AXE):
+        # From what it has at hand (see _at_hand); a bow or wagon it cannot finish, worked on with a part it carries.
+        if known("make_bone_axe") and not agent.has_tool(BONE_AXE) and self._has_set(agent, 0, neighbors):
             available.add("make_bone_axe")
-        if agent.carried_wood and known("make_club") and not agent.has_tool(CLUB):
+        if known("make_club") and not agent.has_tool(CLUB) and self._has_set(agent, 2, neighbors):
             available.add("make_club")
-        if agent.carried_stone and agent.carried_bone + agent.carried_wood and known("make_stone_axe") and not agent.has_tool(STONE_AXE):
+        if known("make_stone_axe") and not agent.has_tool(STONE_AXE) and self._has_set(agent, 4, neighbors):
             available.add("make_stone_axe")
-        if known("make_bow") and agent.has_tool(STONE_AXE) and agent.carried_wood >= BOW_WOOD and agent.any_hide and agent.bow_uses == 0:
+        if known("make_bow") and (self._can_finish(agent, "make_bow") or self._can_add(agent, 5)):
             available.add("make_bow")
         if shoot_at is not None:
             available.add("shoot")
         if practise_on is not None:
             available.add("practise")
         if not agent.armour_worn:  # a bone axe or club in hand goes to its pack (see _arrange)
-            if agent.carried_bone and known("make_bone_armour"):
+            if known("make_bone_armour") and self._has_set(agent, 1, neighbors):
                 available.add("make_bone_armour")
-            if agent.carried_wood and known("make_wood_armour"):
+            if known("make_wood_armour") and self._has_set(agent, 3, neighbors):
                 available.add("make_wood_armour")
         if gear_pile:
             available.add("take_gear")
@@ -4124,8 +4136,7 @@ class Simulation:
         # A farmed plant, on worked land, the kindest won't fell; a wild one is fair game.
         if timber is not None and not ((timber.x, timber.y) in self.arable and self._convinced(agent, "empathy")):
             available.add("cut")
-        if (known("make_wagon") and axe and agent.wagon < 0 and agent.carried_stone >= WAGON_STONE and agent.carried_wood >= WAGON_WOOD
-                and not self.sea(agent.x, agent.y)):
+        if known("make_wagon") and not self.sea(agent.x, agent.y) and (self._can_finish(agent, "make_wagon") or self._can_add(agent, 6)):
             available.add("make_wagon")
         wagon_near = None  # a wagon no one drags, within a step
         for dx, dy in ((0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)):
@@ -4888,7 +4899,7 @@ class Simulation:
             agent.last_action = "dropped " + material
         elif action == "dress":
             self._dress(agent, situation["dressable"])
-        elif action in ("make_bone_axe", "make_club", "make_stone_axe", "make_bone_armour", "make_wood_armour", "make_bow"):
+        elif action in CRAFTS:
             self._make_gear(agent, action)
         elif action == "shoot":
             self._shoot(agent, situation["shoot_at"], False)
@@ -5890,11 +5901,13 @@ class Simulation:
         self.gear_wear[(*cell, kind)] = self.gear_wear.get((*cell, kind), 0) + uses
 
     def _discover(self, agent: Bitzkey) -> None:
-        """Perhaps, a craft whose materials it holds."""
-        holds = (agent.carried_bone > 0, agent.carried_bone > 0, agent.carried_wood > 0, agent.carried_wood > 0,
-                 agent.carried_stone > 0 and agent.carried_bone + agent.carried_wood > 0,
-                 agent.has_tool(STONE_AXE) and agent.carried_wood >= BOW_WOOD and agent.any_hide,
-                 agent.carried_stone >= WAGON_STONE and agent.carried_wood >= WAGON_WOOD and (agent.has_tool(BONE_AXE) or agent.has_tool(STONE_AXE)))
+        """Perhaps, a craft whose materials it has at hand."""
+        if agent.crafts == (1 << len(CRAFTS)) - 1:
+            return  # nothing left to find
+        near = self._nearby(agent, 1)
+        holds = [self._has_set(agent, craft, near) for craft in range(len(CRAFTS))]
+        holds[5] = holds[5] and agent.has_tool(STONE_AXE)
+        holds[6] = holds[6] and (agent.has_tool(BONE_AXE) or agent.has_tool(STONE_AXE))
         for craft, held in enumerate(holds):
             if held and not agent.crafts >> craft & 1 and self.random.random() < DISCOVERY_CHANCE * agent.intelligence * (2 if agent.species == "omnivore" else 1):
                 agent.crafts |= 1 << craft
@@ -5946,7 +5959,133 @@ class Simulation:
         if not had_armour and agent.wearing:
             agent.reward += DON_JOY * ARMOUR_JOY
 
+    def _at_hand(self, agent: Bitzkey, craft: int, near: list[Bitzkey]) -> list[int]:
+        """Its pack, the work on its square if of this craft, piles about and friends' packs: [stone, bone, wood, hide]."""
+        parts = [agent.carried_stone, agent.carried_bone, agent.carried_wood, int(agent.any_hide)]
+        work = self.works.get((agent.x, agent.y))
+        if work and work[0] == craft:
+            parts = [have + held for have, held in zip(parts, work[1:5])]
+        for dx, dy in AT_HAND:
+            cell = ((agent.x + dx) % self.width, agent.y + dy)
+            parts[0] += self.stone_piles.get(cell, 0)
+            parts[1] += self.bone_piles.get(cell, 0)
+            parts[2] += self.wood_piles.get(cell, 0)
+        for other in self._helpers(agent, near):
+            parts[0] += other.carried_stone
+            parts[1] += other.carried_bone
+            parts[2] += other.carried_wood
+        return parts
+
+    def _helpers(self, agent: Bitzkey, near: list[Bitzkey]) -> list[Bitzkey]:
+        return [other for other in near if other is not agent and other.alive and other.species != "plant" and self._is_friend(agent, other)]
+
+    def _has_set(self, agent: Bitzkey, craft: int, near: list[Bitzkey]) -> bool:
+        parts = self._at_hand(agent, craft, near)
+        if craft == 4 and parts[1] + parts[2] < 1:
+            return False
+        return all(have >= need for have, need in zip(parts, CRAFT_NEEDS[craft]))
+
+    def _can_finish(self, agent: Bitzkey, action: str) -> bool:
+        """A bow or wagon, with the tool and the set at hand."""
+        if action == "make_bow":
+            if not agent.has_tool(STONE_AXE) or agent.bow_uses != 0:
+                return False
+        elif not (agent.has_tool(BONE_AXE) or agent.has_tool(STONE_AXE)) or agent.wagon >= 0 or self.sea(agent.x, agent.y):
+            return False
+        return self._has_set(agent, CRAFTS.index(action), self._nearby(agent, 1))
+
+    def _can_add(self, agent: Bitzkey, craft: int) -> bool:
+        """Carries a part the work on its square still lacks."""
+        if self.sea(agent.x, agent.y):
+            return False
+        work = self.works.get((agent.x, agent.y))
+        if work and work[0] != craft:
+            return False  # another thing begun here
+        held = work[1:5] if work else [0, 0, 0, 0]
+        need = CRAFT_NEEDS[craft]
+        return ((agent.carried_stone > 0 and need[0] > held[0]) or (agent.carried_wood > 0 and need[2] > held[2])
+                or (bool(agent.spare_hides) and need[3] > held[3]))
+
+    def _add_to_work(self, agent: Bitzkey, action: str) -> None:
+        craft = CRAFTS.index(action)
+        work = self.works.get((agent.x, agent.y))
+        if not work or work[0] != craft:
+            work = self.works[(agent.x, agent.y)] = [craft, 0, 0, 0, 0, 0]
+        work[5] = self.turn
+        need = CRAFT_NEEDS[craft]
+        stone = min(max(need[0] - work[1], 0), agent.carried_stone)
+        wood = min(max(need[2] - work[3], 0), agent.carried_wood)
+        agent.carried_stone -= stone
+        work[1] += stone
+        agent.carried_wood -= wood
+        work[3] += wood
+        added = stone + wood
+        if work[4] < need[3] and agent.spare_hides:  # the poorest it carries, never the one it wears
+            agent.spare_hides.remove(min(agent.spare_hides, key=lambda hide: (hide[0], hide[1])))
+            work[4] += 1
+            added += 1
+        agent.reward += BUILD_THRILL * agent.feeling("curiosity") * added / sum(need)
+        agent.last_action = "worked on a craft"
+
+    def _use_parts(self, agent: Bitzkey, craft: int) -> None:
+        """Spent from its pack, the work, piles about, then friends' packs; friends who gave share in it."""
+        near = self._nearby(agent, 1)
+        need = list(CRAFT_NEEDS[craft])
+        if craft == 4:
+            need[1 if self._at_hand(agent, craft, near)[1] > 0 else 2] = 1
+        total = sum(need)
+        work = self.works.get((agent.x, agent.y))
+        if work and work[0] != craft:
+            work = None
+        helpers = {id(other): [other, 0] for other in self._helpers(agent, near)}
+        for index, (material, piles) in enumerate((("stone", self.stone_piles), ("bone", self.bone_piles), ("wood", self.wood_piles))):
+            wanted = need[index]
+            taken = min(wanted, getattr(agent, "carried_" + material))
+            setattr(agent, "carried_" + material, getattr(agent, "carried_" + material) - taken)
+            wanted -= taken
+            if work:
+                taken = min(wanted, work[index + 1])
+                work[index + 1] -= taken
+                wanted -= taken
+            for dx, dy in AT_HAND:
+                cell = ((agent.x + dx) % self.width, agent.y + dy)
+                taken = min(wanted, piles.get(cell, 0))
+                if taken > 0:
+                    self._add_to_pile(piles, cell, -taken)
+                wanted -= taken
+            for entry in helpers.values():
+                taken = min(wanted, getattr(entry[0], "carried_" + material))
+                setattr(entry[0], "carried_" + material, getattr(entry[0], "carried_" + material) - taken)
+                entry[1] += taken
+                wanted -= taken
+        if need[3]:  # the poorest hide it carries, else the one it wears, else the work's
+            if agent.spare_hides:
+                agent.spare_hides.remove(min(agent.spare_hides, key=lambda hide: (hide[0], hide[1])))
+            elif agent.hide:
+                agent.hide, agent.hide_armour = 0, 0.0
+            elif work:
+                work[4] -= 1
+        if work and sum(work[1:5]) <= 0:
+            del self.works[(agent.x, agent.y)]  # finished
+        for helper, gave in helpers.values():
+            if gave <= 0:
+                continue
+            helper.reward += SHARE_JOY * self._generosity(helper) * gave / total
+            if helper.crafts >> craft & 1:  # a hand in the making, a try at it
+                helper.craft_tries[craft] = min(CRAFT_TRIES, helper.craft_tries[craft] + 1)
+
+    def _rot_works(self) -> None:
+        """Work left SITE_TURNS untouched falls apart, its stone, bone and wood in piles where it was."""
+        for cell in [cell for cell, work in self.works.items() if self.turn - work[5] >= SITE_TURNS]:
+            _, stone, bone, wood, _, _ = self.works.pop(cell)
+            self._add_to_pile(self.stone_piles, cell, stone)
+            self._add_to_pile(self.bone_piles, cell, bone)
+            self._add_to_pile(self.wood_piles, cell, wood)
+
     def _make_gear(self, agent: Bitzkey, action: str) -> None:
+        if action in ("make_bow", "make_wagon") and not self._can_finish(agent, action):
+            self._add_to_work(agent, action)
+            return
         craft = CRAFTS.index(action)
         agent.craft_tries[craft] += 1
         tries = agent.craft_tries[craft]
@@ -5956,36 +6095,21 @@ class Simulation:
             return
         agent.craft_tries[craft] = CRAFT_TRIES  # it has it now
         had_weapon, had_armour = agent.wielding, agent.wearing
+        self._use_parts(agent, craft)
         if action == "make_bone_axe":
-            agent.carried_bone -= 1
             agent.spare_tools.append([BONE_AXE, 0])  # to hand if the best (see _arrange)
         elif action == "make_club":
-            agent.carried_wood -= 1
             agent.spare_tools.append([CLUB, 0])
         elif action == "make_bone_armour":
-            agent.carried_bone -= 1
             agent.armour_worn, agent.armour_uses = BONE_ARMOUR, 0
         elif action == "make_wood_armour":
-            agent.carried_wood -= 1
             agent.armour_worn, agent.armour_uses = WOOD_ARMOUR, 0
-        elif action == "make_bow":  # two wood and a hide, the poorest it carries or else the one it wears, with the stone axe it keeps
-            agent.carried_wood -= BOW_WOOD
-            if agent.spare_hides:
-                agent.spare_hides.remove(min(agent.spare_hides, key=lambda hide: (hide[0], hide[1])))
-            else:
-                agent.hide, agent.hide_armour = 0, 0.0
+        elif action == "make_bow":  # two wood and a hide, with the stone axe it keeps
             agent.bow_uses = BOW_USES
         elif action == "make_wagon":  # two stones and three wood, with an axe it keeps; left where it stands, for any to hitch
-            agent.carried_stone -= WAGON_STONE
-            agent.carried_wood -= WAGON_WOOD
             self.wagons.append([agent.x, agent.y, -1, [0] * 7])
             self.parked.setdefault((agent.x, agent.y), []).append(len(self.wagons) - 1)
-        else:  # a stone axe, of a stone and a bone, or wood if it has no bone
-            agent.carried_stone -= 1
-            if agent.carried_bone:
-                agent.carried_bone -= 1
-            else:
-                agent.carried_wood -= 1
+        else:  # a stone axe, of a stone and a bone, or wood if there is no bone at hand
             agent.spare_tools.append([STONE_AXE, 0])
         self._arrange(agent)
         agent.reward += CRAFT_JOY * (0.5 if action in ("make_bone_armour", "make_wood_armour") else 1.0) * (0.5 + agent.feeling("curiosity"))
