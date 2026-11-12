@@ -1992,5 +1992,8 @@
 "MATERIALS": "材料",
 "CRAFTING AND GEAR": "手艺与装备",
 "FIRE AND BUILDING": "火与建造",
-"FARMING": "农耕"
+"FARMING": "农耕",
+"planted a fruit": "种下了一个果实",
+"had nothing to plant": "没有可种的",
+"had nothing to light a fire with": "没有生火的东西"
 }

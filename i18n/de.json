@@ -1992,5 +1992,8 @@
 "MATERIALS": "MATERIALIEN",
 "CRAFTING AND GEAR": "HANDWERK UND AUSRÜSTUNG",
 "FIRE AND BUILDING": "FEUER UND BAUEN",
-"FARMING": "ACKERBAU"
+"FARMING": "ACKERBAU",
+"planted a fruit": "pflanzte eine Frucht",
+"had nothing to plant": "hatte nichts zu pflanzen",
+"had nothing to light a fire with": "hatte nichts, um Feuer zu machen"
 }

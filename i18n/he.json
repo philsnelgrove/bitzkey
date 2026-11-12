@@ -1992,5 +1992,8 @@
 "MATERIALS": "חומרים",
 "CRAFTING AND GEAR": "מלאכה וציוד",
 "FIRE AND BUILDING": "אש ובנייה",
-"FARMING": "חקלאות"
+"FARMING": "חקלאות",
+"planted a fruit": "שתל פרי",
+"had nothing to plant": "לא היה לו מה לשתול",
+"had nothing to light a fire with": "לא היה לו במה להדליק אש"
 }

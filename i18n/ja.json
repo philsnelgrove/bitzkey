@@ -1992,5 +1992,8 @@
 "MATERIALS": "素材",
 "CRAFTING AND GEAR": "工作と道具",
 "FIRE AND BUILDING": "火と建築",
-"FARMING": "農耕"
+"FARMING": "農耕",
+"planted a fruit": "果実を植えた",
+"had nothing to plant": "植えるものがなかった",
+"had nothing to light a fire with": "火をおこす道具がなかった"
 }

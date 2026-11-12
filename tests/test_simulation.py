@@ -3656,6 +3656,7 @@ class AcquaintanceTests(unittest.TestCase):
         world._note_deed(watcher, doer, sm.CRAFT_DEED, 1.0, "skill", False)
         self.assertGreater(watcher.known[0].skill, 0)
         reward = doer.reward
+        doer.carried_stone = sm.FIRE_STONES  # two stones to strike it
         world._light_fire(doer)
         self.assertAlmostEqual(doer.reward, reward + sm.FIRE_JOY)
 
@@ -3715,8 +3716,9 @@ class MaterialTests(unittest.TestCase):
         simulation = Simulation(30, 30, 0, seed=1)
         lighter = Bitzkey(1, encode_dna("omnivore", size=3), 5, 5)
         lighter.weapon, lighter.carried_wood, lighter.carried_meat = 2, 1, 1
+        lighter.carried_wood += 1  # the second stick, rubbed against its club
         simulation._light_fire(lighter)
-        self.assertEqual(lighter.weapon, 0)
+        self.assertEqual(lighter.weapon, 2)  # the club kept, the wood spent
         simulation._feed_fire(lighter, (5, 5))
         self.assertEqual(simulation.fires[(5, 5)], (simulation.turn + 48, 1))
         simulation._cook(lighter)
@@ -4246,7 +4248,9 @@ class MaterialTests(unittest.TestCase):
         lighter = Bitzkey(1, encode_dna("omnivore", size=3), 5, 5)
         stranger = Bitzkey(2, encode_dna("predator", size=3), 20, 20)
         lighter.weapon = 2
+        lighter.carried_wood += 1  # the second stick, rubbed against its club
         simulation._light_fire(lighter)
+        lighter.weapon = 0  # the club, kept, set aside: its ease apart from the fire's
         without = {"kin": 0, "others": 0, "threats": 0}
         seen = {**without, "fire": (5, 5)}
         self.assertAlmostEqual(simulation._hearth(lighter, seen), FIRE_COMFORT)
@@ -4260,6 +4264,7 @@ class MaterialTests(unittest.TestCase):
         friend = simulation._add_agent(encode_dna("omnivore", size=3), 6, 5)
         simulation._index_cells()
         lighter.weapon, lighter.carried_wood = 2, 1
+        lighter.carried_wood += 1  # the second stick, rubbed against its club
         simulation._light_fire(lighter)
         lighter.reward = 0.0
         simulation._feed_fire(lighter, (5, 5))
@@ -4349,6 +4354,31 @@ class MaterialTests(unittest.TestCase):
         simulation._hitch(maker, 0)
         self.assertEqual(maker.carried_stone, alone + 2)  # and taken up again
         self.assertEqual(Simulation._value_of(maker, simulation_module.WAGON_GOOD), 1)
+
+    def test_a_whole_fruit_may_be_planted_and_feeds_the_ground_as_if_fertilized(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        farmer = simulation._add_agent(encode_dna("omnivore", size=3), 5, 5)
+        farmer.carried_fruit, farmer.carried_seed = 1, 1
+        simulation._plant_seed(farmer)
+        self.assertEqual((farmer.carried_seed, farmer.carried_fruit), (0, 1))  # the seed first
+        self.assertNotIn((5, 5), simulation.fertilized)
+        farmer.x = 7
+        simulation._plant_seed(farmer)
+        self.assertEqual((farmer.carried_fruit, farmer.last_action), (0, "planted a fruit"))
+        self.assertIn((7, 5), simulation.fertilized)
+        simulation._plant_seed(farmer)
+        self.assertEqual(farmer.last_action, "had nothing to plant")
+
+    def test_felling_a_plant_gives_a_seed_for_each_fruit_it_would_bear(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        feller = simulation._add_agent(encode_dna("omnivore", size=7), 5, 5)
+        plant = simulation._add_agent(encode_dna("plant"), 6, 5)
+        feller.weapon = 3  # a stone axe
+        simulation._index_cells()
+        fruit = Simulation.fruit_capacity(plant)
+        simulation._cut(feller, plant)
+        self.assertFalse(plant.alive)
+        self.assertEqual(feller.carried_seed, min(fruit, feller.capacity))
 
     def test_arrows_restore_a_bow_its_own_or_anothers_beside_it_empty_or_not(self):
         simulation = Simulation(30, 30, 0, seed=1)

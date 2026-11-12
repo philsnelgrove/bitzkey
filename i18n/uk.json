@@ -1992,5 +1992,8 @@
 "MATERIALS": "МАТЕРІАЛИ",
 "CRAFTING AND GEAR": "РЕМЕСЛО Й СПОРЯДЖЕННЯ",
 "FIRE AND BUILDING": "ВОГОНЬ І БУДІВНИЦТВО",
-"FARMING": "ЗЕМЛЕРОБСТВО"
+"FARMING": "ЗЕМЛЕРОБСТВО",
+"planted a fruit": "посадив плід",
+"had nothing to plant": "не мав що садити",
+"had nothing to light a fire with": "не мав чим розпалити вогонь"
 }

@@ -122,7 +122,7 @@ SPAWN_AT_HOME = 1     # 1: a group appears in rows whose usual temperature is it
 HISTORY_PREFIX = "bitzkey-history-"  # their names start so
 STALE_HISTORY_HOURS = 24  # one left this long by a run that never closed it is cleared away
 CORPSE_FERTILITY = 2   # grass grows this many times as fast on and around a corpse
-FIRE_STONES = 2  # carried stones that strike a fire, and are kept
+FIRE_STONES = 2  # carried stones that strike a fire, and are kept; else a club and a wood rubbed together, the wood spent
 WATERED_REACH = 7  # steps from water within which hot land grows grass and can be tilled
 # An animal awake out of its own hours, in the dark if active by day or in the light if active by night (at its dusk and
 # dawn), sees OFF_HOURS_SIGHT as far as in its own, at least a step. Calls carry as far either way.
@@ -4256,13 +4256,12 @@ class Simulation:
             available.add("offer")
         if agent.has_tool(STONE_AXE) and agent.carried_stone >= ROAD_STONES and square not in self.roads and square not in self.shelters and square not in self.sites and not self.sea(*square):
             available.add("build_road")
-        if (agent.has_tool(CLUB) or agent.carried_stone >= FIRE_STONES) and not self.sea(agent.x, agent.y):
+        if (agent.carried_stone >= FIRE_STONES or (agent.has_tool(CLUB) and agent.carried_wood > 0)) and not self.sea(agent.x, agent.y):
             available.add("light_fire")
-        if agent.carried_seed:
-            if agent.browsing > 0:
-                available.add("eat_seed")
-            if (agent.x, agent.y) in self.arable:
-                available.add("plant_seed")
+        if agent.carried_seed and agent.browsing > 0:
+            available.add("eat_seed")
+        if agent.carried_seed + agent.carried_fruit and (agent.x, agent.y) in self.arable:  # a seed, else a whole fruit
+            available.add("plant_seed")
         if beside_fire and agent.carried_wood:
             available.add("feed_fire")
         if beside_fire and self._food_to_cook(agent, kill, flora, meat_pile, fruit_pile):
@@ -5582,13 +5581,15 @@ class Simulation:
                 agent.armour_worn, agent.armour_uses = NO_ARMOUR, 0
 
     def _cut(self, agent: Bitzkey, plant: Bitzkey) -> None:
-        """An axe fells a plant, which leaves its wood."""
+        """An axe fells a plant, which leaves its wood, and its seeds to its feller."""
         self._move_toward(agent, plant.x, plant.y)
         if abs(plant.x - agent.x) + abs(plant.y - agent.y) > 1 or not plant.alive:
             agent.last_action = "sought plants"
             return
         if (plant.x, plant.y) in self.arable:  # sorry to fell a farmed one
             agent.reward -= UPROOT_SORROW * (0.5 + agent.feeling("empathy"))
+        for _ in range(self.fruit_capacity(plant)):  # its seeds, a seed for each fruit it would bear, as many as it can carry
+            self._keep_seed(agent)
         plant.health = 0
         self._wear_weapon(agent)
         agent.last_action = "cut down a plant"
@@ -5604,15 +5605,24 @@ class Simulation:
         agent.last_action = "ate a seed"
 
     def _plant_seed(self, agent: Bitzkey) -> None:
-        """A plant at home where it is sown, sprouting as any seed does."""
-        agent.carried_seed -= 1
+        """A plant at home where it is sown, sprouting as any seed does: from a seed it carries, else a whole fruit, whose
+        flesh feeds the ground as crushed bone does."""
+        fruit = agent.carried_seed <= 0
+        if fruit and agent.carried_fruit <= 0:  # eaten or dropped since it chose
+            agent.last_action = "had nothing to plant"
+            return
+        if fruit:
+            agent.carried_fruit -= 1
+            self.fertilized.add((agent.x, agent.y))
+        else:
+            agent.carried_seed -= 1
         self._tend(agent.x, agent.y)
         dna = make_dna(SPECIES.index("plant"), self.random)
         dna = dna & ~(0x3 << TEMPERATURE_SHIFT) | zone_temperature(agent.y, self.height) << TEMPERATURE_SHIFT
         self.seeds.append((agent.x, agent.y, with_terrain(dna, "terrestrial"), 0, self.turn))
         self.sowers[(agent.x, agent.y, self.turn)] = agent.identifier
         agent.reward += PLANTING_JOY * (0.5 + agent.feeling("curiosity"))
-        agent.last_action = "planted a seed"
+        agent.last_action = "planted a fruit" if fruit else "planted a seed"
         self._deed_seen(agent, CRAFT_DEED, None, "skill", culture="sowing")
 
     def _dig(self, agent: Bitzkey) -> None:
@@ -5815,10 +5825,13 @@ class Simulation:
         return shelters
 
     def _light_fire(self, agent: Bitzkey) -> None:
-        """Struck from two stones it carries, which it keeps, or of its club, spent."""
-        self.fires[(agent.x, agent.y)] = (self.turn + FIRE_TURNS, agent.identifier)
+        """Struck from two stones it carries, which it keeps, or two sticks rubbed together: its club, kept, and a wood, spent."""
         if agent.carried_stone < FIRE_STONES:
-            self._spend_tool(agent, CLUB)
+            if not agent.has_tool(CLUB) or agent.carried_wood <= 0:  # what it had to light it with gone since it chose
+                agent.last_action = "had nothing to light a fire with"
+                return
+            agent.carried_wood -= 1
+        self.fires[(agent.x, agent.y)] = (self.turn + FIRE_TURNS, agent.identifier)
         agent.last_action = "lit a fire"
         agent.reward += FIRE_JOY
         self._deed_seen(agent, FIRE_DEED, None, "skill")

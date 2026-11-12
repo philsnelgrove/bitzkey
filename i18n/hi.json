@@ -1992,5 +1992,8 @@
 "MATERIALS": "सामग्री",
 "CRAFTING AND GEAR": "शिल्प और साज़ो-सामान",
 "FIRE AND BUILDING": "आग और निर्माण",
-"FARMING": "खेती"
+"FARMING": "खेती",
+"planted a fruit": "एक फल बोया",
+"had nothing to plant": "बोने को कुछ नहीं था",
+"had nothing to light a fire with": "आग जलाने को कुछ नहीं था"
 }
