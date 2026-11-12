@@ -1995,5 +1995,7 @@
 "FARMING": "ACKERBAU",
 "planted a fruit": "pflanzte eine Frucht",
 "had nothing to plant": "hatte nichts zu pflanzen",
-"had nothing to light a fire with": "hatte nichts, um Feuer zu machen"
+"had nothing to light a fire with": "hatte nichts, um Feuer zu machen",
+"This world now plays by {#} rule changed from the defaults.": "Diese Welt spielt jetzt mit {#} vom Standard geänderten Regel.",
+"This world now plays by {#} rules changed from the defaults.": "Diese Welt spielt jetzt mit {#} vom Standard geänderten Regeln."
 }

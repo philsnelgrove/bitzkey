@@ -470,17 +470,18 @@ class BitzkeyApp:
 
     def _edit_rules(self) -> None:
         """Pause, and change the rules this world plays by: applied, they hold from its next turn, and
-        for its restarts. Closing the window from there closes the program."""
-        self.playing = False
+        for its restarts. Closing the window from there closes the program. It plays on afterwards if it was playing."""
+        was_playing, self.playing = self.playing, False
         outcome, changed = AdvancedScreen(self.screen, Rules.current(), running=True).run()
         self.screen = pg.display.get_surface()
+        self.playing = was_playing and not self.simulation.ended
         if outcome == "quit":
             pg.event.post(pg.event.Event(pg.QUIT))
         elif outcome == "apply":
             Rules.apply(changed)
             self.simulation.rules_changed()
             self._say(f"This world now plays by {len(changed)} rule{'s' if len(changed) != 1 else ''} changed from the "
-                      "defaults. Paused: SPACE plays on.")
+                      "defaults.")
 
     def _browse_catalog(self) -> None:
         """Look through the catalog, importing and exporting nothing; the world waits meanwhile. DEPLOY

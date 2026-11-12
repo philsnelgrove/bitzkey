@@ -109,7 +109,7 @@ class SimulationFlowTests(unittest.TestCase):
         self.assertEqual(self.app._square, (x, y))  # the list stays while the pointer is on it
         self.assertEqual(self.app.selected_id, self.animal.identifier)
 
-    def test_the_advanced_button_pauses_and_sets_the_rules_this_world_plays_by(self):
+    def test_the_advanced_button_sets_the_rules_this_world_plays_by_and_it_plays_on(self):
         from unittest.mock import patch
         from tools import Rules
         from tools import Simulation as world
@@ -121,7 +121,7 @@ class SimulationFlowTests(unittest.TestCase):
                 self.app._click(self.app._advanced_button.center)
             self.assertTrue(panel.call_args.kwargs["running"])  # this world's rules, as they stand
             self.assertEqual(panel.call_args.args[1], Rules.DEFAULTS)  # opened on the rules the world had
-            self.assertFalse(self.app.playing)
+            self.assertTrue(self.app.playing)  # playing before, it plays on
             self.assertEqual(world.CORPSE_TURNS, 7)
             self.assertAlmostEqual(self.app.simulation.grass_regrowth, self.app.simulation._initial_grass * 0.05)
             self.assertIn("2 rules changed", self.app.message)

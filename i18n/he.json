@@ -1995,5 +1995,7 @@
 "FARMING": "חקלאות",
 "planted a fruit": "שתל פרי",
 "had nothing to plant": "לא היה לו מה לשתול",
-"had nothing to light a fire with": "לא היה לו במה להדליק אש"
+"had nothing to light a fire with": "לא היה לו במה להדליק אש",
+"This world now plays by {#} rule changed from the defaults.": "עולם זה פועל כעת לפי {#} כלל ששונה מברירת המחדל.",
+"This world now plays by {#} rules changed from the defaults.": "עולם זה פועל כעת לפי {#} כללים ששונו מברירת המחדל."
 }

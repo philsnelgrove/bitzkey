@@ -1995,5 +1995,7 @@
 "FARMING": "ЗЕМЛЕРОБСТВО",
 "planted a fruit": "посадив плід",
 "had nothing to plant": "не мав що садити",
-"had nothing to light a fire with": "не мав чим розпалити вогонь"
+"had nothing to light a fire with": "не мав чим розпалити вогонь",
+"This world now plays by {#} rule changed from the defaults.": "Цей світ тепер працює зі зміненими правилами (змінено: {#}).",
+"This world now plays by {#} rules changed from the defaults.": "Цей світ тепер працює зі зміненими правилами (змінено: {#})."
 }

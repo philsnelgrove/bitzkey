@@ -1995,5 +1995,7 @@
 "FARMING": "农耕",
 "planted a fruit": "种下了一个果实",
 "had nothing to plant": "没有可种的",
-"had nothing to light a fire with": "没有生火的东西"
+"had nothing to light a fire with": "没有生火的东西",
+"This world now plays by {#} rule changed from the defaults.": "此世界现在使用 {#} 项更改过的规则。",
+"This world now plays by {#} rules changed from the defaults.": "此世界现在使用 {#} 项更改过的规则。"
 }
