@@ -515,6 +515,7 @@ _TABLE: dict[str, list[tuple]] = {
         ("RAW_DISTASTE", "Raw distaste", "letdown of eating a raw portion once it knows the taste of cooked, times that taste", 0.0, 5.0, 0.1),
         ("COOK_JOY", "Cooking joy", "pleasure of cooking a portion, times a half and its taste for cooked food", 0.0, 5.0, 0.1),
         ("TASTE_JOY", "Taste joy", "how tasty a cooked portion is, and how untasty a raw one from a pile or carried, times its appetite", 0.0, 5.0, 0.1),
+        ("GLUTTONY_UNEASE", "Gluttony unease", "unease at a meal eaten while less than half hungry, the more the fuller, times what it lacks of gluttony (a half, plus half its appetite, less half its kinship); none to the wholly gluttonous", 0.0, 5.0, 0.1),
         ("SMELL_REACH", "Smell reach", "how many times as far as it sees an animal smells cooked food and a fire cooked on", 1.0, 4.0, 0.1),
         ("KILL_MEAL", "Kill meal", "hunger a kill sates", 0, 200, 5),
         ("KILL_MEAL_FOR_SIZE", "Kill meal for size", "more hunger sated, up to this for the largest prey", 0, 200, 5),

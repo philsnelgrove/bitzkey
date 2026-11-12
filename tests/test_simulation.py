@@ -4339,6 +4339,18 @@ class MaterialTests(unittest.TestCase):
         self.assertEqual(maker.carried_stone, alone + 2)  # and taken up again
         self.assertEqual(Simulation._value_of(maker, simulation_module.WAGON_GOOD), 1)
 
+    def test_gluttony_rises_with_appetite_falls_with_kinship_and_a_needless_meal_is_an_unease(self):
+        agent = Bitzkey(1, encode_dna("grazer", size=3), 5, 5)
+        agent.mind["appetite"], agent.mind["kinship"] = 7.0, 0.0
+        self.assertAlmostEqual(Simulation._gluttony(agent), 1.0)
+        self.assertAlmostEqual(Simulation._gluttony_unease(agent, 0.0), 0.0)  # the wholly gluttonous feel none
+        agent.mind["appetite"], agent.mind["kinship"] = 0.0, 7.0
+        self.assertAlmostEqual(Simulation._gluttony_unease(agent, 0.0), simulation_module.GLUTTONY_UNEASE)
+        self.assertAlmostEqual(Simulation._gluttony_unease(agent, 25.0), simulation_module.GLUTTONY_UNEASE / 2)  # fading as it hungers
+        self.assertAlmostEqual(Simulation._gluttony_unease(agent, simulation_module.GLUTTONY_HUNGER), 0.0)  # hungry enough
+        agent.mind["appetite"], agent.mind["kinship"] = 3.5, 3.5
+        self.assertAlmostEqual(Simulation._gluttony_unease(agent, 0.0), 0.5 * simulation_module.GLUTTONY_UNEASE)
+
     def test_crafting_takes_from_piles_work_and_friends_and_a_bow_or_wagon_is_worked_on_in_parts(self):
         simulation = Simulation(30, 30, 0, seed=1)
 

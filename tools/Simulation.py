@@ -662,6 +662,11 @@ COOKED_JOY, RAW_DISTASTE, COOK_JOY, SMELL_REACH = 1.0, 0.5, 1.0, 3.0
 # A sense of taste, inborn: a cooked portion is tasty (TASTE_JOY, times its appetite), a raw portion, from a pile or
 # carried, as much the opposite, over and above the taste it learns.
 TASTE_JOY = 1.0
+# Gluttony, 0..1: a half, plus half its appetite, less half its kinship. A meal eaten while less than GLUTTONY_HUNGER
+# hungry is an unease of GLUTTONY_UNEASE times what it lacks of gluttony, fading from the whole of it when it is not
+# hungry at all to none at GLUTTONY_HUNGER: none to the wholly gluttonous.
+GLUTTONY_UNEASE = 1.0
+GLUTTONY_HUNGER = 50.0
 SITE_TURNS = 100  # an unfinished shelter left this long falls in, leaving its stone and wood in piles
 SHELTER_UNITS = 7  # of stone or wood, any mix, to finish a shelter; until then each takes a space of the square
 FIRE_REACH = 2  # squares off, a fire shelters an animal from the cold
@@ -958,6 +963,7 @@ EAT, UPROOT, FEAST = ACTIONS.index("eat"), ACTIONS.index("uproot"), ACTIONS.inde
 HERD = ACTIONS.index("herd")
 FEED_YOUNG = ACTIONS.index("feed_young")
 FED = {"ate", "browsed", "uprooted", "feasted", "scavenged", "ate from a pile", "ate what it carried"}  # what it did when it fed, to remember where
+MEALS = FED | {"ate a seed", "ate marrow"}  # all it may eat, for gluttony
 MAX_SIGHT = 2 + SIGHT_PER_TRAIT * TRAIT_MAX + MAX_PREDATOR_SIGHT  # the furthest anything is seen: a predator's sight for prey
 SIGHT_OFFSETS = sorted(
     ((dx, dy) for dx in range(-MAX_SIGHT, MAX_SIGHT + 1) for dy in range(-MAX_SIGHT, MAX_SIGHT + 1)
@@ -4703,6 +4709,7 @@ class Simulation:
         agent.desire = [desire * DESIRE_FADE for desire in agent.desire]
         had = self._possessions_as(agent, agent)
         ready_before = self._ready_sets(agent)
+        hunger_before = agent.hunger
         fight = self._fight_of(agent.identifier) if action != "flee" else None
         opponent = self.find_agent(fight[1] if fight[0] == agent.identifier else fight[0]) if fight else None
         if opponent is not None and opponent.alive:
@@ -4717,6 +4724,8 @@ class Simulation:
                 self._answered(agent, caller, agent.reward - had_reward, caller.reward - caller_had)
         if agent.last_action in FED:
             agent.food_memory = (agent.x, agent.y, self.turn)
+        if agent.last_action in MEALS:
+            agent.reward -= self._gluttony_unease(agent, hunger_before)  # a meal it had no need of, felt as the less gluttonous feel it
         if not agent.alive:
             return
         if READY_JOY > 0:  # glad to hold all that a thing it knows needs, and as sorry to break the set, but by using or giving it
@@ -5038,6 +5047,16 @@ class Simulation:
             valued[HUNT] -= tolerance
         if prey is not None and not self._is_prey(agent, prey):
             valued[ATTACK] -= tolerance
+
+    @staticmethod
+    def _gluttony(agent: Bitzkey) -> float:
+        """A half, plus half its appetite, less half its kinship, 0..1."""
+        return min(1.0, max(0.0, 0.5 + 0.5 * agent.feeling("appetite") - 0.5 * agent.feeling("kinship")))
+
+    @staticmethod
+    def _gluttony_unease(agent: Bitzkey, hunger_before: float) -> float:
+        sated = min(1.0, max(0.0, 1.0 - hunger_before / GLUTTONY_HUNGER))  # 1 not hungry at all, 0 at GLUTTONY_HUNGER
+        return GLUTTONY_UNEASE * (1.0 - Simulation._gluttony(agent)) * sated
 
     @staticmethod
     def _generosity(agent: Bitzkey) -> float:
