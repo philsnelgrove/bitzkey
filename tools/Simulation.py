@@ -3996,6 +3996,9 @@ class Simulation:
         assailant = next((other for other in neighbors if other.identifier == agent.assailant), None)
         herd_assailant = next((other for other in neighbors if other.identifier == agent.herd_assailant), None)
         defend_target = assailant or herd_assailant
+        if defend_target is None and (agent.assailant is not None or agent.herd_assailant is not None):  # struck from afar: one in sight to answer
+            defend_target = next((other for other in self._nearby(agent, sight) if other.alive
+                                  and other.identifier in (agent.assailant, agent.herd_assailant)), None)
         herd, herd_near, herd_middle = self._herd(agent)
         own_young = [] if not agent.children else [  # its own young, still infants, within its sight
             other for other in self._nearby(agent, sight)
@@ -4902,9 +4905,17 @@ class Simulation:
             self._attack(agent, prey)
         elif action == "defend":
             target = situation["defend_target"]
-            if not (target.alive and self._beside(agent, target)):
+            if not target.alive:
                 agent.last_action = "missed"
                 return
+            if not self._beside(agent, target):  # out of reach: shot back at, else charged, and struck once there
+                if agent.bow_uses > 0:
+                    self._shoot(agent, target, False)
+                    return
+                self._move_toward(agent, target.x, target.y)
+                agent.last_action = "charged"
+                if not self._beside(agent, target):
+                    return
             self._defend(agent, target, for_herd=situation["for_herd"])
         elif action == "herd":
             self._move_toward(agent, *situation["herd_middle"])
@@ -6452,7 +6463,8 @@ class Simulation:
             herd_near += self._herd_mate(victim, other)
             if self._herd_mate(other, victim) or self._follows(other, victim):  # its herd, and its followers
                 other.alarm = striker.identifier
-                if abs(other.x - striker.x) + abs(other.y - striker.y) <= 1:
+                # beside the striker, or the blow came from afar, as an arrow does: the herd may answer it
+                if abs(other.x - striker.x) + abs(other.y - striker.y) <= 1 or abs(victim.x - striker.x) + abs(victim.y - striker.y) > 1:
                     other.herd_assailant = striker.identifier
         unhurt, dying = PANIC
         hurt = 1 - max(0.0, victim.health) / victim.max_health

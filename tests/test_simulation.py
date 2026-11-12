@@ -4355,6 +4355,22 @@ class MaterialTests(unittest.TestCase):
         self.assertEqual(maker.carried_stone, alone + 2)  # and taken up again
         self.assertEqual(Simulation._value_of(maker, simulation_module.WAGON_GOOD), 1)
 
+    def test_struck_from_afar_it_shoots_back_if_it_has_arrows_else_charges(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        archer = simulation._add_agent(encode_dna("predator", size=3), 5, 5)
+        target = simulation._add_agent(encode_dna("omnivore", size=7, sight=4), 9, 5)
+        simulation._index_cells()
+        target.assailant = archer.identifier  # as if an arrow had struck it
+        situation = simulation._sense(target)[2]
+        self.assertIs(situation["defend_target"], archer)
+        simulation._do(target, "defend", situation)
+        self.assertEqual(target.last_action, "charged")
+        self.assertLess(abs(target.x - archer.x) + abs(target.y - archer.y), 4)  # closer
+        target.x, target.bow, target.bow_uses = 9, True, 5
+        situation = simulation._sense(target)[2]
+        simulation._do(target, "defend", situation)
+        self.assertEqual(target.bow_uses, 4)  # an arrow back
+
     def test_one_who_sees_the_caller_it_hears_may_read_what_it_meant_by_its_intellect(self):
         simulation = Simulation(30, 30, 0, seed=1)
         caller = simulation._add_agent(encode_dna("predator", size=3), 10, 10)
