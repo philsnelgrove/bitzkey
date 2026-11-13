@@ -3458,6 +3458,9 @@ class Simulation:
             agent.hunger = min(100.0, agent.hunger + agent.digest(burn))  # meat lasts; hunger stops at full
             if agent.cooldown:
                 agent.cooldown -= 1
+            # A wagon two had hitched at once, before one alone could: it is the last one's, and the other's no longer.
+            if agent.wagon >= 0 and self.wagons[agent.wagon][2] != agent.identifier:
+                agent.wagon = -1
             if agent.carried_meat + agent.carried_fruit > 0 and self.random.random() < CARRIED_SPOIL:  # raw food carried goes off
                 if agent.carried_meat > 0:
                     agent.carried_meat -= 1
@@ -5714,6 +5717,8 @@ class Simulation:
         if wagon is None or agent.wagon >= 0:
             return
         it = self.wagons[wagon]
+        if it[2] >= 0:  # another beside it hitched it first: a wagon has one to drag it
+            return
         parked = self.parked.get((it[0], it[1]), [])
         if wagon in parked:
             parked.remove(wagon)
