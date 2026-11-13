@@ -4370,6 +4370,15 @@ class MaterialTests(unittest.TestCase):
         situation = simulation._sense(target)[2]
         simulation._do(target, "defend", situation)
         self.assertEqual(target.bow_uses, 4)  # an arrow back
+        weak = simulation._add_agent(encode_dna("grazer", size=3, strength=0), 6, 5)  # too weak to strike back
+        simulation._index_cells()
+        weak.assailant = archer.identifier
+        self.assertNotIn(ACTIONS.index("defend"), simulation._sense(weak)[1])
+        weak.bow, weak.bow_uses = True, 3  # but any with arrows may answer, however weak, close by too
+        senses, options, situation = simulation._sense(weak)
+        self.assertIn(ACTIONS.index("defend"), options)
+        simulation._do(weak, "defend", situation)
+        self.assertEqual(weak.bow_uses, 2)
 
     def test_one_who_sees_the_caller_it_hears_may_read_what_it_meant_by_its_intellect(self):
         simulation = Simulation(30, 30, 0, seed=1)

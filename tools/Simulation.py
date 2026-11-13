@@ -4105,8 +4105,8 @@ class Simulation:
         if hunter and (alarm_source is not None or abs(hunter.x - agent.x) + abs(hunter.y - agent.y)
                        <= self._flee_range(agent, herd_near)):
             available.add("flee")  # only from a hunter close by, unless the herd raised the alarm
-        if defend_target and (agent.species != "grazer" or agent.trait("strength") > GRAZER_DEFENCE_STRENGTH):
-            available.add("defend")  # a grazer only when strong enough
+        if defend_target and (agent.species != "grazer" or agent.trait("strength") > GRAZER_DEFENCE_STRENGTH or agent.bow_uses > 0):
+            available.add("defend")  # a grazer only when strong enough, or with arrows to shoot
         spread = 1 if agent.infant else HERD_SPREAD * (1 - agent.fearfulness)  # an infant wants to be right among them
         if herd_middle is not None and abs(herd_middle[0] - agent.x) + abs(herd_middle[1] - agent.y) > spread:
             # The more fearful it is, the closer it keeps to the herd's middle, but not where the
@@ -4908,10 +4908,11 @@ class Simulation:
             if not target.alive:
                 agent.last_action = "missed"
                 return
-            if not self._beside(agent, target):  # out of reach: shot back at, else charged, and struck once there
-                if agent.bow_uses > 0:
-                    self._shoot(agent, target, False)
-                    return
+            strikes = agent.species != "grazer" or agent.trait("strength") > GRAZER_DEFENCE_STRENGTH
+            if agent.bow_uses > 0 and (not strikes or not self._beside(agent, target)):  # shot at: out of reach, or too weak to strike
+                self._shoot(agent, target, False)
+                return
+            if not self._beside(agent, target):  # out of reach, with no arrows: charged, and struck once there
                 self._move_toward(agent, target.x, target.y)
                 agent.last_action = "charged"
                 if not self._beside(agent, target):

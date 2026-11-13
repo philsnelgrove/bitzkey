@@ -1592,23 +1592,6 @@ class BitzkeyApp:
                     self._text("  -" if share is None else f"{share:>4.0%}", (column, at(y)), (231, 236, 222), self.mono)
                 y += 17
 
-        blocks = (
-            ("LEAST KEEN TO BREED", insights.extremes("breed", 3, lowest=True)),
-            ("KEENEST TO BREED", insights.extremes("breed", 2, lowest=False)),
-            ("LEAST KEEN TO FIGHT", insights.extremes("attack", 2, lowest=True)),
-        )
-        y += 6
-        for title, groups in blocks:
-            self._text(title, (x, at(y)), (220, 229, 211), self.small)
-            y += 19
-            if not groups:
-                self._text("not enough chances yet", (x, at(y)), (116, 139, 124), self.small)
-                y += 18
-            for label, share, _ in groups:
-                self._text(label, (x, at(y)), (175, 192, 172), self.small)
-                self._text(f"{share:>4.0%}", (x + width - UI(40), at(y)), (231, 236, 222), self.mono)
-                y += 18
-            y += 8
 
         members = {species: [agent for agent in self.simulation.living if agent.species == species]
                    for species in ANIMALS}
