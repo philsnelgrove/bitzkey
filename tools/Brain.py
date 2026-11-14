@@ -36,10 +36,28 @@ MAX_MEMORY_STEPS = 4  # the furthest back Memory steps may reach
 # 1. As the C++ version's.
 FORESEEN = ("foresee_hunger", "foresee_health", "foresee_stamina", "foresee_food")
 FORESIGHT = MEMORY_VALUES + MEMORY_NEURONS  # the first of them
+# A call may run on: after a first sound (one of the five calls, not the alert), a second, and after that a third, each
+# one of the same five sounds. Each place after the first is valued apart: stopping there, or each sound. As the C++
+# version's.
+MAX_SOUNDS = 3
+SOUND_CHOICES = 1 + CALL_COUNT  # stopping, then the five sounds
+MORE_SOUNDS = FORESIGHT + len(FORESEEN)  # the second place's stopping and sounds, then the third's
+LATER_SOUNDS = tuple(f"{place}_{choice}" for place in ("second", "third")
+                     for choice in ("stop", *(f"call_{call}" for call in range(1, CALL_COUNT + 1))))
 # A brain's outputs by name: its actions, then silence and the calls, then its memory's gates and values to write, then
-# what it foresees.
+# what it foresees, then a call's later sounds.
 OUTPUTS = (ACTIONS + CALLS + tuple(f"memory_gate_{neuron}" for neuron in range(1, MEMORY_NEURONS + 1))
-           + tuple(f"memory_value_{neuron}" for neuron in range(1, MEMORY_NEURONS + 1)) + FORESEEN)
+           + tuple(f"memory_value_{neuron}" for neuron in range(1, MEMORY_NEURONS + 1)) + FORESEEN + LATER_SOUNDS)
+
+
+def sound_output(place: int, sound: int) -> int:
+    """The output valuing, at `place` (1 the second sound, 2 the third), stopping (sound -1) or a sound 0..4."""
+    return MORE_SOUNDS + (place - 1) * SOUND_CHOICES + 1 + sound
+
+
+def later_sound(output: int) -> bool:
+    """Whether an output values a second or third sound (not stopping): a new brain holds back from them as from calling."""
+    return MORE_SOUNDS <= output < len(OUTPUTS) and (output - MORE_SOUNDS) % SOUND_CHOICES != 0
 
 
 def call_output(call: int) -> int:
@@ -127,6 +145,8 @@ SENSES = (
     "home_temperature", "heat_tolerance", "cold_tolerance",  # its climate genes: home 0 hot to 1 very cold, flags 0 or 1
     "swims", "walks", "flies",  # its terrain: whether it may go into the sea and onto the land, 0 or 1, and whether it flies
     "nocturnal",  # its activity gene: 1 nocturnal, 0 diurnal
+    # The call of the loudest it heard, sound by sound: for each place, first to third, 1 for the sound made there.
+    *(f"heard_{place}_{call}" for place in ("first", "second", "third") for call in range(1, CALL_COUNT + 1)),
     # Imagining: the action it pictures itself taking, a -1 or 1 for each bit of its number, or all 0 when it pictures
     # nothing. Only its foresight is taught with them set. As the C++ version's.
     "imagined_1", "imagined_2", "imagined_3", "imagined_4", "imagined_5", "imagined_6", "imagined_7",
@@ -134,6 +154,12 @@ SENSES = (
 INPUT_SIZE = len(SENSES)
 MEMORY_SENSE = SENSES.index("memory_1")  # the first sense of what the memory held
 IMAGINED_SENSE = SENSES.index("imagined_1")
+UTTERANCE_SENSE = SENSES.index("heard_first_1")
+
+
+def utterance_sense(place: int, sound: int) -> int:
+    """The sense of hearing `sound` (0..4) at `place` (0 first) of the loudest call heard."""
+    return UTTERANCE_SENSE + CALL_COUNT * place + sound
 IMAGINED_BITS = 7  # enough to number every action (65 since archery)
 # The senses as a brain reads them: each that runs 0..1 centred, read as -1..1, so that a lesson moves a neuron's weights
 # both ways (senses never below 0 push all its weights the same way, lesson after lesson, until the neuron jams at its
@@ -156,7 +182,8 @@ SPARSE_SENSES = frozenset((
     "student_near", "meat_carried", "fruit_carried", "meat_pile_closeness", "stone_carried", "wood_carried",
     "gear_pile_closeness", "fire_closeness", "fire_friendly", "wielding", "foe_sheltered", "shelter_here",
     "seed_carried", "road_here", "hide_worn", "envy", "fighting", "cooking_smell", "leader", "standout_leads", "standout_heard", "rank", "standout_rank",
-    "bow_carried", "archery"))
+    "bow_carried", "archery",
+    *(f"heard_{place}_{call}" for place in ("first", "second", "third") for call in range(1, CALL_COUNT + 1))))
 _READ_SCALE = np.array([1.0 if name in SIGNED_SENSES else 2.0 for name in SENSES])
 _READ_SHIFT = np.array([0.0 if name in SIGNED_SENSES or name in SPARSE_SENSES else -1.0 for name in SENSES])
 
@@ -398,6 +425,9 @@ class Brain:
         brain = cls(layers, [[rng.uniform(-spread, spread) for _ in range(width)] for _ in OUTPUTS],
                     [rng.uniform(-0.2, 0.2) - (HEADING_RELUCTANCE if output in HEADINGS else 0.0) for output in OUTPUTS])
         brain.output_biases[call_output(ALERT_CALL):MEMORY_GATES] -= CALL_RELUCTANCE
+        for output in range(MORE_SOUNDS, len(OUTPUTS)):
+            if later_sound(output):
+                brain.output_biases[output] -= CALL_RELUCTANCE  # and as much below stopping, each sound more
         brain.output_biases[MEMORY_GATES:MEMORY_VALUES] -= MEMORY_PERSISTENCE
         brain.scale_values()  # valuing as it would whole
         return brain
@@ -668,7 +698,7 @@ class Brain:
         brain = cls(
             matched,
             [output_weights[action_at[name]] if name in action_at else [0.0] * width for name in OUTPUTS],
-            [output_biases[action_at[name]] if name in action_at else 0.0 for name in OUTPUTS],
+            [output_biases[action_at[name]] if name in action_at else (-CALL_RELUCTANCE if later_sound(at) else 0.0) for at, name in enumerate(OUTPUTS)],
         )
         if not record.get("centred_senses"):  # exported before brains read their senses centred
             brain.centre_inputs()

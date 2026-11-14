@@ -4,7 +4,7 @@ Bitzkeys began as an arena of sorts.  It was a test to see who would be the last
 So, we started implementing rules... some of them are natural laws, and some of them are instinct.  The goal of these rules was to bring balance to the world.  The first such rules nerfed omnivores by buffing the food gathering of grazers and predators.
 The coming years brought numerous tweaks, balances and special case considerations.  What follows below, is a complete list of every rule and it's definition.  These are all configurable in the sim client.
 
-There are 469 rules in 13 sections. Each gives its default, the range it may be set within and the step it moves by. Rules declared together in the code, because they shape one behaviour, are listed as numbered subsections of the first of them; where such a rule sits in another section, the connection is noted beneath it.
+There are 471 rules in 13 sections. Each gives its default, the range it may be set within and the step it moves by. Rules declared together in the code, because they shape one behaviour, are listed as numbered subsections of the first of them; where such a rule sits in another section, the connection is noted beneath it.
 
 ## Contents
 
@@ -13,7 +13,7 @@ There are 469 rules in 13 sections. Each gives its default, the range it may be 
 3. [Breeding](#3-breeding) (33 rules)
 4. [Feelings](#4-feelings) (25 rules)
 5. [Society](#5-society) (30 rules)
-6. [Mind](#6-mind) (98 rules)
+6. [Mind](#6-mind) (100 rules)
 7. [Fighting](#7-fighting) (142 rules)
 8. [Territory](#8-territory) (11 rules)
 9. [Herding](#9-herding) (9 rules)
@@ -1332,125 +1332,137 @@ Default **16**; from 1 to 30, in steps of 1.
 
 #### 6.24.1 Call cost (`CALL_COST`)
 
-Hunger a call costs its caller, the alert among them.
+Hunger each sound of a call costs its caller, the alert among them.
 
 Default **0.05**; from 0 to 5, in steps of 0.05.
 
-### 6.25 Memory steps (`MEMORY_STEPS`)
+#### 6.24.2 Call length (`CALL_LENGTH`)
+
+The most sounds a call may run to, in order: 1 single sounds only, 3 pairs and threes too.
+
+Default **3**; from 1 to 3, in steps of 1.
+
+### 6.25 Call empathy (`CALL_EMPATHY`)
+
+How much a caller learns, by its empathy, from whether those of its kind who heard its call then fared better or worse than they expected, kin most; 0 for none.
+
+Default **1**; from 0 to 5, in steps of 0.1.
+
+### 6.26 Memory steps (`MEMORY_STEPS`)
 
 Choices back a lesson's error reaches the memory gates that wrote what the brain read; 0: memory is only as born.
 
 Default **1**; from 0 to 4, in steps of 1.
 
-#### 6.25.1 Memory learning (`MEMORY_LEARNING`)
+#### 6.26.1 Memory learning (`MEMORY_LEARNING`)
 
 How fast memory gates learn, times the brain's learning rate.
 
 Default **1**; from 0 to 5, in steps of 0.05.
 
-### 6.26 Map places (`MAP_PLACES`)
+### 6.27 Map places (`MAP_PLACES`)
 
 Places an animal's mental map holds, the one visited longest ago forgotten for a new one; 0: no map.
 
 Default **16**; from 0 to 32, in steps of 1.
 
-#### 6.26.1 Map learning (`MAP_LEARNING`)
+#### 6.27.1 Map learning (`MAP_LEARNING`)
 
 How far each visit moves what an animal remembers of a place in that season toward what it finds.
 
 Default **0.2**; from 0 to 1, in steps of 0.05.
 
-### 6.27 Acquaintances (`ACQUAINTANCES`)
+### 6.28 Acquaintances (`ACQUAINTANCES`)
 
 Others an animal remembers by what they did to it, the one it dealt with longest ago forgotten for a new one; 0: none.
 
 Default **8**; from 0 to 16, in steps of 1.
 
-#### 6.27.1 Regard learning (`REGARD_LEARNING`)
+#### 6.28.1 Regard learning (`REGARD_LEARNING`)
 
 How far each deed moves an animal's regard for the doer toward the deed's worth.
 
 Default **0.3**; from 0 to 1, in steps of 0.05.
 
-### 6.28 Inherited regard (`INHERITED_REGARD`)
+### 6.29 Inherited regard (`INHERITED_REGARD`)
 
 Share of how one holds a child's parents, regard and reputation, it holds the child at until it judges it by its own deeds.
 
 Default **0.5**; from 0 to 1, in steps of 0.05.
 
-### 6.29 Shared bond (`SHARED_BOND`)
+### 6.30 Shared bond (`SHARED_BOND`)
 
 How much shared moments, a fire enjoyed together or a herd-mate defended, move regard, as a share of a deed's weight; 0 for none.
 
 Default **0.2**; from 0 to 1, in steps of 0.05.
 
-### 6.30 Skill comfort (`SKILL_COMFORT`)
+### 6.31 Skill comfort (`SKILL_COMFORT`)
 
 Ease near one it holds skilled, more if curious; 0 for none.
 
 Default **0.5**; from 0 to 2, in steps of 0.05.
 
-#### 6.30.1 Watch learning (`WATCH_LEARNING`)
+#### 6.31.1 Watch learning (`WATCH_LEARNING`)
 
 Chance that a craft seen done by one of its kind it holds no foe is learnt from the watching, and share of a shot's lesson a hit seen with a bow teaches; 0 for none.
 
 Default **0.25**; from 0 to 1, in steps of 0.01.
 
-### 6.31 Tutor joy (`TUTOR_JOY`)
+### 6.32 Tutor joy (`TUTOR_JOY`)
 
 Joy of giving one of its kind a lesson in a craft or skill, the more for the empathetic.
 
 Default **0.5**; from 0 to 5, in steps of 0.05.
 
-#### 6.31.1 Tutored practice (`TUTOR_PRACTICE`)
+#### 6.32.1 Tutored practice (`TUTOR_PRACTICE`)
 
 Share of a try, or of a shot's lesson, that a lesson from a tutor is worth.
 
 Default **0.5**; from 0 to 1, in steps of 0.05.
 
-### 6.32 Child call learning (`CHILD_CALL_LEARNING`)
+### 6.33 Child call learning (`CHILD_CALL_LEARNING`)
 
 Share of its own learning a child that hears its parent call learns to make that call where the parent made it, and, hearing it, what the parent then did; 0 for none.
 
 Default **1**; from 0 to 2, in steps of 0.05.
 
-### 6.33 Body language (`BODY_LANGUAGE`)
+### 6.34 Body language (`BODY_LANGUAGE`)
 
 Chance, for each point of its intellect, that one who sees the caller of its kind it hears understands what it meant: it learns to make that call where the caller made it, and, hearing it, what the caller then did; 0 for none.
 
 Default **0.1**; from 0 to 0.2, in steps of 0.01.
 
-#### 6.33.1 Elder comfort (`ELDER_COMFORT`)
+#### 6.34.1 Elder comfort (`ELDER_COMFORT`)
 
 Gladness at staying near the elder who taught it, more if trusting; 0 for none.
 
 Default **0.5**; from 0 to 2, in steps of 0.05.
 
-#### 6.33.2 Elder reach (`ELDER_REACH`)
+#### 6.34.2 Elder reach (`ELDER_REACH`)
 
 Steps from the elder who taught it within which a student is glad of it.
 
 Default **3**; from 0 to 20, in steps of 1.
 
-#### 6.33.3 Follow safety (`FOLLOW_SAFETY`)
+#### 6.34.3 Follow safety (`FOLLOW_SAFETY`)
 
 Share of its dread spared, and felt as relief, with a friend or one it holds skilled close by; 0 for none.
 
 Default **0.5**; from 0 to 1, in steps of 0.05.
 
-#### 6.33.4 Follow reach (`FOLLOW_REACH`)
+#### 6.34.4 Follow reach (`FOLLOW_REACH`)
 
 Steps within which a friend or one it holds skilled eases its dread.
 
 Default **2**; from 0 to 20, in steps of 1.
 
-### 6.34 Diary entries (`DIARY_ENTRIES`)
+### 6.35 Diary entries (`DIARY_ENTRIES`)
 
 Most vivid experiences an animal keeps and re-learns from, one each turn, the faintest forgotten for a more vivid one; 0: none.
 
 Default **8**; from 0 to 32, in steps of 1.
 
-#### 6.34.1 Diary fading (`DIARY_FADING`)
+#### 6.35.1 Diary fading (`DIARY_FADING`)
 
 How much of a diary entry's vividness is left after each turn.
 

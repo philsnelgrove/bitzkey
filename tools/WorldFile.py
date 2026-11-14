@@ -45,7 +45,7 @@ import numpy as np
 
 from tools import Rules
 from tools import Simulation as world
-from tools.Brain import ACTIONS, INPUT_SIZE, MAX_WIDTH, OUTPUTS, SENSES, VALUE_SCALE, Brain
+from tools.Brain import ACTIONS, CALL_RELUCTANCE, INPUT_SIZE, MAX_WIDTH, OUTPUTS, SENSES, VALUE_SCALE, Brain, later_sound
 from tools.Genome import GENOME_VERSION, TEMPERAMENT, convert_v3
 from tools.Insights import DeathTally
 from tools.Simulation import GEAR_KINDS
@@ -165,6 +165,8 @@ class _Reader:
             for output, source in enumerate(output_from):
                 if source >= 0:
                     output_weights[output], output_biases[output] = saved_weights[source], saved_biases[source]
+                elif later_sound(output) and not sets:  # a brain from before calls ran on: none, till it learns
+                    output_biases[output] = -CALL_RELUCTANCE * (1.0 if self.unscaled else VALUE_SCALE)
             sets.append((layers, output_weights, output_biases))
         brain = Brain(*sets[0])
         if len(sets) > 1:
@@ -241,6 +243,11 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "call": agent.call, "call_turn": agent.call_turn, "heard_from": agent.heard_from, "heard_call": agent.heard_call, "heard_turn": agent.heard_turn, "heard_hunger": float(agent.heard_hunger), "heard_danger": agent.heard_danger, "struck_turn": agent.struck_turn, "last_call": agent.last_call,
         "held": [float(held) for held in agent.held], "last_wrote": bool(agent.last_wrote),
         "past": [numbers.senses(senses) for senses in agent.past],
+        "sounds": list(agent.sounds), "last_sounds": list(agent.last_sounds),
+        "chosen": [float(agent.chosen_value), agent.chosen_turn, agent.call_heeded],
+        **({"held_call": {"senses": numbers.senses(agent.call_senses), "target": float(agent.held_call_target),
+                          "outputs": [OUTPUTS[output] if output >= 0 else None for output in agent.call_outputs]}}
+           if agent.call_held and agent.call_senses is not None else {}),
         # each [column, row, last, then for each season: seen, food, danger, comfort]
         "places": [[place.column, place.row, place.last,
                     *(value for quarter in range(4) for value in (place.seen[quarter], float(place.food[quarter]),
@@ -346,6 +353,16 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
     agent.heard_danger = bool(record.get("heard_danger", False))
     agent.struck_turn = int(record.get("struck_turn", -1))
     agent.last_call = int(record.get("last_call", -1))
+    agent.sounds = [int(sound) for sound in record.get("sounds", [-1, -1])]  # one sound, before calls ran on
+    agent.last_sounds = [int(sound) for sound in record.get("last_sounds", [-1, -1])]
+    if "chosen" in record:
+        agent.chosen_value, agent.chosen_turn, agent.call_heeded = float(record["chosen"][0]), int(record["chosen"][1]), int(record["chosen"][2])
+    if "held_call" in record:  # its call's lesson, held till its listeners' turn is judged
+        held_call = record["held_call"]
+        agent.call_senses = numbers.senses(held_call["senses"])
+        agent.held_call_target = float(held_call["target"])
+        agent.call_outputs = [OUTPUTS.index(name) if name in OUTPUTS else -1 for name in held_call["outputs"]]
+        agent.call_held = True
     if "held" in record:  # blank, in a world saved before memory
         agent.held = [float(held) for held in record["held"]]
         agent.last_wrote = bool(record["last_wrote"])

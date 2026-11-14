@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 
 import tools.Brain as brain_rules  # its rules, as they now stand
-from tools.Brain import (ACTIONS, ALERT_CALL, CALLS, FIRST_CALL, FORESEEN, FORESIGHT, MEMORY_GATES, MEMORY_NEURONS, OUTPUTS, SENSES, SILENT, Brain, BrainBatch, call_output,
+from tools.Brain import (ACTIONS, ALERT_CALL, CALL_COUNT, CALLS, FIRST_CALL, MAX_SOUNDS, sound_output, FORESEEN, FORESIGHT, MEMORY_GATES, MEMORY_NEURONS, OUTPUTS, SENSES, SILENT, Brain, BrainBatch, call_output,
                          choice_odds, depth_for, gene_senses, imagined_call, imagining, make_senses, memory_after, width_for)
 from tools.Genome import (GENOME, SPECIES, TEMPERAMENT, TRAIT_MAX, body_word, color_from_word, colour_difference, cross, decode_nocturnal, dot_difference,
                           inherit_mind,
@@ -434,7 +434,12 @@ ALARM_REACH = 6        # an alarmed animal knows where the hunter is within this
 # Calls (Brain.py): one carries this many steps times a half and its caller's size (a share of its range), at least
 # one, and costs its caller this much hunger, as any call does, the alert among them.
 CALL_REACH = 16
-CALL_COST = 0.05
+CALL_COST = 0.05  # for each sound of a call: two sounds cost twice as much as one
+CALL_LENGTH = 3  # the most sounds a call may run to, 1 to 3 (Brain.py's MAX_SOUNDS)
+# What a caller feels of what its call did to those of its kind who heard it: whether their next turn went better or
+# worse than each expected, weighed by its care for each (kin wholly, a friend by its regard, any other a quarter), the
+# mean, times its empathy and this, added to what the call teaches it, a turn late. 0 for none. As the C++ version's.
+CALL_EMPATHY = 1.0
 # A call that helps pays its caller, as the C++ version's (see there): one of its kind that heard it and then got away
 # or, hungry, ate gives it joy (CALL_PAYOFF, three a turn at most) and thinks the better of it (HEEDED_REGARD).
 CALL_PAYOFF, HEEDED_REGARD = 0.0, 0.0  # none by default: what a call earns is left to what it does
@@ -1311,6 +1316,18 @@ class Bitzkey:
     answer_turn: int = -1
     struck_turn: int = -1  # the last turn it was struck
     last_call: int = -1  # its last choice of call, to learn from with its action; -1 for none of its own
+    sounds: list[int] = field(default_factory=lambda: [-1, -1])  # the sounds its call ran on to after the first (0..4), -1 where it stopped
+    last_sounds: list[int] = field(default_factory=lambda: [-1, -1])  # likewise of its last choice of call, to learn from
+    chosen_value: float = 0.0  # what its brain valued its last choice at, to judge how the turn went against it
+    chosen_turn: int = -1  # and the turn it chose it
+    call_heeded: int = -1  # the caller of its kind it heard as it last chose, whose call shares in how that went
+    # Its last call's lesson, held a turn for what it then did to those who heard it (Call empathy).
+    call_senses: list[float] | None = None
+    call_outputs: list[int] = field(default_factory=lambda: [-1, -1, -1])
+    held_call_target: float = 0.0
+    call_held: bool = False
+    call_credit: float = 0.0  # its listeners' surprise this turn, each weighed by its care for it
+    call_listeners: int = 0  # and how many they were
     held: list[float] = field(default_factory=lambda: [0.0] * MEMORY_NEURONS)  # what its memory neurons hold (Brain.py)
     # Its senses at the choices before its last, most recent first, back to the first its memory wasn't written at, and
     # no more than Memory steps: what learning back in time goes over. Whether its memory was written at its last choice.
@@ -3017,15 +3034,22 @@ class Simulation:
             loudness = 1 - away / (reach + 1)
             if loudness > loudest_of_all:
                 caller, loudest_of_all = other, loudness
-            if loudness <= loudest[other.call - FIRST_CALL]:
-                continue
-            loudest[other.call - FIRST_CALL] = loudness
-            name = f"heard_call_{other.call - FIRST_CALL + 1}"
-            east = (other.x - agent.x + self.width // 2) % self.width - self.width // 2
-            heard[name] = loudness
-            heard[f"{name}_east"] = max(-1.0, min(1.0, east / reach))
-            heard[f"{name}_south"] = max(-1.0, min(1.0, (other.y - agent.y) / reach))
-            heard[f"{name}_kin"] = float(other.species == agent.species)
+            for call in (other.call, *(FIRST_CALL + sound for sound in other.sounds if sound >= 0)):  # each sound, as if called alone
+                if loudness <= loudest[call - FIRST_CALL]:
+                    continue
+                loudest[call - FIRST_CALL] = loudness
+                name = f"heard_call_{call - FIRST_CALL + 1}"
+                east = (other.x - agent.x + self.width // 2) % self.width - self.width // 2
+                heard[name] = loudness
+                heard[f"{name}_east"] = max(-1.0, min(1.0, east / reach))
+                heard[f"{name}_south"] = max(-1.0, min(1.0, (other.y - agent.y) / reach))
+                heard[f"{name}_kin"] = float(other.species == agent.species)
+        if caller is not None:  # and the loudest call, sound by sound
+            heard[f"heard_first_{caller.call - FIRST_CALL + 1}"] = 1.0
+            for place, sound in zip(("second", "third"), caller.sounds):
+                if sound < 0:
+                    break
+                heard[f"heard_{place}_{sound + 1}"] = 1.0
         return heard, caller
 
     def _kin_caller(self, agent: Bitzkey) -> Bitzkey | None:
@@ -3817,8 +3841,10 @@ class Simulation:
                                   reward, limited_value(reward + self._discount(agent) * best_call))  # within the Value limit
                 if reward > 0:  # a lesson learnt from a choice that turned out well
                     self._experience(agent, "lesson")
+        self._credit_callers(plans, lessons)  # what each one's call did to those who heard it, before any learns
         for batch, members in batches:
-            self._learn_batch(batch, [(plans[index][0], *lessons[index]) if index in lessons else None for index in members])
+            self._learn_batch(batch, [(plans[index][0], *lessons[index]) if index in lessons else None for index in members],
+                              [plans[index][0] for index in members])
             for index, change in changes.items():
                 if index in members and FORESIGHT_LEARNING > 0:
                     self._foresee(plans[index][0], change)
@@ -3899,13 +3925,30 @@ class Simulation:
             agent.odds = {ACTIONS[option]: chance for option, chance in odds.items()}
             # And what it calls as it does it: by its brain alone, one asleep, spent or frozen with fear keeping silent.
             agent.call, agent.last_call = SILENT, -1
+            agent.sounds, agent.last_sounds = [-1, -1], [-1, -1]
+            if not idle[index]:  # what its brain made of what it chose, to judge the turn against
+                agent.chosen_value, agent.chosen_turn = valued[choice], self.turn
+                heeded = situation.get("heard_from")
+                agent.call_heeded = -1 if heeded is None else heeded.identifier
             if not idle[index] and not situation.get("frozen"):
                 for output, chance in choice_odds(calls_valued, [call_output(call) for call in situation["calls"]]).items():
                     call_roll -= chance
                     agent.call = output - len(ACTIONS)
                     if call_roll < 0:
                         break
-                agent.last_call = agent.call
+                # A sound may run on: at each place after the first, it stops or adds one of the five, by its brain alone.
+                for place in range(1, min(CALL_LENGTH, MAX_SOUNDS)) if agent.call >= FIRST_CALL else ():
+                    roll, picked = whim(agent.identifier * MAX_SOUNDS + place, self.turn), sound_output(place, -1)
+                    for output, chance in choice_odds(calls_valued, [sound_output(place, sound) for sound in range(-1, CALL_COUNT)]).items():
+                        roll -= chance
+                        picked = output
+                        if roll < 0:
+                            break
+                    sound = picked - sound_output(place, 0)
+                    if sound < 0:
+                        break  # it stopped
+                    agent.sounds[place - 1] = sound
+                agent.last_call, agent.last_sounds = agent.call, list(agent.sounds)
                 agent.call_turn = self.turn
             # What its memory now holds, written as it chose, unless its brain wasn't asked (asleep or spent, it keeps what
             # it held); and the senses it chose by before, while each choice since wrote its memory, to learn back in time.
@@ -4569,7 +4612,7 @@ class Simulation:
         parent = self.find_agent(child.heard_from)
         if parent is None or not parent.alive or parent.last_senses is None:
             return []
-        lessons = [(parent.last_senses, call_output(parent.last_call), call_target)] if parent.last_call >= FIRST_CALL else []
+        lessons = [(parent.last_senses, output, call_target) for output in self._utterance_outputs(parent) if output >= 0] if parent.last_call >= FIRST_CALL else []
         return lessons + [(child.last_senses, parent.last_choice, target)]
 
     def _body_language_lessons(self, listener: Bitzkey, target: float, call_target: float) -> list[tuple]:
@@ -4586,9 +4629,63 @@ class Simulation:
             return []  # heard, but not seen
         if whim(~listener.identifier, self.turn) >= BODY_LANGUAGE * listener.mind["intellect"]:
             return []  # seen, but not read
-        return [(caller.last_senses, call_output(caller.last_call), call_target), (listener.last_senses, caller.last_choice, target)]
+        return [*((caller.last_senses, output, call_target) for output in self._utterance_outputs(caller) if output >= 0),  # its whole call
+                (listener.last_senses, caller.last_choice, target)]
 
-    def _learn_batch(self, batch: BrainBatch, lessons: list[tuple | None]) -> None:
+    @staticmethod
+    def _utterance_outputs(agent: Bitzkey) -> list[int]:
+        """The outputs its last call is learnt by: its first sound's (or silence's, or the alert's), then where it went on to,
+        or stopped, at each later place offered; -1 for places it never reached. As the C++ version's."""
+        outputs = [-1, -1, -1]
+        if agent.last_call < 0:
+            return outputs
+        outputs[0] = call_output(agent.last_call)
+        if agent.last_call < FIRST_CALL:
+            return outputs
+        for place in range(1, min(CALL_LENGTH, MAX_SOUNDS)):  # each later place offered: a sound, or stopping
+            outputs[place] = sound_output(place, agent.last_sounds[place - 1])
+            if agent.last_sounds[place - 1] < 0:
+                break
+        return outputs
+
+    @staticmethod
+    def _sounds_made(agent: Bitzkey) -> int:
+        """How many sounds its current call has, 0 silent or alerting."""
+        return 0 if agent.call < FIRST_CALL else 1 + sum(sound >= 0 for sound in agent.sounds)
+
+    def _credit_callers(self, plans: list, lessons: dict[int, tuple]) -> None:
+        """How each one's turn went against what it expected of its choice, shared with the caller of its kind it heard as
+        it chose, by that caller's care for it: kin wholly, a friend by its regard, any other a quarter (see CALL_EMPATHY)."""
+        for plan in plans:
+            plan[0].call_credit, plan[0].call_listeners = 0.0, 0
+        if CALL_EMPATHY <= 0:
+            return
+        for index, lesson in lessons.items():
+            listener = plans[index][0]
+            if listener.call_heeded < 0 or listener.chosen_turn != self.turn - 1:
+                continue
+            caller = self.find_agent(listener.call_heeded)
+            if caller is None or not caller.alive or not caller.call_held or caller is listener:
+                continue
+            care = 1.0 if self._family(caller, listener) else max(0.25, self._regard_for(caller, listener))
+            caller.call_credit += care * (lesson[0] - listener.chosen_value)
+            caller.call_listeners += 1
+
+    def _settled_call(self, agent: Bitzkey) -> list[tuple]:
+        """Its held call lesson, with what it did to its listeners, as lessons of (senses, output, target, rate)."""
+        if not agent.call_held:
+            return []
+        agent.call_held = False
+        rate = self._learning_rate(agent)
+        if rate <= 0 or agent.call_senses is None:
+            return []
+        target = agent.held_call_target
+        if agent.call_listeners > 0:
+            target += CALL_EMPATHY * agent.feeling("empathy") * agent.call_credit / agent.call_listeners
+        target = limited_value(target)
+        return [(agent.call_senses, output, target, rate) for output in agent.call_outputs if output >= 0]
+
+    def _learn_batch(self, batch: BrainBatch, lessons: list[tuple | None], agents: list[Bitzkey] | None = None) -> None:
         """_learn, with replays, for every brain of a batch at once, each (agent, target, outcome, call target) or None
         for a brain with nothing to learn this turn; then the weights go back to the brains. Last, each learns from its
         call, if it chose one, as from an action untraced: what came of the turn, and the best call open now."""
@@ -4597,14 +4694,20 @@ class Simulation:
         actions, targets = np.zeros(size, dtype=int), np.zeros(size)
         rates, decays, taking = np.zeros(size), np.zeros(size), np.zeros(size, dtype=bool)
         replays: list[list[tuple]] = [[] for _ in range(size)]
-        calls: list[tuple | None] = [None] * size
+        # Its call of two turns ago, now its listeners' turn is judged, then its last call's, each sound alike.
+        calls: list[list[tuple]] = [self._settled_call(agent) for agent in agents] if agents is not None else [[] for _ in range(size)]
         for row, lesson in enumerate(lessons):
             if lesson is None:
                 continue
             agent, target, outcome, call_target = lesson
             rate = self._learning_rate(agent)
             if agent.last_call >= 0:
-                calls[row] = (agent.last_senses, call_output(agent.last_call), call_target, rate)
+                outputs = self._utterance_outputs(agent)
+                if CALL_EMPATHY > 0:  # feeling for its listeners, it holds the lesson a turn, till their turn is judged
+                    agent.call_senses, agent.call_outputs = agent.last_senses, outputs
+                    agent.held_call_target, agent.call_held = call_target, rate > 0
+                else:
+                    calls[row] += [(agent.last_senses, output, call_target, rate) for output in outputs if output >= 0]
             weight = lesson_weight(agent.last_choice, outcome)
             senses[row], actions[row], targets[row] = agent.last_senses, agent.last_choice, target
             rates[row] = rate * weight
@@ -4628,11 +4731,11 @@ class Simulation:
                 if turn < len(replayed):
                     senses[row], actions[row], targets[row], rates[row] = replayed[turn]
             batch.learn(senses, actions, targets, rates)
-        if any(call is not None for call in calls):
+        for turn in range(max(map(len, calls), default=0)):  # every brain's first call lesson, then its second, and so on
             senses, rates = np.zeros((size, len(SENSES))), np.zeros(size)
-            for row, call in enumerate(calls):
-                if call is not None:
-                    senses[row], actions[row], targets[row], rates[row] = call
+            for row, called in enumerate(calls):
+                if turn < len(called):
+                    senses[row], actions[row], targets[row], rates[row] = called[turn]
             batch.learn(senses, actions, targets, rates)
         taught = [self._parent_lessons(lesson[0], lesson[1], lesson[3]) if lesson is not None else [] for lesson in lessons]
         for turn in range(max(map(len, taught), default=0)):  # a child's lessons from its parent's call
@@ -4759,7 +4862,7 @@ class Simulation:
     def _act(self, agent: Bitzkey, action: str, situation: dict) -> None:
         """Call, act, remember where it fed, and tire (see ACTIVE_SHARE)."""
         if agent.call != SILENT and agent.call_turn == self.turn:  # its call, as it sets about its action
-            agent.hunger = min(100.0, agent.hunger + CALL_COST)
+            agent.hunger = min(100.0, agent.hunger + CALL_COST * max(1, self._sounds_made(agent)))  # each sound costs
             if agent.call == ALERT_CALL and situation["alert_to"] is not None:
                 self._alert(agent, situation["alert_to"])
         passed = len(agent.trail)
