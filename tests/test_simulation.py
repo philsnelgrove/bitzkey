@@ -3462,7 +3462,7 @@ class MemoryTests(unittest.TestCase):
         self.assertTrue(any(grazer.held))
         self.assertLessEqual(len(grazer.past), simulation_module.MEMORY_STEPS)
         sensed = dict(zip(SENSES, world._sense(grazer)[0]))
-        self.assertEqual([sensed[f"memory_{neuron}"] for neuron in range(1, 9)], grazer.held)
+        self.assertEqual([sensed[f"memory_{neuron}"] for neuron in range(1, simulation_module.MEMORY_NEURONS + 1)], grazer.held)
         again = world_from_bytes(world_bytes(world)).find_agent(grazer.identifier)
         self.assertEqual((again.held, again.past, again.last_wrote), (grazer.held, grazer.past, grazer.last_wrote))
 

@@ -28,7 +28,7 @@ CALL_COUNT = 5
 # the memory held with everything else it senses. They learn back in time (Brain.learn_memory): how a lesson's error
 # moves with what the memory held is carried back to the gates that wrote it, as many choices back as Memory steps. As
 # the C++ version's.
-MEMORY_NEURONS = 8
+MEMORY_NEURONS = 16  # 8 until 3.206 / 1.148
 MEMORY_GATES = len(ACTIONS) + len(CALLS)  # the first gate's output, then each neuron's in turn,
 MEMORY_VALUES = MEMORY_GATES + MEMORY_NEURONS  # then the first value to write, and each neuron's
 MAX_MEMORY_STEPS = 4  # the furthest back Memory steps may reach
@@ -127,7 +127,7 @@ SENSES = (
     # beside it, falling to 0 at the call's reach (the larger the caller, the further it carries); which way it lay, -1
     # to 1, west to east and north to south; and whether it was of its own species, 1 or 0. All 0 for one not heard.
     *(f"heard_call_{call}{part}" for call in range(1, 6) for part in ("", "_east", "_south", "_kin")),
-    *(f"memory_{neuron}" for neuron in range(1, 9)),  # what its memory neurons held, -1..1 (see Memory)
+    *(f"memory_{neuron}" for neuron in range(1, MEMORY_NEURONS + 1)),  # what its memory neurons held, -1..1 (see Memory)
     # Its mental map (see Simulation's MapPlace): of the places it remembers, for this season, how good the best for food
     # was, 0..1, and which way it lies, -1 to 1, west to east and north to south, the nearest first among equals; the
     # same of the most dangerous; and of where it was most comfortable in the season to come.
@@ -167,7 +167,7 @@ IMAGINED_BITS = 7  # enough to number every action (65 since archery)
 # version's read_sense.
 SIGNED_SENSES = frozenset(("latitude", "warmth", "warmth_north", "warmth_south", "home_direction", "parent_east", "parent_south",
                            *(f"heard_call_{call}_{way}" for call in range(1, 6) for way in ("east", "south")),
-                           *(f"memory_{neuron}" for neuron in range(1, 9)),
+                           *(f"memory_{neuron}" for neuron in range(1, MEMORY_NEURONS + 1)),
                            *(f"map_{kind}_{way}" for kind in ("food", "danger", "comfort") for way in ("east", "south")),
                            "known_regard", "known_east", "known_south", "caller_regard", "elder_east", "elder_south",
                            "own_land_east", "own_land_south", "war_standing", "standout_east", "standout_south", "land_owner_regard",
@@ -213,6 +213,16 @@ SMART_TRACE_DECAY = 0.95  # lambda at the highest intellect: the clever trace cr
 HEADING_RELUCTANCE = 0.5
 CALL_RELUCTANCE = 0.5  # and values each call this much below silence, so an untaught world isn't all calling at once
 MEMORY_PERSISTENCE = 1.4  # and its memory gates this far below their middle, a fifth open, so what it holds fades slowly
+
+
+def fresh_bias(output: int) -> float:
+    """What a new brain's bias holds an output at, whole: below stopping, a call's later sounds; a memory gate, a fifth
+    open; else nothing. An output a brain from an older version never had starts so. As the C++ version's."""
+    if later_sound(output):
+        return -CALL_RELUCTANCE
+    if MEMORY_GATES <= output < MEMORY_VALUES:
+        return -MEMORY_PERSISTENCE
+    return 0.0
 HEADINGS = ("go_north", "go_south", "go_east", "go_west", "walk_north", "walk_south", "walk_east", "walk_west")
 RECORD_DIGITS = 6  # decimal places kept when a brain is exported
 
@@ -698,7 +708,7 @@ class Brain:
         brain = cls(
             matched,
             [output_weights[action_at[name]] if name in action_at else [0.0] * width for name in OUTPUTS],
-            [output_biases[action_at[name]] if name in action_at else (-CALL_RELUCTANCE if later_sound(at) else 0.0) for at, name in enumerate(OUTPUTS)],
+            [output_biases[action_at[name]] if name in action_at else fresh_bias(at) for at, name in enumerate(OUTPUTS)],
         )
         if not record.get("centred_senses"):  # exported before brains read their senses centred
             brain.centre_inputs()

@@ -46,7 +46,7 @@ import numpy as np
 
 from tools import Rules
 from tools import Simulation as world
-from tools.Brain import ACTIONS, CALL_RELUCTANCE, INPUT_SIZE, MAX_WIDTH, OUTPUTS, SENSES, VALUE_SCALE, Brain, later_sound
+from tools.Brain import ACTIONS, INPUT_SIZE, MAX_WIDTH, MEMORY_NEURONS, OUTPUTS, SENSES, VALUE_SCALE, Brain, fresh_bias
 from tools.Genome import GENOME_VERSION, TEMPERAMENT, convert_v3
 from tools.Insights import DeathTally
 from tools.Simulation import GEAR_KINDS
@@ -166,8 +166,8 @@ class _Reader:
             for output, source in enumerate(output_from):
                 if source >= 0:
                     output_weights[output], output_biases[output] = saved_weights[source], saved_biases[source]
-                elif later_sound(output) and not sets:  # a brain from before calls ran on: none, till it learns
-                    output_biases[output] = -CALL_RELUCTANCE * (1.0 if self.unscaled else VALUE_SCALE)
+                elif not sets:  # an output it never had, as a new brain holds it
+                    output_biases[output] = fresh_bias(output) * (1.0 if self.unscaled else VALUE_SCALE)
             sets.append((layers, output_weights, output_biases))
         brain = Brain(*sets[0])
         if len(sets) > 1:
@@ -373,7 +373,8 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
         agent.call_outputs = [OUTPUTS.index(name) if name in OUTPUTS else -1 for name in held_call["outputs"]]
         agent.call_held = True
     if "held" in record:  # blank, in a world saved before memory
-        agent.held = [float(held) for held in record["held"]]
+        saved_held = [float(held) for held in record["held"]][:MEMORY_NEURONS]  # 8 in a world saved before 1.148
+        agent.held = saved_held + [0.0] * (MEMORY_NEURONS - len(saved_held))
         agent.last_wrote = bool(record["last_wrote"])
         agent.past = [numbers.senses(senses) for senses in record["past"]]
     agent.places = [world.MapPlace(int(entry[0]), int(entry[1]), int(entry[2]),  # none, in a world saved before the map

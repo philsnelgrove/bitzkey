@@ -444,6 +444,9 @@ CALL_EMPATHY = 1.0
 # far) when its call matches those it made where it sensed most alike (the HABIT_NEIGHBOURS nearest, by its own senses)
 # more than its calls at large. Which call goes with what is never given. It teaches the call alone. As the C++ version's.
 CALL_HABIT = 0.5
+# Silence, rarely chosen by a caller, would never learn its worth: each call also teaches it what keeping quiet would have
+# brought, at this share of the learning rate (the same turn, less the call's habit pleasure, without its hunger). 0 none.
+SILENCE_LESSON = 1.0
 CALL_HABITS = 12
 HABIT_NEIGHBOURS = 3
 # A call that helps pays its caller, as the C++ version's (see there): one of its kind that heard it and then got away
@@ -4682,6 +4685,15 @@ class Simulation:
         del agent.habits[:-CALL_HABITS]
 
     @staticmethod
+    def _silence_target(agent: Bitzkey, call_target: float) -> float | None:
+        """What keeping quiet would have brought, after a call (see SILENCE_LESSON). As the C++ version's."""
+        if SILENCE_LESSON <= 0 or agent.last_call < FIRST_CALL:
+            return None
+        sounds = 1 + sum(sound >= 0 for sound in agent.last_sounds)
+        cost = (0.5 + agent.feeling("appetite")) * CALL_COST * sounds / 100  # as hunger weighs in its wellbeing
+        return limited_value(call_target - CALL_HABIT * agent.habit_pull + cost)
+
+    @staticmethod
     def _sounds_made(agent: Bitzkey) -> int:
         """How many sounds its current call has, 0 silent or alerting."""
         return 0 if agent.call < FIRST_CALL else 1 + sum(sound >= 0 for sound in agent.sounds)
@@ -4741,6 +4753,9 @@ class Simulation:
                     agent.held_call_target, agent.call_held = call_target, rate > 0
                 else:
                     calls[row] += [(agent.last_senses, output, call_target, rate) for output in outputs if output >= 0]
+                quiet = self._silence_target(agent, call_target)
+                if quiet is not None:  # and what keeping quiet would have brought
+                    calls[row].append((agent.last_senses, call_output(SILENT), quiet, rate * SILENCE_LESSON))
             weight = lesson_weight(agent.last_choice, outcome)
             senses[row], actions[row], targets[row] = agent.last_senses, agent.last_choice, target
             rates[row] = rate * weight
