@@ -36,6 +36,7 @@ deaths in the JSON part; it still loads.
 
 from __future__ import annotations
 
+import base64
 import json
 import struct
 from collections.abc import Mapping
@@ -244,6 +245,8 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "held": [float(held) for held in agent.held], "last_wrote": bool(agent.last_wrote),
         "past": [numbers.senses(senses) for senses in agent.past],
         "sounds": list(agent.sounds), "last_sounds": list(agent.last_sounds),
+        **({"habits": [[base64.b64encode(habit_senses.tobytes()).decode("ascii"), *map(int, said)] for habit_senses, said in agent.habits],
+            "habit_pull": float(agent.habit_pull)} if agent.habits else {}),
         "chosen": [float(agent.chosen_value), agent.chosen_turn, agent.call_heeded],
         **({"held_call": {"senses": numbers.senses(agent.call_senses), "target": float(agent.held_call_target),
                           "outputs": [OUTPUTS[output] if output >= 0 else None for output in agent.call_outputs]}}
@@ -355,6 +358,12 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
     agent.last_call = int(record.get("last_call", -1))
     agent.sounds = [int(sound) for sound in record.get("sounds", [-1, -1])]  # one sound, before calls ran on
     agent.last_sounds = [int(sound) for sound in record.get("last_sounds", [-1, -1])]
+    if "habits" in record and numbers.sense_from is None:  # kept only while its senses are the same
+        for entry in record["habits"]:
+            habit_senses = np.frombuffer(base64.b64decode(entry[0]), dtype=np.int8).copy()
+            if habit_senses.size == INPUT_SIZE:
+                agent.habits.append((habit_senses, tuple(int(place) for place in entry[1:4])))
+        agent.habit_pull = float(record.get("habit_pull", 0.0))
     if "chosen" in record:
         agent.chosen_value, agent.chosen_turn, agent.call_heeded = float(record["chosen"][0]), int(record["chosen"][1]), int(record["chosen"][2])
     if "held_call" in record:  # its call's lesson, held till its listeners' turn is judged

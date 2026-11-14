@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 
 import tools.Brain as brain_rules  # its rules, as they now stand
-from tools.Brain import (ACTIONS, ALERT_CALL, CALL_COUNT, CALLS, FIRST_CALL, MAX_SOUNDS, sound_output, FORESEEN, FORESIGHT, MEMORY_GATES, MEMORY_NEURONS, OUTPUTS, SENSES, SILENT, Brain, BrainBatch, call_output,
+from tools.Brain import (read_senses, ACTIONS, ALERT_CALL, CALL_COUNT, CALLS, FIRST_CALL, MAX_SOUNDS, sound_output, FORESEEN, FORESIGHT, MEMORY_GATES, MEMORY_NEURONS, OUTPUTS, SENSES, SILENT, Brain, BrainBatch, call_output,
                          choice_odds, depth_for, gene_senses, imagined_call, imagining, make_senses, memory_after, width_for)
 from tools.Genome import (GENOME, SPECIES, TEMPERAMENT, TRAIT_MAX, body_word, color_from_word, colour_difference, cross, decode_nocturnal, dot_difference,
                           inherit_mind,
@@ -440,6 +440,12 @@ CALL_LENGTH = 3  # the most sounds a call may run to, 1 to 3 (Brain.py's MAX_SOU
 # worse than each expected, weighed by its care for each (kin wholly, a friend by its regard, any other a quarter), the
 # mean, times its empathy and this, added to what the call teaches it, a turn late. 0 for none. As the C++ version's.
 CALL_EMPATHY = 1.0
+# Habit: each animal remembers its last CALL_HABITS calls with what it sensed; calling, it is pleased (CALL_HABIT times how
+# far) when its call matches those it made where it sensed most alike (the HABIT_NEIGHBOURS nearest, by its own senses)
+# more than its calls at large. Which call goes with what is never given. It teaches the call alone. As the C++ version's.
+CALL_HABIT = 0.5
+CALL_HABITS = 12
+HABIT_NEIGHBOURS = 3
 # A call that helps pays its caller, as the C++ version's (see there): one of its kind that heard it and then got away
 # or, hungry, ate gives it joy (CALL_PAYOFF, three a turn at most) and thinks the better of it (HEEDED_REGARD).
 CALL_PAYOFF, HEEDED_REGARD = 0.0, 0.0  # none by default: what a call earns is left to what it does
@@ -1326,6 +1332,8 @@ class Bitzkey:
     call_outputs: list[int] = field(default_factory=lambda: [-1, -1, -1])
     held_call_target: float = 0.0
     call_held: bool = False
+    habits: list[tuple] = field(default_factory=list)  # its last calls (see CALL_HABIT): (senses a byte each, the call by sounds)
+    habit_pull: float = 0.0  # how well its last call kept to its habits, beyond chance, -1..1
     call_credit: float = 0.0  # its listeners' surprise this turn, each weighed by its care for it
     call_listeners: int = 0  # and how many they were
     held: list[float] = field(default_factory=lambda: [0.0] * MEMORY_NEURONS)  # what its memory neurons hold (Brain.py)
@@ -3838,7 +3846,7 @@ class Simulation:
                     reward += SURPRISE_JOY * (0.5 + agent.feeling("curiosity")) * agent.surprise
                 best_call = max(valued[call_output(call)] for call in (SILENT, *plans[index][3]["calls"]))
                 lessons[index] = (limited_value(reward + self._discount(agent) * max(valued[option] for option in options)),
-                                  reward, limited_value(reward + self._discount(agent) * best_call))  # within the Value limit
+                                  reward, limited_value(reward + self._discount(agent) * best_call + CALL_HABIT * agent.habit_pull))  # within the Value limit
                 if reward > 0:  # a lesson learnt from a choice that turned out well
                     self._experience(agent, "lesson")
         self._credit_callers(plans, lessons)  # what each one's call did to those who heard it, before any learns
@@ -3950,6 +3958,7 @@ class Simulation:
                     agent.sounds[place - 1] = sound
                 agent.last_call, agent.last_sounds = agent.call, list(agent.sounds)
                 agent.call_turn = self.turn
+            self._keep_habit(agent, senses)  # how its call kept to its habits, and the call remembered
             # What its memory now holds, written as it chose, unless its brain wasn't asked (asleep or spent, it keeps what
             # it held); and the senses it chose by before, while each choice since wrote its memory, to learn back in time.
             if agent.last_senses is not None and agent.last_wrote and MEMORY_STEPS > 0:
@@ -4647,6 +4656,30 @@ class Simulation:
             if agent.last_sounds[place - 1] < 0:
                 break
         return outputs
+
+    @staticmethod
+    def _keep_habit(agent: Bitzkey, senses) -> None:
+        """Weighs its call against its habits (see CALL_HABIT), then remembers it. As the C++ version's."""
+        agent.habit_pull = 0.0
+        if agent.call < FIRST_CALL:
+            return
+        scaled = read_senses(np.asarray(senses, dtype=float)) * 60.0
+        now = np.clip(np.where(scaled >= 0, np.floor(scaled + 0.5), np.ceil(scaled - 0.5)), -127, 127).astype(np.int8)
+        said = (agent.call - FIRST_CALL, agent.sounds[0], agent.sounds[1])
+        if CALL_HABIT > 0 and len(agent.habits) >= HABIT_NEIGHBOURS:
+            mine = math.sqrt(float(np.dot(now.astype(np.int64), now.astype(np.int64))))
+            alike, at_large = [], 0.0
+            for habit_senses, habit_said in agent.habits:
+                theirs = math.sqrt(float(np.dot(habit_senses.astype(np.int64), habit_senses.astype(np.int64))))
+                dot = float(np.dot(now.astype(np.int64), habit_senses.astype(np.int64)))
+                match = sum(a == b for a, b in zip(said, habit_said)) / MAX_SOUNDS
+                alike.append((dot / (mine * theirs) if mine > 0 and theirs > 0 else 0.0, match))
+                at_large += match
+            at_large /= len(alike)
+            alike.sort(key=lambda pair: -pair[0])  # stable, as the C++ version's
+            agent.habit_pull = sum(match for _, match in alike[:HABIT_NEIGHBOURS]) / HABIT_NEIGHBOURS - at_large
+        agent.habits.append((now, said))
+        del agent.habits[:-CALL_HABITS]
 
     @staticmethod
     def _sounds_made(agent: Bitzkey) -> int:

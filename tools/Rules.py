@@ -343,6 +343,8 @@ _TABLE: dict[str, list[tuple]] = {
          1, 30, 1),
         ("CALL_COST", "Call cost", "hunger each sound of a call costs its caller, the alert among them", 0.0, 5.0, 0.05),
         ("CALL_LENGTH", "Call length", "the most sounds a call may run to, in order: 1 single sounds only, 3 pairs and threes too", 1, 3, 1),
+        ("CALL_HABIT", "Call habit", "pleasure of a call that matches those it made where it sensed most alike, more than its calls at large; which call goes with what is its own; 0 for none",
+         0.0, 2.0, 0.1),
         ("CALL_EMPATHY", "Call empathy", "how much a caller learns, by its empathy, from whether those of its kind who heard its call then fared better or worse than they expected, kin most; 0 for none",
          0.0, 5.0, 0.1),
         ("MEMORY_STEPS", "Memory steps", "choices back a lesson's error reaches the memory gates that wrote what the brain read; 0: memory is only as born",
