@@ -4238,6 +4238,7 @@ class MaterialTests(unittest.TestCase):
         self.assertEqual(rambler.road_known, 0.0)
         walker.road_known, walker.weapon = 1.0, 3  # one who knows roads longs to lay them, whatever its curiosity
         walker.mind["curiosity"] = 0.0
+        walker.carried_stone = simulation_module.ROAD_STONES  # what a road needs, carried
         walker.x, walker.y = 9, 9
         walker.reward = 0.0
         simulation._build_road(walker)

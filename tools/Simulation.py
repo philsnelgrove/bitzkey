@@ -4971,9 +4971,12 @@ class Simulation:
             self._take_material(agent, situation[action[5:] + "_pile"], action[5:])
         elif action in ("drop_stone", "drop_bone", "drop_wood"):
             material = action[5:]
-            setattr(agent, "carried_" + material, getattr(agent, "carried_" + material) - 1)
-            self._add_to_pile(getattr(self, material + "_piles"), (agent.x, agent.y), 1)
-            agent.last_action = "dropped " + material
+            if getattr(agent, "carried_" + material) <= 0:  # a friend crafting beside it used it since it chose
+                agent.last_action = "had nothing to drop"
+            else:
+                setattr(agent, "carried_" + material, getattr(agent, "carried_" + material) - 1)
+                self._add_to_pile(getattr(self, material + "_piles"), (agent.x, agent.y), 1)
+                agent.last_action = "dropped " + material
         elif action == "dress":
             self._dress(agent, situation["dressable"])
         elif action in CRAFTS:
@@ -5749,9 +5752,12 @@ class Simulation:
 
     def _construct(self, agent: Bitzkey) -> None:
         """A unit of what it carries, stone first, into the shelter on its square."""
+        if agent.carried_stone <= 0 and agent.carried_wood <= 0:  # a friend crafting beside it used them since it chose
+            agent.last_action = "had nothing to build with"
+            return
         self._deed_seen(agent, 0.0, None, "culture", culture="craft")
         cell = (agent.x, agent.y)
-        if agent.carried_stone:
+        if agent.carried_stone > 0:
             agent.carried_stone -= 1
             self.site_stone[cell] = self.site_stone.get(cell, 0) + 1
         else:
@@ -5817,6 +5823,9 @@ class Simulation:
 
     def _build_road(self, agent: Bitzkey) -> None:
         """A turn's work on the road on its square."""
+        if agent.carried_stone < ROAD_STONES:  # a friend crafting beside it used them since it chose
+            agent.last_action = "had nothing to build with"
+            return
         cell = (agent.x, agent.y)
         self._wear_weapon(agent)
         self._deed_seen(agent, 0.0, None, "culture", culture="craft")
@@ -5884,6 +5893,9 @@ class Simulation:
         self._deed_seen(agent, FIRE_DEED, None, "skill")
 
     def _feed_fire(self, agent: Bitzkey, fire: tuple[int, int]) -> None:
+        if agent.carried_wood <= 0:  # a friend crafting beside it used it since it chose
+            agent.last_action = "had nothing to feed the fire with"
+            return
         agent.carried_wood -= 1
         until, lighter = self.fires[fire]
         self.fires[fire] = (until + FIRE_TURNS, lighter)
