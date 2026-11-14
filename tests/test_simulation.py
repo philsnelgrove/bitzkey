@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 import tools.Simulation as simulation_module
 
-from tools.Brain import ACTIONS, ALERT_CALL, SENSES, Brain
+from tools.Brain import sound_output, ACTIONS, ALERT_CALL, SENSES, Brain
 from tools.Exchange import Imported
 from tools.Genome import NOCTURNAL, decode_body, encode_dna
 from tools.Simulation import (Death, DAY_LENGTH, FULL_STAMINA, SPAWN_SPREAD, DEATH_PENALTY, PARENT_GRIEF, PARENT_JOY, BREED_COOLDOWN, PREGNANT_REMORSE, ATTACK_JOY, FEAST_JOY, FRESH_KILL_MEALS, KILL_MEAL, KILL_MEAL_FOR_SIZE, BIRTH_REACH, PLANT_GESTATION, Bitzkey, gestation, CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, PLANT_MEAL, PLANT_MEAL_FOR_SIZE, SEED_OFFSETS,
@@ -4097,6 +4097,7 @@ class MaterialTests(unittest.TestCase):
             child.heard_from = parent.identifier
             self.assertEqual(simulation._parent_lessons(child, 5.0, 4.0),
                              [(parent.last_senses, simulation_module.call_output(simulation_module.FIRST_CALL + 2), 4.0),
+                              (parent.last_senses, sound_output(1, -1), 4.0),  # its whole call: one sound, then stopping
                               (child.last_senses, 0, 5.0)])
 
     def test_a_sharer_brings_its_food_to_the_store_nearest_its_herds_middle_glad_as_it_is_generous(self):
@@ -4397,7 +4398,7 @@ class MaterialTests(unittest.TestCase):
             listener.x = 12
             lessons = simulation._body_language_lessons(listener, 1.0, 5.0)
         self.assertEqual([(action, target) for _, action, target in lessons],
-                         [(simulation_module.call_output(simulation_module.FIRST_CALL), 5.0), (ACTIONS.index("hunt"), 1.0)])
+                         [(simulation_module.call_output(simulation_module.FIRST_CALL), 5.0), (sound_output(1, -1), 5.0), (ACTIONS.index("hunt"), 1.0)])
 
     def test_a_whole_fruit_may_be_planted_and_feeds_the_ground_as_if_fertilized(self):
         simulation = Simulation(30, 30, 0, seed=1)

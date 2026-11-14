@@ -214,8 +214,8 @@ class BrainTests(unittest.TestCase):
         # share; with one, it shares the blame.
         self.assertLess(changes[1], changes[0] - 0.1)
 
-    def test_there_are_213_senses(self):
-        self.assertEqual(INPUT_SIZE, 213)
+    def test_there_are_228_senses(self):
+        self.assertEqual(INPUT_SIZE, 228)
 
     def test_a_childs_brain_is_made_exactly_as_the_cpp_version_makes_it_from_the_same_seed(self):
         rng = random.Random(7)
