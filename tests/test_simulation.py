@@ -4100,6 +4100,31 @@ class MaterialTests(unittest.TestCase):
                               (parent.last_senses, sound_output(1, -1), 4.0),  # its whole call: one sound, then stopping
                               (child.last_senses, 0, 5.0)])
 
+    def test_by_the_call_baseline_a_call_learns_its_own_part_and_a_copier_takes_the_callers(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        caller = simulation._add_agent(encode_dna("grazer"), 5, 5)
+        learner = simulation._add_agent(encode_dna("grazer"), 6, 5)
+        one = (0.5 + caller.feeling("appetite")) * simulation_module.CALL_COST / 100
+        caller.last_call = simulation_module.ALERT_CALL
+        self.assertAlmostEqual(Simulation._call_cost(caller), one)  # the alert is one sound
+        caller.last_call, caller.last_sounds = simulation_module.FIRST_CALL + 2, [1, 4]
+        self.assertAlmostEqual(Simulation._call_cost(caller), 3 * one)
+        caller.last_call = simulation_module.SILENT
+        self.assertEqual(Simulation._call_cost(caller), 0.0)
+        caller.call_part, learner.call_part = 0.4, -0.1
+        with patch.object(simulation_module, "CALL_BASELINE", 1.0):
+            self.assertAlmostEqual(Simulation._copied_call_target(learner, caller, -0.1), 0.4)  # as the caller valued it
+        with patch.object(simulation_module, "CALL_BASELINE", 0.0):
+            self.assertAlmostEqual(Simulation._copied_call_target(learner, caller, 30.0), 30.0)  # the learner's own turn
+        caller.last_call, caller.last_sounds, caller.habit_pull, caller.call_whole = simulation_module.FIRST_CALL + 1, [3, -1], 0.2, 3.0
+        cost = (0.5 + caller.feeling("appetite")) * simulation_module.CALL_COST * 2 / 100
+        with patch.object(simulation_module, "CALL_BASELINE", 0.0):
+            self.assertAlmostEqual(Simulation._silence_target(caller, 3.0), 3.0 - simulation_module.CALL_HABIT * 0.2 + cost)
+        with patch.object(simulation_module, "CALL_BASELINE", 1.0):
+            self.assertAlmostEqual(Simulation._silence_target(caller, 3.0), 0.0)  # silence's own part is nothing
+        from tools.Brain import choice_odds
+        self.assertAlmostEqual(choice_odds([0.0, 0.2], [0, 1], 0.1)[1], 1 / (1 + math.exp(-2.0)))  # calls' own temperature
+
     def test_a_sharer_brings_its_food_to_the_store_nearest_its_herds_middle_glad_as_it_is_generous(self):
         simulation = Simulation(30, 30, 0, seed=1)
         sharer = simulation._add_agent(encode_dna("omnivore", size=3), 5, 5)

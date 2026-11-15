@@ -248,6 +248,8 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         **({"habits": [[base64.b64encode(habit_senses.tobytes()).decode("ascii"), *map(int, said)] for habit_senses, said in agent.habits],
             "habit_pull": float(agent.habit_pull)} if agent.habits else {}),
         "chosen": [float(agent.chosen_value), agent.chosen_turn, agent.call_heeded],
+        **({"call_pleasure": float(agent.call_pleasure)} if agent.call_pleasure != 0 else {}),
+        **({"call_values": [float(agent.call_whole), float(agent.call_part)]} if agent.call_whole != 0 or agent.call_part != 0 else {}),
         **({"held_call": {"senses": numbers.senses(agent.call_senses), "target": float(agent.held_call_target),
                           "outputs": [OUTPUTS[output] if output >= 0 else None for output in agent.call_outputs]}}
            if agent.call_held and agent.call_senses is not None else {}),
@@ -364,6 +366,9 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
             if habit_senses.size == INPUT_SIZE:
                 agent.habits.append((habit_senses, tuple(int(place) for place in entry[1:4])))
         agent.habit_pull = float(record.get("habit_pull", 0.0))
+    agent.call_pleasure = float(record.get("call_pleasure", 0.0))
+    if "call_values" in record:  # what its last call was taught, whole and its own part (see CALL_BASELINE)
+        agent.call_whole, agent.call_part = float(record["call_values"][0]), float(record["call_values"][1])
     if "chosen" in record:
         agent.chosen_value, agent.chosen_turn, agent.call_heeded = float(record["chosen"][0]), int(record["chosen"][1]), int(record["chosen"][2])
     if "held_call" in record:  # its call's lesson, held till its listeners' turn is judged

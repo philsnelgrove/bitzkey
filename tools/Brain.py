@@ -286,10 +286,11 @@ def memory_after(values: Sequence[float], held: Sequence[float]) -> list[float]:
     return now
 
 
-def choice_odds(values: Sequence[float], options: Sequence[int]) -> dict[int, float]:
-    """Softmax over the available actions' values."""
+def choice_odds(values: Sequence[float], options: Sequence[int], temperature: float | None = None) -> dict[int, float]:
+    """Softmax over the available actions' values, at the choice temperature unless another is given."""
+    temperature = TEMPERATURE if temperature is None else temperature
     best = max(values[option] for option in options)
-    weights = {option: math.exp((values[option] - best) / TEMPERATURE) for option in options}
+    weights = {option: math.exp((values[option] - best) / temperature) for option in options}
     total = sum(weights.values())
     return {option: weight / total for option, weight in weights.items()}
 

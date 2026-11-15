@@ -447,6 +447,11 @@ CALL_HABIT = 0.5
 # Silence, rarely chosen by a caller, would never learn its worth: each call also teaches it what keeping quiet would have
 # brought, at this share of the learning rate (the same turn, less the call's habit pleasure, without its hunger). 0 none.
 SILENCE_LESSON = 1.0
+# Baseline: what a call (or silence) is taught, as the C++ version's (see there): at 0 the whole turn, as any choice; at 1
+# only the call's own part beyond keeping quiet (its pleasures, habit and empathy, less its cost; silence's nothing).
+CALL_BASELINE = 1.0
+# How loosely a brain picks among silence and calls, and each later sound.
+CALL_TEMPERATURE = 0.1
 CALL_HABITS = 12
 HABIT_NEIGHBOURS = 3
 # A call that helps pays its caller, as the C++ version's (see there): one of its kind that heard it and then got away
@@ -1337,6 +1342,9 @@ class Bitzkey:
     call_held: bool = False
     habits: list[tuple] = field(default_factory=list)  # its last calls (see CALL_HABIT): (senses a byte each, the call by sounds)
     habit_pull: float = 0.0  # how well its last call kept to its habits, beyond chance, -1..1
+    call_pleasure: float = 0.0  # the pleasures of its call since it last chose (an alert heeded, being understood)
+    call_whole: float = 0.0  # what its call would be taught as the whole turn (worked out as it learns)
+    call_part: float = 0.0  # and its call's own part beyond silence (see CALL_BASELINE), which those copying it take
     call_credit: float = 0.0  # its listeners' surprise this turn, each weighed by its care for it
     call_listeners: int = 0  # and how many they were
     held: list[float] = field(default_factory=lambda: [0.0] * MEMORY_NEURONS)  # what its memory neurons hold (Brain.py)
@@ -3848,8 +3856,13 @@ class Simulation:
                     agent.surprise = sum(abs(change - max(-1.0, min(1.0, foreseen))) for change, foreseen in zip(changes[index], agent.expected)) / len(FORESEEN)
                     reward += SURPRISE_JOY * (0.5 + agent.feeling("curiosity")) * agent.surprise
                 best_call = max(valued[call_output(call)] for call in (SILENT, *plans[index][3]["calls"]))
+                # What its call is taught: the whole turn, or by the Call baseline only the call's own part.
+                agent.call_whole = reward + self._discount(agent) * best_call + CALL_HABIT * agent.habit_pull
+                agent.call_part = agent.call_pleasure + CALL_HABIT * agent.habit_pull - self._call_cost(agent)
+                call_target = (limited_value(agent.call_whole) if CALL_BASELINE <= 0 else
+                               limited_value((1 - CALL_BASELINE) * agent.call_whole + CALL_BASELINE * agent.call_part))
                 lessons[index] = (limited_value(reward + self._discount(agent) * max(valued[option] for option in options)),
-                                  reward, limited_value(reward + self._discount(agent) * best_call + CALL_HABIT * agent.habit_pull))  # within the Value limit
+                                  reward, call_target)  # within the Value limit
                 if reward > 0:  # a lesson learnt from a choice that turned out well
                     self._experience(agent, "lesson")
         self._credit_callers(plans, lessons)  # what each one's call did to those who heard it, before any learns
@@ -3942,7 +3955,7 @@ class Simulation:
                 heeded = situation.get("heard_from")
                 agent.call_heeded = -1 if heeded is None else heeded.identifier
             if not idle[index] and not situation.get("frozen"):
-                for output, chance in choice_odds(calls_valued, [call_output(call) for call in situation["calls"]]).items():
+                for output, chance in choice_odds(calls_valued, [call_output(call) for call in situation["calls"]], CALL_TEMPERATURE).items():
                     call_roll -= chance
                     agent.call = output - len(ACTIONS)
                     if call_roll < 0:
@@ -3950,7 +3963,7 @@ class Simulation:
                 # A sound may run on: at each place after the first, it stops or adds one of the five, by its brain alone.
                 for place in range(1, min(CALL_LENGTH, MAX_SOUNDS)) if agent.call >= FIRST_CALL else ():
                     roll, picked = whim(agent.identifier * MAX_SOUNDS + place, self.turn), sound_output(place, -1)
-                    for output, chance in choice_odds(calls_valued, [sound_output(place, sound) for sound in range(-1, CALL_COUNT)]).items():
+                    for output, chance in choice_odds(calls_valued, [sound_output(place, sound) for sound in range(-1, CALL_COUNT)], CALL_TEMPERATURE).items():
                         roll -= chance
                         picked = output
                         if roll < 0:
@@ -3979,6 +3992,7 @@ class Simulation:
             agent.last_wellbeing = self._wellbeing(agent)
             agent.last_comfort = comfort
             agent.reward = -BOREDOM_UNEASE * agent.boredom
+            agent.call_pleasure = 0.0
             agent.assailant = None  # the chance to strike back, or need to flee, passes with this turn's choice
             agent.panicked = False
             agent.alarm = agent.herd_assailant = agent.kill_alert = None
@@ -4624,7 +4638,8 @@ class Simulation:
         parent = self.find_agent(child.heard_from)
         if parent is None or not parent.alive or parent.last_senses is None:
             return []
-        lessons = [(parent.last_senses, output, call_target) for output in self._utterance_outputs(parent) if output >= 0] if parent.last_call >= FIRST_CALL else []
+        copied = self._copied_call_target(child, parent, call_target)
+        lessons = [(parent.last_senses, output, copied) for output in self._utterance_outputs(parent) if output >= 0] if parent.last_call >= FIRST_CALL else []
         return lessons + [(child.last_senses, parent.last_choice, target)]
 
     def _body_language_lessons(self, listener: Bitzkey, target: float, call_target: float) -> list[tuple]:
@@ -4641,7 +4656,8 @@ class Simulation:
             return []  # heard, but not seen
         if whim(~listener.identifier, self.turn) >= BODY_LANGUAGE * listener.mind["intellect"]:
             return []  # seen, but not read
-        return [*((caller.last_senses, output, call_target) for output in self._utterance_outputs(caller) if output >= 0),  # its whole call
+        copied = self._copied_call_target(listener, caller, call_target)
+        return [*((caller.last_senses, output, copied) for output in self._utterance_outputs(caller) if output >= 0),  # its whole call
                 (listener.last_senses, caller.last_choice, target)]
 
     @staticmethod
@@ -4689,9 +4705,22 @@ class Simulation:
         """What keeping quiet would have brought, after a call (see SILENCE_LESSON). As the C++ version's."""
         if SILENCE_LESSON <= 0 or agent.last_call < FIRST_CALL:
             return None
-        sounds = 1 + sum(sound >= 0 for sound in agent.last_sounds)
-        cost = (0.5 + agent.feeling("appetite")) * CALL_COST * sounds / 100  # as hunger weighs in its wellbeing
-        return limited_value(call_target - CALL_HABIT * agent.habit_pull + cost)
+        # The whole turn without the call's habit and cost; by the Call baseline, silence's own part, nothing.
+        whole = limited_value(agent.call_whole) - CALL_HABIT * agent.habit_pull + Simulation._call_cost(agent)
+        return limited_value((1 - CALL_BASELINE) * whole)
+
+    @staticmethod
+    def _call_cost(agent: Bitzkey) -> float:
+        """The hunger its last call's sounds cost (the alert one), as hunger weighs in its wellbeing. As the C++ version's."""
+        sounds = 1 if agent.last_call >= ALERT_CALL else 0
+        if agent.last_call >= FIRST_CALL:
+            sounds += sum(sound >= 0 for sound in agent.last_sounds)
+        return (0.5 + agent.feeling("appetite")) * CALL_COST * sounds / 100
+
+    @staticmethod
+    def _copied_call_target(learner: Bitzkey, caller: Bitzkey, call_target: float) -> float:
+        """A call copied from another, valued as that one valued it, by the Call baseline. As the C++ version's."""
+        return limited_value(call_target + CALL_BASELINE * (caller.call_part - learner.call_part))
 
     @staticmethod
     def _sounds_made(agent: Bitzkey) -> int:
@@ -5448,6 +5477,7 @@ class Simulation:
                     other.kill_alert = (about.x, about.y)
         if heeded:  # a pleasure only when a herd-mate took it in
             agent.reward += ALERT_JOY
+            agent.call_pleasure += ALERT_JOY  # its call's own
 
     def _scavenge(self, agent: Bitzkey, corpse: Bitzkey) -> None:
         """Go to the carrion and, once alongside, eat a portion, its share of the meat left; a
@@ -6216,6 +6246,7 @@ class Simulation:
             return
         listener.reward += COMMUNICATION_JOY * mine
         caller.reward += COMMUNICATION_JOY * theirs
+        caller.call_pleasure += COMMUNICATION_JOY * theirs  # its call's own
 
     @staticmethod
     def _donned(agent: Bitzkey, had_weapon: bool, had_armour: bool) -> None:
