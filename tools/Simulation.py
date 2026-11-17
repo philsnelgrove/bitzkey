@@ -20,6 +20,7 @@ import numpy as np
 
 import tools.Brain as brain_rules  # its rules, as they now stand
 from tools.Brain import (read_senses, ACTIONS, ALERT_CALL, CALL_COUNT, CALLS, FIRST_CALL, MAX_SOUNDS, sound_output, FORESEEN, FORESIGHT, MEMORY_GATES, MEMORY_NEURONS, OUTPUTS, SENSES, SILENT, Brain, BrainBatch, call_output,
+                         OUTSIDE, OUTSIDE_FORESEEN, OUTSIDE_SENSES, utterance_sense,
                          choice_odds, depth_for, gene_senses, imagined_call, imagining, make_senses, memory_after, width_for)
 from tools.Genome import (GENOME, SPECIES, TEMPERAMENT, TRAIT_MAX, body_word, color_from_word, colour_difference, cross, decode_nocturnal, dot_difference,
                           inherit_mind,
@@ -452,6 +453,19 @@ SILENCE_LESSON = 1.0
 CALL_BASELINE = 1.0
 # How loosely a brain picks among silence and calls, and each later sound.
 CALL_TEMPERATURE = 0.1
+# Foresight of the outside: each turn a brain learns, of one of the hunter, prey and meat in turn, how near it now senses
+# it, from what it sensed the turn before (picturing nothing), at this times its foresight's learning rate. No reward is
+# in it. 0 for none. As the C++ version's.
+OUTSIDE_FORESIGHT = 10.0
+# Speak as heard: each call also teaches its caller how much nearer its own foresight of the outside, hearing that call as
+# one who heard it would (not seeing what it saw), comes to what it saw than on the mean of hearing nothing or any one
+# sound, times this. Which call means what is left to them. 0 for none. As the C++ version's.
+SPEAK_AS_HEARD = 5.0
+# The alert: 1, a grazer seeing a hunter, or a hunter a fresh kill, may alert its herd to it; 0, only the five calls.
+ALERTS = 1
+# Copying a call: 1, a child or a reader of body language learns to make the call where it was itself, by its own senses;
+# 0, where the caller was, by the caller's senses.
+COPY_OWN_SENSES = 1
 CALL_HABITS = 12
 HABIT_NEIGHBOURS = 3
 # A call that helps pays its caller, as the C++ version's (see there): one of its kind that heard it and then got away
@@ -1345,6 +1359,7 @@ class Bitzkey:
     call_pleasure: float = 0.0  # the pleasures of its call since it last chose (an alert heeded, being understood)
     call_whole: float = 0.0  # what its call would be taught as the whole turn (worked out as it learns)
     call_part: float = 0.0  # and its call's own part beyond silence (see CALL_BASELINE), which those copying it take
+    call_understood: float = 0.0  # how far its own foresight, hearing its last call, came nearer what it saw (SPEAK_AS_HEARD)
     call_credit: float = 0.0  # its listeners' surprise this turn, each weighed by its care for it
     call_listeners: int = 0  # and how many they were
     held: list[float] = field(default_factory=lambda: [0.0] * MEMORY_NEURONS)  # what its memory neurons hold (Brain.py)
@@ -3837,6 +3852,13 @@ class Simulation:
             for row, valued in zip(members, batch.values(np.array([plans[index][1] for index in members])).tolist()):
                 values[row] = valued
             batches.append((batch, members))
+        # Speak as heard: each about to learn from a call it made hears it as one who heard it would, weighed against
+        # hearing nothing or any one sound (see hearing_itself, understood).
+        for index, (agent, *_) in enumerate(plans):
+            agent.call_understood = 0.0
+            if (SPEAK_AS_HEARD > 0 and OUTSIDE_FORESIGHT > 0 and FORESIGHT_LEARNING > 0 and not idle[index]
+                    and agent.last_senses is not None and agent.last_call >= FIRST_CALL):
+                agent.call_understood = self.understood(agent, [agent.brain.values(heard) for heard in self.hearing_itself(agent)])
         comforts = [self._comfort(agent, situation) + self._hearth(agent, situation) for agent, _, _, situation in plans]
         self._share_hearths(plans)
         lessons: dict[int, tuple] = {}  # by plan: what came of its last choice, to learn from
@@ -3857,8 +3879,8 @@ class Simulation:
                     reward += SURPRISE_JOY * (0.5 + agent.feeling("curiosity")) * agent.surprise
                 best_call = max(valued[call_output(call)] for call in (SILENT, *plans[index][3]["calls"]))
                 # What its call is taught: the whole turn, or by the Call baseline only the call's own part.
-                agent.call_whole = reward + self._discount(agent) * best_call + CALL_HABIT * agent.habit_pull
-                agent.call_part = agent.call_pleasure + CALL_HABIT * agent.habit_pull - self._call_cost(agent)
+                agent.call_whole = reward + self._discount(agent) * best_call + CALL_HABIT * agent.habit_pull + SPEAK_AS_HEARD * agent.call_understood
+                agent.call_part = agent.call_pleasure + CALL_HABIT * agent.habit_pull + SPEAK_AS_HEARD * agent.call_understood - self._call_cost(agent)
                 call_target = (limited_value(agent.call_whole) if CALL_BASELINE <= 0 else
                                limited_value((1 - CALL_BASELINE) * agent.call_whole + CALL_BASELINE * agent.call_part))
                 lessons[index] = (limited_value(reward + self._discount(agent) * max(valued[option] for option in options)),
@@ -3871,7 +3893,7 @@ class Simulation:
                               [plans[index][0] for index in members])
             for index, change in changes.items():
                 if index in members and FORESIGHT_LEARNING > 0:
-                    self._foresee(plans[index][0], change)
+                    self._foresee(plans[index][0], change, plans[index][1])
             for index in members:  # what each values beyond the Value limit, taught back to it
                 self._rein_in(plans[index][0], plans[index][1], values[index])
         actions = []
@@ -4361,7 +4383,7 @@ class Simulation:
             store = self._herd_store(agent, herd_middle, sight)
             available.add("store_food")
         alert_to = None
-        if herd:  # with a herd to tell: a grazer of a hunter it sees, a hunter of a fresh kill it sees
+        if herd and ALERTS:  # with a herd to tell: a grazer of a hunter it sees, a hunter of a fresh kill it sees
             if agent.species == "grazer" and seen_hunter is not None:
                 alert_to = seen_hunter
             elif agent.species in ("omnivore", "predator") and seen_kill is not None:
@@ -4599,10 +4621,14 @@ class Simulation:
             agent.memories.append((agent.last_senses, agent.last_choice, target, weight))
             del agent.memories[:-count]
 
-    def _foresee(self, agent: Bitzkey, change: Sequence[float]) -> None:
-        """One thing it foresaw, taught what came: one lesson a turn, whichever thing's turn it is, as the C++ version's."""
+    def _foresee(self, agent: Bitzkey, change: Sequence[float], now: Sequence[float]) -> None:
+        """One thing it foresaw, taught what came: one lesson a turn, whichever thing's turn it is, as the C++ version's;
+        and of the outside, one thing in turn: how near it senses it now, from what it sensed (OUTSIDE_FORESIGHT)."""
         thing = self.turn % len(FORESEEN)
         rate = self._learning_rate(agent) * FORESIGHT_LEARNING
+        if rate > 0 and OUTSIDE_FORESIGHT > 0:
+            seen = self.turn % len(OUTSIDE_FORESEEN)
+            agent.brain.learn(agent.last_senses, OUTSIDE + seen, now[OUTSIDE_SENSES[seen]], rate * OUTSIDE_FORESIGHT)
         if rate > 0:
             agent.brain.learn(imagining(agent.last_senses, agent.last_choice), FORESIGHT + thing, change[thing], rate)
             if agent.last_call >= 0:  # and what it called, or its silence, as if it had pictured that: what follows a call
@@ -4639,7 +4665,8 @@ class Simulation:
         if parent is None or not parent.alive or parent.last_senses is None:
             return []
         copied = self._copied_call_target(child, parent, call_target)
-        lessons = [(parent.last_senses, output, copied) for output in self._utterance_outputs(parent) if output >= 0] if parent.last_call >= FIRST_CALL else []
+        where = child.last_senses if COPY_OWN_SENSES else parent.last_senses
+        lessons = [(where, output, copied) for output in self._utterance_outputs(parent) if output >= 0] if parent.last_call >= FIRST_CALL else []
         return lessons + [(child.last_senses, parent.last_choice, target)]
 
     def _body_language_lessons(self, listener: Bitzkey, target: float, call_target: float) -> list[tuple]:
@@ -4657,7 +4684,8 @@ class Simulation:
         if whim(~listener.identifier, self.turn) >= BODY_LANGUAGE * listener.mind["intellect"]:
             return []  # seen, but not read
         copied = self._copied_call_target(listener, caller, call_target)
-        return [*((caller.last_senses, output, copied) for output in self._utterance_outputs(caller) if output >= 0),  # its whole call
+        where = listener.last_senses if COPY_OWN_SENSES else caller.last_senses
+        return [*((where, output, copied) for output in self._utterance_outputs(caller) if output >= 0),  # its whole call
                 (listener.last_senses, caller.last_choice, target)]
 
     @staticmethod
@@ -4706,8 +4734,55 @@ class Simulation:
         if SILENCE_LESSON <= 0 or agent.last_call < FIRST_CALL:
             return None
         # The whole turn without the call's habit and cost; by the Call baseline, silence's own part, nothing.
-        whole = limited_value(agent.call_whole) - CALL_HABIT * agent.habit_pull + Simulation._call_cost(agent)
+        whole = limited_value(agent.call_whole) - CALL_HABIT * agent.habit_pull - SPEAK_AS_HEARD * agent.call_understood + Simulation._call_cost(agent)
         return limited_value((1 - CALL_BASELINE) * whole)
+
+    @staticmethod
+    def hearing_itself(agent: Bitzkey) -> list[list[float]]:
+        """Speak as heard: its senses as it made its last call, with the hunter, prey and meat it saw put out of them,
+        hearing in turn nothing, then each of the five sounds alone, then (when it ran to more sounds) its own whole call:
+        each from beside it, of its kind. As the C++ version's."""
+        quiet = list(agent.last_senses)
+        for sense in OUTSIDE_SENSES:
+            quiet[sense] = 0.0
+        for call in range(1, CALL_COUNT + 1):
+            for part in ("", "_east", "_south", "_kin"):
+                quiet[SENSES.index(f"heard_call_{call}{part}")] = 0.0
+        for place in range(MAX_SOUNDS):
+            for sound in range(CALL_COUNT):
+                quiet[utterance_sense(place, sound)] = 0.0
+
+        def hear(senses: list[float], place: int, sound: int) -> None:
+            senses[SENSES.index(f"heard_call_{sound + 1}")] = 1.0
+            senses[SENSES.index(f"heard_call_{sound + 1}_kin")] = 1.0
+            senses[utterance_sense(place, sound)] = 1.0
+
+        heard = [quiet]
+        for sound in range(CALL_COUNT):  # each sound alone
+            heard.append(list(quiet))
+            hear(heard[-1], 0, sound)
+        if agent.last_call >= FIRST_CALL and agent.last_sounds[0] >= 0:  # its own, when it ran to more than one sound
+            heard.append(list(quiet))
+            hear(heard[-1], 0, agent.last_call - FIRST_CALL)
+            for place in range(1, MAX_SOUNDS):
+                if agent.last_sounds[place - 1] < 0:
+                    break
+                hear(heard[-1], place, agent.last_sounds[place - 1])
+        return heard
+
+    @staticmethod
+    def understood(agent: Bitzkey, heard: Sequence[Sequence[float]]) -> float:
+        """How much nearer what it saw of the outside its foresight comes hearing its own call than on the mean of hearing
+        nothing or any one sound (`heard`, its brain's values for each of hearing_itself's senses). As the C++ version's."""
+        if agent.last_call < FIRST_CALL or len(heard) < 1 + CALL_COUNT:
+            return 0.0
+
+        def fit(values: Sequence[float]) -> float:
+            return -sum(abs(values[OUTSIDE + seen] - agent.last_senses[sense]) / len(OUTSIDE_SENSES) for seen, sense in enumerate(OUTSIDE_SENSES))
+
+        mean = sum(fit(heard[option]) / (1 + CALL_COUNT) for option in range(1 + CALL_COUNT))
+        own = len(heard) - 1 if len(heard) > 1 + CALL_COUNT else 1 + agent.last_call - FIRST_CALL
+        return fit(heard[own]) - mean
 
     @staticmethod
     def _call_cost(agent: Bitzkey) -> float:

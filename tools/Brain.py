@@ -44,10 +44,15 @@ SOUND_CHOICES = 1 + CALL_COUNT  # stopping, then the five sounds
 MORE_SOUNDS = FORESIGHT + len(FORESEEN)  # the second place's stopping and sounds, then the third's
 LATER_SOUNDS = tuple(f"{place}_{choice}" for place in ("second", "third")
                      for choice in ("stop", *(f"call_{call}" for call in range(1, CALL_COUNT + 1))))
+# Foresight of the outside: last of all its outputs, what a brain expects to sense next turn of the nearest hunter, prey
+# and meat, each as that sense's level, 0..1, taught by what it then senses (see OUTSIDE_FORESIGHT). As the C++ version's.
+OUTSIDE_FORESEEN = ("foresee_threat", "foresee_prey", "foresee_carrion")
+OUTSIDE = MORE_SOUNDS + len(LATER_SOUNDS)  # the first of them
 # A brain's outputs by name: its actions, then silence and the calls, then its memory's gates and values to write, then
-# what it foresees, then a call's later sounds.
+# what it foresees, then a call's later sounds, then what it foresees of the outside.
 OUTPUTS = (ACTIONS + CALLS + tuple(f"memory_gate_{neuron}" for neuron in range(1, MEMORY_NEURONS + 1))
-           + tuple(f"memory_value_{neuron}" for neuron in range(1, MEMORY_NEURONS + 1)) + FORESEEN + LATER_SOUNDS)
+           + tuple(f"memory_value_{neuron}" for neuron in range(1, MEMORY_NEURONS + 1)) + FORESEEN + LATER_SOUNDS
+           + OUTSIDE_FORESEEN)
 
 
 def sound_output(place: int, sound: int) -> int:
@@ -57,7 +62,7 @@ def sound_output(place: int, sound: int) -> int:
 
 def later_sound(output: int) -> bool:
     """Whether an output values a second or third sound (not stopping): a new brain holds back from them as from calling."""
-    return MORE_SOUNDS <= output < len(OUTPUTS) and (output - MORE_SOUNDS) % SOUND_CHOICES != 0
+    return MORE_SOUNDS <= output < OUTSIDE and (output - MORE_SOUNDS) % SOUND_CHOICES != 0
 
 
 def call_output(call: int) -> int:
@@ -155,6 +160,7 @@ INPUT_SIZE = len(SENSES)
 MEMORY_SENSE = SENSES.index("memory_1")  # the first sense of what the memory held
 IMAGINED_SENSE = SENSES.index("imagined_1")
 UTTERANCE_SENSE = SENSES.index("heard_first_1")
+OUTSIDE_SENSES = (SENSES.index("threat_closeness"), SENSES.index("prey_closeness"), SENSES.index("carrion_closeness"))
 
 
 def utterance_sense(place: int, sound: int) -> int:

@@ -1648,6 +1648,64 @@ class NewTraitTests(unittest.TestCase):
         self.assertAlmostEqual(armed["omnivore"], 0.75 * PREDATOR_WEAPONS)
         self.assertAlmostEqual(armed["grazer"], 0.5 * PREDATOR_WEAPONS)
 
+    def test_outside_foresight_learns_how_near_it_will_next_sense_a_hunter_prey_and_meat(self):
+        from tools.Brain import OUTPUTS, OUTSIDE, OUTSIDE_SENSES, later_sound
+        self.assertEqual(OUTPUTS[OUTSIDE:], ("foresee_threat", "foresee_prey", "foresee_carrion"))
+        self.assertFalse(later_sound(OUTSIDE))
+        self.assertTrue(later_sound(OUTSIDE - 1))
+        grazer = self.simulation._add_agent(encode_dna("grazer"), 5, 5)
+        self.simulation._index_cells()
+        grazer.mind["intellect"] = 7.0
+        grazer.last_senses = list(self.simulation._sense(grazer)[0])
+        grazer.last_choice, grazer.last_call = ACTIONS.index("rest"), -1
+        seen = self.simulation.turn % len(OUTSIDE_SENSES)
+        now = list(grazer.last_senses)
+        now[OUTSIDE_SENSES[seen]] = 1.0  # and now it senses one beside it
+        before = grazer.brain.values(grazer.last_senses)[OUTSIDE + seen]
+        self.simulation._foresee(grazer, [0.0] * 4, now)
+        self.assertGreater(grazer.brain.values(grazer.last_senses)[OUTSIDE + seen], before)
+
+    def test_speak_as_heard_a_caller_hears_its_own_call_as_a_listener_would_and_is_taught_how_much_nearer_it_comes(self):
+        from tools.Brain import CALL_COUNT, FIRST_CALL, OUTPUTS, OUTSIDE, utterance_sense
+        caller = self.simulation._add_agent(encode_dna("grazer"), 5, 5)
+        self.simulation._index_cells()
+        caller.last_senses = list(self.simulation._sense(caller)[0])
+        caller.last_call, caller.last_sounds = FIRST_CALL + 2, [4, -1]
+        caller.last_senses[SENSES.index("threat_closeness")] = 0.8
+        caller.last_senses[SENSES.index("heard_call_1")] = 0.5  # a call it heard itself, not its own
+        heard = simulation_module.Simulation.hearing_itself(caller)
+        self.assertEqual(len(heard), 1 + CALL_COUNT + 1)  # nothing, each sound alone, its own of two sounds
+        quiet, called = heard[0], heard[-1]
+        self.assertEqual((quiet[SENSES.index("threat_closeness")], quiet[SENSES.index("heard_call_1")], quiet[utterance_sense(0, 2)]), (0.0, 0.0, 0.0))
+        self.assertEqual(heard[1 + 3][SENSES.index("heard_call_4")], 1.0)  # a sound alone
+        self.assertEqual(heard[1 + 3][utterance_sense(1, 4)], 0.0)
+        self.assertEqual([called[SENSES.index(name)] for name in ("heard_call_3", "heard_call_5", "heard_call_3_kin", "threat_closeness")], [1.0, 1.0, 1.0, 0.0])
+        self.assertEqual((called[utterance_sense(0, 2)], called[utterance_sense(1, 4)]), (1.0, 1.0))
+        values = [[0.0] * len(OUTPUTS) for _ in heard]
+        values[-1][OUTSIDE] = 0.8  # hearing its own call, it foresees the hunter it saw; nothing else does
+        self.assertAlmostEqual(simulation_module.Simulation.understood(caller, values), 0.8 / 3)
+        for option in range(len(values) - 1):
+            values[option][OUTSIDE] = 0.8
+        self.assertAlmostEqual(simulation_module.Simulation.understood(caller, values), 0.0)  # no better than any sound
+        values[-1][OUTSIDE] = 0.0
+        self.assertLess(simulation_module.Simulation.understood(caller, values), 0)
+        caller.last_sounds = [-1, -1]  # a call of one sound is weighed as that sound alone
+        self.assertEqual(len(simulation_module.Simulation.hearing_itself(caller)), 1 + CALL_COUNT)
+        single = [[0.0] * len(OUTPUTS) for _ in range(1 + CALL_COUNT)]
+        single[1 + 2][OUTSIDE] = 0.8
+        self.assertAlmostEqual(simulation_module.Simulation.understood(caller, single), 0.8 / 3 * CALL_COUNT / (1 + CALL_COUNT))
+        for _ in range(10):  # in a world, each that called and learns from it is taught so
+            self.simulation._take_turn()
+
+    def test_with_no_alerts_a_grazer_seeing_a_hunter_has_only_silence_and_the_five_calls(self):
+        with patch("tools.Simulation.ALERTS", 0):
+            lookout = self.simulation._add_agent(encode_dna("grazer", sight=7, trust=7), 2, 2)
+            self.simulation._add_agent(lookout.dna, 4, 2)
+            self.simulation._add_agent(encode_dna("predator", sight=7, trust=7), 2, 6)
+            self.simulation._index_cells()
+            situation = self.simulation._sense(lookout)[2]
+            self.assertNotIn(ALERT_CALL, situation["calls"])
+
     def test_a_grazer_alerts_its_herd_to_a_hunter_and_a_hunter_its_pack_to_a_kill(self):
         lookout = self.simulation._add_agent(encode_dna("grazer", sight=7, trust=7), 2, 2)
         herd_mate = self.simulation._add_agent(lookout.dna, 4, 2)
@@ -4096,9 +4154,14 @@ class MaterialTests(unittest.TestCase):
             self.assertEqual(simulation._parent_lessons(child, 5.0, 4.0), [])  # a stranger's call
             child.heard_from = parent.identifier
             self.assertEqual(simulation._parent_lessons(child, 5.0, 4.0),
-                             [(parent.last_senses, simulation_module.call_output(simulation_module.FIRST_CALL + 2), 4.0),
-                              (parent.last_senses, sound_output(1, -1), 4.0),  # its whole call: one sound, then stopping
+                             [(child.last_senses, simulation_module.call_output(simulation_module.FIRST_CALL + 2), 4.0),  # where it was itself
+                              (child.last_senses, sound_output(1, -1), 4.0),  # its whole call: one sound, then stopping
                               (child.last_senses, 0, 5.0)])
+            with patch("tools.Simulation.COPY_OWN_SENSES", 0):  # or, as before, where its parent was
+                self.assertEqual(simulation._parent_lessons(child, 5.0, 4.0),
+                                 [(parent.last_senses, simulation_module.call_output(simulation_module.FIRST_CALL + 2), 4.0),
+                                  (parent.last_senses, sound_output(1, -1), 4.0),
+                                  (child.last_senses, 0, 5.0)])
 
     def test_by_the_call_baseline_a_call_learns_its_own_part_and_a_copier_takes_the_callers(self):
         simulation = Simulation(30, 30, 0, seed=1)
