@@ -1684,6 +1684,15 @@ class NewTraitTests(unittest.TestCase):
         values = [[0.0] * len(OUTPUTS) for _ in heard]
         values[-1][OUTSIDE] = 0.8  # hearing its own call, it foresees the hunter it saw; nothing else does
         self.assertAlmostEqual(simulation_module.Simulation.understood(caller, values), 0.8 / 3)
+        self.assertAlmostEqual(simulation_module.Simulation.understood_silence(caller, values), 0.0)
+        values[1][OUTSIDE] = 0.8  # one sound alone foretells it too: silence now below the mean, its own call still above
+        self.assertAlmostEqual(simulation_module.Simulation.understood_silence(caller, values), -0.8 / 3 / (1 + CALL_COUNT))
+        self.assertAlmostEqual(simulation_module.Simulation.understood(caller, values), 0.8 / 3 * CALL_COUNT / (1 + CALL_COUNT))
+        caller.call_whole = caller.habit_pull = 0.0  # silence, taught beside the call, takes its own
+        caller.call_understood = simulation_module.Simulation.understood(caller, values)
+        caller.silence_understood = simulation_module.Simulation.understood_silence(caller, values)
+        self.assertAlmostEqual(simulation_module.Simulation._silence_target(caller, 0.0),
+                               simulation_module.limited_value(simulation_module.SPEAK_AS_HEARD * caller.silence_understood))
         for option in range(len(values) - 1):
             values[option][OUTSIDE] = 0.8
         self.assertAlmostEqual(simulation_module.Simulation.understood(caller, values), 0.0)  # no better than any sound
