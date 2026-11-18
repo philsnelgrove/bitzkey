@@ -435,7 +435,7 @@ ALARM_REACH = 6        # an alarmed animal knows where the hunter is within this
 # Calls (Brain.py): one carries this many steps times a half and its caller's size (a share of its range), at least
 # one, and costs its caller this much hunger, as any call does, the alert among them.
 CALL_REACH = 16
-CALL_COST = 0.05  # for each sound of a call: two sounds cost twice as much as one
+CALL_COST = 0.3  # for each sound of a call: two sounds cost twice as much as one
 CALL_LENGTH = 3  # the most sounds a call may run to, 1 to 3 (Brain.py's MAX_SOUNDS)
 # What a caller feels of what its call did to those of its kind who heard it: whether their next turn went better or
 # worse than each expected, weighed by its care for each (kin wholly, a friend by its regard, any other a quarter), the
@@ -463,7 +463,7 @@ OUTSIDE_FORESIGHT = 10.0
 # nothing. Which call means what is left to them. 0 for none. As the C++ version's.
 SPEAK_AS_HEARD = 5.0
 # The alert: 1, a grazer seeing a hunter, or a hunter a fresh kill, may alert its herd to it; 0, only the five calls.
-ALERTS = 1
+ALERTS = 0
 # Copying a call: 1, a child or a reader of body language learns to make the call where it was itself, by its own senses;
 # 0, where the caller was, by the caller's senses.
 COPY_OWN_SENSES = 1

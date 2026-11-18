@@ -1715,6 +1715,7 @@ class NewTraitTests(unittest.TestCase):
             situation = self.simulation._sense(lookout)[2]
             self.assertNotIn(ALERT_CALL, situation["calls"])
 
+    @patch("tools.Simulation.ALERTS", 1)
     def test_a_grazer_alerts_its_herd_to_a_hunter_and_a_hunter_its_pack_to_a_kill(self):
         lookout = self.simulation._add_agent(encode_dna("grazer", sight=7, trust=7), 2, 2)
         herd_mate = self.simulation._add_agent(lookout.dna, 4, 2)
