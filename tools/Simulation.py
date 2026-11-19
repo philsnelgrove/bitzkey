@@ -472,7 +472,7 @@ OUTSIDE_FORESIGHT = 10.0
 # one who heard it would (not seeing what it saw), comes to what it saw than on the mean of hearing nothing or any one
 # sound, times this; and silence, taught beside each call, the same for hearing nothing, so calling in itself gains
 # nothing. Which call means what is left to them. 0 for none. As the C++ version's.
-SPEAK_AS_HEARD = 5.0
+SPEAK_AS_HEARD = 15.0
 # Cues and cries (CUES 1): each animal links each action to one of the five sounds, its cue for it, at first by chance,
 # and takes on another's, with chance CUE_COPY, when it hears and sees one of its kind call as it acts. Pain (struck
 # this turn or last) and panic make it cry out, a sound inherited from its mother that drifts with chance CRY_DRIFT at
