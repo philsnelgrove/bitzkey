@@ -44,9 +44,12 @@ SOUND_CHOICES = 1 + CALL_COUNT  # stopping, then the five sounds
 MORE_SOUNDS = FORESIGHT + len(FORESEEN)  # the second place's stopping and sounds, then the third's
 LATER_SOUNDS = tuple(f"{place}_{choice}" for place in ("second", "third")
                      for choice in ("stop", *(f"call_{call}" for call in range(1, CALL_COUNT + 1))))
-# Foresight of the outside: last of all its outputs, what a brain expects to sense next turn of the nearest hunter, prey
-# and meat, each as that sense's level, 0..1, taught by what it then senses (see OUTSIDE_FORESIGHT). As the C++ version's.
-OUTSIDE_FORESEEN = ("foresee_threat", "foresee_prey", "foresee_carrion")
+# Foresight of the outside: last of all its outputs, what a brain expects to sense next turn of each thing about it it
+# senses from afar (the nearest hunter, prey, meat and so on, so anything may come to be named), each as that sense's
+# level, 0..1, taught by what it then senses (see OUTSIDE_FORESIGHT). New things go at the end. As the C++ version's.
+OUTSIDE_THINGS = ("threat", "prey", "carrion", "kill", "grass", "plant", "mate", "herd", "parent", "known", "elder", "foe",
+                  "standout", "meat_pile", "fruit_pile", "stone_pile", "bone_pile", "wood_pile", "gear_pile", "fire", "comfort")
+OUTSIDE_FORESEEN = tuple(f"foresee_{thing}" for thing in OUTSIDE_THINGS)
 OUTSIDE = MORE_SOUNDS + len(LATER_SOUNDS)  # the first of them
 # A brain's outputs by name: its actions, then silence and the calls, then its memory's gates and values to write, then
 # what it foresees, then a call's later sounds, then what it foresees of the outside.
@@ -160,7 +163,7 @@ INPUT_SIZE = len(SENSES)
 MEMORY_SENSE = SENSES.index("memory_1")  # the first sense of what the memory held
 IMAGINED_SENSE = SENSES.index("imagined_1")
 UTTERANCE_SENSE = SENSES.index("heard_first_1")
-OUTSIDE_SENSES = (SENSES.index("threat_closeness"), SENSES.index("prey_closeness"), SENSES.index("carrion_closeness"))
+OUTSIDE_SENSES = tuple(SENSES.index(f"{thing}_closeness") for thing in OUTSIDE_THINGS)
 
 
 def utterance_sense(place: int, sound: int) -> int:

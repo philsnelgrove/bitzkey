@@ -450,7 +450,7 @@ class SimulationTests(unittest.TestCase):
             first.hunger = second.hunger = 0
             deliver(self.simulation, first, second)
             child = self.simulation.agents[-1]
-            intellect = child.inborn["intellect"]
+            intellect = simulation_module.thinking_intellect(child.inborn["intellect"], child.species)  # a predator by mutation thinks the more
             self.assertEqual((child.brain.depth, child.brain.width), (max(1, min(4, intellect)), 38 + 5 * max(0, intellect - 4)))
 
     def test_the_brain_senses_its_own_genes_but_not_which_actions_are_open(self):
@@ -1650,7 +1650,8 @@ class NewTraitTests(unittest.TestCase):
 
     def test_outside_foresight_learns_how_near_it_will_next_sense_a_hunter_prey_and_meat(self):
         from tools.Brain import OUTPUTS, OUTSIDE, OUTSIDE_SENSES, later_sound
-        self.assertEqual(OUTPUTS[OUTSIDE:], ("foresee_threat", "foresee_prey", "foresee_carrion"))
+        self.assertEqual(OUTPUTS[OUTSIDE:OUTSIDE + 3], ("foresee_threat", "foresee_prey", "foresee_carrion"))
+        self.assertEqual(len(OUTPUTS[OUTSIDE:]), 21)
         self.assertFalse(later_sound(OUTSIDE))
         self.assertTrue(later_sound(OUTSIDE - 1))
         grazer = self.simulation._add_agent(encode_dna("grazer"), 5, 5)
@@ -1683,11 +1684,11 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual((called[utterance_sense(0, 2)], called[utterance_sense(1, 4)]), (1.0, 1.0))
         values = [[0.0] * len(OUTPUTS) for _ in heard]
         values[-1][OUTSIDE] = 0.8  # hearing its own call, it foresees the hunter it saw; nothing else does
-        self.assertAlmostEqual(simulation_module.Simulation.understood(caller, values), 0.8 / 3)
+        self.assertAlmostEqual(simulation_module.Simulation.understood(caller, values), 0.8 / len(simulation_module.OUTSIDE_SENSES))
         self.assertAlmostEqual(simulation_module.Simulation.understood_silence(caller, values), 0.0)
         values[1][OUTSIDE] = 0.8  # one sound alone foretells it too: silence now below the mean, its own call still above
-        self.assertAlmostEqual(simulation_module.Simulation.understood_silence(caller, values), -0.8 / 3 / (1 + CALL_COUNT))
-        self.assertAlmostEqual(simulation_module.Simulation.understood(caller, values), 0.8 / 3 * CALL_COUNT / (1 + CALL_COUNT))
+        self.assertAlmostEqual(simulation_module.Simulation.understood_silence(caller, values), -0.8 / len(simulation_module.OUTSIDE_SENSES) / (1 + CALL_COUNT))
+        self.assertAlmostEqual(simulation_module.Simulation.understood(caller, values), 0.8 / len(simulation_module.OUTSIDE_SENSES) * CALL_COUNT / (1 + CALL_COUNT))
         caller.call_whole = caller.habit_pull = 0.0  # silence, taught beside the call, takes its own
         caller.call_understood = simulation_module.Simulation.understood(caller, values)
         caller.silence_understood = simulation_module.Simulation.understood_silence(caller, values)
@@ -1702,7 +1703,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(len(simulation_module.Simulation.hearing_itself(caller)), 1 + CALL_COUNT)
         single = [[0.0] * len(OUTPUTS) for _ in range(1 + CALL_COUNT)]
         single[1 + 2][OUTSIDE] = 0.8
-        self.assertAlmostEqual(simulation_module.Simulation.understood(caller, single), 0.8 / 3 * CALL_COUNT / (1 + CALL_COUNT))
+        self.assertAlmostEqual(simulation_module.Simulation.understood(caller, single), 0.8 / len(simulation_module.OUTSIDE_SENSES) * CALL_COUNT / (1 + CALL_COUNT))
         for _ in range(10):  # in a world, each that called and learns from it is taught so
             self.simulation._take_turn()
 
@@ -1715,6 +1716,39 @@ class NewTraitTests(unittest.TestCase):
             situation = self.simulation._sense(lookout)[2]
             self.assertNotIn(ALERT_CALL, situation["calls"])
 
+    @patch.multiple("tools.Simulation", NAMING=0.0)
+    def test_without_naming_no_animal_itches_or_names_anything(self):
+        for index in range(6):
+            self.simulation._add_agent(encode_dna("grazer"), 2 + index, 2)
+        self.simulation._add_agent(encode_dna("predator"), 5, 5)
+        for _ in range(10):
+            self.simulation._take_turn()
+            for agent in self.simulation.living:
+                self.assertEqual((agent.itch, agent.named), (0.0, -1))
+
+    @patch.multiple("tools.Simulation", NAMING=1.0)
+    def test_with_naming_a_herd_itches_to_tell_and_the_itch_is_kept_and_passes_when_relieved(self):
+        from tools.WorldFile import world_bytes, world_from_bytes
+        for index in range(8):
+            self.simulation._add_agent(encode_dna("grazer", intellect=7, sight=7), 2 + index % 4, 2 + index // 4)
+        self.simulation._add_agent(encode_dna("predator"), 5, 6)
+        most = 0.0
+        for _ in range(10):
+            self.simulation._take_turn()
+            for agent in self.simulation.living:
+                self.assertTrue(0.0 <= agent.itch <= 1.0)
+                if agent.named >= 0:
+                    self.assertLess(agent.named, len(simulation_module.OUTSIDE_SENSES) + len(ACTIONS))
+                if agent.species == "grazer":
+                    most = max(most, agent.itch)
+        self.assertGreater(most, 0.0)
+        agent = self.simulation.living[0]
+        agent.itch, agent.named, agent.named_turn = 0.75, 1, 42
+        again = world_from_bytes(world_bytes(self.simulation)).find_agent(agent.identifier)
+        self.assertEqual((again.itch, again.named, again.named_turn), (0.75, 1, 42))
+        agent.relieved = True
+        self.simulation._settled_call(agent)
+        self.assertEqual((agent.itch, agent.relieved), (0.0, False))
     def test_without_cues_an_animals_calls_are_its_brains_alone(self):
         for index in range(6):
             self.simulation._add_agent(encode_dna("grazer"), 2 + index, 2)

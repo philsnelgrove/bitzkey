@@ -241,7 +241,7 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "last_choice": int(agent.last_choice), "last_forced": bool(agent.last_forced), "last_panicked": bool(agent.last_panicked), "last_wellbeing": float(agent.last_wellbeing),
         "reward": float(agent.reward), "last_comfort": float(agent.last_comfort),
         "odds": {action: float(chance) for action, chance in agent.odds.items()},
-        "call": agent.call, "call_turn": agent.call_turn, "heard_from": agent.heard_from, "heard_call": agent.heard_call, "heard_turn": agent.heard_turn, "heard_hunger": float(agent.heard_hunger), "heard_danger": agent.heard_danger, "struck_turn": agent.struck_turn, "last_call": agent.last_call, "cues": list(agent.cues), "cry": agent.cry, "call_kind": agent.call_kind,
+        "call": agent.call, "call_turn": agent.call_turn, "heard_from": agent.heard_from, "heard_call": agent.heard_call, "heard_turn": agent.heard_turn, "heard_hunger": float(agent.heard_hunger), "heard_danger": agent.heard_danger, "struck_turn": agent.struck_turn, "last_call": agent.last_call, "cues": list(agent.cues), "cry": agent.cry, "call_kind": agent.call_kind, "itch": float(agent.itch), "named": agent.named, "named_turn": agent.named_turn, "relieved": agent.relieved, "drive_thing": agent.drive_thing, "drive_weight": float(agent.drive_weight),
         "held": [float(held) for held in agent.held], "last_wrote": bool(agent.last_wrote),
         "past": [numbers.senses(senses) for senses in agent.past],
         "sounds": list(agent.sounds), "last_sounds": list(agent.last_sounds),
@@ -362,6 +362,12 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
         agent.cues[action] = int(cue)
     agent.cry = int(record.get("cry", -1))
     agent.call_kind = int(record.get("call_kind", 0))
+    agent.itch = float(record.get("itch", 0.0))
+    agent.named = int(record.get("named", -1))
+    agent.named_turn = int(record.get("named_turn", -1))
+    agent.relieved = bool(record.get("relieved", False))
+    agent.drive_thing = int(record.get("drive_thing", -1))
+    agent.drive_weight = float(record.get("drive_weight", 0.0))
     agent.sounds = [int(sound) for sound in record.get("sounds", [-1, -1])]  # one sound, before calls ran on
     agent.last_sounds = [int(sound) for sound in record.get("last_sounds", [-1, -1])]
     if "habits" in record and numbers.sense_from is None:  # kept only while its senses are the same
