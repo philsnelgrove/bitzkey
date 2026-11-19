@@ -1738,7 +1738,8 @@ class NewTraitTests(unittest.TestCase):
             for agent in self.simulation.living:
                 self.assertTrue(0.0 <= agent.itch <= 1.0)
                 if agent.named >= 0:
-                    self.assertLess(agent.named, len(simulation_module.OUTSIDE_SENSES) + len(ACTIONS))
+                    self.assertLess(agent.named, len(simulation_module.OUTSIDE_SENSES))  # the thing that most surprised it
+                self.assertTrue(0.0 <= agent.outside_surprise <= 1.0)
                 if agent.species == "grazer":
                     most = max(most, agent.itch)
         self.assertGreater(most, 0.0)

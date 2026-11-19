@@ -486,18 +486,15 @@ CUE_FAVOUR = 0.05
 CUE_SOCIABILITY = 0.1
 CUE_COPY = 0.1
 CRY_DRIFT = 0.02
-# Naming, the urge to tell (NAMING): with its herd near, an animal itches to tell of what stands out to it: the thing
-# outside it that drives its leaning most (by how much its best option's value falls without that sense, looked at every
-# NAMING_LOOK_EVERY turns among the few things it senses most strongly), or what it does (by how far that leads its next
-# best option), whichever stands out more. The itch builds by that much and fades by NAMING_KEEP a turn, and lifts every
-# sound alike over silence by NAMING x itch x its intelligence x (a half + its sociability). When one who heard it then
-# foresees the thing nearer than it senses it, or does the same, the caller is relieved: its call is taught NAMING_RELIEF
-# more and the itch passes. 0 for none. As the C++ version's.
+# Naming, the urge to tell (NAMING): with its herd near, an animal itches to tell when the world surprises it: when what
+# it senses of the outside is far from what it foresaw last turn. No one tells it what it tells of. The itch builds by its
+# greatest surprise and fades by NAMING_KEEP a turn, and lifts every sound alike over silence by NAMING x itch x its
+# intelligence x (a half + its sociability). Speak as heard judges such a call by the things that surprised it, each
+# weighed by how much. When one who heard it is then less surprised than it was, the caller is relieved: its call is
+# taught NAMING_RELIEF more and the itch passes. 0 for none. As the C++ version's.
 NAMING = 1.0
 NAMING_KEEP = 0.8
 NAMING_RELIEF = 1.0
-NAMING_LOOK_EVERY = 3
-NAMING_LOOKS = 3
 # The alert: 1, a grazer seeing a hunter, or a hunter a fresh kill, may alert its herd to it; 0, only the five calls.
 ALERTS = 0
 # Copying a call: 1, a child or a reader of body language learns to make the call where it was itself, by its own senses;
@@ -1385,11 +1382,16 @@ class Bitzkey:
     cry: int = -1  # the sound it cries out in pain or panic; -1: its first, by chance
     call_kind: int = 0  # how it came by this turn's call: 0 by its brain (CUES 0), 1 a cry, 2 by instinct, 3 by choice
     itch: float = 0.0  # its urge to tell of what drives it (Naming), 0 to 1
-    named: int = -1  # what it told of as it last called: an index of OUTSIDE_SENSES, or past them an action; -1 none
+    named: int = -1  # as it last told: the thing that most surprised it (for the probe alone), -1 none
     named_turn: int = -1
-    relieved: bool = False  # one who heard that call was then driven by the same thing, or did the same
-    drive_thing: int = -1  # the thing outside that drove it when it last looked, -1 none
-    drive_weight: float = 0.0
+    relieved: bool = False  # one who heard that call was then less surprised
+    has_foresaw: bool = False  # its foresight of the outside, as it chose last turn
+    foresaw: list = field(default_factory=lambda: [0.0] * len(OUTSIDE_SENSES))
+    surprised: list = field(default_factory=lambda: [0.0] * len(OUTSIDE_SENSES))  # how much each thing surprised it as it last told
+    outside_surprise: float = 0.0  # its mean surprise at the outside this turn
+    told_by: int = -1  # the teller it last heard, and when
+    told_turn: int = -1
+    told_surprise: float = 0.0
     sounds: list[int] = field(default_factory=lambda: [-1, -1])  # the sounds its call ran on to after the first (0..4), -1 where it stopped
     last_sounds: list[int] = field(default_factory=lambda: [-1, -1])  # likewise of its last choice of call, to learn from
     chosen_value: float = 0.0  # what its brain valued its last choice at, to judge how the turn went against it
@@ -3952,7 +3954,7 @@ class Simulation:
             caller = situation.get("heard_from")
             if (NAMING > 0 and caller is not None and caller is not agent and caller.alive and caller.named >= 0
                     and caller.named_turn == self.turn - 1):
-                told[index] = (caller, caller.named)
+                told[index] = caller
         chosen = {}
         for index, ((agent, senses, options, situation), valued, comfort) in enumerate(zip(plans, values, comforts)):
             calls_valued = valued
@@ -4035,7 +4037,7 @@ class Simulation:
                 agent.call_heeded = -1 if heeded is None else heeded.identifier
             agent.call_kind = 0
             chosen[index] = choice
-            itchy, referent = self._naming_itch(agent, senses, options, situation, calls_valued, choice, idle[index])
+            itchy, startled, surprise = self._naming_itch(agent, senses, situation, valued, idle[index])
             agent.named = -1
             if not idle[index] and not situation.get("frozen"):
                 # With cues, pain and panic cry out, and by its intellect it voices its cue by instinct or chooses its call.
@@ -4078,8 +4080,8 @@ class Simulation:
                     agent.sounds[place - 1] = sound
                 agent.last_call, agent.last_sounds = agent.call, list(agent.sounds)
                 agent.call_turn = self.turn
-                if itchy and forced < 0 and agent.call >= FIRST_CALL:  # it told, of what drove it or what it does
-                    agent.named, agent.named_turn = referent, self.turn
+                if itchy and forced < 0 and agent.call >= FIRST_CALL:  # it told, surprised
+                    agent.named, agent.named_turn, agent.surprised = startled, self.turn, list(surprise)
             self._keep_habit(agent, senses)  # how its call kept to its habits, and the call remembered
             # What its memory now holds, written as it chose, unless its brain wasn't asked (asleep or spent, it keeps what
             # it held); and the senses it chose by before, while each choice since wrote its memory, to learn back in time.
@@ -4103,13 +4105,15 @@ class Simulation:
             agent.panicked = False
             agent.alarm = agent.herd_assailant = agent.kill_alert = None
             actions.append((agent, action, situation))
-        for index, (caller, thing) in told.items():  # a caller relieved: told of a thing, the hearer foresees it nearer than
-            if not caller.alive:                       # it senses it; told of an action, the hearer does the same
+        for index, (hearer, _, _, _) in enumerate(plans):  # a caller relieved: one who heard it is then less surprised
+            if NAMING <= 0 or idle[index]:
                 continue
-            if thing >= len(OUTSIDE_SENSES):
-                caller.relieved = caller.relieved or chosen.get(index) == thing - len(OUTSIDE_SENSES)
-            elif values[index][OUTSIDE + thing] > plans[index][1][OUTSIDE_SENSES[thing]]:
-                caller.relieved = True
+            if hearer.told_by >= 0 and hearer.told_turn == self.turn - 1:  # its foresight made as it heard, judged now
+                caller = self.find_agent(hearer.told_by)
+                if caller is not None and caller.alive and hearer.outside_surprise < hearer.told_surprise:
+                    caller.relieved = True
+            hearer.told_by = told[index].identifier if index in told else -1
+            hearer.told_turn, hearer.told_surprise = self.turn, hearer.outside_surprise
         for agent, action, situation in actions:  # each in turn, in the world as those before it left it
             if agent.alive:
                 self._act(agent, action, situation)
@@ -4767,45 +4771,32 @@ class Simulation:
         lessons = [(where, output, copied) for output in self._utterance_outputs(parent) if output >= 0] if parent.last_call >= FIRST_CALL else []
         return lessons + [(child.last_senses, parent.last_choice, target)]
 
-    def _naming_itch(self, agent: Bitzkey, senses: Sequence[float], options: Sequence[int], situation: dict,
-                     valued: Sequence[float], choice: int, idle: bool) -> tuple[bool, int]:
-        """Naming: what stands out to it (the thing outside driving it most, or what it does), its itch to tell of it
-        built, and whether it itches now; as the C++ version's. Returns (itchy, what it would tell of)."""
+    def _naming_itch(self, agent: Bitzkey, senses: Sequence[float], situation: dict, valued: Sequence[float],
+                     idle: bool) -> tuple[bool, int, list[float]]:
+        """Naming: how far what it senses of the outside is from what it foresaw last turn; its itch builds by its greatest
+        surprise, as the C++ version's. Returns (itchy, the thing that most surprised it (for the probe alone), surprise)."""
+        surprise = [0.0] * len(OUTSIDE_SENSES)
+        most, startled = 0.0, -1
+        if NAMING > 0 and not idle and agent.has_foresaw:
+            for thing, sense in enumerate(OUTSIDE_SENSES):
+                off = max(0.0, min(1.0, abs(senses[sense] - agent.foresaw[thing])))
+                surprise[thing] = off
+                if off > most:
+                    most, startled = off, thing
+            agent.outside_surprise = sum(surprise) / len(OUTSIDE_SENSES)
+        if not idle:  # what it foresees now, to be surprised by next turn
+            agent.foresaw = [float(valued[OUTSIDE + thing]) for thing in range(len(OUTSIDE_SENSES))]
+            agent.has_foresaw = True
+        else:
+            agent.has_foresaw = False
         if idle:
-            return False, -1
+            return False, -1, surprise
         may_itch = (situation.get("herd_near", 0) > 0 and not situation.get("panic") and not situation.get("frozen")
                     and not (CUES and agent.struck_turn >= self.turn - 1)
                     and not (CUES and whim(agent.identifier ^ 0x5A17, self.turn) >= agent.intelligence))
-        driven = -1
-        if NAMING > 0 and (agent.identifier + self.turn) % NAMING_LOOK_EVERY == 0:  # it looks again every few turns
-            drives = [0.0] * len(OUTSIDE_SENSES)
-            if may_itch and options:
-                best = max(options, key=lambda option: (valued[option], -options.index(option)))
-                nearest = sorted(range(len(OUTSIDE_SENSES)), key=lambda thing: (-senses[OUTSIDE_SENSES[thing]], thing))[:NAMING_LOOKS]
-                for thing in nearest:
-                    if senses[OUTSIDE_SENSES[thing]] <= 0.0:
-                        continue
-                    without = list(senses)
-                    without[OUTSIDE_SENSES[thing]] = 0.0
-                    drives[thing] = max(0.0, valued[best] - agent.brain.values(without)[best])
-            for thing, drive in enumerate(drives):
-                if drive > 0 and (driven < 0 or drive > drives[driven]):
-                    driven = thing
-            agent.drive_thing, agent.drive_weight = driven, (min(1.0, drives[driven]) if driven >= 0 else 0.0)
-        elif agent.drive_thing >= 0 and senses[OUTSIDE_SENSES[agent.drive_thing]] > 0.0:
-            driven = agent.drive_thing
-        else:
-            agent.drive_thing, agent.drive_weight = -1, 0.0
-        leads = 0.0  # or what it does, by how far it leads its next best option
-        if len(options) > 1:
-            leads = max(0.0, min(1.0, valued[choice] - max(valued[option] for option in options if option != choice)))
-        thing_weight = agent.drive_weight if driven >= 0 else 0.0
-        referent = driven if thing_weight >= leads else len(OUTSIDE_SENSES) + choice
-        weight = max(thing_weight, leads)
-        itchy = NAMING > 0 and may_itch and weight > 0
-        agent.itch = min(1.0, NAMING_KEEP * agent.itch + (weight if itchy else 0.0))
-        return itchy, referent
-
+        itchy = NAMING > 0 and may_itch and most > 0
+        agent.itch = min(1.0, NAMING_KEEP * agent.itch + (most if itchy else 0.0))
+        return itchy, startled, surprise
     def _copy_cue(self, listener: Bitzkey) -> None:
         """With cues, one that hears and sees another of its kind call as it acts may take that sound as its cue for it."""
         if not CUES or CUE_COPY <= 0 or listener.heard_turn != self.turn or listener.heard_from < 0:
@@ -4943,9 +4934,11 @@ class Simulation:
     @staticmethod
     def _heard_fit(agent: Bitzkey, values: Sequence[float]) -> float:
         """How near what it saw of the outside its foresight comes, hearing as `values` were valued: the nearer, the higher.
-        A call that told of one thing (Naming) is judged by that thing alone."""
-        if 0 <= agent.named < len(OUTSIDE_SENSES) and agent.named_turn == agent.call_turn:
-            return -abs(values[OUTSIDE + agent.named] - agent.last_senses[OUTSIDE_SENSES[agent.named]])
+        A call told in surprise (Naming) weighs each thing by how much it surprised the caller."""
+        if agent.named >= 0 and agent.named_turn == agent.call_turn:
+            weights = [agent.surprised[thing] + 1e-3 for thing in range(len(OUTSIDE_SENSES))]  # none wholly out
+            off = sum(weight * abs(values[OUTSIDE + thing] - agent.last_senses[sense]) for thing, (weight, sense) in enumerate(zip(weights, OUTSIDE_SENSES)))
+            return -off / sum(weights)
         off = 0.0
         for seen, sense in enumerate(OUTSIDE_SENSES):
             off += abs(values[OUTSIDE + seen] - agent.last_senses[sense]) / len(OUTSIDE_SENSES)
@@ -4997,7 +4990,7 @@ class Simulation:
 
     def _settled_call(self, agent: Bitzkey) -> list[tuple]:
         """Its held call lesson, with what it did to its listeners, as lessons of (senses, output, target, rate)."""
-        relieved, agent.relieved = agent.relieved, False  # one who heard it was driven by the same thing: the itch passes
+        relieved, agent.relieved = agent.relieved, False  # one who heard it was then less surprised: the itch passes
         if relieved:
             agent.itch = 0.0
         if not agent.call_held:
