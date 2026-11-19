@@ -2,7 +2,7 @@
 
 The Bitzkey project was started years ago, to teach my best friend programming. He wanted to learn about Python and AI, so it seemed like a natural project. Since then, my friend has passed away. So I finished this to honour him. I open-sourced it for the same reason. So, Sam Bunn, wherever you are, may you live on through Bitzkeys!
 
-Bitzkeys is finally coming around to it's original intent.  Everything this far has been building up to the capability of an emergent social structure, including communication.  Every trial they face is a reason to talk about it, or a reason to make friends, or enemies.  It is my personal goal to (through the manager) learn of the first instance of merchant hawking, in whatever language they've made up.
+Bitzkeys is finally coming around to its original intent.  Everything this far has been building up to the capability of an emergent social structure, including communication.  Every trial they face is a reason to talk about it, or a reason to make friends, or enemies.  It is my personal goal to (through the manager) learn of the first instance of merchant hawking, in whatever language they've made up.
 
 This is the original Bitzkey, the research build, written in Python. It runs very slowly, but every rule is plain to read, so it is the place to learn how Bitzkeys work: how they sense, think, learn, breed and evolve. It is too slow to run a world for long, though. For that, use the much faster C++ versions: the [Windows desktop app](https://github.com/philsnelgrove/bitzkey_cpp), or the [Linux daemon](https://github.com/philsnelgrove/bitzkey_daemon), which runs larger worlds as a service and shows them as a web page.
 
