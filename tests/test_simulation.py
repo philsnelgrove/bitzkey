@@ -5204,7 +5204,7 @@ class LandTests(unittest.TestCase):
             simulation._tutor(tutor, pupil, club)
         self.assertTrue(pupil.crafts >> club & 1)  # the recipe, now known
         self.assertEqual(pupil.craft_tries[club], 1)
-        self.assertAlmostEqual(tutor.hunger, hunger + sm.CALL_COST)  # as dear as a call
+        self.assertAlmostEqual(tutor.hunger, hunger + sm.TUTOR_COST)
         self.assertGreater(tutor.reward, joy)
         self.assertGreater(simulation._regard_for(pupil, tutor), 0.0)
         self.assertEqual(lesson(pupil), -1)  # a lesson a day at most

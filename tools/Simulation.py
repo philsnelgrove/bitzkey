@@ -447,6 +447,7 @@ ALARM_REACH = 6        # an alarmed animal knows where the hunter is within this
 # one, and costs its caller this much hunger, as any call does, the alert among them.
 CALL_REACH = 16
 CALL_COST = 0.3  # for each sound of a call: two sounds cost twice as much as one
+TUTOR_COST = 0.3  # hunger a lesson costs its tutor (once as dear as a call)
 CALL_LENGTH = 3  # the most sounds a call may run to, 1 to 3 (Brain.py's MAX_SOUNDS)
 # What a caller feels of what its call did to those of its kind who heard it: whether their next turn went better or
 # worse than each expected, weighed by its care for each (kin wholly, a friend by its regard, any other a quarter), the
@@ -6726,7 +6727,7 @@ class Simulation:
         if pupil is None or not pupil.alive or abs(pupil.x - tutor.x) + abs(pupil.y - tutor.y) > 1 or lesson < 0:
             tutor.last_action = "lost its pupil"
             return
-        tutor.hunger = min(100.0, tutor.hunger + CALL_COST)  # as dear as a call
+        tutor.hunger = min(100.0, tutor.hunger + TUTOR_COST)
         pupil.tutored_turn = self.turn
         if lesson == len(CRAFTS):
             pupil.archery += TUTOR_PRACTICE * ARCHERY_LEARNING * (1 - pupil.archery)  # worth part of a shot
