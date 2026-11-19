@@ -8,6 +8,12 @@ This is the original Bitzkey, the research build, written in Python. It runs ver
 
 Download it for Windows from the [latest release](https://github.com/philsnelgrove/bitzkey/releases/latest): `Bitzkey.exe` runs as it is, with nothing to install.
 
+## The brain
+
+[![A 3D model of the Bitzkey brain](docs/brain-model.png)](docs/brain-model.html)
+
+Each Bitzkey thinks with one neural network: 236 senses in, 147 values out. Inborn intellect decides what lies between: more hidden layers up to an intellect of 4, then wider ones. Short-term memory is a loop of 16 neurons carried from one choice to the next; long-term memory is the learnt weights and a mental map of remembered places. Download [docs/brain-model.html](docs/brain-model.html) and open it in a browser to turn the model and grow it from intellect 0 to 7.
+
 Bitzkey is a small artificial-ecology experiment. Each Bitzkey carries a 96-bit
 genome made of three CMYK colour words: an inner dot for its mind, an outer
 ring for its body, and a social background, behind its species icon, for how it
