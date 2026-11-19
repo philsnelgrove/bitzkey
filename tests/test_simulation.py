@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 import tools.Simulation as simulation_module
 
-from tools.Brain import sound_output, ACTIONS, ALERT_CALL, SENSES, Brain
+from tools.Brain import sound_output, ACTIONS, ALERT_CALL, FIRST_CALL, SENSES, SILENT, Brain
 from tools.Exchange import Imported
 from tools.Genome import NOCTURNAL, decode_body, encode_dna
 from tools.Simulation import (Death, DAY_LENGTH, FULL_STAMINA, SPAWN_SPREAD, DEATH_PENALTY, PARENT_GRIEF, PARENT_JOY, BREED_COOLDOWN, PREGNANT_REMORSE, ATTACK_JOY, FEAST_JOY, FRESH_KILL_MEALS, KILL_MEAL, KILL_MEAL_FOR_SIZE, BIRTH_REACH, PLANT_GESTATION, Bitzkey, gestation, CORPSE_TURNS, GRASS_DIEBACK, HOT, MEDIUM, PLANT_MEAL, PLANT_MEAL_FOR_SIZE, SEED_OFFSETS,
@@ -1714,6 +1714,57 @@ class NewTraitTests(unittest.TestCase):
             self.simulation._index_cells()
             situation = self.simulation._sense(lookout)[2]
             self.assertNotIn(ALERT_CALL, situation["calls"])
+
+    def test_without_cues_an_animals_calls_are_its_brains_alone(self):
+        for index in range(6):
+            self.simulation._add_agent(encode_dna("grazer"), 2 + index, 2)
+        for _ in range(10):
+            self.simulation._take_turn()
+        for agent in self.simulation.living:
+            self.assertEqual(agent.call_kind, 0)
+
+    @patch.multiple("tools.Simulation", CUES=1, CUE_URGE=1.0, CUE_COPY=0.0)
+    def test_with_cues_the_dullest_voice_their_cue_by_instinct_and_the_struck_cry_out(self):
+        for index in range(6):
+            self.simulation._add_agent(encode_dna("grazer", intellect=0), 2 + index, 2)
+        instinct = cries = 0
+        for turn in range(10):
+            if turn == 5:
+                self.simulation.living[0].struck_turn = self.simulation.turn
+            self.simulation._take_turn()
+            for agent in self.simulation.living:
+                if agent.call_kind == 2:
+                    instinct += 1
+                    self.assertEqual(agent.call, simulation_module.agent_cue(agent, agent.last_choice))
+                elif agent.call_kind == 1:
+                    cries += 1
+                    self.assertEqual(agent.call, simulation_module.cue_cry(agent))
+                self.assertNotEqual(agent.call_kind, 3)  # none chooses
+        self.assertGreater(instinct, 0)
+        self.assertGreater(cries, 0)
+        with patch("tools.Simulation.CUE_URGE", 0.0):  # by instinct, with no urge, silent
+            self.simulation._take_turn()
+            for agent in self.simulation.living:
+                if agent.call_kind == 2:
+                    self.assertEqual(agent.call, SILENT)
+
+    @patch.multiple("tools.Simulation", CUES=1, CUE_COPY=1.0)
+    def test_with_cues_cues_are_taken_on_from_others_and_kept_with_the_world(self):
+        from tools.WorldFile import world_bytes, world_from_bytes
+        for index in range(8):
+            self.simulation._add_agent(encode_dna("grazer", intellect=7, sight=7), 2 + index % 4, 2 + index // 4)
+        taken = False
+        for _ in range(30):
+            self.simulation._take_turn()
+            taken = taken or any(cue >= 0 for agent in self.simulation.living for cue in agent.cues)
+            if taken:
+                break
+        self.assertTrue(taken)
+        agent = self.simulation.living[0]
+        agent.cues[ACTIONS.index("eat")], agent.cry = FIRST_CALL + 2, FIRST_CALL + 3
+        again = world_from_bytes(world_bytes(self.simulation)).find_agent(agent.identifier)
+        self.assertEqual((again.cues, again.cry), (agent.cues, FIRST_CALL + 3))
+        self.assertEqual(simulation_module.agent_cue(again, ACTIONS.index("eat")), FIRST_CALL + 2)
 
     @patch("tools.Simulation.ALERTS", 1)
     def test_a_grazer_alerts_its_herd_to_a_hunter_and_a_hunter_its_pack_to_a_kill(self):

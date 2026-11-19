@@ -266,6 +266,17 @@ def swayed(loyalty: float, margin: float, chance: float) -> bool:
     return chance < ((margin - need) / (1.0 - need)) ** loyalty
 
 
+def agent_cue(agent, action: int) -> int:
+    """Its cue for an action: one taken on from another, or else its own first, by chance (as the C++ version's)."""
+    taken = agent.cues[action]
+    return taken if taken >= 0 else FIRST_CALL + min(CALL_COUNT - 1, int(whim(agent.identifier ^ ((action + 1) * 40503), 0x43554553) * CALL_COUNT))
+
+
+def cue_cry(agent) -> int:
+    """The sound it cries out in pain or panic: its own, or else its first, by chance."""
+    return agent.cry if agent.cry >= 0 else FIRST_CALL + min(CALL_COUNT - 1, int(whim(agent.identifier, 0x435259) * CALL_COUNT))
+
+
 def whim(identifier: int, turn: int) -> float:
     """A chance of its own this turn, 0 to 1, as the C++ draws it."""
     mask = (1 << 64) - 1
@@ -462,6 +473,19 @@ OUTSIDE_FORESIGHT = 10.0
 # sound, times this; and silence, taught beside each call, the same for hearing nothing, so calling in itself gains
 # nothing. Which call means what is left to them. 0 for none. As the C++ version's.
 SPEAK_AS_HEARD = 5.0
+# Cues and cries (CUES 1): each animal links each action to one of the five sounds, its cue for it, at first by chance,
+# and takes on another's, with chance CUE_COPY, when it hears and sees one of its kind call as it acts. Pain (struck
+# this turn or last) and panic make it cry out, a sound inherited from its mother that drifts with chance CRY_DRIFT at
+# birth, whatever its mind. Otherwise, by its intellect, it acts by instinct or by choice: the dullest always by
+# instinct, the brightest always by choice. By instinct, it voices the cue of what it does with chance CUE_URGE, or
+# keeps silent, its brain having no say; by choice, its brain picks its call, the cue's sound favoured by CUE_FAVOUR and
+# by CUE_SOCIABILITY times its sociability less a half, so the sociable lean to voicing it and the solitary to not.
+CUES = 0
+CUE_URGE = 0.3
+CUE_FAVOUR = 0.05
+CUE_SOCIABILITY = 0.1
+CUE_COPY = 0.1
+CRY_DRIFT = 0.02
 # The alert: 1, a grazer seeing a hunter, or a hunter a fresh kill, may alert its herd to it; 0, only the five calls.
 ALERTS = 0
 # Copying a call: 1, a child or a reader of body language learns to make the call where it was itself, by its own senses;
@@ -1345,6 +1369,9 @@ class Bitzkey:
     answer_turn: int = -1
     struck_turn: int = -1  # the last turn it was struck
     last_call: int = -1  # its last choice of call, to learn from with its action; -1 for none of its own
+    cues: list[int] = field(default_factory=lambda: [-1] * len(ACTIONS))  # its cue for each action, -1: its first, by chance
+    cry: int = -1  # the sound it cries out in pain or panic; -1: its first, by chance
+    call_kind: int = 0  # how it came by this turn's call: 0 by its brain (CUES 0), 1 a cry, 2 by instinct, 3 by choice
     sounds: list[int] = field(default_factory=lambda: [-1, -1])  # the sounds its call ran on to after the first (0..4), -1 where it stopped
     last_sounds: list[int] = field(default_factory=lambda: [-1, -1])  # likewise of its last choice of call, to learn from
     chosen_value: float = 0.0  # what its brain valued its last choice at, to judge how the turn went against it
@@ -3980,14 +4007,31 @@ class Simulation:
                 agent.chosen_value, agent.chosen_turn = valued[choice], self.turn
                 heeded = situation.get("heard_from")
                 agent.call_heeded = -1 if heeded is None else heeded.identifier
+            agent.call_kind = 0
             if not idle[index] and not situation.get("frozen"):
-                for output, chance in choice_odds(calls_valued, [call_output(call) for call in situation["calls"]], CALL_TEMPERATURE).items():
-                    call_roll -= chance
-                    agent.call = output - len(ACTIONS)
-                    if call_roll < 0:
-                        break
+                # With cues, pain and panic cry out, and by its intellect it voices its cue by instinct or chooses its call.
+                forced = -1
+                if CUES and (situation.get("panic") or agent.struck_turn >= self.turn - 1):
+                    forced, agent.call_kind = cue_cry(agent), 1
+                elif CUES and whim(agent.identifier ^ 0x5A17, self.turn) >= agent.intelligence:
+                    forced = agent_cue(agent, choice) if whim(~agent.identifier ^ 0x5A17, self.turn) < CUE_URGE else SILENT
+                    agent.call_kind = 2
+                elif CUES:
+                    agent.call_kind = 3
+                if forced >= 0:
+                    agent.call = forced
+                else:
+                    weighed = calls_valued
+                    if CUES:  # the cue of what it does favoured, the more for the sociable
+                        weighed = np.array(calls_valued, dtype=float)
+                        weighed[call_output(agent_cue(agent, choice))] += CUE_FAVOUR + CUE_SOCIABILITY * (agent.feeling("sociability") - 0.5)
+                    for output, chance in choice_odds(weighed, [call_output(call) for call in situation["calls"]], CALL_TEMPERATURE).items():
+                        call_roll -= chance
+                        agent.call = output - len(ACTIONS)
+                        if call_roll < 0:
+                            break
                 # A sound may run on: at each place after the first, it stops or adds one of the five, by its brain alone.
-                for place in range(1, min(CALL_LENGTH, MAX_SOUNDS)) if agent.call >= FIRST_CALL else ():
+                for place in range(1, min(CALL_LENGTH, MAX_SOUNDS)) if forced < 0 and agent.call >= FIRST_CALL else ():
                     roll, picked = whim(agent.identifier * MAX_SOUNDS + place, self.turn), sound_output(place, -1)
                     for output, chance in choice_odds(calls_valued, [sound_output(place, sound) for sound in range(-1, CALL_COUNT)], CALL_TEMPERATURE).items():
                         roll -= chance
@@ -4673,6 +4717,21 @@ class Simulation:
         lessons = [(where, output, copied) for output in self._utterance_outputs(parent) if output >= 0] if parent.last_call >= FIRST_CALL else []
         return lessons + [(child.last_senses, parent.last_choice, target)]
 
+    def _copy_cue(self, listener: Bitzkey) -> None:
+        """With cues, one that hears and sees another of its kind call as it acts may take that sound as its cue for it."""
+        if not CUES or CUE_COPY <= 0 or listener.heard_turn != self.turn or listener.heard_from < 0:
+            return
+        caller = self.find_agent(listener.heard_from)
+        if caller is None or not caller.alive or caller.last_senses is None or caller.last_call < FIRST_CALL or caller.species != listener.species:
+            return
+        if caller.call_kind == 1:
+            return  # a cry tells of pain, not of what it did
+        if abs(caller.x - listener.x) + abs(caller.y - listener.y) > self._sight_now(listener):
+            return  # heard, but not seen
+        if whim(listener.identifier ^ 0xC0B1, self.turn) >= CUE_COPY:
+            return
+        listener.cues[caller.last_choice] = caller.last_call
+
     def _body_language_lessons(self, listener: Bitzkey, target: float, call_target: float) -> list[tuple]:
         """One that sees the caller of its kind it hears, reading what it meant by its intellect (see BODY_LANGUAGE): the
         call, in the caller's situation, to make; and what the caller then did, in its own senses, to take in."""
@@ -4922,6 +4981,9 @@ class Simulation:
                     rates[row] = self._learning_rate(lessons[row][0]) * CHILD_CALL_LEARNING
             batch.learn(senses, actions, targets, rates)
         read = [self._body_language_lessons(lesson[0], lesson[1], lesson[3]) if lesson is not None else [] for lesson in lessons]
+        for lesson in lessons:  # and, with cues, a cue taken on from a caller seen
+            if lesson is not None:
+                self._copy_cue(lesson[0])
         for turn in range(max(map(len, read), default=0)):  # and from a caller seen, its body language read
             senses, rates = np.zeros((size, len(SENSES))), np.zeros(size)
             for row, seen in enumerate(read):
@@ -7133,6 +7195,10 @@ class Simulation:
             child = self._add_agent(dna, *cell, brain=brain)
             child.mother, child.father = mother.identifier, father
             child.mind = mind
+            if CUES:  # its mother's cry, or now and then another
+                child.cry = cue_cry(mother)
+                if whim(child.identifier ^ 0xC27, self.turn) < CRY_DRIFT:
+                    child.cry = FIRST_CALL + min(CALL_COUNT - 1, int(whim(~child.identifier ^ 0xC27, self.turn) * CALL_COUNT))
             child.hunger = max(0.0, 100 - energy / child.stomach)
             child.generation = generation
             self._population += 1
