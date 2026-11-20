@@ -217,6 +217,21 @@ class EffectTests(unittest.TestCase):
         self.assertAlmostEqual(chose.max_health - chose.health, 2 * (made.max_health - made.health))
         self.assertLess(made.health, made.max_health)
 
+    def test_tiredness_is_felt_as_the_cube_of_the_stamina_spent_the_resilient_minding_it_least(self):
+        with patch("tools.Simulation.FATIGUE_UNEASE", 1.0):
+            simulation = world(turn=240)
+            grazer = simulation._add_agent(encode_dna("grazer"), 20, 30)
+            grazer.hunger = 0.0
+            grazer.stamina = 100.0
+            fresh = simulation._wellbeing(grazer)
+            grazer.stamina = 50.0
+            half = simulation._wellbeing(grazer)
+            grazer.stamina = 0.0
+            spent = simulation._wellbeing(grazer)
+            mind = 1.5 - grazer.feeling("resilience")
+            self.assertAlmostEqual(fresh - half, mind * 0.125)
+            self.assertAlmostEqual(fresh - spent, mind)
+
     def test_an_animal_that_chose_to_rest_out_of_its_temperature_learns_the_rest_felt_worse_with_no_harm_done(self):
         def rest_value(unease):
             with patch.multiple("tools.Simulation", RESTING_UNEASE=unease, WEATHER_GRACE=30):

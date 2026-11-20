@@ -200,6 +200,9 @@ UNEASE = 0.1           # how much an intolerant animal minds other species close
 CLIMATE_UNEASE = 2.0   # discomfort two or more steps from home, half that one step; less for the hardy
 PATIENT_DISCOUNT = 0.99  # gamma at the highest patience: how far ahead the patient look
 IMPATIENT_DISCOUNT = 0.9  # and at the lowest: even the least patient look some ten turns ahead
+# Tiredness is felt: an unease of FATIGUE_UNEASE x the cube of the stamina spent, hardly felt while fresh and sharply
+# near exhaustion, times one and a half less its resilience (the resilient mind it least).
+FATIGUE_UNEASE = 0.5
 RESTING_UNEASE = 1.0  # unease, a turn, of having chosen to rest out of its temperature, two or more steps from home (half one step; less if hardy)
 HOMEWARD_UNEASE = 3.0  # more discomfort away from home, rising with the distance to home to this at half the map's height
 EMPATHY_PAIN = 0.15    # how much an empathetic animal feels another's wound; twice that for a death
@@ -4609,8 +4612,10 @@ class Simulation:
     def _wellbeing(self, agent: Bitzkey) -> float:
         """How comfortable an animal feels; appetite sets how much hunger hurts."""
         appetite = 0.5 + agent.feeling("appetite")
+        spent = min(1.0, max(0.0, 1 - agent.stamina / FULL_STAMINA))
+        tired = FATIGUE_UNEASE * (1.5 - agent.feeling("resilience")) * spent ** 3
         return (-appetite * min(100.0, agent.hunger) / 100
-                - (1 - max(0.0, agent.health) / agent.max_health))
+                - (1 - max(0.0, agent.health) / agent.max_health) - tired)
 
     @staticmethod
     def _comfort(agent: Bitzkey, situation: dict) -> float:
