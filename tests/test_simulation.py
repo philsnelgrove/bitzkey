@@ -1666,6 +1666,29 @@ class NewTraitTests(unittest.TestCase):
         self.simulation._foresee(grazer, [0.0] * 4, now)
         self.assertGreater(grazer.brain.values(grazer.last_senses)[OUTSIDE + seen], before)
 
+    def test_echo_makes_the_sound_heard_before_a_surprise_readier_keeping_the_odds_of_silence_and_of_calling(self):
+        import math
+        from tools.Brain import ALERT_CALL, CALL_COUNT, FIRST_CALL, SILENT, call_output
+        with patch.multiple("tools.Simulation", ECHO=1.0, CALL_TEMPERATURE=0.5):
+            odds = {call_output(SILENT): 0.4, call_output(ALERT_CALL): 0.1,
+                    **{call_output(FIRST_CALL + sound): 0.1 for sound in range(CALL_COUNT)}}
+            echoed = simulation_module.echo_odds(odds, call_output(FIRST_CALL + 2), call_output(FIRST_CALL), call_output(FIRST_CALL + CALL_COUNT - 1))
+        self.assertAlmostEqual(echoed[call_output(SILENT)], 0.4)
+        self.assertAlmostEqual(echoed[call_output(ALERT_CALL)], 0.1)
+        self.assertAlmostEqual(sum(echoed[call_output(FIRST_CALL + sound)] for sound in range(CALL_COUNT)), 0.5)
+        self.assertAlmostEqual(echoed[call_output(FIRST_CALL + 2)] / echoed[call_output(FIRST_CALL)], math.exp(2.0))
+        with patch.multiple("tools.Simulation", NAMING=1.0):
+            for index in range(12):
+                self.simulation._add_agent(encode_dna("grazer", intellect=7, sight=7), 2 + index % 4, 2 + index // 4)
+            self.simulation._add_agent(encode_dna("predator"), 6, 6)
+            kept = False
+            for _ in range(40):
+                self.simulation._take_turn()
+                kept = kept or any(row[0] > 0 for agent in self.simulation.living for row in agent.echo_of)
+                if kept:
+                    break
+        self.assertTrue(kept)
+
     def test_a_call_carries_a_tag_every_hearer_reads_the_callers_colours_pitch_harshness_and_urgency(self):
         from tools.Brain import FIRST_CALL, VOICE_SENSES
         from tools.Genome import body_word, color_from_word, decode_voice

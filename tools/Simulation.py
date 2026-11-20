@@ -477,6 +477,8 @@ OUTSIDE_FORESIGHT = 10.0
 # one who heard it would (not seeing what it saw), comes to what it saw than on the mean of hearing nothing or any one
 # sound, times this; and silence, taught beside each call, the same for hearing nothing, so calling in itself gains
 # nothing. Which call means what is left to them. 0 for none. As the C++ version's.
+# Echo, speak as heard with the odds held: as the C++ version's ECHO. 0 for none.
+ECHO = 2.0
 SPEAK_AS_HEARD = 15.0
 # Cues and cries (CUES 1): each animal links each action to one of the five sounds, its cue for it, at first by chance,
 # and takes on another's, with chance CUE_COPY, when it hears and sees one of its kind call as it acts. Pain (struck
@@ -1397,6 +1399,8 @@ class Bitzkey:
     told_by: int = -1  # the teller it last heard, and when
     told_turn: int = -1
     told_surprise: float = 0.0
+    # Echo: for each outside thing, the call heard just before it most surprised it, sound by sound, 1 + each (0 none)
+    echo_of: list = field(default_factory=lambda: [[0] * MAX_SOUNDS for _ in range(len(OUTSIDE_SENSES))])
     call_urgency: float = 0.0  # how stirred it was as it last called, carried in its call's tag
     sounds: list[int] = field(default_factory=lambda: [-1, -1])  # the sounds its call ran on to after the first (0..4), -1 where it stopped
     last_sounds: list[int] = field(default_factory=lambda: [-1, -1])  # likewise of its last choice of call, to learn from
@@ -1816,6 +1820,18 @@ class Bitzkey:
                        trail=list(self.trail), memories=list(self.memories),
                        womb=[(dna, dict(mind), brain.copy() if brain else None, energy, generation, father)
                              for dna, mind, brain, energy, generation, father in self.womb])
+
+
+def echo_odds(odds: dict, favoured: int, first: int, last: int) -> dict:
+    """Echo: among the odds of `first` to `last` (the five sounds of a place), `favoured` made readier, as if valued ECHO
+    higher, their share of the odds kept; the others' odds untouched. As the C++ version's."""
+    boost = math.exp(min(50.0, ECHO / CALL_TEMPERATURE))
+    mass = sum(chance for output, chance in odds.items() if first <= output <= last)
+    raised = {output: chance * boost if output == favoured else chance for output, chance in odds.items()}
+    total = sum(chance for output, chance in raised.items() if first <= output <= last)
+    if total <= 0:
+        return odds
+    return {output: chance * mass / total if first <= output <= last else chance for output, chance in raised.items()}
 
 
 def call_tag(caller: Bitzkey, hearer: Bitzkey) -> list[float]:
@@ -4083,7 +4099,11 @@ class Simulation:
                         lift = NAMING * agent.itch * agent.intelligence * (0.5 + agent.feeling("sociability"))
                         for call in range(FIRST_CALL, FIRST_CALL + CALL_COUNT):
                             weighed[call_output(call)] += lift
-                    for output, chance in choice_odds(weighed, [call_output(call) for call in situation["calls"]], CALL_TEMPERATURE).items():
+                    odds = choice_odds(weighed, [call_output(call) for call in situation["calls"]], CALL_TEMPERATURE)
+                    if ECHO > 0 and startled >= 0 and agent.echo_of[startled][0] > 0:
+                        odds = echo_odds(odds, call_output(FIRST_CALL + agent.echo_of[startled][0] - 1),
+                                         call_output(FIRST_CALL), call_output(FIRST_CALL + CALL_COUNT - 1))
+                    for output, chance in odds.items():
                         call_roll -= chance
                         agent.call = output - len(ACTIONS)
                         if call_roll < 0:
@@ -4091,7 +4111,11 @@ class Simulation:
                 # A sound may run on: at each place after the first, it stops or adds one of the five, by its brain alone.
                 for place in range(1, min(CALL_LENGTH, MAX_SOUNDS)) if forced < 0 and agent.call >= FIRST_CALL else ():
                     roll, picked = whim(agent.identifier * MAX_SOUNDS + place, self.turn), sound_output(place, -1)
-                    for output, chance in choice_odds(calls_valued, [sound_output(place, sound) for sound in range(-1, CALL_COUNT)], CALL_TEMPERATURE).items():
+                    odds = choice_odds(calls_valued, [sound_output(place, sound) for sound in range(-1, CALL_COUNT)], CALL_TEMPERATURE)
+                    if ECHO > 0 and startled >= 0 and agent.echo_of[startled][place] > 0:
+                        odds = echo_odds(odds, sound_output(place, agent.echo_of[startled][place] - 1),
+                                         sound_output(place, 0), sound_output(place, CALL_COUNT - 1))
+                    for output, chance in odds.items():
                         roll -= chance
                         picked = output
                         if roll < 0:
@@ -4109,6 +4133,9 @@ class Simulation:
                 agent.call_urgency = max(0.0, min(1.0, max(max(surprise, default=0.0), threat, min(100.0, agent.hunger) / 100, pain)))
                 if itchy and forced < 0 and agent.call >= FIRST_CALL:  # it told, surprised
                     agent.named, agent.named_turn, agent.surprised = startled, self.turn, list(surprise)
+            heard_sounds = situation.get("loudest_sounds")
+            if ECHO > 0 and startled >= 0 and heard_sounds is not None:  # echo: the call heard, kept against what surprised it
+                agent.echo_of[startled] = [sound + 1 for sound in heard_sounds]
             self._keep_habit(agent, senses)  # how its call kept to its habits, and the call remembered
             # What its memory now holds, written as it chose, unless its brain wasn't asked (asleep or spent, it keeps what
             # it held); and the senses it chose by before, while each choice since wrote its memory, to learn back in time.
@@ -4614,7 +4641,7 @@ class Simulation:
         )
         situation = {"envy": envied, "claim_from": claim_from, "claim": claim, "gift_to": gift_to, "gift": gift, "trade_with": trade_with, "wanted": wanted_good, "offered": offered_good, "teacher_steps": -1 if teacher is None else abs(teacher.x - agent.x) + abs(teacher.y - agent.y),
                      "mate": mate, "nurseries": nurseries, "young_near": young, "young": own_young, "prey": target, "threat": threat,
-                     "threats": len(threats), "heard_from": heard_from, "loudest_from": caller, "quarry": quarry, "shoot_at": shoot_at, "practise_on": practise_on, "hunter": hunter, "suitor": suitor, "suitor_at": suitor and (suitor.x, suitor.y),
+                     "threats": len(threats), "heard_from": heard_from, "loudest_from": caller, "loudest_sounds": ([caller.call - FIRST_CALL, *caller.sounds] if caller is not None and caller.call >= FIRST_CALL else None), "quarry": quarry, "shoot_at": shoot_at, "practise_on": practise_on, "hunter": hunter, "suitor": suitor, "suitor_at": suitor and (suitor.x, suitor.y),
                      "grass": grass, "grass_here": grass_here, "carrion": carrion, "kill": kill, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
                      "others": others, "defend_target": defend_target, "for_herd": assailant is None,
                      "herd": herd, "herd_near": herd_near, "herd_middle": herd_middle, "store": store, "fletch_for": fletch_for,

@@ -359,6 +359,7 @@ _TABLE: dict[str, list[tuple]] = {
          0.0, 20.0, 0.5),
         ("SPEAK_AS_HEARD", "Speak as heard", "how much a call is taught by how much nearer the caller's own foresight, hearing that call, comes to the hunter, prey or meat it saw than on hearing nothing or any one sound; 0 for none",
          0.0, 20.0, 0.5),
+        ("ECHO", "Echo", "how much readier the sounds an animal last heard just before something surprised it come, when that same thing next surprises it: it changes only which sound, never whether it calls or how long; 0 for none", 0.0, 10.0, 0.1),
         ("CUES", "Cues", "1: each action has a cue, one of the five sounds, first by chance and then taken on from others seen calling as they act; pain and panic cry out; by its intellect an animal voices its cue by instinct or chooses its call; 0: calls by the brain alone", 0, 1, 1),
         ("CUE_URGE", "Cue urge", "with cues, the chance that an animal acting by instinct voices the cue of what it does, rather than keep silent", 0.0, 1.0, 0.05),
         ("CUE_FAVOUR", "Cue favour", "with cues, how much more an animal choosing its call values the cue of what it does", 0.0, 1.0, 0.01),
