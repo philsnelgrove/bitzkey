@@ -1651,7 +1651,7 @@ class NewTraitTests(unittest.TestCase):
     def test_outside_foresight_learns_how_near_it_will_next_sense_a_hunter_prey_and_meat(self):
         from tools.Brain import OUTPUTS, OUTSIDE, OUTSIDE_SENSES, later_sound
         self.assertEqual(OUTPUTS[OUTSIDE:OUTSIDE + 3], ("foresee_threat", "foresee_prey", "foresee_carrion"))
-        self.assertEqual(len(OUTPUTS[OUTSIDE:]), 21)
+        self.assertEqual(len(OUTPUTS[OUTSIDE:]), 21 + 7)  # then the seven wishes
         self.assertFalse(later_sound(OUTSIDE))
         self.assertTrue(later_sound(OUTSIDE - 1))
         grazer = self.simulation._add_agent(encode_dna("grazer"), 5, 5)
@@ -1688,6 +1688,32 @@ class NewTraitTests(unittest.TestCase):
                 if kept:
                     break
         self.assertTrue(kept)
+
+    def test_intent_a_hearers_deeds_are_read_as_its_callers_wishes_name_them_and_callers_come_to_want_things(self):
+        from tools.Brain import OUTPUTS, WISH, WISHES
+        caller = self.simulation._add_agent(encode_dna("grazer"), 5, 5)
+        hearer = self.simulation._add_agent(encode_dna("grazer"), 8, 5)
+        for action, wish in (("go_west", "wish_near"), ("walk_east", "wish_away"), ("flee", "wish_flee"),
+                             ("browse", "wish_eat"), ("offer", "wish_trade")):
+            hearer.last_choice = ACTIONS.index(action)
+            self.assertEqual(self.simulation.deeds_of(hearer, caller), 1 << WISHES.index(wish))
+        hearer.last_choice = ACTIONS.index("go_north")  # neither nearer nor further
+        self.assertEqual(self.simulation.deeds_of(hearer, caller), 0)
+        self.assertEqual(OUTPUTS[WISH], "wish_near")
+        self.assertEqual(OUTPUTS[-1], "wish_fight")
+        with patch.multiple("tools.Simulation", INTENT=1.0, WISH_LEARNING=1.0):
+            for index in range(12):
+                self.simulation._add_agent(encode_dna("grazer", intellect=7, sight=7), 2 + index % 4, 2 + index // 4)
+            self.simulation._add_agent(encode_dna("predator"), 6, 6)
+            intended = False
+            for _ in range(40):
+                self.simulation._take_turn()
+                for agent in self.simulation.living:
+                    self.assertLess(agent.intent, len(WISHES))
+                    if agent.intent >= 0:
+                        intended = True
+                        self.assertGreaterEqual(agent.call, FIRST_CALL)
+        self.assertTrue(intended)
 
     def test_a_call_carries_a_tag_every_hearer_reads_the_callers_colours_pitch_harshness_and_urgency(self):
         from tools.Brain import FIRST_CALL, VOICE_SENSES

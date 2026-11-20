@@ -20,7 +20,7 @@ import numpy as np
 
 import tools.Brain as brain_rules  # its rules, as they now stand
 from tools.Brain import (read_senses, ACTIONS, ALERT_CALL, CALL_COUNT, CALLS, FIRST_CALL, MAX_SOUNDS, sound_output, FORESEEN, FORESIGHT, MEMORY_GATES, MEMORY_NEURONS, OUTPUTS, SENSES, SILENT, Brain, BrainBatch, call_output,
-                         OUTSIDE, OUTSIDE_FORESEEN, OUTSIDE_SENSES, VOICE_SENSES, utterance_sense,
+                         OUTSIDE, OUTSIDE_FORESEEN, OUTSIDE_SENSES, VOICE_SENSES, utterance_sense, WISH, WISHES,
                          choice_odds, depth_for, gene_senses, imagined_call, imagining, make_senses, memory_after, width_for)
 from tools.Genome import (GENOME, SPECIES, TEMPERAMENT, TRAIT_MAX, body_word, color_from_word, colour_difference, cross, decode_nocturnal, dot_difference,
                           inherit_mind,
@@ -479,6 +479,11 @@ OUTSIDE_FORESIGHT = 10.0
 # nothing. Which call means what is left to them. 0 for none. As the C++ version's.
 # Echo, speak as heard with the odds held: as the C++ version's ECHO. 0 for none.
 ECHO = 2.0
+# Intent: a caller's wishes, learnt at WISH_LEARNING of its learning rate from how its own turn went as its hearers did
+# each deed; its intent the wish it valued most as it called, and its call taught INTENT times the share of its hearers
+# who then did that. As the C++ version's. 0 for none.
+INTENT = 1.0
+WISH_LEARNING = 1.0
 SPEAK_AS_HEARD = 15.0
 # Cues and cries (CUES 1): each animal links each action to one of the five sounds, its cue for it, at first by chance,
 # and takes on another's, with chance CUE_COPY, when it hears and sees one of its kind call as it acts. Pain (struck
@@ -1412,6 +1417,14 @@ class Bitzkey:
     call_outputs: list[int] = field(default_factory=lambda: [-1, -1, -1])
     held_call_target: float = 0.0
     call_held: bool = False
+    # Intent: the wish it valued most as it last called (-1 none), and as its held call was made; and, as its hearers' turn
+    # is judged, which deeds they did (a bit for each wish), how many did its intent, and how its own turn went.
+    intent: int = -1
+    held_intent: int = -1
+    wishes_done: int = 0
+    intent_met: int = 0
+    wish_advantage: float = 0.0
+    wish_judged: bool = False
     habits: list[tuple] = field(default_factory=list)  # its last calls (see CALL_HABIT): (senses a byte each, the call by sounds)
     habit_pull: float = 0.0  # how well its last call kept to its habits, beyond chance, -1..1
     call_pleasure: float = 0.0  # the pleasures of its call since it last chose (an alert heeded, being understood)
@@ -4067,7 +4080,7 @@ class Simulation:
                 self.insights.record(agent.species, agent.profile, (ACTIONS[option] for option in options), action)
             agent.odds = {ACTIONS[option]: chance for option, chance in odds.items()}
             # And what it calls as it does it: by its brain alone, one asleep, spent or frozen with fear keeping silent.
-            agent.call, agent.last_call = SILENT, -1
+            agent.call, agent.last_call, agent.intent = SILENT, -1, -1
             agent.sounds, agent.last_sounds = [-1, -1], [-1, -1]
             if not idle[index]:  # what its brain made of what it chose, to judge the turn against
                 agent.chosen_value, agent.chosen_turn = valued[choice], self.turn
@@ -4126,6 +4139,11 @@ class Simulation:
                     agent.sounds[place - 1] = sound
                 agent.last_call, agent.last_sounds = agent.call, list(agent.sounds)
                 agent.call_turn = self.turn
+                if INTENT > 0 and agent.call >= FIRST_CALL:  # with Intent, the wish it values most as it calls
+                    agent.intent = 0
+                    for wish in range(1, len(WISHES)):
+                        if calls_valued[WISH + wish] > calls_valued[WISH + agent.intent]:
+                            agent.intent = wish
                 # Its urgency, carried in its call's tag: the strongest of what stirs it, surprise, a threat in sight (the
                 # more for the fearful), hunger and pain.
                 threat = senses[SENSES.index("threat_closeness")] * (0.5 + agent.fearfulness) / 1.5
@@ -5034,9 +5052,18 @@ class Simulation:
     def _credit_callers(self, plans: list, lessons: dict[int, tuple]) -> None:
         """How each one's turn went against what it expected of its choice, shared with the caller of its kind it heard as
         it chose, by that caller's care for it: kin wholly, a friend by its regard, any other a quarter (see CALL_EMPATHY)."""
+        # And, with Intent, which deeds its hearers did, how many did what it intended, and how its own turn went.
+        wishing = INTENT > 0 or WISH_LEARNING > 0
         for plan in plans:
-            plan[0].call_credit, plan[0].call_listeners = 0.0, 0
-        if CALL_EMPATHY <= 0:
+            agent = plan[0]
+            agent.call_credit, agent.call_listeners, agent.wishes_done, agent.intent_met = 0.0, 0, 0, 0
+            agent.wish_judged, agent.wish_advantage = False, 0.0
+        if wishing:
+            for index, lesson in lessons.items():
+                agent = plans[index][0]
+                if agent.call_held and agent.chosen_turn == self.turn - 1:
+                    agent.wish_judged, agent.wish_advantage = True, lesson[0] - agent.chosen_value
+        if CALL_EMPATHY <= 0 and not wishing:
             return
         for index, lesson in lessons.items():
             listener = plans[index][0]
@@ -5046,8 +5073,37 @@ class Simulation:
             if caller is None or not caller.alive or not caller.call_held or caller is listener:
                 continue
             care = 1.0 if self._family(caller, listener) else max(0.25, self._regard_for(caller, listener))
-            caller.call_credit += care * (lesson[0] - listener.chosen_value)
+            if CALL_EMPATHY > 0:
+                caller.call_credit += care * (lesson[0] - listener.chosen_value)
             caller.call_listeners += 1
+            if not wishing:
+                continue
+            deeds = self.deeds_of(listener, caller)
+            caller.wishes_done |= deeds
+            if caller.held_intent >= 0:
+                caller.intent_met += (deeds >> caller.held_intent) & 1
+
+    def deeds_of(self, hearer: Bitzkey, caller: Bitzkey) -> int:
+        """The deeds of `hearer`'s last choice, as `caller`'s wishes name them, a bit for each (see INTENT)."""
+        choice, deeds = hearer.last_choice, 0
+        name = ACTIONS[choice] if 0 <= choice < len(ACTIONS) else ""
+        headings = {"go_north": (0, -1), "go_south": (0, 1), "go_east": (1, 0), "go_west": (-1, 0),
+                    "walk_north": (0, -1), "walk_south": (0, 1), "walk_east": (1, 0), "walk_west": (-1, 0)}
+        if name in headings:  # nearer the caller, or further off, by which way it set out
+            dx, dy = headings[name]
+            east = (caller.x - hearer.x + self.width // 2) % self.width - self.width // 2
+            toward = dx * east + dy * (caller.y - hearer.y)
+            if toward > 0:
+                deeds |= 1 << WISHES.index("wish_near")
+            if toward < 0:
+                deeds |= 1 << WISHES.index("wish_away")
+        kinds = {"flee": "wish_flee", "rest": "wish_rest", "give": "wish_trade", "offer": "wish_trade",
+                 **{eat: "wish_eat" for eat in ("eat", "forage", "browse", "uproot", "scavenge", "feast", "eat_pile",
+                                                "eat_carried", "eat_seed", "eat_marrow")},
+                 **{fight: "wish_fight" for fight in ("hunt", "attack", "defend", "shoot")}}
+        if name in kinds:
+            deeds |= 1 << WISHES.index(kinds[name])
+        return deeds
 
     def _settled_call(self, agent: Bitzkey) -> list[tuple]:
         """Its held call lesson, with what it did to its listeners, as lessons of (senses, output, target, rate)."""
@@ -5065,8 +5121,15 @@ class Simulation:
             target += NAMING_RELIEF
         if agent.call_listeners > 0:
             target += CALL_EMPATHY * agent.feeling("empathy") * agent.call_credit / agent.call_listeners
+        if agent.call_listeners > 0 and agent.held_intent >= 0:
+            target += INTENT * agent.intent_met / agent.call_listeners
         target = limited_value(target)
-        return [(agent.call_senses, output, target, rate) for output in agent.call_outputs if output >= 0]
+        lessons = [(agent.call_senses, output, target, rate) for output in agent.call_outputs if output >= 0]
+        if WISH_LEARNING > 0 and agent.wish_judged:  # its wishes: each deed its hearers did, by how its own turn went
+            value = limited_value(agent.wish_advantage)
+            lessons += [(agent.call_senses, WISH + wish, value, rate * WISH_LEARNING)
+                        for wish in range(len(WISHES)) if agent.wishes_done & (1 << wish)]
+        return lessons
 
     def _learn_batch(self, batch: BrainBatch, lessons: list[tuple | None], agents: list[Bitzkey] | None = None) -> None:
         """_learn, with replays, for every brain of a batch at once, each (agent, target, outcome, call target) or None
@@ -5086,9 +5149,9 @@ class Simulation:
             rate = self._learning_rate(agent)
             if agent.last_call >= 0:
                 outputs = self._utterance_outputs(agent)
-                if CALL_EMPATHY > 0:  # feeling for its listeners, it holds the lesson a turn, till their turn is judged
-                    agent.call_senses, agent.call_outputs = agent.last_senses, outputs
-                    agent.held_call_target, agent.call_held = call_target, rate > 0
+                if CALL_EMPATHY > 0 or INTENT > 0 or WISH_LEARNING > 0:  # feeling for or wanting of its listeners, it holds
+                    agent.call_senses, agent.call_outputs = agent.last_senses, outputs  # the lesson a turn, till theirs is judged
+                    agent.held_call_target, agent.call_held, agent.held_intent = call_target, rate > 0, agent.intent
                 else:
                     calls[row] += [(agent.last_senses, output, call_target, rate) for output in outputs if output >= 0]
                 quiet = self._silence_target(agent, call_target)

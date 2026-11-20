@@ -51,11 +51,17 @@ OUTSIDE_THINGS = ("threat", "prey", "carrion", "kill", "grass", "plant", "mate",
                   "standout", "meat_pile", "fruit_pile", "stone_pile", "bone_pile", "wood_pile", "gear_pile", "fire", "comfort")
 OUTSIDE_FORESEEN = tuple(f"foresee_{thing}" for thing in OUTSIDE_THINGS)
 OUTSIDE = MORE_SOUNDS + len(LATER_SOUNDS)  # the first of them
+# Wishes: last of all its outputs, what a caller expects to gain were one who heard its call then to come nearer, go
+# further off, flee, rest, eat, trade or fight; learnt from how its own turn went (see WISH_LEARNING and INTENT). As the
+# C++ version's.
+WISHES = ("wish_near", "wish_away", "wish_flee", "wish_rest", "wish_eat", "wish_trade", "wish_fight")
+WISH_NEAR, WISH_AWAY, WISH_FLEE, WISH_REST, WISH_EAT, WISH_TRADE, WISH_FIGHT = range(len(WISHES))
+WISH = OUTSIDE + len(OUTSIDE_FORESEEN)  # the first of them
 # A brain's outputs by name: its actions, then silence and the calls, then its memory's gates and values to write, then
-# what it foresees, then a call's later sounds, then what it foresees of the outside.
+# what it foresees, then a call's later sounds, then what it foresees of the outside, then its wishes of its hearers.
 OUTPUTS = (ACTIONS + CALLS + tuple(f"memory_gate_{neuron}" for neuron in range(1, MEMORY_NEURONS + 1))
            + tuple(f"memory_value_{neuron}" for neuron in range(1, MEMORY_NEURONS + 1)) + FORESEEN + LATER_SOUNDS
-           + OUTSIDE_FORESEEN)
+           + OUTSIDE_FORESEEN + WISHES)
 
 
 def sound_output(place: int, sound: int) -> int:

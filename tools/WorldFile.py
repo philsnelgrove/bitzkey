@@ -251,8 +251,10 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         **({"call_pleasure": float(agent.call_pleasure)} if agent.call_pleasure != 0 else {}),
         **({"call_values": [float(agent.call_whole), float(agent.call_part)]} if agent.call_whole != 0 or agent.call_part != 0 else {}),
         **({"held_call": {"senses": numbers.senses(agent.call_senses), "target": float(agent.held_call_target),
-                          "outputs": [OUTPUTS[output] if output >= 0 else None for output in agent.call_outputs]}}
+                          "outputs": [OUTPUTS[output] if output >= 0 else None for output in agent.call_outputs],
+                          **({"intent": agent.held_intent} if agent.held_intent >= 0 else {})}}
            if agent.call_held and agent.call_senses is not None else {}),
+        **({"intent": agent.intent} if agent.intent >= 0 else {}),
         # each [column, row, last, then for each season: seen, food, danger, comfort]
         "places": [[place.column, place.row, place.last,
                     *(value for quarter in range(4) for value in (place.seen[quarter], float(place.food[quarter]),
@@ -378,6 +380,7 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
     agent.told_turn = int(record.get("told_turn", -1))
     agent.told_surprise = float(record.get("told_surprise", 0.0))
     agent.call_urgency = float(record.get("call_urgency", 0.0))
+    agent.intent = int(record.get("intent", -1))
     if "echo_of" in record:
         agent.echo_of = [[int(sound) for sound in row] for row in record["echo_of"]]
     agent.sounds = [int(sound) for sound in record.get("sounds", [-1, -1])]  # one sound, before calls ran on
@@ -398,6 +401,7 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
         agent.call_senses = numbers.senses(held_call["senses"])
         agent.held_call_target = float(held_call["target"])
         agent.call_outputs = [OUTPUTS.index(name) if name in OUTPUTS else -1 for name in held_call["outputs"]]
+        agent.held_intent = int(held_call.get("intent", -1))
         agent.call_held = True
     if "held" in record:  # blank, in a world saved before memory
         saved_held = [float(held) for held in record["held"]][:MEMORY_NEURONS]  # 8 in a world saved before 1.148
