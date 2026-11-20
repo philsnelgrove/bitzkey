@@ -52,6 +52,7 @@ MIND_MUTATION_ROLLS = 3     # mind mutations a birth may carry, each with the mi
 BODY_MUTATION_CHANCE = 0.25  # one bit of the ring flips
 SPECIES_REROLL = 0.5  # a body mutation landing on the species is moved to another bit, rolled afresh, this often
 TERRAIN_MUTATION_SHARE = 1 / 32  # a birth's chance of its terrain moving a step, as a share of its body mutation chance
+VOICE_MUTATION_SHARE = 0.5  # a birth's chance of its voice stepping one up or down, as a share of its body mutation chance
 NOCTURNAL = 1 << 34  # the species trait's third bit: active by night
 SPARE_BITS = 0xC0000000  # the dot's two bits that hold no mind trait: the tolerance flags
 SOCIAL_SPARE = WORD & ~((1 << NEURODIVERGENCE_SHIFT) - 1)  # the social background's bits that hold no trait
@@ -308,7 +309,8 @@ def cross(first: int, second: int, rng: random.Random, mind: Mapping[str, float]
     inborn traits, with a `mind_chance` of a mutation. The dot's two spare bits come from either
     parent, and so, separately, do the social background's neurodivergence, terrain and spare bits.
     With `terrain_mutation`, a birth has TERRAIN_MUTATION_SHARE of the body mutation chance of moving its terrain a
-    step along TERRAIN_CHAIN, toward the sea or the air as likely (no further than its ends).
+    step along TERRAIN_CHAIN, toward the sea or the air as likely (no further than its ends), and VOICE_MUTATION_SHARE
+    of it of stepping its voice gene one up or down.
     """
     body_chance = BODY_MUTATION_CHANCE if body_chance is None else body_chance
     mask = (1 << rng.randrange(1, 32)) - 1
@@ -327,6 +329,9 @@ def cross(first: int, second: int, rng: random.Random, mind: Mapping[str, float]
     if terrain_mutation and rng.random() < body_chance * TERRAIN_MUTATION_SHARE:  # a step along its chain
         place = TERRAIN_CHAIN.index(decode_terrain(child)) + (1 if rng.random() < 0.5 else -1)
         child = with_terrain(child, TERRAIN_CHAIN[max(0, min(3, place))])
+    if terrain_mutation and rng.random() < body_chance * VOICE_MUTATION_SHARE:  # its voice a step higher or lower
+        voice = max(0, min(VOICE_MAX, decode_voice(child) + (1 if rng.random() < 0.5 else -1)))
+        child = (child & ~(VOICE_MAX << VOICE_SHIFT)) | voice << VOICE_SHIFT
     return child
 
 

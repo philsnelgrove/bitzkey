@@ -46,6 +46,18 @@ class SeaTests(unittest.TestCase):
         self.assertEqual(found, {"aquatic", "amphibious", "terrestrial"})  # a step either way, never two
         self.assertEqual({decode_terrain(cross(parent, parent, rng, None, 0.0, 1.0, False)) for _ in range(400)}, {"amphibious"})
 
+    def test_a_voice_mutation_steps_it_one_up_or_down_and_no_further_than_its_ends(self):
+        from tools.Genome import VOICE_MAX, VOICE_MUTATION_SHARE, VOICE_SHIFT, decode_voice
+        rng = random.Random(13)
+        parent = encode_dna("grazer") | 4 << VOICE_SHIFT
+        voices = [decode_voice(cross(parent, parent, rng, None, 0.0, 1.0)) for _ in range(4000)]
+        self.assertEqual(set(voices), {3, 4, 5})  # a step either way, never two
+        self.assertAlmostEqual(sum(v != 4 for v in voices) / 4000, VOICE_MUTATION_SHARE, delta=0.05)
+        self.assertEqual({decode_voice(cross(parent, parent, rng, None, 0.0, 1.0, False)) for _ in range(400)}, {4})
+        lowest = encode_dna("grazer")
+        self.assertEqual({decode_voice(cross(lowest, lowest, rng, None, 0.0, 1.0)) for _ in range(400)}, {0, 1})
+        self.assertEqual(VOICE_MAX, 7)
+
     def test_the_terrestrial_keep_to_the_land_and_the_aquatic_to_the_sea(self):
         simulation = seaside()
         x, y = coast(simulation)
