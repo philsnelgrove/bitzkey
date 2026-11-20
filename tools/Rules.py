@@ -342,6 +342,7 @@ _TABLE: dict[str, list[tuple]] = {
         ("CALL_REACH", "Call reach", "steps a call carries, times a half and its caller's size (as a share of its range): the larger, the further",
          1, 30, 1),
         ("CALL_COST", "Call cost", "hunger each sound of a call costs its caller, the alert among them", 0.0, 20.0, 0.1),
+        ("CALL_FATIGUE", "Call fatigue", "stamina each sound of a call costs its caller, the alert among them, as an action's tiredness is counted (an action alone costs 10)", 0.0, 50.0, 0.5),
         ("TUTOR_COST", "Tutor cost", "hunger a lesson costs the one who tutors", 0.0, 5.0, 0.05),
         ("CALL_LENGTH", "Call length", "the most sounds a call may run to, in order: 1 single sounds only, 3 pairs and threes too", 1, 3, 1),
         ("SILENCE_LESSON", "Silence lesson", "share of its learning by which each call also teaches what keeping quiet would have brought: the same turn without the call's cost or pleasures; 0 for none",
