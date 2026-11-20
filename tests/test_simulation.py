@@ -1666,6 +1666,27 @@ class NewTraitTests(unittest.TestCase):
         self.simulation._foresee(grazer, [0.0] * 4, now)
         self.assertGreater(grazer.brain.values(grazer.last_senses)[OUTSIDE + seen], before)
 
+    def test_a_call_carries_a_tag_every_hearer_reads_the_callers_colours_pitch_harshness_and_urgency(self):
+        from tools.Brain import FIRST_CALL, VOICE_SENSES
+        from tools.Genome import body_word, color_from_word, decode_voice
+        caller = self.simulation._add_agent(encode_dna("grazer", size=7, aggression=7), 5, 5)
+        listener = self.simulation._add_agent(encode_dna("grazer", size=3), 6, 5)
+        self.simulation._index_cells()
+        caller.call, caller.call_turn, caller.call_urgency = FIRST_CALL + 1, self.simulation.turn - 1, 0.7
+        caller.hunger, caller.health = 0.0, caller.max_health
+        senses = self.simulation._sense(listener)[0]
+        tag = simulation_module.call_tag(caller, listener)
+        for name, value in zip(VOICE_SENSES, tag):
+            self.assertAlmostEqual(senses[SENSES.index(name)], value)
+        self.assertAlmostEqual(tag[VOICE_SENSES.index("voice_urgency")], 0.7)
+        self.assertAlmostEqual(tag[VOICE_SENSES.index("voice_harshness")], 0.5 * caller.feeling("aggression"))
+        self.assertAlmostEqual(tag[VOICE_SENSES.index("voice_pitch")], 0.25 * decode_voice(caller.dna) / 7)
+        self.assertAlmostEqual(simulation_module.call_tag(caller, caller)[0], 1.0)
+        self.assertAlmostEqual(tag[VOICE_SENSES.index("voice_ring_red")], color_from_word(body_word(caller.dna))[0] / 255)
+        caller.call_turn = self.simulation.turn - 5  # no call heard: no tag
+        senses = self.simulation._sense(listener)[0]
+        self.assertEqual([senses[SENSES.index(name)] for name in VOICE_SENSES], [0.0] * len(VOICE_SENSES))
+
     def test_speak_as_heard_a_caller_hears_its_own_call_as_a_listener_would_and_is_taught_how_much_nearer_it_comes(self):
         from tools.Brain import CALL_COUNT, FIRST_CALL, OUTPUTS, OUTSIDE, utterance_sense
         caller = self.simulation._add_agent(encode_dna("grazer"), 5, 5)
@@ -1733,7 +1754,7 @@ class NewTraitTests(unittest.TestCase):
             self.simulation._add_agent(encode_dna("grazer", intellect=7, sight=7), 2 + index % 4, 2 + index // 4)
         self.simulation._add_agent(encode_dna("predator"), 5, 6)
         most = 0.0
-        for _ in range(10):
+        for _ in range(30):  # long enough for some to be calm in their herd, neither panicked nor resting spent
             self.simulation._take_turn()
             for agent in self.simulation.living:
                 self.assertTrue(0.0 <= agent.itch <= 1.0)

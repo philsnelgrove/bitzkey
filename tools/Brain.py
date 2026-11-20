@@ -73,6 +73,9 @@ def call_output(call: int) -> int:
     return len(ACTIONS) + call
 
 
+VOICE_SENSES = ("voice_ring_likeness", "voice_dot_likeness", "voice_social_likeness", "voice_ring_red", "voice_ring_green",
+                "voice_ring_blue", "voice_dot_red", "voice_dot_green", "voice_dot_blue", "voice_social_red",
+                "voice_social_green", "voice_social_blue", "voice_pitch", "voice_harshness", "voice_urgency")
 SENSES = (
     "hunger",          # 0..1
     "health",          # 0..1
@@ -155,6 +158,10 @@ SENSES = (
     "nocturnal",  # its activity gene: 1 nocturnal, 0 diurnal
     # The call of the loudest it heard, sound by sound: for each place, first to third, 1 for the sound made there.
     *(f"heard_{place}_{call}" for place in ("first", "second", "third") for call in range(1, CALL_COUNT + 1)),
+    # The tag every call carries, read by all who hear it, of the same loudest caller (all 0 when it heard none): how
+    # alike each of the caller's three colours is to its own, each as red, green and blue, and its pitch, harshness and
+    # urgency, 0 to 1. As the C++ version's.
+    *VOICE_SENSES,
     # Imagining: the action it pictures itself taking, a -1 or 1 for each bit of its number, or all 0 when it pictures
     # nothing. Only its foresight is taught with them set. As the C++ version's.
     "imagined_1", "imagined_2", "imagined_3", "imagined_4", "imagined_5", "imagined_6", "imagined_7",

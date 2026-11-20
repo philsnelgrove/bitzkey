@@ -121,6 +121,16 @@ def decode_terrain(dna: int) -> str:
     return TERRAINS[(dna >> TERRAIN_SHIFT) & 0x3]
 
 
+# The voice gene: three of the social background's spare bits above the terrain, 0 to 7, inherited with the rest of that
+# word; it shades a call's pitch (see Simulation's call_tag). As the C++ version's.
+VOICE_SHIFT = TERRAIN_SHIFT + 2
+VOICE_MAX = 7
+
+
+def decode_voice(dna: int) -> int:
+    return (dna >> VOICE_SHIFT) & VOICE_MAX
+
+
 def with_terrain(dna: int, terrain: str) -> int:
     return (dna & ~(0x3 << TERRAIN_SHIFT)) | TERRAINS.index(terrain) << TERRAIN_SHIFT
 

@@ -20,13 +20,13 @@ import numpy as np
 
 import tools.Brain as brain_rules  # its rules, as they now stand
 from tools.Brain import (read_senses, ACTIONS, ALERT_CALL, CALL_COUNT, CALLS, FIRST_CALL, MAX_SOUNDS, sound_output, FORESEEN, FORESIGHT, MEMORY_GATES, MEMORY_NEURONS, OUTPUTS, SENSES, SILENT, Brain, BrainBatch, call_output,
-                         OUTSIDE, OUTSIDE_FORESEEN, OUTSIDE_SENSES, utterance_sense,
+                         OUTSIDE, OUTSIDE_FORESEEN, OUTSIDE_SENSES, VOICE_SENSES, utterance_sense,
                          choice_odds, depth_for, gene_senses, imagined_call, imagining, make_senses, memory_after, width_for)
 from tools.Genome import (GENOME, SPECIES, TEMPERAMENT, TRAIT_MAX, body_word, color_from_word, colour_difference, cross, decode_nocturnal, dot_difference,
                           inherit_mind,
                           ring_difference, social_difference, social_word, BODY_MUTATION_CHANCE, COLD_TOLERANCE,
                           HEAT_TOLERANCE, MIND_MUTATION_CHANCE, TEMPERATURE_SHIFT, TEMPERATURES, decode_body, decode_climate,
-                          decode_temperament, decode_terrain, fits, make_dna, mind_word, share, swims, walks, with_terrain)
+                          decode_temperament, decode_terrain, decode_voice, VOICE_MAX, fits, make_dna, mind_word, share, swims, walks, with_terrain)
 from tools.Census import Census
 from tools.Exchange import Imported
 from tools.Insights import DeathTally, Insights
@@ -1397,6 +1397,7 @@ class Bitzkey:
     told_by: int = -1  # the teller it last heard, and when
     told_turn: int = -1
     told_surprise: float = 0.0
+    call_urgency: float = 0.0  # how stirred it was as it last called, carried in its call's tag
     sounds: list[int] = field(default_factory=lambda: [-1, -1])  # the sounds its call ran on to after the first (0..4), -1 where it stopped
     last_sounds: list[int] = field(default_factory=lambda: [-1, -1])  # likewise of its last choice of call, to learn from
     chosen_value: float = 0.0  # what its brain valued its last choice at, to judge how the turn went against it
@@ -1815,6 +1816,21 @@ class Bitzkey:
                        trail=list(self.trail), memories=list(self.memories),
                        womb=[(dna, dict(mind), brain.copy() if brain else None, energy, generation, father)
                              for dna, mind, brain, energy, generation, father in self.womb])
+
+
+def call_tag(caller: Bitzkey, hearer: Bitzkey) -> list[float]:
+    """The tag a call carries, as a hearer reads it (VOICE_SENSES): how alike each of the caller's three colours (ring, dot,
+    social background) is to the hearer's own, each as red, green and blue, 0 to 1, then its pitch (mostly its size, the
+    larger the lower, shaded by its voice gene), harshness (half its aggression, half its hunger and hurt) and urgency (how
+    stirred it was as it called). As the C++ version's."""
+    words = (body_word(caller.dna), mind_word(caller.dna), social_word(caller.dna))
+    own = (body_word(hearer.dna), mind_word(hearer.dna), social_word(hearer.dna))
+    likeness = [1 - colour_difference(word, mine) for word, mine in zip(words, own)]
+    colours = [part / 255 for word in words for part in color_from_word(word)]
+    pitch = 0.75 * (1 - caller.physique("size")) + 0.25 * decode_voice(caller.dna) / VOICE_MAX
+    condition = 0.5 * min(100.0, caller.hunger) / 100 + 0.5 * (1 - max(0.0, caller.health) / caller.max_health)
+    harshness = max(0.0, min(1.0, 0.5 * caller.feeling("aggression") + 0.5 * condition))
+    return [*likeness, *colours, pitch, harshness, caller.call_urgency]
 
 
 def litter_size(parents: Sequence[tuple[int, int]]) -> int:
@@ -3138,6 +3154,7 @@ class Simulation:
                 if sound < 0:
                     break
                 heard[f"heard_{place}_{sound + 1}"] = 1.0
+            heard.update(zip(VOICE_SENSES, call_tag(caller, agent)))  # and the tag it carries, read by all who hear it
         return heard, caller
 
     def _kin_caller(self, agent: Bitzkey) -> Bitzkey | None:
@@ -4085,6 +4102,11 @@ class Simulation:
                     agent.sounds[place - 1] = sound
                 agent.last_call, agent.last_sounds = agent.call, list(agent.sounds)
                 agent.call_turn = self.turn
+                # Its urgency, carried in its call's tag: the strongest of what stirs it, surprise, a threat in sight (the
+                # more for the fearful), hunger and pain.
+                threat = senses[SENSES.index("threat_closeness")] * (0.5 + agent.fearfulness) / 1.5
+                pain = 1 - max(0.0, agent.health) / agent.max_health
+                agent.call_urgency = max(0.0, min(1.0, max(max(surprise, default=0.0), threat, min(100.0, agent.hunger) / 100, pain)))
                 if itchy and forced < 0 and agent.call >= FIRST_CALL:  # it told, surprised
                     agent.named, agent.named_turn, agent.surprised = startled, self.turn, list(surprise)
             self._keep_habit(agent, senses)  # how its call kept to its habits, and the call remembered
@@ -4902,8 +4924,13 @@ class Simulation:
         for place in range(MAX_SOUNDS):
             for sound in range(CALL_COUNT):
                 quiet[utterance_sense(place, sound)] = 0.0
+        for name in VOICE_SENSES:
+            quiet[SENSES.index(name)] = 0.0
+        own = call_tag(agent, agent)  # heard, its call carries its own tag
 
         def hear(senses: list[float], place: int, sound: int) -> None:
+            for name, value in zip(VOICE_SENSES, own):
+                senses[SENSES.index(name)] = value
             senses[SENSES.index(f"heard_call_{sound + 1}")] = 1.0
             senses[SENSES.index(f"heard_call_{sound + 1}_kin")] = 1.0
             senses[utterance_sense(place, sound)] = 1.0
