@@ -1651,7 +1651,7 @@ class NewTraitTests(unittest.TestCase):
     def test_outside_foresight_learns_how_near_it_will_next_sense_a_hunter_prey_and_meat(self):
         from tools.Brain import OUTPUTS, OUTSIDE, OUTSIDE_SENSES, later_sound
         self.assertEqual(OUTPUTS[OUTSIDE:OUTSIDE + 3], ("foresee_threat", "foresee_prey", "foresee_carrion"))
-        self.assertEqual(len(OUTPUTS[OUTSIDE:]), 21 + 7 + 21)  # then the seven wishes, then pointing
+        self.assertEqual(len(OUTPUTS[OUTSIDE:]), 21 + 7 + 21 + 2)  # then the seven wishes, then pointing, then attention
         self.assertFalse(later_sound(OUTSIDE))
         self.assertTrue(later_sound(OUTSIDE - 1))
         grazer = self.simulation._add_agent(encode_dna("grazer"), 5, 5)
@@ -1718,9 +1718,14 @@ class NewTraitTests(unittest.TestCase):
     def test_pointing_a_caller_points_at_an_outside_thing_and_its_hearers_read_the_finger(self):
         from tools.Brain import OUTPUTS, OUTSIDE_SENSES, POINT, SENSES
         self.assertEqual(OUTPUTS[POINT], "point_threat")
-        self.assertEqual(OUTPUTS[-1], "point_comfort")
-        self.assertEqual(len(OUTPUTS), POINT + len(OUTSIDE_SENSES))
-        self.assertEqual(SENSES[-9:-7], ("pointed", "pointed_closeness"))
+        self.assertEqual(OUTPUTS[-3], "point_comfort")
+        self.assertEqual(OUTPUTS[-2:], ("attend", "ignore"))
+        self.assertEqual(len(OUTPUTS), POINT + len(OUTSIDE_SENSES) + 2)
+        self.assertEqual(SENSES[-12:-7], ("pointed", "pointed_closeness", "attending", "sees_pointing", "watched"))
+        dull = self.simulation._add_agent(encode_dna("grazer", sociability=1, intellect=1), 1, 1)
+        keen = self.simulation._add_agent(encode_dna("grazer", sociability=7, intellect=7), 8, 8)
+        self.assertGreater(Simulation.willing_to_learn(keen), Simulation.willing_to_learn(dull))
+        self.assertGreaterEqual(Simulation.willing_to_learn(dull), 0.25)
         caller = self.simulation._add_agent(encode_dna("grazer"), 5, 5)
         caller.point, caller.point_turn, caller.prior_point, caller.prior_point_turn = 4, 10, 2, 9
         self.assertEqual((caller.pointed_at(10), caller.pointed_at(9), caller.pointed_at(8)), (4, 2, -1))
@@ -1729,10 +1734,11 @@ class NewTraitTests(unittest.TestCase):
             for index in range(12):
                 self.simulation._add_agent(encode_dna("grazer", intellect=7, sight=7), 2 + index % 4, 2 + index // 4)
             self.simulation._add_agent(encode_dna("predator"), 6, 6)
-            pointed = read = False
-            for _ in range(40):
+            pointed = read = attended = False
+            for _ in range(60):
                 self.simulation._take_turn()
                 for agent in self.simulation.living:
+                    attended = attended or agent.attend_turn >= 0
                     self.assertLess(agent.point, len(OUTSIDE_SENSES))
                     if agent.point >= 0:
                         pointed = True
@@ -1741,6 +1747,7 @@ class NewTraitTests(unittest.TestCase):
                         read = True
                         self.assertLessEqual(agent.pointed_off, 1.0)
         self.assertTrue(pointed)
+        self.assertTrue(attended)
         self.assertTrue(read)
 
     def test_a_call_carries_a_tag_every_hearer_reads_the_callers_colours_pitch_harshness_and_urgency(self):
@@ -4430,6 +4437,7 @@ class MaterialTests(unittest.TestCase):
         with patch("tools.Simulation.FALLOW_YEARS", 0):
             simulation._go_fallow()
         self.assertIn((6, temperate), simulation.arable)  # never, at 0
+        farmer.y = (temperate + 20) % 40  # away, so it can't tend it again as the turn passes
         simulation.advance()
         with patch("tools.Simulation.FALLOW_YEARS", 1e-9):  # as if a year had passed untended
             simulation._go_fallow()

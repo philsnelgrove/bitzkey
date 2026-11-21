@@ -62,11 +62,17 @@ WISH = OUTSIDE + len(OUTSIDE_FORESEEN)  # the first of them
 # the C++ version's.
 POINTS = tuple(f"point_{thing}" for thing in OUTSIDE_THINGS)
 POINT = WISH + len(WISHES)  # the first of them
+# Attention: last of all its outputs, how it values attending to the loudest caller it hears (or, hearing none, the
+# nearest it sees pointing), and not; only one that attended sees that one's finger next turn (see ATTENTION). As the
+# C++ version's.
+ATTENDS = ("attend", "ignore")
+ATTEND_YES, ATTEND_NO = range(len(ATTENDS))
+ATTEND = POINT + len(POINTS)  # the first of them
 # A brain's outputs by name: its actions, then silence and the calls, then its memory's gates and values to write, then
 # what it foresees, then a call's later sounds, then what it foresees of the outside, then its wishes of its hearers.
 OUTPUTS = (ACTIONS + CALLS + tuple(f"memory_gate_{neuron}" for neuron in range(1, MEMORY_NEURONS + 1))
            + tuple(f"memory_value_{neuron}" for neuron in range(1, MEMORY_NEURONS + 1)) + FORESEEN + LATER_SOUNDS
-           + OUTSIDE_FORESEEN + WISHES + POINTS)
+           + OUTSIDE_FORESEEN + WISHES + POINTS + ATTENDS)
 
 
 def sound_output(place: int, sound: int) -> int:
@@ -176,6 +182,9 @@ SENSES = (
     # The loudest caller's pointing finger (see POINTING): 1 when it pointed as it called, and how close the thing it
     # pointed at is to the hearer, as the hearer senses that kind of thing; where to look, not what it is.
     "pointed", "pointed_closeness",
+    # Whether it attends to someone this turn, 1 or 0, how close the nearest it sees pointing is (see ATTENTION), and
+    # whether one in its sight attends to it (see WATCHED_REPEAT).
+    "attending", "sees_pointing", "watched",
     # Imagining: the action it pictures itself taking, a -1 or 1 for each bit of its number, or all 0 when it pictures
     # nothing. Only its foresight is taught with them set. As the C++ version's.
     "imagined_1", "imagined_2", "imagined_3", "imagined_4", "imagined_5", "imagined_6", "imagined_7",
@@ -215,7 +224,7 @@ SPARSE_SENSES = frozenset((
     "seed_carried", "road_here", "hide_worn", "envy", "fighting", "cooking_smell", "leader", "standout_leads", "standout_heard", "rank", "standout_rank",
     "bow_carried", "archery",
     *(f"heard_{place}_{call}" for place in ("first", "second", "third") for call in range(1, CALL_COUNT + 1)),
-    "pointed", "pointed_closeness"))
+    "pointed", "pointed_closeness", "attending", "sees_pointing", "watched"))
 _READ_SCALE = np.array([1.0 if name in SIGNED_SENSES else 2.0 for name in SENSES])
 _READ_SHIFT = np.array([0.0 if name in SIGNED_SENSES or name in SPARSE_SENSES else -1.0 for name in SENSES])
 

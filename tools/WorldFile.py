@@ -260,6 +260,8 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
            if agent.point >= 0 or agent.prior_point >= 0 else {}),
         **({"pointed": [agent.pointed_by, agent.pointed_thing, agent.pointed_turn, float(agent.pointed_off)]}
            if agent.pointed_turn >= 0 else {}),
+        **({"attend": [agent.attending, agent.attend_turn, agent.attend_choice]}
+           if agent.attend_turn >= 0 or agent.attend_choice >= 0 else {}),
         # each [column, row, last, then for each season: seen, food, danger, comfort]
         "places": [[place.column, place.row, place.last,
                     *(value for quarter in range(4) for value in (place.seen[quarter], float(place.food[quarter]),
@@ -391,6 +393,8 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
     if "pointed" in record:  # the finger it last read, and how surprised by that thing it then was
         by, thing, turn, off = record["pointed"]
         agent.pointed_by, agent.pointed_thing, agent.pointed_turn, agent.pointed_off = int(by), int(thing), int(turn), float(off)
+    if "attend" in record:  # whom it attends to and since when, and whether it chose to, to be taught
+        agent.attending, agent.attend_turn, agent.attend_choice = (int(value) for value in record["attend"])
     if "echo_of" in record:
         agent.echo_of = [[int(sound) for sound in row] for row in record["echo_of"]]
     agent.sounds = [int(sound) for sound in record.get("sounds", [-1, -1])]  # one sound, before calls ran on
