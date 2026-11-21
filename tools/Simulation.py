@@ -502,6 +502,10 @@ ATTEND_LEARNING = 1.0
 ATTEND_CURIOSITY = 0.1
 SHOWN_LEARNING = 1.0
 WATCHED_REPEAT = 1.0
+# One it knows (an acquaintance, a parent or its young) calling or pointing, it attends unbidden, untaught, with chance
+# KNOWN_ATTEND times its sociability. As the C++ version's.
+KNOWN_ATTEND = 1.0
+ATTEND_FORCED = 2  # not an output: attended unbidden
 SPEAK_AS_HEARD = 15.0
 # Cues and cries (CUES 1): each animal links each action to one of the five sounds, its cue for it, at first by chance,
 # and takes on another's, with chance CUE_COPY, when it hears and sees one of its kind call as it acts. Pain (struck
@@ -4136,7 +4140,12 @@ class Simulation:
                                      if agent.has_foresaw else -1.0)
             # Attention: hearing a call, or seeing one point, whether to attend to that one, by its brain's odds.
             agent.attend_choice = -1
-            if POINTING > 0 and not idle[index] and situation.get("attend_to", -1) >= 0:
+            if (POINTING > 0 and not idle[index] and situation.get("attend_to", -1) >= 0 and situation.get("attend_known")
+                    and KNOWN_ATTEND > 0
+                    and whim(agent.identifier ^ 0x4B4E4F57, self.turn) < KNOWN_ATTEND * agent.feeling("sociability")):
+                agent.attend_choice = ATTEND_FORCED  # one it knows: it turns to that one unbidden
+                agent.attending, agent.attend_turn = situation["attend_to"], self.turn
+            elif POINTING > 0 and not idle[index] and situation.get("attend_to", -1) >= 0:
                 roll, picked = whim(agent.identifier ^ 0x41545445, self.turn), ATTEND
                 leaning = list(calls_valued)  # the curious lean to attend, the incurious to ignore
                 curious = ATTEND_CURIOSITY * 2 * (agent.feeling("curiosity") - 0.5)
@@ -4741,7 +4750,7 @@ class Simulation:
             **{trait: agent.feeling(trait) for trait in TEMPERAMENT},
             **agent.genes,
         )
-        pointed, pointed_from, attend_to, watched_by = -1, -1, -1, False
+        pointed, pointed_from, attend_to, watched_by, attend_known = -1, -1, -1, False, False
         if POINTING > 0:  # see ATTENTION; as the C++ version's
             # Seen pointing, heard or not: the nearest in sight whose finger is up, as it called last turn.
             pointer, pointer_closeness = None, 0.0
@@ -4756,7 +4765,9 @@ class Simulation:
                 if pointer is None or near > pointer_closeness:
                     pointer, pointer_closeness = other, near
             senses[POINTED_SENSE + 3] = pointer_closeness
-            attend_to = caller.identifier if caller is not None else pointer.identifier if pointer is not None else -1
+            turn_to = caller if caller is not None else pointer
+            attend_to = turn_to.identifier if turn_to is not None else -1
+            attend_known = turn_to is not None and self.recognises(agent, turn_to)
             # Attending, as it chose last turn: that one's finger, the thing kept clear, all else outside dimmed.
             watched = (self.find_agent(agent.attending) if agent.attend_turn == self.turn - 1 and agent.attending >= 0
                        else None)
@@ -4764,6 +4775,7 @@ class Simulation:
                     and abs(watched.x - agent.x) + abs(watched.y - agent.y) <= sight):
                 senses[POINTED_SENSE + 2] = 1.0
                 attend_to = watched.identifier  # it may keep its focus, or lose it
+                attend_known = self.recognises(agent, watched)
                 pointed = watched.pointed_at(self.turn - 1)
                 if pointed >= 0:
                     pointed_from = watched.identifier
@@ -4773,7 +4785,7 @@ class Simulation:
                     for seen, sense in enumerate(OUTSIDE_SENSES):
                         if seen != pointed:
                             senses[sense] *= 1 - min(1.0, ATTENTION)
-        situation = {"pointed": pointed, "pointed_from": pointed_from, "attend_to": attend_to, "watched": watched_by,"envy": envied, "claim_from": claim_from, "claim": claim, "gift_to": gift_to, "gift": gift, "trade_with": trade_with, "wanted": wanted_good, "offered": offered_good, "teacher_steps": -1 if teacher is None else abs(teacher.x - agent.x) + abs(teacher.y - agent.y),
+        situation = {"pointed": pointed, "pointed_from": pointed_from, "attend_to": attend_to, "attend_known": attend_known, "watched": watched_by,"envy": envied, "claim_from": claim_from, "claim": claim, "gift_to": gift_to, "gift": gift, "trade_with": trade_with, "wanted": wanted_good, "offered": offered_good, "teacher_steps": -1 if teacher is None else abs(teacher.x - agent.x) + abs(teacher.y - agent.y),
                      "mate": mate, "nurseries": nurseries, "young_near": young, "young": own_young, "prey": target, "threat": threat,
                      "threats": len(threats), "heard_from": heard_from, "loudest_from": caller, "loudest_sounds": ([caller.call - FIRST_CALL, *caller.sounds] if caller is not None and caller.call >= FIRST_CALL else None), "quarry": quarry, "shoot_at": shoot_at, "practise_on": practise_on, "hunter": hunter, "suitor": suitor, "suitor_at": suitor and (suitor.x, suitor.y),
                      "grass": grass, "grass_here": grass_here, "carrion": carrion, "kill": kill, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
@@ -4905,6 +4917,13 @@ class Simulation:
         if count:
             agent.memories.append((agent.last_senses, agent.last_choice, target, weight))
             del agent.memories[:-count]
+
+    @staticmethod
+    def recognises(one: Bitzkey, other: Bitzkey) -> bool:
+        """Whether one knows another: an acquaintance, either parent, or its young. As the C++ version's."""
+        if other.identifier in (one.mother, one.father) or one.identifier in (other.mother, other.father):
+            return True
+        return any(known.identifier == other.identifier for known in one.known)
 
     @staticmethod
     def willing_to_learn(agent: Bitzkey) -> float:
