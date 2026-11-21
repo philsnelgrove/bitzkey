@@ -1651,7 +1651,7 @@ class NewTraitTests(unittest.TestCase):
     def test_outside_foresight_learns_how_near_it_will_next_sense_a_hunter_prey_and_meat(self):
         from tools.Brain import OUTPUTS, OUTSIDE, OUTSIDE_SENSES, later_sound
         self.assertEqual(OUTPUTS[OUTSIDE:OUTSIDE + 3], ("foresee_threat", "foresee_prey", "foresee_carrion"))
-        self.assertEqual(len(OUTPUTS[OUTSIDE:]), 21 + 7)  # then the seven wishes
+        self.assertEqual(len(OUTPUTS[OUTSIDE:]), 21 + 7 + 21)  # then the seven wishes, then pointing
         self.assertFalse(later_sound(OUTSIDE))
         self.assertTrue(later_sound(OUTSIDE - 1))
         grazer = self.simulation._add_agent(encode_dna("grazer"), 5, 5)
@@ -1700,7 +1700,7 @@ class NewTraitTests(unittest.TestCase):
         hearer.last_choice = ACTIONS.index("go_north")  # neither nearer nor further
         self.assertEqual(self.simulation.deeds_of(hearer, caller), 0)
         self.assertEqual(OUTPUTS[WISH], "wish_near")
-        self.assertEqual(OUTPUTS[-1], "wish_fight")
+        self.assertEqual(OUTPUTS[WISH + len(WISHES) - 1], "wish_fight")
         with patch.multiple("tools.Simulation", INTENT=1.0, WISH_LEARNING=1.0):
             for index in range(12):
                 self.simulation._add_agent(encode_dna("grazer", intellect=7, sight=7), 2 + index % 4, 2 + index // 4)
@@ -1714,6 +1714,34 @@ class NewTraitTests(unittest.TestCase):
                         intended = True
                         self.assertGreaterEqual(agent.call, FIRST_CALL)
         self.assertTrue(intended)
+
+    def test_pointing_a_caller_points_at_an_outside_thing_and_its_hearers_read_the_finger(self):
+        from tools.Brain import OUTPUTS, OUTSIDE_SENSES, POINT, SENSES
+        self.assertEqual(OUTPUTS[POINT], "point_threat")
+        self.assertEqual(OUTPUTS[-1], "point_comfort")
+        self.assertEqual(len(OUTPUTS), POINT + len(OUTSIDE_SENSES))
+        self.assertEqual(SENSES[-9:-7], ("pointed", "pointed_closeness"))
+        caller = self.simulation._add_agent(encode_dna("grazer"), 5, 5)
+        caller.point, caller.point_turn, caller.prior_point, caller.prior_point_turn = 4, 10, 2, 9
+        self.assertEqual((caller.pointed_at(10), caller.pointed_at(9), caller.pointed_at(8)), (4, 2, -1))
+        caller.point, caller.prior_point = -1, -1
+        with patch.multiple("tools.Simulation", POINTING=1.0, UNDERSTOOD=4.0):
+            for index in range(12):
+                self.simulation._add_agent(encode_dna("grazer", intellect=7, sight=7), 2 + index % 4, 2 + index // 4)
+            self.simulation._add_agent(encode_dna("predator"), 6, 6)
+            pointed = read = False
+            for _ in range(40):
+                self.simulation._take_turn()
+                for agent in self.simulation.living:
+                    self.assertLess(agent.point, len(OUTSIDE_SENSES))
+                    if agent.point >= 0:
+                        pointed = True
+                        self.assertLessEqual(agent.point_turn, agent.call_turn)  # only a call points
+                    if agent.pointed_turn >= 0:
+                        read = True
+                        self.assertLessEqual(agent.pointed_off, 1.0)
+        self.assertTrue(pointed)
+        self.assertTrue(read)
 
     def test_a_call_carries_a_tag_every_hearer_reads_the_callers_colours_pitch_harshness_and_urgency(self):
         from tools.Brain import FIRST_CALL, VOICE_SENSES

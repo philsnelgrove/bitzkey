@@ -20,7 +20,7 @@ import numpy as np
 
 import tools.Brain as brain_rules  # its rules, as they now stand
 from tools.Brain import (read_senses, ACTIONS, ALERT_CALL, CALL_COUNT, CALLS, FIRST_CALL, MAX_SOUNDS, sound_output, FORESEEN, FORESIGHT, MEMORY_GATES, MEMORY_NEURONS, OUTPUTS, SENSES, SILENT, Brain, BrainBatch, call_output,
-                         OUTSIDE, OUTSIDE_FORESEEN, OUTSIDE_SENSES, VOICE_SENSES, utterance_sense, WISH, WISHES,
+                         OUTSIDE, OUTSIDE_FORESEEN, OUTSIDE_SENSES, VOICE_SENSES, utterance_sense, WISH, WISHES, POINT, POINTED_SENSE,
                          choice_odds, depth_for, gene_senses, imagined_call, imagining, make_senses, memory_after, width_for)
 from tools.Genome import (GENOME, SPECIES, TEMPERAMENT, TRAIT_MAX, body_word, color_from_word, colour_difference, cross, decode_nocturnal, dot_difference,
                           inherit_mind,
@@ -484,6 +484,12 @@ ECHO = 2.0
 # who then did that. As the C++ version's. 0 for none.
 INTENT = 1.0
 WISH_LEARNING = 1.0
+# Pointing: as it calls, a caller points at one of the 21 outside things it foresees, by its Point outputs' odds; its
+# hearers sense how close that thing is to them, not what it is; each Point output is taught, at POINTING of its learning
+# rate, by how much less surprised by that thing its hearers then were, and the call UNDERSTOOD times it. As the C++
+# version's. 0 for none.
+POINTING = 1.0
+UNDERSTOOD = 4.0
 SPEAK_AS_HEARD = 15.0
 # Cues and cries (CUES 1): each animal links each action to one of the five sounds, its cue for it, at first by chance,
 # and takes on another's, with chance CUE_COPY, when it hears and sees one of its kind call as it acts. Pain (struck
@@ -1425,6 +1431,20 @@ class Bitzkey:
     intent_met: int = 0
     wish_advantage: float = 0.0
     wish_judged: bool = False
+    # Pointing (see POINTING): what it pointed at as it last called and the turn, and the call before; as its held call
+    # was made; as a hearer, the finger it last read and how surprised by that thing it then was; as a caller, how much
+    # less surprised its hearers were, summed, and how many.
+    point: int = -1
+    point_turn: int = -1
+    prior_point: int = -1
+    prior_point_turn: int = -1
+    held_point: int = -1
+    pointed_by: int = -1
+    pointed_thing: int = -1
+    pointed_turn: int = -1
+    pointed_off: float = -1.0
+    understood_sum: float = 0.0
+    understood_count: int = 0
     habits: list[tuple] = field(default_factory=list)  # its last calls (see CALL_HABIT): (senses a byte each, the call by sounds)
     habit_pull: float = 0.0  # how well its last call kept to its habits, beyond chance, -1..1
     call_pleasure: float = 0.0  # the pleasures of its call since it last chose (an alert heeded, being understood)
@@ -1478,6 +1498,10 @@ class Bitzkey:
     def __post_init__(self) -> None:
         if not self.mind:
             self.mind = {trait: float(value) for trait, value in self.inborn.items()}
+
+    def pointed_at(self, turn: int) -> int:
+        """What it pointed at as it called on `turn`, -1 none (see POINTING)."""
+        return self.point if self.point_turn == turn else self.prior_point if self.prior_point_turn == turn else -1
 
     @cached_property
     def inborn(self) -> dict[str, int]:
@@ -3989,6 +4013,7 @@ class Simulation:
                                   reward, call_target)  # within the Value limit
                 if reward > 0:  # a lesson learnt from a choice that turned out well
                     self._experience(agent, "lesson")
+        self._gauge_understanding(plans)  # how well each one's pointing was understood
         self._credit_callers(plans, lessons)  # what each one's call did to those who heard it, before any learns
         for batch, members in batches:
             self._learn_batch(batch, [(plans[index][0], *lessons[index]) if index in lessons else None for index in members],
@@ -4088,6 +4113,11 @@ class Simulation:
                 agent.call_heeded = -1 if heeded is None else heeded.identifier
             agent.call_kind = 0
             chosen[index] = choice
+            if POINTING > 0 and not idle[index] and situation.get("pointed", -1) >= 0:  # a finger read: how surprised by that thing as it heard
+                thing = situation["pointed"]
+                agent.pointed_by, agent.pointed_thing, agent.pointed_turn = situation["loudest_from"].identifier, thing, self.turn
+                agent.pointed_off = (max(0.0, min(1.0, abs(senses[OUTSIDE_SENSES[thing]] - agent.foresaw[thing])))
+                                     if agent.has_foresaw else -1.0)
             itchy, startled, surprise = self._naming_itch(agent, senses, situation, valued, idle[index])
             agent.named = -1
             if not idle[index] and not situation.get("frozen"):
@@ -4144,6 +4174,16 @@ class Simulation:
                     for wish in range(1, len(WISHES)):
                         if calls_valued[WISH + wish] > calls_valued[WISH + agent.intent]:
                             agent.intent = wish
+                if POINTING > 0 and agent.call >= FIRST_CALL:  # and what it points at, by its brain's odds, as it picks a sound
+                    roll, picked = whim(agent.identifier ^ 0x504F494E, self.turn), POINT
+                    for output, chance in choice_odds(calls_valued, [POINT + thing for thing in range(len(OUTSIDE_SENSES))],
+                                                      CALL_TEMPERATURE).items():
+                        roll -= chance
+                        picked = output
+                        if roll < 0:
+                            break
+                    agent.prior_point, agent.prior_point_turn = agent.point, agent.point_turn
+                    agent.point, agent.point_turn = picked - POINT, self.turn
                 # Its urgency, carried in its call's tag: the strongest of what stirs it, surprise, a threat in sight (the
                 # more for the fearful), hunger and pain.
                 threat = senses[SENSES.index("threat_closeness")] * (0.5 + agent.fearfulness) / 1.5
@@ -4657,7 +4697,13 @@ class Simulation:
             **{trait: agent.feeling(trait) for trait in TEMPERAMENT},
             **agent.genes,
         )
-        situation = {"envy": envied, "claim_from": claim_from, "claim": claim, "gift_to": gift_to, "gift": gift, "trade_with": trade_with, "wanted": wanted_good, "offered": offered_good, "teacher_steps": -1 if teacher is None else abs(teacher.x - agent.x) + abs(teacher.y - agent.y),
+        pointed = -1
+        if caller is not None and POINTING > 0:  # its finger: where the thing it pointed at lies for this one, not what it is
+            pointed = caller.pointed_at(self.turn - 1)
+            if pointed >= 0:
+                senses[POINTED_SENSE] = 1.0
+                senses[POINTED_SENSE + 1] = senses[OUTSIDE_SENSES[pointed]]
+        situation = {"pointed": pointed,"envy": envied, "claim_from": claim_from, "claim": claim, "gift_to": gift_to, "gift": gift, "trade_with": trade_with, "wanted": wanted_good, "offered": offered_good, "teacher_steps": -1 if teacher is None else abs(teacher.x - agent.x) + abs(teacher.y - agent.y),
                      "mate": mate, "nurseries": nurseries, "young_near": young, "young": own_young, "prey": target, "threat": threat,
                      "threats": len(threats), "heard_from": heard_from, "loudest_from": caller, "loudest_sounds": ([caller.call - FIRST_CALL, *caller.sounds] if caller is not None and caller.call >= FIRST_CALL else None), "quarry": quarry, "shoot_at": shoot_at, "practise_on": practise_on, "hunter": hunter, "suitor": suitor, "suitor_at": suitor and (suitor.x, suitor.y),
                      "grass": grass, "grass_here": grass_here, "carrion": carrion, "kill": kill, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
@@ -4971,6 +5017,7 @@ class Simulation:
                 quiet[utterance_sense(place, sound)] = 0.0
         for name in VOICE_SENSES:
             quiet[SENSES.index(name)] = 0.0
+        quiet[POINTED_SENSE] = quiet[POINTED_SENSE + 1] = 0.0
         own = call_tag(agent, agent)  # heard, its call carries its own tag
 
         def hear(senses: list[float], place: int, sound: int) -> None:
@@ -5049,6 +5096,25 @@ class Simulation:
         """How many sounds its current call has, 0 silent or alerting."""
         return 0 if agent.call < FIRST_CALL else 1 + sum(sound >= 0 for sound in agent.sounds)
 
+    def _gauge_understanding(self, plans: list) -> None:
+        """Each caller, of each who read its finger last turn: how much less surprised by the thing pointed at that one is
+        now, against its foresight made as it heard, than it was as it heard (see POINTING). As the C++ version's."""
+        for plan in plans:
+            plan[0].understood_sum, plan[0].understood_count = 0.0, 0
+        if POINTING <= 0 and UNDERSTOOD <= 0:
+            return
+        for hearer, senses, _, _ in plans:
+            if (hearer.pointed_turn != self.turn - 1 or hearer.pointed_off < 0 or not hearer.has_foresaw
+                    or hearer.pointed_thing < 0):
+                continue
+            caller = self.find_agent(hearer.pointed_by)
+            if caller is None or not caller.alive or caller is hearer:
+                continue
+            thing = hearer.pointed_thing
+            off = max(0.0, min(1.0, abs(senses[OUTSIDE_SENSES[thing]] - hearer.foresaw[thing])))
+            caller.understood_sum += hearer.pointed_off - off
+            caller.understood_count += 1
+
     def _credit_callers(self, plans: list, lessons: dict[int, tuple]) -> None:
         """How each one's turn went against what it expected of its choice, shared with the caller of its kind it heard as
         it chose, by that caller's care for it: kin wholly, a friend by its regard, any other a quarter (see CALL_EMPATHY)."""
@@ -5123,12 +5189,17 @@ class Simulation:
             target += CALL_EMPATHY * agent.feeling("empathy") * agent.call_credit / agent.call_listeners
         if agent.call_listeners > 0 and agent.held_intent >= 0:
             target += INTENT * agent.intent_met / agent.call_listeners
+        pointed = agent.held_point >= 0 and agent.understood_count > 0
+        understood = agent.understood_sum / agent.understood_count if pointed else 0.0  # how much less surprised, on average
+        target += UNDERSTOOD * understood
         target = limited_value(target)
         lessons = [(agent.call_senses, output, target, rate) for output in agent.call_outputs if output >= 0]
         if WISH_LEARNING > 0 and agent.wish_judged:  # its wishes: each deed its hearers did, by how its own turn went
             value = limited_value(agent.wish_advantage)
             lessons += [(agent.call_senses, WISH + wish, value, rate * WISH_LEARNING)
                         for wish in range(len(WISHES)) if agent.wishes_done & (1 << wish)]
+        if POINTING > 0 and pointed:  # what it pointed at: valued by how well its hearers then understood it
+            lessons.append((agent.call_senses, POINT + agent.held_point, limited_value(UNDERSTOOD * understood), rate * POINTING))
         return lessons
 
     def _learn_batch(self, batch: BrainBatch, lessons: list[tuple | None], agents: list[Bitzkey] | None = None) -> None:
@@ -5149,9 +5220,10 @@ class Simulation:
             rate = self._learning_rate(agent)
             if agent.last_call >= 0:
                 outputs = self._utterance_outputs(agent)
-                if CALL_EMPATHY > 0 or INTENT > 0 or WISH_LEARNING > 0:  # feeling for or wanting of its listeners, it holds
+                if CALL_EMPATHY > 0 or INTENT > 0 or WISH_LEARNING > 0 or POINTING > 0 or UNDERSTOOD > 0:  # feeling for or wanting of its listeners, it holds
                     agent.call_senses, agent.call_outputs = agent.last_senses, outputs  # the lesson a turn, till theirs is judged
                     agent.held_call_target, agent.call_held, agent.held_intent = call_target, rate > 0, agent.intent
+                    agent.held_point = agent.pointed_at(self.turn - 1)
                 else:
                     calls[row] += [(agent.last_senses, output, call_target, rate) for output in outputs if output >= 0]
                 quiet = self._silence_target(agent, call_target)

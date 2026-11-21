@@ -57,11 +57,16 @@ OUTSIDE = MORE_SOUNDS + len(LATER_SOUNDS)  # the first of them
 WISHES = ("wish_near", "wish_away", "wish_flee", "wish_rest", "wish_eat", "wish_trade", "wish_fight")
 WISH_NEAR, WISH_AWAY, WISH_FLEE, WISH_REST, WISH_EAT, WISH_TRADE, WISH_FIGHT = range(len(WISHES))
 WISH = OUTSIDE + len(OUTSIDE_FORESEEN)  # the first of them
+# Pointing: last of all its outputs, how a caller values pointing, as it calls, at each outside thing it foresees, the
+# same 21 in the same order; taught by how much less surprised by that thing its hearers then were (see POINTING). As
+# the C++ version's.
+POINTS = tuple(f"point_{thing}" for thing in OUTSIDE_THINGS)
+POINT = WISH + len(WISHES)  # the first of them
 # A brain's outputs by name: its actions, then silence and the calls, then its memory's gates and values to write, then
 # what it foresees, then a call's later sounds, then what it foresees of the outside, then its wishes of its hearers.
 OUTPUTS = (ACTIONS + CALLS + tuple(f"memory_gate_{neuron}" for neuron in range(1, MEMORY_NEURONS + 1))
            + tuple(f"memory_value_{neuron}" for neuron in range(1, MEMORY_NEURONS + 1)) + FORESEEN + LATER_SOUNDS
-           + OUTSIDE_FORESEEN + WISHES)
+           + OUTSIDE_FORESEEN + WISHES + POINTS)
 
 
 def sound_output(place: int, sound: int) -> int:
@@ -168,6 +173,9 @@ SENSES = (
     # alike each of the caller's three colours is to its own, each as red, green and blue, and its pitch, harshness and
     # urgency, 0 to 1. As the C++ version's.
     *VOICE_SENSES,
+    # The loudest caller's pointing finger (see POINTING): 1 when it pointed as it called, and how close the thing it
+    # pointed at is to the hearer, as the hearer senses that kind of thing; where to look, not what it is.
+    "pointed", "pointed_closeness",
     # Imagining: the action it pictures itself taking, a -1 or 1 for each bit of its number, or all 0 when it pictures
     # nothing. Only its foresight is taught with them set. As the C++ version's.
     "imagined_1", "imagined_2", "imagined_3", "imagined_4", "imagined_5", "imagined_6", "imagined_7",
@@ -176,6 +184,7 @@ INPUT_SIZE = len(SENSES)
 MEMORY_SENSE = SENSES.index("memory_1")  # the first sense of what the memory held
 IMAGINED_SENSE = SENSES.index("imagined_1")
 UTTERANCE_SENSE = SENSES.index("heard_first_1")
+POINTED_SENSE = SENSES.index("pointed")  # then "pointed_closeness"
 OUTSIDE_SENSES = tuple(SENSES.index(f"{thing}_closeness") for thing in OUTSIDE_THINGS)
 
 
@@ -205,7 +214,8 @@ SPARSE_SENSES = frozenset((
     "gear_pile_closeness", "fire_closeness", "fire_friendly", "wielding", "foe_sheltered", "shelter_here",
     "seed_carried", "road_here", "hide_worn", "envy", "fighting", "cooking_smell", "leader", "standout_leads", "standout_heard", "rank", "standout_rank",
     "bow_carried", "archery",
-    *(f"heard_{place}_{call}" for place in ("first", "second", "third") for call in range(1, CALL_COUNT + 1))))
+    *(f"heard_{place}_{call}" for place in ("first", "second", "third") for call in range(1, CALL_COUNT + 1)),
+    "pointed", "pointed_closeness"))
 _READ_SCALE = np.array([1.0 if name in SIGNED_SENSES else 2.0 for name in SENSES])
 _READ_SHIFT = np.array([0.0 if name in SIGNED_SENSES or name in SPARSE_SENSES else -1.0 for name in SENSES])
 
