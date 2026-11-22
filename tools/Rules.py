@@ -346,6 +346,8 @@ _TABLE: dict[str, list[tuple]] = {
         ("CALL_EFFORT", "Call effort", "how much less each call is taught for the effort of making it, beside being understood; felt, not paid in the body; 0 for none", 0.0, 2.0, 0.05),
         ("LEARN_GAIN", "Learn gain", "spoken to, one that says the word back and points at what the speaker pointed at teaches both their words this many times what it understood (at least the learn match); 0 for no learning", 0.0, 10.0, 0.5),
         ("LEARN_MATCH", "Learn match", "the least a right guess counts as understood, before the learn gain, so a right guess always teaches something", 0.0, 1.0, 0.05),
+        ("LEARN_CORRECTED", "Learn corrected", "a wrong guess, corrected by the speaker saying its word and pointing again, is worth this share of a right one, taught as the right pairing; 0 for nothing", 0.0, 1.0, 0.05),
+        ("LEARN_INSIGHT", "Learn insight", "chance, times its intellect, that one saying a word back reads what the speaker meant and points at it at once: the cleverest always do; 0 for guessing alone", 0.0, 1.0, 0.05),
         ("LONGING", "Longing", "how strongly an animal longs for a companion, a fire, a shelter or the thing of its greatest joy once parted from it, as a share of how much it cared; 0 for none", 0.0, 3.0, 0.1),
         ("LONGING_FADE", "Longing fade", "how much of a longing fades each turn, slower the more patient (for a companion, the more loyal) it is", 0.0, 0.5, 0.01),
         ("LONGING_UNEASE", "Longing unease", "unease each turn for each unit of longing, felt till it fades or is met", 0.0, 2.0, 0.05),

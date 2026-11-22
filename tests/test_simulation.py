@@ -3742,8 +3742,9 @@ class CallTests(unittest.TestCase):
         learner.learn_turn, learner.learn_from, learner.learn_correct = world.turn - 1, speaker.identifier, True
         plans = [(agent, world._sense(agent)[0], None, None) for agent in (speaker, learner)]
         world._gauge_understanding(plans)
-        self.assertAlmostEqual(learner.learn_gain, sm.LEARN_GAIN * sm.LEARN_MATCH)  # it read no finger: the least a right guess counts
-        self.assertAlmostEqual(speaker.learn_bonus, sm.LEARN_GAIN * sm.LEARN_MATCH)
+        minds = sm.minds_met(learner, speaker)  # each one's intellect, at least 1, multiplied
+        self.assertAlmostEqual(learner.learn_gain, sm.LEARN_GAIN * sm.LEARN_MATCH * minds)  # it read no finger: the least a right guess counts
+        self.assertAlmostEqual(speaker.learn_bonus, sm.LEARN_GAIN * sm.LEARN_MATCH * minds)
         learner.learn_correct = False
         world._gauge_understanding(plans)
         self.assertEqual(speaker.learn_bonus, 0.0)  # a wrong guess: nothing
@@ -3755,8 +3756,10 @@ class CallTests(unittest.TestCase):
         speaker.understood_sum, speaker.understood_count, speaker.call_held = 0.0, 1, True
         lessons = world._settled_call(speaker)
         by_output = {output: target for _, output, target, _ in lessons}
-        self.assertAlmostEqual(by_output[call_output(FIRST_CALL + 2)], sm.limited_value(sm.LEARN_GAIN * sm.LEARN_MATCH))
-        self.assertAlmostEqual(by_output[POINT + 4], sm.limited_value(sm.LEARN_GAIN * sm.LEARN_MATCH))
+        gain = speaker.learn_bonus  # as worked out when the guess was judged, by both minds as they were then
+        self.assertGreater(gain, 0.0)
+        self.assertAlmostEqual(by_output[call_output(FIRST_CALL + 2)], sm.limited_value(gain))
+        self.assertAlmostEqual(by_output[POINT + 4], sm.limited_value(gain))
 
     def test_trying_again_a_word_said_to_one_alone_and_not_answered_right_may_be_said_again_up_to_the_retries(self):
         sm = simulation_module
@@ -3814,6 +3817,23 @@ class CallTests(unittest.TestCase):
                 break
             world._sense(animal)
         self.assertEqual(animal.longings_faded, 1)
+
+    def test_learning_a_word_a_wrong_guess_corrected_by_the_speaker_is_worth_a_share_taught_as_the_right_pairing(self):
+        sm = simulation_module
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        speaker = world._add_agent(encode_dna("grazer"), 10, 10)
+        learner = world._add_agent(encode_dna("grazer"), 11, 10)
+        world._index_cells()
+        learner.learn_turn, learner.learn_from, learner.learn_correct, learner.learn_call = world.turn - 2, speaker.identifier, False, FIRST_CALL + 1
+        speaker.word_turn, speaker.word_tries, speaker.word_call, speaker.word_point = world.turn - 1, 1, FIRST_CALL + 1, 6
+        speaker.address_to = learner.identifier
+        plans = [(agent, world._sense(agent)[0], None, None) for agent in (speaker, learner)]
+        world._gauge_understanding(plans)
+        self.assertAlmostEqual(learner.corrected_gain, sm.LEARN_CORRECTED * sm.LEARN_GAIN * sm.LEARN_MATCH * sm.minds_met(learner, speaker))
+        self.assertEqual(learner.corrected_thing, 6)
+        speaker.word_call = FIRST_CALL + 3  # another word: no correction of this one
+        world._gauge_understanding(plans)
+        self.assertEqual(learner.corrected_gain, 0.0)
 
     def test_a_call_is_heard_within_its_reach_the_louder_the_nearer_with_its_way_and_kind(self):
         from tools.Brain import FIRST_CALL

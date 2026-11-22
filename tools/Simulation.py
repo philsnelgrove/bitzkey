@@ -458,6 +458,18 @@ CALL_EFFORT = 0.2  # each call taught this much less for its effort, felt not pa
 # guess is worth LEARN_GAIN times what the learner understood of it, at least LEARN_MATCH, to both. As the C++ version's.
 LEARN_GAIN = 3.0
 LEARN_MATCH = 0.1
+# A wrong guess, corrected by the speaker saying the word and pointing again, is worth LEARN_CORRECTED of the least
+# right guess, taught as the right pairing; and with chance LEARN_INSIGHT x intellect a learner reads the meaning at
+# once. As the C++ version's.
+LEARN_CORRECTED = 0.5
+LEARN_INSIGHT = 1.0
+
+
+def minds_met(listener, speaker) -> float:
+    """What two minds bring to a word learnt between them: each one's intellect, 0..7, at least 1, multiplied (1 to 49)."""
+    return float(max(1, int(listener.mind["intellect"])) * max(1, int(speaker.mind["intellect"])))
+
+
 # Trying again (the user's idea): a word said to one alone, two turns on not answered with a right guess, may be said
 # again with the same point, up to ADDRESS_RETRIES times: offered, and with a chance of its sociability compelled.
 ADDRESS_RETRIES = 3
@@ -1456,6 +1468,9 @@ class Bitzkey:
     learn_from: int = -1  # to whom: the one who had said it
     learn_correct: bool = False  # whether it then pointed at what that one had pointed at
     learn_gain: float = 0.0  # what a right guess was worth, taught with its own call (see LEARN_GAIN)
+    learn_call: int = -1  # the word's first sound it said back, as a call
+    corrected_gain: float = 0.0  # this turn: its wrong guess corrected, what that was worth (see LEARN_CORRECTED)
+    corrected_thing: int = -1  # and the thing the speaker meant
     learn_bonus: float = 0.0  # this turn: what right guesses of its words were worth, taught with its call
     word_understood: float = 0.0  # this turn: how much less surprised it is by what the one it heard pointed at
     held_learn: float = 0.0  # with its held call: what its guess was worth, said back right
@@ -4354,6 +4369,9 @@ class Simulation:
                         picked = POINT + agent.point  # the same thing again
                     elif ACTIONS[choice] == "address" and situation.get("retry_to") is not None and agent.word_point >= 0:
                         picked = POINT + agent.word_point  # what it pointed at as it first said the word
+                    elif (ACTIONS[choice] == "learn" and situation.get("learn_by") is not None and situation.get("learn_thing", -1) >= 0
+                          and whim(agent.identifier ^ 0x494E5349, self.turn) < LEARN_INSIGHT * agent.intelligence):
+                        picked = POINT + situation["learn_thing"]  # it sees what the speaker meant, the more surely the cleverer
                     else:
                         for output, chance in choice_odds(calls_valued, [POINT + thing for thing in range(len(OUTSIDE_SENSES))],
                                                           CALL_TEMPERATURE).items():
@@ -4371,6 +4389,7 @@ class Simulation:
                     agent.learn_turn, agent.learn_from = self.turn, situation["learn_by"].identifier  # and whether it guessed right
                     agent.learn_correct = agent.point_turn == self.turn and agent.point == situation["learn_thing"]
                     agent.learn_gain = 0.0
+                    agent.learn_call = agent.call
                 # Its urgency, carried in its call's tag: the strongest of what stirs it, surprise, a threat in sight (the
                 # more for the fearful), hunger and pain.
                 threat = senses[SENSES.index("threat_closeness")] * (0.5 + agent.fearfulness) / 1.5
@@ -5508,6 +5527,7 @@ class Simulation:
         for plan in plans:
             plan[0].understood_sum, plan[0].understood_count = 0.0, 0
             plan[0].learn_bonus = plan[0].word_understood = 0.0
+            plan[0].corrected_gain, plan[0].corrected_thing = 0.0, -1
         if POINTING <= 0 and UNDERSTOOD <= 0:
             return
         for hearer, senses, _, _ in plans:
@@ -5522,14 +5542,25 @@ class Simulation:
             caller.understood_sum += hearer.pointed_off - off
             caller.understood_count += 1
             hearer.word_understood = hearer.pointed_off - off
+        for plan in plans:  # a wrong guess said back two turns ago, and the speaker since said the word again to it
+            learner = plan[0]
+            if LEARN_CORRECTED <= 0 or LEARN_GAIN <= 0 or learner.learn_turn != self.turn - 2 or learner.learn_correct:
+                continue
+            speaker = self.find_agent(learner.learn_from)
+            if (speaker is None or not speaker.alive or speaker.word_turn != self.turn - 1 or speaker.word_tries <= 0
+                    or speaker.address_to != learner.identifier or speaker.word_point < 0 or speaker.word_call != learner.learn_call):
+                continue
+            learner.corrected_gain = LEARN_CORRECTED * LEARN_GAIN * LEARN_MATCH * minds_met(learner, speaker)
+            learner.corrected_thing = speaker.word_point
         for plan in plans:  # a word said back last turn, and guessed right: worth as much to the one who said it
             learner = plan[0]
             if LEARN_GAIN <= 0 or learner.learn_turn != self.turn - 1 or not learner.learn_correct:
                 continue
             understood = learner.word_understood if learner.pointed_by == learner.learn_from else 0.0
-            learner.learn_gain = LEARN_GAIN * max(LEARN_MATCH, understood)
             speaker = self.find_agent(learner.learn_from)
-            if speaker is not None and speaker.alive and speaker is not learner:
+            there = speaker is not None and speaker.alive and speaker is not learner
+            learner.learn_gain = LEARN_GAIN * max(LEARN_MATCH, understood) * (minds_met(learner, speaker) if there else max(1, int(learner.mind["intellect"])))
+            if there:
                 speaker.learn_bonus += learner.learn_gain
 
     def _credit_callers(self, plans: list, lessons: dict[int, tuple]) -> None:
@@ -5640,7 +5671,7 @@ class Simulation:
         understood = agent.understood_sum / agent.understood_count if pointed else 0.0  # how much less surprised, on average
         target += UNDERSTOOD * understood
         learnt = agent.learn_bonus + agent.held_learn  # its word said back right: as its sayer, and as the one who said it back
-        target += learnt
+        target += learnt + agent.corrected_gain  # and its wrong guess, corrected: worth a share
         target = limited_value(target)
         lessons = harm + [(agent.call_senses, output, target, rate) for output in agent.call_outputs if output >= 0]
         if WISH_LEARNING > 0 and agent.wish_judged:  # its wishes: each deed its hearers did, by how its own turn went
@@ -5649,6 +5680,8 @@ class Simulation:
                         for wish in range(len(WISHES)) if agent.wishes_done & (1 << wish)]
         if POINTING > 0 and agent.held_point >= 0 and (pointed or learnt != 0.0):  # what it pointed at: by how well it was understood
             lessons.append((agent.call_senses, POINT + agent.held_point, limited_value(UNDERSTOOD * understood + learnt), rate * POINTING))
+        if POINTING > 0 and agent.corrected_thing >= 0 and agent.corrected_gain > 0:  # corrected: the thing meant, as its point
+            lessons.append((agent.call_senses, POINT + agent.corrected_thing, limited_value(agent.corrected_gain), rate * POINTING))
         return lessons
 
     def _learn_batch(self, batch: BrainBatch, lessons: list[tuple | None], agents: list[Bitzkey] | None = None) -> None:
