@@ -373,6 +373,8 @@ _TABLE: dict[str, list[tuple]] = {
         ("ARENA_THINGS", "Arena things", "for experiments: animals sense only this many of the outside things, grass, plant and herd first, then hunter, then the rest; the others as none; 0 for all", 0, 21, 1),
         ("ARENA_BLIND", "Arena blind", "for experiments: chance an animal that heard a call senses none of the outside things that turn, so the call is all it has to go by; 0 for off", 0.0, 1.0, 0.05),
         ("ARENA_PAYOFF", "Arena payoff", "for experiments: how a blinded listener's turn went against what it expected is taught to the call it heard, this much, whole, not weighed by care or empathy; 0 for off", 0.0, 20.0, 0.5),
+        ("HABITUATION", "Habituation", "how much an animal gets used to things: each outside thing is sensed by how much nearer it is than it has lately been, this much, and by its plain nearness for the rest; 0 for off", 0.0, 1.0, 0.05),
+        ("HABITUATION_RATE", "Habituation rate", "how fast an animal gets used to what is about it: the share of the way its sense of how near each thing has lately been moves each turn", 0.0, 1.0, 0.01),
         ("CUES", "Cues", "1: each action has a cue, one of the five sounds, first by chance and then taken on from others seen calling as they act; pain and panic cry out; by its intellect an animal voices its cue by instinct or chooses its call; 0: calls by the brain alone", 0, 1, 1),
         ("CUE_URGE", "Cue urge", "with cues, the chance that an animal acting by instinct voices the cue of what it does, rather than keep silent", 0.0, 1.0, 0.05),
         ("CUE_FAVOUR", "Cue favour", "with cues, how much more an animal choosing its call values the cue of what it does", 0.0, 1.0, 0.01),

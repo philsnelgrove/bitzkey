@@ -241,7 +241,7 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "last_choice": int(agent.last_choice), "last_forced": bool(agent.last_forced), "last_panicked": bool(agent.last_panicked), "last_wellbeing": float(agent.last_wellbeing),
         "reward": float(agent.reward), "last_comfort": float(agent.last_comfort),
         "odds": {action: float(chance) for action, chance in agent.odds.items()},
-        "call": agent.call, "call_turn": agent.call_turn, "heard_from": agent.heard_from, "heard_call": agent.heard_call, "heard_turn": agent.heard_turn, "heard_hunger": float(agent.heard_hunger), "heard_danger": agent.heard_danger, "struck_turn": agent.struck_turn, "last_call": agent.last_call, "cues": list(agent.cues), "cry": agent.cry, "call_kind": agent.call_kind, "itch": float(agent.itch), "named": agent.named, "named_turn": agent.named_turn, "relieved": agent.relieved, "has_foresaw": agent.has_foresaw, "foresaw": [float(v) for v in agent.foresaw], "surprised": [float(v) for v in agent.surprised], "outside_surprise": float(agent.outside_surprise), "told_by": agent.told_by, "told_turn": agent.told_turn, "told_surprise": float(agent.told_surprise), "call_urgency": float(agent.call_urgency), "echo_of": [list(row) for row in agent.echo_of],
+        "call": agent.call, "call_turn": agent.call_turn, "heard_from": agent.heard_from, "heard_call": agent.heard_call, "heard_turn": agent.heard_turn, "heard_hunger": float(agent.heard_hunger), "heard_danger": agent.heard_danger, "struck_turn": agent.struck_turn, "last_call": agent.last_call, "cues": list(agent.cues), "cry": agent.cry, "call_kind": agent.call_kind, "itch": float(agent.itch), "named": agent.named, "named_turn": agent.named_turn, "relieved": agent.relieved, "has_foresaw": agent.has_foresaw, "foresaw": [float(v) for v in agent.foresaw], "used_to": [float(v) for v in agent.used_to], "surprised": [float(v) for v in agent.surprised], "outside_surprise": float(agent.outside_surprise), "told_by": agent.told_by, "told_turn": agent.told_turn, "told_surprise": float(agent.told_surprise), "call_urgency": float(agent.call_urgency), "echo_of": [list(row) for row in agent.echo_of],
         "held": [float(held) for held in agent.held], "last_wrote": bool(agent.last_wrote),
         "past": [numbers.senses(senses) for senses in agent.past],
         "sounds": list(agent.sounds), "last_sounds": list(agent.last_sounds),
@@ -380,6 +380,8 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
     agent.has_foresaw = bool(record.get("has_foresaw", False))
     if "foresaw" in record:
         agent.foresaw = [float(v) for v in record["foresaw"]]
+    if "used_to" in record:
+        agent.used_to = [float(v) for v in record["used_to"]]
     if "surprised" in record:
         agent.surprised = [float(v) for v in record["surprised"]]
     agent.outside_surprise = float(record.get("outside_surprise", 0.0))

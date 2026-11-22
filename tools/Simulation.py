@@ -511,6 +511,10 @@ ATTEND_FORCED = 2  # not an output: attended unbidden
 ARENA_THINGS = 0
 ARENA_BLIND = 0.0
 ARENA_PAYOFF = 0.0  # a blinded listener's surprise taught whole to the call it heard. As the C++ version's.
+# Getting used to things: each outside thing sensed by how much nearer it is than it has lately been (a running mean moving
+# HABITUATION_RATE each turn), weighed HABITUATION against its plain nearness. As the C++ version's.
+HABITUATION = 0.8
+HABITUATION_RATE = 0.1
 ARENA_ORDER = (4, 5, 7, 0, 1, 2, 3, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
 SPEAK_AS_HEARD = 15.0
 # Cues and cries (CUES 1): each animal links each action to one of the five sounds, its cue for it, at first by chance,
@@ -1482,6 +1486,7 @@ class Bitzkey:
     blinded_turn: int = -1  # the arena (see ARENA_PAYOFF): the turn it was last blinded; not saved
     arena_credit: float = 0.0  # as a caller, its blinded listeners' surprise this turn, unweighed
     arena_listeners: int = 0
+    used_to: list[float] = field(default_factory=lambda: [0.0] * len(OUTSIDE_SENSES))  # how near each outside thing has lately been (saved)
     held: list[float] = field(default_factory=lambda: [0.0] * MEMORY_NEURONS)  # what its memory neurons hold (Brain.py)
     # Its senses at the choices before its last, most recent first, back to the first its memory wasn't written at, and
     # no more than Memory steps: what learning back in time goes over. Whether its memory was written at its last choice.
@@ -4794,6 +4799,16 @@ class Simulation:
                     for seen, sense in enumerate(OUTSIDE_SENSES):
                         if seen != pointed:
                             senses[sense] *= 1 - min(1.0, ATTENTION)
+        # Getting used to things (see HABITUATION). As the C++ version's.
+        if HABITUATION > 0:
+            weight = min(1.0, HABITUATION)
+            rate = min(max(HABITUATION_RATE, 0.0), 1.0)
+            for seen, sense in enumerate(OUTSIDE_SENSES):
+                level = senses[sense]
+                used = agent.used_to[seen]
+                fresh = max(0.0, level - used)
+                agent.used_to[seen] = used + rate * (level - used)
+                senses[sense] = (1.0 - weight) * level + weight * fresh
         # The arena, for experiments only (see ARENA_THINGS, ARENA_BLIND). As the C++ version's.
         if ARENA_THINGS > 0:
             for kept in ARENA_ORDER[int(ARENA_THINGS):]:
