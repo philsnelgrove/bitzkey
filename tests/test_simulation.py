@@ -1722,7 +1722,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(OUTPUTS[-3], "point_comfort")
         self.assertEqual(OUTPUTS[-2:], ("attend", "ignore"))
         self.assertEqual(len(OUTPUTS), POINT + len(OUTSIDE_SENSES) + 2)
-        self.assertEqual(SENSES[-12:-7], ("pointed", "pointed_closeness", "attending", "sees_pointing", "watched"))
+        self.assertEqual(SENSES[-13:-7], ("pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed"))
         dull = self.simulation._add_agent(encode_dna("grazer", sociability=1, intellect=1), 1, 1)
         keen = self.simulation._add_agent(encode_dna("grazer", sociability=7, intellect=7), 8, 8)
         self.assertGreater(Simulation.willing_to_learn(keen), Simulation.willing_to_learn(dull))
@@ -3670,6 +3670,46 @@ class FeedingTests(unittest.TestCase):
 
 class CallTests(unittest.TestCase):
     """Calls made alongside actions, and heard by those within their reach, as the C++ version's tests."""
+
+    def test_addressing_goes_beside_one_it_knows_and_says_its_call_to_that_one_alone_heard_over_louder_calls(self):
+        sm = simulation_module
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        speaker = world._add_agent(encode_dna("grazer"), 10, 10)
+        kin_stranger = world._add_agent(encode_dna("grazer"), 11, 10)  # nearer, but unknown
+        friend = world._add_agent(encode_dna("grazer"), 10, 12)  # further, but known
+        speaker.known.append(sm.Acquaintance(friend.identifier, sm.REGARD_STRONG, 0))
+        world._index_cells()
+        options, situation = world._sense(speaker)[1:]
+        self.assertIn(ACTIONS.index("address"), options)
+        self.assertIs(situation["addressee"], friend)  # one it knows before a nearer stranger
+        world._act(speaker, "address", situation)
+        self.assertEqual(abs(speaker.x - friend.x) + abs(speaker.y - friend.y), 1)  # beside it, no nearer
+        self.assertEqual(speaker.address_to, friend.identifier)
+        self.assertEqual(speaker.last_action, "spoke to one")
+        # Its call, said that turn, heard the next: by the one addressed alone, over a louder call close by.
+        shouter = world._add_agent(encode_dna("grazer", size=7), friend.x + 1, friend.y)
+        bystander = world._add_agent(encode_dna("grazer"), speaker.x - 1, speaker.y)
+        world._index_cells()
+        speaker.call, speaker.sounds = FIRST_CALL + 1, [3, -1]
+        speaker.call_turn = speaker.address_turn = world.turn - 1
+        shouter.call, shouter.call_turn = FIRST_CALL + 4, world.turn - 1
+        senses, _, heard_situation = world._sense(friend)
+        heard = dict(zip(SENSES, senses))
+        self.assertEqual(heard["addressed"], 1.0)
+        self.assertAlmostEqual(heard["heard_call_2"], 0.5)
+        self.assertAlmostEqual(heard["heard_call_4"], 0.5)  # its second sound
+        self.assertEqual((heard["heard_first_2"], heard["heard_first_5"]), (1.0, 0.0))  # the whisper, not the shout
+        self.assertIs(heard_situation["loudest_from"], speaker)
+        self.assertIs(heard_situation["heard_from"], speaker)
+        senses, _, overheard_situation = world._sense(bystander)  # right beside the speaker, yet it hears only the shout
+        overheard = dict(zip(SENSES, senses))
+        self.assertEqual((overheard["addressed"], overheard["heard_call_2"]), (0.0, 0.0))
+        self.assertIs(overheard_situation["loudest_from"], shouter)
+        speaker.address_to = -1  # had it not come beside its friend, none would hear it
+        senses, _, missed = world._sense(friend)
+        self.assertEqual(dict(zip(SENSES, senses))["addressed"], 0.0)
+        self.assertIs(missed["loudest_from"], shouter)
+        del kin_stranger
 
     def test_a_call_is_heard_within_its_reach_the_louder_the_nearer_with_its_way_and_kind(self):
         from tools.Brain import FIRST_CALL

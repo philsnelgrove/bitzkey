@@ -34,6 +34,7 @@ from tools.Insights import DeathTally, Insights
 
 
 GRID_SIZE = 100
+NEVER_ADDRESSED = -1000000  # an animal's address_turn until it first addresses one: no call's turn
 INITIAL_POPULATION = 90
 GRASS_DENSITY = 50      # percent of cells that start with grass
 GRASS_REGROWTH = 0.032  # share of the starting grass that grows back each turn
@@ -652,6 +653,7 @@ class MapPlace:
     food: list[float] = field(default_factory=lambda: [0.0] * 4)
     danger: list[float] = field(default_factory=lambda: [0.0] * 4)
     comfort: list[float] = field(default_factory=lambda: [0.0] * 4)
+ADDRESS_LOUDNESS = 0.5  # a call said to one alone, as a call with a reach of one, from beside it
 MAX_CALL_REACH = 45  # the farthest a call may carry: the largest caller's at the most Call reach
 SIGHT_PER_TRAIT = 3  # each step of the sight trait lets an animal see this many cells further
 PREDATOR_SIGHT = 3  # predators see prey this many cells further than they otherwise see, up to MAX_PREDATOR_SIGHT
@@ -1431,6 +1433,8 @@ class Bitzkey:
     answer_turn: int = -1
     struck_turn: int = -1  # the last turn it was struck
     voiced_turn: int = -1  # the last turn it made a call (not silence)
+    address_turn: int = NEVER_ADDRESSED  # the last turn it addressed one (see address): its call that turn was for that one alone
+    address_to: int = -1  # whom, if it stood beside it as it spoke; -1: it hadn't come near, so none heard
     harm_taught_turn: int = -1  # the last strike whose harm it taught its call (see CALL_HARM)
     quiet_wish: float = 0.0  # as it last chose: how much its brain preferred silence to its best sound (PARENT_HUSH)
     last_call: int = -1  # its last choice of call, to learn from with its action; -1 for none of its own
@@ -1543,6 +1547,11 @@ class Bitzkey:
     def __post_init__(self) -> None:
         if not self.mind:
             self.mind = {trait: float(value) for trait, value in self.inborn.items()}
+
+    @property
+    def spoke_alone(self) -> bool:
+        """Whether its last call was said to one alone (see address)."""
+        return self.address_turn == self.call_turn
 
     def pointed_at(self, turn: int) -> int:
         """What it pointed at as it called on `turn`, -1 none (see POINTING)."""
@@ -2951,7 +2960,8 @@ class Simulation:
         seen = away <= sight
         near = self._closeness(agent, (standout.x, standout.y), sight) if seen else 0.0
         heard = 0.0  # its voice known among the rest, and from where, in sight or out of it
-        if standout.call >= FIRST_CALL and standout.call_turn == self.turn - 1 and away <= call_reach(standout):
+        if (standout.call >= FIRST_CALL and standout.call_turn == self.turn - 1 and away <= call_reach(standout)
+                and not standout.spoke_alone):  # not a call said to another alone
             heard = 1 - away / (call_reach(standout) + 1)
         found = {"leader": float(agent.leader), "standout_leads": float(standout.leader), "standout_esteem": best, "standout_closeness": near,
                  "standout_heard": heard, "rank": agent.rank / MAX_RANK, "standout_rank": standout.rank / MAX_RANK}
@@ -3225,9 +3235,14 @@ class Simulation:
         heard: dict[str, float] = {}
         loudest = [0.0] * (len(CALLS) - FIRST_CALL)
         caller, loudest_of_all = None, 0.0
+        addressed = None  # one who spoke to it alone from beside it last turn, heard over all others
         furthest = min(MAX_CALL_REACH, math.ceil(CALL_REACH * 1.5))  # the largest caller's
         for other in self._nearby(agent, furthest):
             if other.call < FIRST_CALL or other.call_turn != self.turn - 1:
+                continue
+            if other.spoke_alone:  # said to one alone: none else hears it
+                if other.address_to == agent.identifier and (addressed is None or other.identifier < addressed.identifier):
+                    addressed = other
                 continue
             reach = call_reach(other)
             away = abs(other.x - agent.x) + abs(other.y - agent.y)
@@ -3246,6 +3261,16 @@ class Simulation:
                 heard[f"{name}_east"] = max(-1.0, min(1.0, east / reach))
                 heard[f"{name}_south"] = max(-1.0, min(1.0, (other.y - agent.y) / reach))
                 heard[f"{name}_kin"] = float(other.species == agent.species)
+        if addressed is not None:  # spoken to: that call is the one it hears, whatever else was louder
+            caller = addressed
+            for call in (addressed.call, *(FIRST_CALL + sound for sound in addressed.sounds if sound >= 0)):
+                name = f"heard_call_{call - FIRST_CALL + 1}"
+                east = (addressed.x - agent.x + self.width // 2) % self.width - self.width // 2
+                heard[name] = ADDRESS_LOUDNESS
+                heard[f"{name}_east"] = max(-1.0, min(1.0, float(east)))
+                heard[f"{name}_south"] = max(-1.0, min(1.0, float(addressed.y - agent.y)))
+                heard[f"{name}_kin"] = float(addressed.species == agent.species)
+            heard["addressed"] = 1.0
         if caller is not None:  # and the loudest call, sound by sound
             heard[f"heard_first_{caller.call - FIRST_CALL + 1}"] = 1.0
             for place, sound in zip(("second", "third"), caller.sounds):
@@ -3257,9 +3282,15 @@ class Simulation:
 
     def _kin_caller(self, agent: Bitzkey) -> Bitzkey | None:
         """The loudest caller of its own kind it heard, to credit should the call help."""
-        found, kin_loudest = None, 0.0
+        found, kin_loudest, addressed = None, 0.0, None
         for other in self._nearby(agent, min(MAX_CALL_REACH, math.ceil(CALL_REACH * 1.5))):
-            if other is agent or other.species != agent.species or other.call < FIRST_CALL or other.call_turn != self.turn - 1:
+            if other is agent or other.call < FIRST_CALL or other.call_turn != self.turn - 1:
+                continue
+            if other.spoke_alone:  # said to one alone: heard by that one only, over all others
+                if other.address_to == agent.identifier and (addressed is None or other.identifier < addressed.identifier):
+                    addressed = other
+                continue
+            if other.species != agent.species:
                 continue
             reach = call_reach(other)
             away = abs(other.x - agent.x) + abs(other.y - agent.y)
@@ -3268,6 +3299,8 @@ class Simulation:
             loudness = 1 - away / (reach + 1)
             if loudness > kin_loudest:
                 found, kin_loudest = other, loudness
+        if addressed is not None and addressed.species == agent.species:
+            return addressed
         return found
 
     def _pay_callers(self, listener: Bitzkey, situation: dict, paid: dict[int, int]) -> None:
@@ -4218,7 +4251,8 @@ class Simulation:
                         lift = NAMING * agent.itch * agent.intelligence * (0.5 + agent.feeling("sociability"))
                         for call in range(FIRST_CALL, FIRST_CALL + CALL_COUNT):
                             weighed[call_output(call)] += lift
-                    odds = choice_odds(weighed, [call_output(call) for call in situation["calls"]], CALL_TEMPERATURE)
+                    offered = [call for call in situation["calls"] if ACTIONS[choice] != "address" or call >= FIRST_CALL]  # addressing one, it says something
+                    odds = choice_odds(weighed, [call_output(call) for call in offered or [SILENT]], CALL_TEMPERATURE)
                     if ECHO > 0 and startled >= 0 and agent.echo_of[startled][0] > 0:
                         odds = echo_odds(odds, call_output(FIRST_CALL + agent.echo_of[startled][0] - 1),
                                          call_output(FIRST_CALL), call_output(FIRST_CALL + CALL_COUNT - 1))
@@ -4687,6 +4721,23 @@ class Simulation:
             available.add("teach")
         if pupil is not None:
             available.add("tutor")
+        # Whom it would address: the nearest in sight it knows (an acquaintance, a parent or its young), else the nearest
+        # of its kind. As the C++ version's.
+        addressee, kind, known_away, kind_away = None, None, sight + 1, sight + 1
+        for other in self._nearby(agent, sight):
+            if other is agent or not other.alive or other.brain is None:
+                continue
+            away = abs(other.x - agent.x) + abs(other.y - agent.y)
+            if away > sight:
+                continue
+            if away < known_away and self.recognises(agent, other):
+                addressee, known_away = other, away
+            elif away < kind_away and other.species == agent.species:
+                kind, kind_away = other, away
+        if addressee is None:
+            addressee = kind
+        if addressee is not None:
+            available.add("address")
         if agent.y > 0:
             available.update(("go_north", "walk_north"))
         if agent.y < self.height - 1:
@@ -4843,7 +4894,7 @@ class Simulation:
                      "exposure": min(2, discomfort) / 2 * agent.exposure_share(here), "uprootable": uprootable, "timber": timber, "eat_meat": eat_meat, "eat_fruit": eat_fruit, "fire": fire, "gear_pile": gear_pile, "gear_kind": gear_kind, "wagon_near": wagon_near, "stone_pile": stone_pile, "bone_pile": bone_pile, "wood_pile": wood_pile, "dressable": dressable, "tears": tears, "meat_pile": meat_pile, "fruit_pile": fruit_pile,
                      "home_distance": home_distance * agent.exposure_share(here),
                      "alert_to": alert_to, "revisit": agent.food_memory and agent.food_memory[:2],
-                     "student": students[0] if students else None, "pupil": pupil, "lesson": lesson,
+                     "student": students[0] if students else None, "pupil": pupil, "lesson": lesson, "addressee": addressee,
                      "calls": [SILENT, *([ALERT_CALL] if alert_to is not None else []), *range(FIRST_CALL, len(CALLS))]}
         situation["land"], situation["war"], situation["ambition"] = land, war, agent.ambition
         situation["admired"], situation["standout"] = admired, standout
@@ -5781,6 +5832,17 @@ class Simulation:
             self._unhitch(agent)
         elif action == "tutor":
             self._tutor(agent, situation["pupil"], situation["lesson"])
+        elif action == "address":
+            # Up to one it would speak to, no nearer than beside it, and its call said to that one alone, just loud
+            # enough: heard by that one only, and only if it got beside it. As the C++ version's.
+            other = situation["addressee"]
+            away = abs(other.x - agent.x) + abs(other.y - agent.y)
+            if away > 1:
+                self._move_toward(agent, other.x, other.y, min(agent.steps, away - 1))
+            agent.address_turn = self.turn
+            near = abs(other.x - agent.x) + abs(other.y - agent.y) <= 1
+            agent.address_to = other.identifier if other.alive and near else -1
+            agent.last_action = "spoke to one" if agent.address_to >= 0 else "went to speak to one"
         elif action == "take_meat":
             self._take_meat(agent, situation)
         elif action == "take_fruit":

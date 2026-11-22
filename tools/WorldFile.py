@@ -241,7 +241,7 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "last_choice": int(agent.last_choice), "last_forced": bool(agent.last_forced), "last_panicked": bool(agent.last_panicked), "last_wellbeing": float(agent.last_wellbeing),
         "reward": float(agent.reward), "last_comfort": float(agent.last_comfort),
         "odds": {action: float(chance) for action, chance in agent.odds.items()},
-        "call": agent.call, "call_turn": agent.call_turn, "heard_from": agent.heard_from, "heard_call": agent.heard_call, "heard_turn": agent.heard_turn, "heard_hunger": float(agent.heard_hunger), "heard_danger": agent.heard_danger, "struck_turn": agent.struck_turn, "last_call": agent.last_call, "cues": list(agent.cues), "cry": agent.cry, "call_kind": agent.call_kind, "itch": float(agent.itch), "named": agent.named, "named_turn": agent.named_turn, "relieved": agent.relieved, "has_foresaw": agent.has_foresaw, "foresaw": [float(v) for v in agent.foresaw], "used_to": [float(v) for v in agent.used_to], "voiced_turn": agent.voiced_turn, "harm_taught_turn": agent.harm_taught_turn, "quiet_wish": float(agent.quiet_wish), "surprised": [float(v) for v in agent.surprised], "outside_surprise": float(agent.outside_surprise), "told_by": agent.told_by, "told_turn": agent.told_turn, "told_surprise": float(agent.told_surprise), "call_urgency": float(agent.call_urgency), "echo_of": [list(row) for row in agent.echo_of],
+        "call": agent.call, "call_turn": agent.call_turn, "heard_from": agent.heard_from, "heard_call": agent.heard_call, "heard_turn": agent.heard_turn, "heard_hunger": float(agent.heard_hunger), "heard_danger": agent.heard_danger, "struck_turn": agent.struck_turn, "last_call": agent.last_call, "cues": list(agent.cues), "cry": agent.cry, "call_kind": agent.call_kind, "itch": float(agent.itch), "named": agent.named, "named_turn": agent.named_turn, "relieved": agent.relieved, "has_foresaw": agent.has_foresaw, "foresaw": [float(v) for v in agent.foresaw], "used_to": [float(v) for v in agent.used_to], "voiced_turn": agent.voiced_turn, "address_turn": agent.address_turn, "address_to": agent.address_to, "harm_taught_turn": agent.harm_taught_turn, "quiet_wish": float(agent.quiet_wish), "surprised": [float(v) for v in agent.surprised], "outside_surprise": float(agent.outside_surprise), "told_by": agent.told_by, "told_turn": agent.told_turn, "told_surprise": float(agent.told_surprise), "call_urgency": float(agent.call_urgency), "echo_of": [list(row) for row in agent.echo_of],
         "held": [float(held) for held in agent.held], "last_wrote": bool(agent.last_wrote),
         "past": [numbers.senses(senses) for senses in agent.past],
         "sounds": list(agent.sounds), "last_sounds": list(agent.last_sounds),
@@ -367,6 +367,8 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
     agent.heard_danger = bool(record.get("heard_danger", False))
     agent.struck_turn = int(record.get("struck_turn", -1))
     agent.voiced_turn = int(record.get("voiced_turn", -1))
+    agent.address_turn = int(record.get("address_turn", world.NEVER_ADDRESSED))
+    agent.address_to = int(record.get("address_to", -1))
     agent.harm_taught_turn = int(record.get("harm_taught_turn", -1))
     agent.quiet_wish = float(record.get("quiet_wish", 0.0))
     agent.last_call = int(record.get("last_call", -1))
