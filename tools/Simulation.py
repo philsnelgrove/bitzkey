@@ -478,6 +478,7 @@ ADDRESS_RETRIES = 3
 # or is met with joy; sensed by strength and kind, never where. As the C++ version's.
 LONGING = 1.0
 LONGING_FADE = 0.05
+LONGING_PARTING = 5  # a companion out of sight this many turns running, before it is longed for
 LONGING_UNEASE = 0.1
 LONGING_JOY = 1.0
 MAP_BLIND = 0  # for experiments: 1 withholds the mental map senses and revisit
@@ -1491,6 +1492,9 @@ class Bitzkey:
     longings_reached: int = 0
     longings_faded: int = 0
     beside_companion: int = -1
+    missing: int = -1  # a companion gone from its sight, not yet back (see LONGING_PARTING)
+    missing_care: float = 0.0
+    missing_for: int = 0
     beside_care: float = 0.0
     fire_x: int = -1
     fire_y: int = -1
@@ -5068,7 +5072,7 @@ class Simulation:
             agent.longing_x, agent.longing_y, agent.longing_turn = x, y, self.turn
             agent.longing_away, agent.longing_closer, agent.longing_farther = -1, 0, 0
 
-        companion, care, kept = -1, 0.0, False
+        companion, care, kept, back = -1, 0.0, False, False
         for other in self._nearby(agent, sight):
             if (other is agent or not other.alive or other.brain is None
                     or abs(other.x - agent.x) + abs(other.y - agent.y) > sight):
@@ -5079,12 +5083,26 @@ class Simulation:
                 continue
             if other.identifier == agent.beside_companion:
                 kept = True
+            if other.identifier == agent.missing:
+                back = True
             if regard > care:
                 care, companion = regard, other.identifier
-        if agent.beside_companion >= 0 and not kept:
-            gone = self.find_agent(agent.beside_companion)
-            if gone is not None and gone.alive:
-                begin(LONG_COMPANION, agent.beside_care, agent.beside_companion, -1, -1)
+        # Gone from its sight, a companion is missed; only gone LONGING_PARTING turns running, not back, is it longed for.
+        if (agent.beside_companion >= 0 and not kept and agent.beside_companion != agent.missing
+                and (agent.missing < 0 or agent.beside_care > agent.missing_care)):
+            agent.missing, agent.missing_care, agent.missing_for = agent.beside_companion, agent.beside_care, 0
+        if agent.missing >= 0:
+            gone = self.find_agent(agent.missing)
+            lost = gone is None or not gone.alive
+            if not lost and not back:
+                agent.missing_for += 1
+            if not lost and not back and agent.missing_for >= max(1, LONGING_PARTING):
+                begin(LONG_COMPANION, agent.missing_care, agent.missing, -1, -1)
+                agent.missing = -1
+            elif lost or back:
+                agent.missing = -1  # back again, or gone for good: nothing to long for
+            if agent.missing < 0:
+                agent.missing_care, agent.missing_for = 0.0, 0
         agent.beside_companion, agent.beside_care = companion, care
         if agent.fire_x >= 0 and not friendly_fire:
             begin(LONG_FIRE, 1.0, -1, agent.fire_x, agent.fire_y)

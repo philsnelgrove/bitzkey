@@ -350,6 +350,7 @@ _TABLE: dict[str, list[tuple]] = {
         ("LEARN_INSIGHT", "Learn insight", "chance, times its intellect, that one saying a word back reads what the speaker meant and points at it at once: the cleverest always do; 0 for guessing alone", 0.0, 1.0, 0.05),
         ("LONGING", "Longing", "how strongly an animal longs for a companion, a fire, a shelter or the thing of its greatest joy once parted from it, as a share of how much it cared; 0 for none", 0.0, 3.0, 0.1),
         ("LONGING_FADE", "Longing fade", "how much of a longing fades each turn, slower the more patient (for a companion, the more loyal) it is", 0.0, 0.5, 0.01),
+        ("LONGING_PARTING", "Longing parting", "turns a companion must be out of sight, without coming back, before it is longed for: herd-mates drifting in and out are not missed; 1 at once", 1, 50, 1),
         ("LONGING_UNEASE", "Longing unease", "unease each turn for each unit of longing, felt till it fades or is met", 0.0, 2.0, 0.05),
         ("LONGING_JOY", "Longing joy", "joy at reaching what it longed for, for each unit of longing", 0.0, 5.0, 0.1),
         ("MAP_BLIND", "Map blind", "for experiments: 1 withholds the mental map senses and the way back to the last meal, so only its own memory can hold where things are", 0, 1, 1),

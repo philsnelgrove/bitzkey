@@ -3791,8 +3791,21 @@ class CallTests(unittest.TestCase):
         self.assertEqual(animal.longing_kind, sm.NO_LONGING)
         self.assertEqual(animal.beside_companion, friend.identifier)
         self.assertEqual(senses[SENSES.index("longing")], 0.0)
-        friend.x = 50  # gone off, out of sight
+        friend.x = 50  # gone off, out of sight: missed at first, not yet longed for
         world._index_cells()
+        for _ in range(sm.LONGING_PARTING - 1):
+            world._sense(animal)
+            self.assertEqual(animal.longing_kind, sm.NO_LONGING)
+            self.assertEqual(animal.missing, friend.identifier)
+        friend.x = 11  # back before the parting: nothing to long for
+        world._index_cells()
+        world._sense(animal)
+        self.assertEqual((animal.missing, animal.longing_kind), (-1, sm.NO_LONGING))
+        friend.x = 50  # gone again, and this time it stays gone
+        world._index_cells()
+        for _ in range(sm.LONGING_PARTING - 1):
+            world._sense(animal)
+        self.assertEqual(animal.longing_kind, sm.NO_LONGING)
         senses, _, situation = world._sense(animal)
         self.assertEqual(animal.longing_kind, sm.LONG_COMPANION)
         first = animal.longing
