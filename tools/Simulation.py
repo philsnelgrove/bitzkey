@@ -453,6 +453,14 @@ ALARM_REACH = 6        # an alarmed animal knows where the hunter is within this
 CALL_REACH = 16
 CALL_COST = 0.0  # hunger for each sound of a call: two sounds cost twice as much as one (0.3 until 3.214)
 CALL_EFFORT = 0.2  # each call taught this much less for its effort, felt not paid; as the C++ version's
+# Learning a word (the user's idea, the action learn): one spoken to alone may say the sounds back to the speaker,
+# pointing at what it guesses they mean, offered with a chance of the higher of its curiosity and intellect. A right
+# guess is worth LEARN_GAIN times what the learner understood of it, at least LEARN_MATCH, to both. As the C++ version's.
+LEARN_GAIN = 3.0
+LEARN_MATCH = 0.1
+# Trying again (the user's idea): a word said to one alone, two turns on not answered with a right guess, may be said
+# again with the same point, up to ADDRESS_RETRIES times: offered, and with a chance of its sociability compelled.
+ADDRESS_RETRIES = 3
 CALL_FATIGUE = 5.0  # stamina for each sound of a call, as listed fatigue (an action is ACTION_FATIGUE)
 TUTOR_COST = 0.3  # hunger a lesson costs its tutor (once as dear as a call)
 CALL_LENGTH = 3  # the most sounds a call may run to, 1 to 3 (Brain.py's MAX_SOUNDS)
@@ -1435,6 +1443,18 @@ class Bitzkey:
     voiced_turn: int = -1  # the last turn it made a call (not silence)
     address_turn: int = NEVER_ADDRESSED  # the last turn it addressed one (see address): its call that turn was for that one alone
     address_to: int = -1  # whom, if it stood beside it as it spoke; -1: it hadn't come near, so none heard
+    learn_turn: int = -1  # the last turn it said a word back to learn it (see learn)
+    learn_from: int = -1  # to whom: the one who had said it
+    learn_correct: bool = False  # whether it then pointed at what that one had pointed at
+    learn_gain: float = 0.0  # what a right guess was worth, taught with its own call (see LEARN_GAIN)
+    learn_bonus: float = 0.0  # this turn: what right guesses of its words were worth, taught with its call
+    word_understood: float = 0.0  # this turn: how much less surprised it is by what the one it heard pointed at
+    held_learn: float = 0.0  # with its held call: what its guess was worth, said back right
+    word_turn: int = -1  # the last turn it addressed one with a word and a point (see ADDRESS_RETRIES)
+    word_call: int = -1  # that word's first sound, as a call
+    word_sounds: list = field(default_factory=lambda: [-1, -1])  # and its later sounds
+    word_point: int = -1  # what it pointed at
+    word_tries: int = 0  # how many times it has said it again, unanswered
     harm_taught_turn: int = -1  # the last strike whose harm it taught its call (see CALL_HARM)
     quiet_wish: float = 0.0  # as it last chose: how much its brain preferred silence to its best sound (PARENT_HUSH)
     last_call: int = -1  # its last choice of call, to learn from with its action; -1 for none of its own
@@ -4129,6 +4149,9 @@ class Simulation:
                 situation["hunter"] = None  # it runs from the fire
                 situation["panic"] = True
                 options = [ACTIONS.index("flee")]
+            elif (situation.get("retry_to") is not None and ACTIONS.index("address") in options
+                  and whim(agent.identifier ^ 0x52455452, self.turn) < agent.feeling("sociability")):
+                options = [ACTIONS.index("address")]  # unanswered, it must say its word again, the more surely the more sociable
             if agent.exhausted:  # spent: it can do nothing but rest, whatever it fears
                 situation["panic"] = situation["frozen"] = False
                 options = [ACTIONS.index("rest")]
@@ -4231,6 +4254,12 @@ class Simulation:
                 repeated = False
                 if CUES and (situation.get("panic") or agent.struck_turn >= self.turn - 1):
                     forced, agent.call_kind = cue_cry(agent), 1
+                elif ACTIONS[choice] == "address" and situation.get("retry_to") is not None and agent.word_call >= FIRST_CALL:
+                    forced = agent.word_call  # its word again, as it said it
+                    agent.sounds = list(agent.word_sounds)
+                elif ACTIONS[choice] == "learn" and situation.get("learn_by") is not None:  # the word heard, said back
+                    forced = situation["learn_by"].call
+                    agent.sounds = list(situation["learn_by"].sounds)
                 elif repeating:
                     forced, repeated = previous_call, True
                     agent.sounds = list(previous_sounds)
@@ -4292,6 +4321,8 @@ class Simulation:
                     roll, picked = whim(agent.identifier ^ 0x504F494E, self.turn), POINT
                     if repeated and agent.point >= 0 and agent.point_turn == self.turn - 1:
                         picked = POINT + agent.point  # the same thing again
+                    elif ACTIONS[choice] == "address" and situation.get("retry_to") is not None and agent.word_point >= 0:
+                        picked = POINT + agent.word_point  # what it pointed at as it first said the word
                     else:
                         for output, chance in choice_odds(calls_valued, [POINT + thing for thing in range(len(OUTSIDE_SENSES))],
                                                           CALL_TEMPERATURE).items():
@@ -4301,6 +4332,14 @@ class Simulation:
                                 break
                     agent.prior_point, agent.prior_point_turn = agent.point, agent.point_turn
                     agent.point, agent.point_turn = picked - POINT, self.turn
+                if ACTIONS[choice] == "address" and agent.call >= FIRST_CALL and agent.point_turn == self.turn:  # a word, with its point
+                    again = situation.get("retry_to") is not None and agent.call == agent.word_call
+                    agent.word_tries = agent.word_tries + 1 if again else 0
+                    agent.word_turn, agent.word_call, agent.word_sounds, agent.word_point = self.turn, agent.call, list(agent.sounds), agent.point
+                if ACTIONS[choice] == "learn" and situation.get("learn_by") is not None and agent.call == situation["learn_by"].call:
+                    agent.learn_turn, agent.learn_from = self.turn, situation["learn_by"].identifier  # and whether it guessed right
+                    agent.learn_correct = agent.point_turn == self.turn and agent.point == situation["learn_thing"]
+                    agent.learn_gain = 0.0
                 # Its urgency, carried in its call's tag: the strongest of what stirs it, surprise, a threat in sight (the
                 # more for the fearful), hunger and pain.
                 threat = senses[SENSES.index("threat_closeness")] * (0.5 + agent.fearfulness) / 1.5
@@ -4736,6 +4775,14 @@ class Simulation:
                 kind, kind_away = other, away
         if addressee is None:
             addressee = kind
+        # Its word, said to one alone two turns ago and not since answered with a right guess: it may say it again.
+        retry_to = None
+        if (ADDRESS_RETRIES > 0 and agent.word_turn == self.turn - 2 and agent.address_turn == agent.word_turn
+                and agent.address_to >= 0 and agent.word_tries < ADDRESS_RETRIES):
+            other = self.find_agent(agent.address_to)
+            if (other is not None and other.alive and other is not agent and abs(other.x - agent.x) + abs(other.y - agent.y) <= sight
+                    and not (other.learn_turn == self.turn - 1 and other.learn_from == agent.identifier and other.learn_correct)):
+                retry_to = addressee = other
         if addressee is not None:
             available.add("address")
         if agent.y > 0:
@@ -4744,6 +4791,13 @@ class Simulation:
             available.update(("go_south", "walk_south"))
 
         heard, caller = self._heard(agent)
+        learn_by, learn_thing = None, -1
+        if heard.get("addressed") and caller is not None and POINTING > 0 and LEARN_GAIN > 0 and caller.call >= FIRST_CALL:
+            learn_thing = caller.pointed_at(self.turn - 1)
+            if learn_thing >= 0:  # a word it may say back, pointing at what it guesses it means
+                learn_by = caller
+                if whim(agent.identifier ^ 0x4C45524E, self.turn) < max(agent.feeling("curiosity"), agent.intelligence):
+                    available.add("learn")  # the more curious or the cleverer, the likelier to try
         heard_from = self._kin_caller(agent)
         lands, land, war = self._land_senses(agent, sight)
         standing, admired, standout = self._standing(agent, sight)
@@ -4894,7 +4948,7 @@ class Simulation:
                      "exposure": min(2, discomfort) / 2 * agent.exposure_share(here), "uprootable": uprootable, "timber": timber, "eat_meat": eat_meat, "eat_fruit": eat_fruit, "fire": fire, "gear_pile": gear_pile, "gear_kind": gear_kind, "wagon_near": wagon_near, "stone_pile": stone_pile, "bone_pile": bone_pile, "wood_pile": wood_pile, "dressable": dressable, "tears": tears, "meat_pile": meat_pile, "fruit_pile": fruit_pile,
                      "home_distance": home_distance * agent.exposure_share(here),
                      "alert_to": alert_to, "revisit": agent.food_memory and agent.food_memory[:2],
-                     "student": students[0] if students else None, "pupil": pupil, "lesson": lesson, "addressee": addressee,
+                     "student": students[0] if students else None, "pupil": pupil, "lesson": lesson, "addressee": addressee, "retry_to": retry_to, "learn_by": learn_by, "learn_thing": learn_thing,
                      "calls": [SILENT, *([ALERT_CALL] if alert_to is not None else []), *range(FIRST_CALL, len(CALLS))]}
         situation["land"], situation["war"], situation["ambition"] = land, war, agent.ambition
         situation["admired"], situation["standout"] = admired, standout
@@ -5322,6 +5376,7 @@ class Simulation:
         now, against its foresight made as it heard, than it was as it heard (see POINTING). As the C++ version's."""
         for plan in plans:
             plan[0].understood_sum, plan[0].understood_count = 0.0, 0
+            plan[0].learn_bonus = plan[0].word_understood = 0.0
         if POINTING <= 0 and UNDERSTOOD <= 0:
             return
         for hearer, senses, _, _ in plans:
@@ -5335,6 +5390,16 @@ class Simulation:
             off = max(0.0, min(1.0, abs(senses[OUTSIDE_SENSES[thing]] - hearer.foresaw[thing])))
             caller.understood_sum += hearer.pointed_off - off
             caller.understood_count += 1
+            hearer.word_understood = hearer.pointed_off - off
+        for plan in plans:  # a word said back last turn, and guessed right: worth as much to the one who said it
+            learner = plan[0]
+            if LEARN_GAIN <= 0 or learner.learn_turn != self.turn - 1 or not learner.learn_correct:
+                continue
+            understood = learner.word_understood if learner.pointed_by == learner.learn_from else 0.0
+            learner.learn_gain = LEARN_GAIN * max(LEARN_MATCH, understood)
+            speaker = self.find_agent(learner.learn_from)
+            if speaker is not None and speaker.alive and speaker is not learner:
+                speaker.learn_bonus += learner.learn_gain
 
     def _credit_callers(self, plans: list, lessons: dict[int, tuple]) -> None:
         """How each one's turn went against what it expected of its choice, shared with the caller of its kind it heard as
@@ -5443,14 +5508,16 @@ class Simulation:
         pointed = agent.held_point >= 0 and agent.understood_count > 0
         understood = agent.understood_sum / agent.understood_count if pointed else 0.0  # how much less surprised, on average
         target += UNDERSTOOD * understood
+        learnt = agent.learn_bonus + agent.held_learn  # its word said back right: as its sayer, and as the one who said it back
+        target += learnt
         target = limited_value(target)
         lessons = harm + [(agent.call_senses, output, target, rate) for output in agent.call_outputs if output >= 0]
         if WISH_LEARNING > 0 and agent.wish_judged:  # its wishes: each deed its hearers did, by how its own turn went
             value = limited_value(agent.wish_advantage)
             lessons += [(agent.call_senses, WISH + wish, value, rate * WISH_LEARNING)
                         for wish in range(len(WISHES)) if agent.wishes_done & (1 << wish)]
-        if POINTING > 0 and pointed:  # what it pointed at: valued by how well its hearers then understood it
-            lessons.append((agent.call_senses, POINT + agent.held_point, limited_value(UNDERSTOOD * understood), rate * POINTING))
+        if POINTING > 0 and agent.held_point >= 0 and (pointed or learnt != 0.0):  # what it pointed at: by how well it was understood
+            lessons.append((agent.call_senses, POINT + agent.held_point, limited_value(UNDERSTOOD * understood + learnt), rate * POINTING))
         return lessons
 
     def _learn_batch(self, batch: BrainBatch, lessons: list[tuple | None], agents: list[Bitzkey] | None = None) -> None:
@@ -5475,6 +5542,7 @@ class Simulation:
                     agent.call_senses, agent.call_outputs = agent.last_senses, outputs  # the lesson a turn, till theirs is judged
                     agent.held_call_target, agent.call_held, agent.held_intent = call_target, rate > 0, agent.intent
                     agent.held_point = agent.pointed_at(self.turn - 1)
+                    agent.held_learn = agent.learn_gain if agent.learn_correct and agent.learn_turn == self.turn - 1 else 0.0
                 else:
                     calls[row] += [(agent.last_senses, output, call_target, rate) for output in outputs if output >= 0]
                 quiet = self._silence_target(agent, call_target)
@@ -5833,16 +5901,9 @@ class Simulation:
         elif action == "tutor":
             self._tutor(agent, situation["pupil"], situation["lesson"])
         elif action == "address":
-            # Up to one it would speak to, no nearer than beside it, and its call said to that one alone, just loud
-            # enough: heard by that one only, and only if it got beside it. As the C++ version's.
-            other = situation["addressee"]
-            away = abs(other.x - agent.x) + abs(other.y - agent.y)
-            if away > 1:
-                self._move_toward(agent, other.x, other.y, min(agent.steps, away - 1))
-            agent.address_turn = self.turn
-            near = abs(other.x - agent.x) + abs(other.y - agent.y) <= 1
-            agent.address_to = other.identifier if other.alive and near else -1
-            agent.last_action = "spoke to one" if agent.address_to >= 0 else "went to speak to one"
+            agent.last_action = "spoke to one" if self._speak_beside(agent, situation["addressee"]) else "went to speak to one"
+        elif action == "learn":
+            agent.last_action = "said a word back" if self._speak_beside(agent, situation["learn_by"]) else "went to say a word back"
         elif action == "take_meat":
             self._take_meat(agent, situation)
         elif action == "take_fruit":
@@ -7092,6 +7153,17 @@ class Simulation:
             helper.reward += SHARE_JOY * self._generosity(helper) * gave / total
             if craft >= 0 and helper.crafts >> craft & 1:  # a hand in the making, a try at it
                 helper.craft_tries[craft] = min(CRAFT_TRIES, helper.craft_tries[craft] + 1)
+
+    def _speak_beside(self, agent: Bitzkey, other: Bitzkey) -> bool:
+        """Up to the other, no nearer than beside it, and its call this turn said to that one alone, just loud enough:
+        heard by that one only, and only if it got beside it. As the C++ version's."""
+        away = abs(other.x - agent.x) + abs(other.y - agent.y)
+        if away > 1:
+            self._move_toward(agent, other.x, other.y, min(agent.steps, away - 1))
+        agent.address_turn = self.turn
+        near = abs(other.x - agent.x) + abs(other.y - agent.y) <= 1
+        agent.address_to = other.identifier if other.alive and near else -1
+        return agent.address_to >= 0
 
     def _craft_arrows(self, agent: Bitzkey, archer: Bitzkey) -> None:
         """A wood at hand made into arrows for the archer's bow."""

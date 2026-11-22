@@ -3711,6 +3711,72 @@ class CallTests(unittest.TestCase):
         self.assertIs(missed["loudest_from"], shouter)
         del kin_stranger
 
+    def test_learning_a_word_spoken_to_alone_by_one_who_pointed_a_curious_one_may_say_it_back(self):
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        speaker = world._add_agent(encode_dna("grazer"), 10, 10)
+        learner = world._add_agent(encode_dna("grazer"), 12, 10)
+        learner.mind["curiosity"] = 7  # curious to the full: always offered
+        world._index_cells()
+        speaker.call, speaker.sounds = FIRST_CALL + 2, [0, -1]
+        speaker.call_turn = speaker.address_turn = world.turn - 1
+        speaker.address_to = learner.identifier
+        speaker.point, speaker.point_turn = 4, world.turn - 1
+        options, situation = world._sense(learner)[1:]
+        self.assertIn(ACTIONS.index("learn"), options)
+        self.assertIs(situation["learn_by"], speaker)
+        self.assertEqual(situation["learn_thing"], 4)
+        world._act(learner, "learn", situation)
+        self.assertEqual(learner.last_action, "said a word back")
+        self.assertEqual(learner.address_to, speaker.identifier)  # said to the speaker alone
+        self.assertEqual(abs(learner.x - speaker.x) + abs(learner.y - speaker.y), 1)
+        speaker.point_turn = world.turn - 5  # a word with no finger to it: nothing to guess at
+        self.assertNotIn(ACTIONS.index("learn"), world._sense(learner)[1])
+
+    def test_learning_a_word_a_right_guess_is_worth_the_learn_gain_to_both_a_wrong_one_nothing(self):
+        from tools.Brain import POINT, call_output
+        sm = simulation_module
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        speaker = world._add_agent(encode_dna("grazer"), 10, 10)
+        learner = world._add_agent(encode_dna("grazer"), 11, 10)
+        world._index_cells()
+        learner.learn_turn, learner.learn_from, learner.learn_correct = world.turn - 1, speaker.identifier, True
+        plans = [(agent, world._sense(agent)[0], None, None) for agent in (speaker, learner)]
+        world._gauge_understanding(plans)
+        self.assertAlmostEqual(learner.learn_gain, sm.LEARN_GAIN * sm.LEARN_MATCH)  # it read no finger: the least a right guess counts
+        self.assertAlmostEqual(speaker.learn_bonus, sm.LEARN_GAIN * sm.LEARN_MATCH)
+        learner.learn_correct = False
+        world._gauge_understanding(plans)
+        self.assertEqual(speaker.learn_bonus, 0.0)  # a wrong guess: nothing
+        learner.learn_correct = True
+        world._gauge_understanding(plans)
+        speaker.mind["intellect"] = 7  # one that learns, whatever the tests' rules
+        speaker.call_senses, speaker.call_outputs = plans[0][1], [call_output(FIRST_CALL + 2), -1, -1]
+        speaker.held_call_target, speaker.held_point, speaker.held_learn = 0.0, 4, 0.0
+        speaker.understood_sum, speaker.understood_count, speaker.call_held = 0.0, 1, True
+        lessons = world._settled_call(speaker)
+        by_output = {output: target for _, output, target, _ in lessons}
+        self.assertAlmostEqual(by_output[call_output(FIRST_CALL + 2)], sm.limited_value(sm.LEARN_GAIN * sm.LEARN_MATCH))
+        self.assertAlmostEqual(by_output[POINT + 4], sm.limited_value(sm.LEARN_GAIN * sm.LEARN_MATCH))
+
+    def test_trying_again_a_word_said_to_one_alone_and_not_answered_right_may_be_said_again_up_to_the_retries(self):
+        sm = simulation_module
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        speaker = world._add_agent(encode_dna("grazer"), 10, 10)
+        listener = world._add_agent(encode_dna("grazer"), 11, 10)
+        world._index_cells()
+        speaker.word_turn = speaker.address_turn = world.turn - 2  # its word, said to the listener alone two turns ago
+        speaker.address_to, speaker.word_call, speaker.word_sounds, speaker.word_point = listener.identifier, FIRST_CALL + 1, [2, -1], 5
+        options, situation = world._sense(speaker)[1:]
+        self.assertIs(situation["retry_to"], listener)
+        self.assertIs(situation["addressee"], listener)  # whom it would address is the one it is teaching
+        self.assertIn(ACTIONS.index("address"), options)
+        listener.learn_turn, listener.learn_from, listener.learn_correct = world.turn - 1, speaker.identifier, True
+        self.assertIsNone(world._sense(speaker)[2]["retry_to"])  # answered with a right guess
+        listener.learn_correct = False
+        self.assertIs(world._sense(speaker)[2]["retry_to"], listener)  # a wrong guess: it tries again
+        speaker.word_tries = sm.ADDRESS_RETRIES
+        self.assertIsNone(world._sense(speaker)[2]["retry_to"])  # tried as often as it may
+
     def test_a_call_is_heard_within_its_reach_the_louder_the_nearer_with_its_way_and_kind(self):
         from tools.Brain import FIRST_CALL
         world = Simulation(width=40, height=40, population=0, seed=3)
