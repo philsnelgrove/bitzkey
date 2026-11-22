@@ -506,6 +506,12 @@ WATCHED_REPEAT = 1.0
 # KNOWN_ATTEND times its sociability. As the C++ version's.
 KNOWN_ATTEND = 1.0
 ATTEND_FORCED = 2  # not an output: attended unbidden
+# The arena, for experiments only: sense only the first ARENA_THINGS outside things in ARENA_ORDER (grass, plant, herd,
+# then threat, then the rest); with chance ARENA_BLIND one that heard a call senses none that turn. As the C++ version's.
+ARENA_THINGS = 0
+ARENA_BLIND = 0.0
+ARENA_PAYOFF = 0.0  # a blinded listener's surprise taught whole to the call it heard. As the C++ version's.
+ARENA_ORDER = (4, 5, 7, 0, 1, 2, 3, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
 SPEAK_AS_HEARD = 15.0
 # Cues and cries (CUES 1): each animal links each action to one of the five sounds, its cue for it, at first by chance,
 # and takes on another's, with chance CUE_COPY, when it hears and sees one of its kind call as it acts. Pain (struck
@@ -1473,6 +1479,9 @@ class Bitzkey:
     silence_understood: float = 0.0  # and hearing nothing, as silence is taught it, so that calling gains nothing in itself
     call_credit: float = 0.0  # its listeners' surprise this turn, each weighed by its care for it
     call_listeners: int = 0  # and how many they were
+    blinded_turn: int = -1  # the arena (see ARENA_PAYOFF): the turn it was last blinded; not saved
+    arena_credit: float = 0.0  # as a caller, its blinded listeners' surprise this turn, unweighed
+    arena_listeners: int = 0
     held: list[float] = field(default_factory=lambda: [0.0] * MEMORY_NEURONS)  # what its memory neurons hold (Brain.py)
     # Its senses at the choices before its last, most recent first, back to the first its memory wasn't written at, and
     # no more than Memory steps: what learning back in time goes over. Whether its memory was written at its last choice.
@@ -4785,6 +4794,15 @@ class Simulation:
                     for seen, sense in enumerate(OUTSIDE_SENSES):
                         if seen != pointed:
                             senses[sense] *= 1 - min(1.0, ATTENTION)
+        # The arena, for experiments only (see ARENA_THINGS, ARENA_BLIND). As the C++ version's.
+        if ARENA_THINGS > 0:
+            for kept in ARENA_ORDER[int(ARENA_THINGS):]:
+                senses[OUTSIDE_SENSES[kept]] = 0.0
+        if ARENA_BLIND > 0 and caller is not None and whim(agent.identifier ^ 0x424C4E44, self.turn) < ARENA_BLIND:
+            agent.blinded_turn = self.turn
+            for sense in OUTSIDE_SENSES:
+                senses[sense] = 0.0
+            senses[POINTED_SENSE + 1] = 0.0
         situation = {"pointed": pointed, "pointed_from": pointed_from, "attend_to": attend_to, "attend_known": attend_known, "watched": watched_by,"envy": envied, "claim_from": claim_from, "claim": claim, "gift_to": gift_to, "gift": gift, "trade_with": trade_with, "wanted": wanted_good, "offered": offered_good, "teacher_steps": -1 if teacher is None else abs(teacher.x - agent.x) + abs(teacher.y - agent.y),
                      "mate": mate, "nurseries": nurseries, "young_near": young, "young": own_young, "prey": target, "threat": threat,
                      "threats": len(threats), "heard_from": heard_from, "loudest_from": caller, "loudest_sounds": ([caller.call - FIRST_CALL, *caller.sounds] if caller is not None and caller.call >= FIRST_CALL else None), "quarry": quarry, "shoot_at": shoot_at, "practise_on": practise_on, "hunter": hunter, "suitor": suitor, "suitor_at": suitor and (suitor.x, suitor.y),
@@ -5223,13 +5241,14 @@ class Simulation:
         for plan in plans:
             agent = plan[0]
             agent.call_credit, agent.call_listeners, agent.wishes_done, agent.intent_met = 0.0, 0, 0, 0
+            agent.arena_credit, agent.arena_listeners = 0.0, 0
             agent.wish_judged, agent.wish_advantage = False, 0.0
         if wishing:
             for index, lesson in lessons.items():
                 agent = plans[index][0]
                 if agent.call_held and agent.chosen_turn == self.turn - 1:
                     agent.wish_judged, agent.wish_advantage = True, lesson[0] - agent.chosen_value
-        if CALL_EMPATHY <= 0 and not wishing:
+        if CALL_EMPATHY <= 0 and not wishing and ARENA_PAYOFF <= 0:
             return
         for index, lesson in lessons.items():
             listener = plans[index][0]
@@ -5238,6 +5257,9 @@ class Simulation:
             caller = self.find_agent(listener.call_heeded)
             if caller is None or not caller.alive or not caller.call_held or caller is listener:
                 continue
+            if ARENA_PAYOFF > 0 and listener.blinded_turn == listener.chosen_turn:  # the call was all it had
+                caller.arena_credit += lesson[0] - listener.chosen_value
+                caller.arena_listeners += 1
             care = 1.0 if self._family(caller, listener) else max(0.25, self._regard_for(caller, listener))
             if CALL_EMPATHY > 0:
                 caller.call_credit += care * (lesson[0] - listener.chosen_value)
@@ -5289,6 +5311,8 @@ class Simulation:
             target += CALL_EMPATHY * agent.feeling("empathy") * agent.call_credit / agent.call_listeners
         if agent.call_listeners > 0 and agent.held_intent >= 0:
             target += INTENT * agent.intent_met / agent.call_listeners
+        if agent.arena_listeners > 0:
+            target += ARENA_PAYOFF * agent.arena_credit / agent.arena_listeners
         pointed = agent.held_point >= 0 and agent.understood_count > 0
         understood = agent.understood_sum / agent.understood_count if pointed else 0.0  # how much less surprised, on average
         target += UNDERSTOOD * understood
