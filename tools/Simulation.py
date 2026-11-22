@@ -21,7 +21,7 @@ import numpy as np
 from tools.Brain import _READ_SCALE, _READ_SHIFT  # how a brain reads each sense, to undo it
 import tools.Brain as brain_rules  # its rules, as they now stand
 from tools.Brain import (read_senses, ACTIONS, ALERT_CALL, CALL_COUNT, CALLS, FIRST_CALL, MAX_SOUNDS, sound_output, FORESEEN, FORESIGHT, MEMORY_GATES, MEMORY_NEURONS, OUTPUTS, SENSES, SILENT, Brain, BrainBatch, call_output,
-                         OUTSIDE, OUTSIDE_FORESEEN, OUTSIDE_SENSES, VOICE_SENSES, utterance_sense, WISH, WISHES, POINT, POINTED_SENSE, ATTEND, ATTEND_YES, ATTEND_NO,
+                         OUTSIDE, OUTSIDE_FORESEEN, OUTSIDE_SENSES, VOICE_SENSES, utterance_sense, WISH, WISHES, POINT, POINTED_SENSE, LONGING_SENSE, ATTEND, ATTEND_YES, ATTEND_NO,
                          choice_odds, depth_for, gene_senses, imagined_call, imagining, make_senses, memory_after, width_for)
 from tools.Genome import (GENOME, SPECIES, TEMPERAMENT, TRAIT_MAX, body_word, color_from_word, colour_difference, cross, decode_nocturnal, dot_difference,
                           inherit_mind,
@@ -461,6 +461,15 @@ LEARN_MATCH = 0.1
 # Trying again (the user's idea): a word said to one alone, two turns on not answered with a right guess, may be said
 # again with the same point, up to ADDRESS_RETRIES times: offered, and with a chance of its sociability compelled.
 ADDRESS_RETRIES = 3
+# Longing (the user's idea, a want that persists): parted from a companion it cares for, a friendly fire it was beside,
+# a shelter it was in, or the thing nearest at its greatest recent joy, it longs for it, felt as unease till it fades
+# or is met with joy; sensed by strength and kind, never where. As the C++ version's.
+LONGING = 1.0
+LONGING_FADE = 0.05
+LONGING_UNEASE = 0.1
+LONGING_JOY = 1.0
+MAP_BLIND = 0  # for experiments: 1 withholds the mental map senses and revisit
+NO_LONGING, LONG_COMPANION, LONG_FIRE, LONG_SHELTER, LONG_JOY = range(5)
 CALL_FATIGUE = 5.0  # stamina for each sound of a call, as listed fatigue (an action is ACTION_FATIGUE)
 TUTOR_COST = 0.3  # hunger a lesson costs its tutor (once as dear as a call)
 CALL_LENGTH = 3  # the most sounds a call may run to, 1 to 3 (Brain.py's MAX_SOUNDS)
@@ -1455,6 +1464,26 @@ class Bitzkey:
     word_sounds: list = field(default_factory=lambda: [-1, -1])  # and its later sounds
     word_point: int = -1  # what it pointed at
     word_tries: int = 0  # how many times it has said it again, unanswered
+    longing_kind: int = 0  # what kind of thing it longs for (see LONGING): 0 none
+    longing: float = 0.0  # how strongly, fading
+    longing_for: int = -1  # the companion longed for, or the outside thing
+    longing_x: int = -1  # the fire or shelter longed for
+    longing_y: int = -1
+    longing_turn: int = -1
+    longing_away: int = -1
+    longing_closer: int = 0
+    longing_farther: int = 0
+    longings_reached: int = 0
+    longings_faded: int = 0
+    beside_companion: int = -1
+    beside_care: float = 0.0
+    fire_x: int = -1
+    fire_y: int = -1
+    shelter_x: int = -1
+    shelter_y: int = -1
+    joy_thing: int = -1
+    joy_best: float = 0.0
+    joy_seen: bool = False
     harm_taught_turn: int = -1  # the last strike whose harm it taught its call (see CALL_HARM)
     quiet_wish: float = 0.0  # as it last chose: how much its brain preferred silence to its best sound (PARENT_HUSH)
     last_call: int = -1  # its last choice of call, to learn from with its action; -1 for none of its own
@@ -3208,6 +3237,8 @@ class Simulation:
         next season, as the C++ version."""
         quarter = season(self.turn)
         found: dict[str, float] = {}
+        if MAP_BLIND:  # withheld for experiments, so only its own memory holds where things are
+            return found
         for kind, in_season in (("food", quarter), ("danger", quarter), ("comfort", (quarter + 1) % 4)):
             best = None
             for place in agent.places:
@@ -4752,7 +4783,7 @@ class Simulation:
             elif agent.species in ("omnivore", "predator") and seen_kill is not None:
                 alert_to = seen_kill
         fed_at = self._remembered(agent, agent.food_memory)
-        if fed_at and agent.food_memory[:2] != (agent.x, agent.y):
+        if not MAP_BLIND and fed_at and agent.food_memory[:2] != (agent.x, agent.y):
             available.add("revisit")  # back to where it last fed, while it remembers
         if not agent.infant and any(child.hunger >= FEED_HUNGER for child in own_young):
             available.add("feed_young")  # once one of its infants about it is hungry, it may feed them
@@ -4920,6 +4951,7 @@ class Simulation:
                     for seen, sense in enumerate(OUTSIDE_SENSES):
                         if seen != pointed:
                             senses[sense] *= 1 - min(1.0, ATTENTION)
+        longing_unease, longing_relief = self._long_for(agent, senses, fire, sight)  # before habit dulls what it sees
         # Getting used to things (see HABITUATION). As the C++ version's.
         if HABITUATION > 0:
             weight = min(1.0, HABITUATION)
@@ -4953,6 +4985,7 @@ class Simulation:
         situation["land"], situation["war"], situation["ambition"] = land, war, agent.ambition
         situation["admired"], situation["standout"] = admired, standout
         situation["followed"] = agent.followed
+        situation["longing_unease"], situation["longing_relief"] = longing_unease, longing_relief
         situation["inside"] = (2 if ACTIONS[agent.last_choice] == "rest" else 1) if self._under_cover(agent) else 0
         if situation["exposure"] > 0 and (situation["inside"] or self.sheltered(agent) or self._warmed_by_fire(agent, here)):
             situation["spared"], situation["exposure"] = situation["exposure"], 0.0  # kept from the weather, it feels none, only relief
@@ -4965,6 +4998,103 @@ class Simulation:
         tired = FATIGUE_UNEASE * (1.5 - agent.feeling("resilience")) * spent ** 3
         return (-appetite * min(100.0, agent.hunger) / 100
                 - (1 - max(0.0, agent.health) / agent.max_health) - tired)
+
+    def _long_for(self, agent: Bitzkey, senses, fire, sight: int) -> tuple[float, float]:
+        """Its longing: met, faded, or begun; the unease and relief it brings this turn; sensed by strength and kind.
+        As the C++ version's."""
+        unease = relief = 0.0
+        if LONGING <= 0 and agent.longing_kind == NO_LONGING:
+            return unease, relief
+        friendly_fire = fire is not None and self._fire_friendly(agent, fire)
+        inside = self._under_cover(agent)
+        if agent.longing_kind != NO_LONGING:
+            away, met = -1, False
+            if agent.longing_kind == LONG_COMPANION:
+                other = self.find_agent(agent.longing_for)
+                if other is None or not other.alive:
+                    agent.longing_kind = NO_LONGING  # gone: grief, not longing
+                else:
+                    away = abs(other.x - agent.x) + abs(other.y - agent.y)
+                    met = away <= 1
+            elif agent.longing_kind == LONG_FIRE:
+                away = abs(agent.longing_x - agent.x) + abs(agent.longing_y - agent.y)
+                met = friendly_fire and abs(fire[0] - agent.x) + abs(fire[1] - agent.y) <= 1
+            elif agent.longing_kind == LONG_SHELTER:
+                away = abs(agent.longing_x - agent.x) + abs(agent.longing_y - agent.y)
+                met = inside
+            elif agent.longing_kind == LONG_JOY:
+                met = agent.longing_for >= 0 and senses[OUTSIDE_SENSES[agent.longing_for]] >= 0.95
+            if away >= 0 and agent.longing_away >= 0:
+                agent.longing_closer += away < agent.longing_away
+                agent.longing_farther += away > agent.longing_away
+            agent.longing_away = away
+            if agent.longing_kind != NO_LONGING and met:
+                relief = LONGING_JOY * agent.longing
+                agent.longings_reached += 1
+                agent.longing_kind = NO_LONGING
+            elif agent.longing_kind != NO_LONGING:
+                steady = agent.feeling("loyalty" if agent.longing_kind == LONG_COMPANION else "patience")
+                agent.longing *= max(0.0, 1 - LONGING_FADE * (1.5 - steady))
+                if agent.longing < 0.05:
+                    agent.longings_faded += 1
+                    agent.longing_kind = NO_LONGING
+            if agent.longing_kind == NO_LONGING:
+                agent.longing = 0.0
+
+        def begin(kind: int, strength: float, target: int, x: int, y: int) -> None:
+            felt = LONGING * min(1.0, max(0.0, strength))
+            if felt <= 0 or felt <= agent.longing:
+                return
+            agent.longing_kind, agent.longing, agent.longing_for = kind, felt, target
+            agent.longing_x, agent.longing_y, agent.longing_turn = x, y, self.turn
+            agent.longing_away, agent.longing_closer, agent.longing_farther = -1, 0, 0
+
+        companion, care, kept = -1, 0.0, False
+        for other in self._nearby(agent, sight):
+            if (other is agent or not other.alive or other.brain is None
+                    or abs(other.x - agent.x) + abs(other.y - agent.y) > sight):
+                continue
+            kin = other.identifier in (agent.mother, agent.father) or agent.identifier in (other.mother, other.father)
+            regard = 1.0 if kin else self._raw_regard_for(agent, other)
+            if regard < REGARD_STRONG:
+                continue
+            if other.identifier == agent.beside_companion:
+                kept = True
+            if regard > care:
+                care, companion = regard, other.identifier
+        if agent.beside_companion >= 0 and not kept:
+            gone = self.find_agent(agent.beside_companion)
+            if gone is not None and gone.alive:
+                begin(LONG_COMPANION, agent.beside_care, agent.beside_companion, -1, -1)
+        agent.beside_companion, agent.beside_care = companion, care
+        if agent.fire_x >= 0 and not friendly_fire:
+            begin(LONG_FIRE, 1.0, -1, agent.fire_x, agent.fire_y)
+        agent.fire_x, agent.fire_y = fire if friendly_fire else (-1, -1)
+        if inside:
+            agent.shelter_x, agent.shelter_y = agent.x, agent.y
+        elif agent.shelter_x >= 0 and abs(agent.shelter_x - agent.x) + abs(agent.shelter_y - agent.y) > sight:
+            begin(LONG_SHELTER, 1.0, -1, agent.shelter_x, agent.shelter_y)
+            agent.shelter_x = agent.shelter_y = -1
+        agent.joy_best *= 0.99
+        if agent.reward > agent.joy_best and agent.reward > 0:
+            nearest, most = -1, 0.0
+            for thing, sense in enumerate(OUTSIDE_SENSES):
+                if senses[sense] > most:
+                    most, nearest = senses[sense], thing
+            if nearest >= 0:
+                agent.joy_best, agent.joy_thing, agent.joy_seen = agent.reward, nearest, True
+        if agent.joy_thing >= 0:
+            seen = senses[OUTSIDE_SENSES[agent.joy_thing]] > 0
+            if agent.joy_seen and not seen:
+                begin(LONG_JOY, agent.joy_best, agent.joy_thing, -1, -1)
+            agent.joy_seen = seen
+        if LONGING <= 0:
+            agent.longing_kind, agent.longing = NO_LONGING, 0.0
+        if agent.longing_kind != NO_LONGING:
+            unease = LONGING_UNEASE * agent.longing
+            senses[LONGING_SENSE] = min(1.0, agent.longing)
+            senses[LONGING_SENSE + agent.longing_kind] = 1.0
+        return unease, relief
 
     @staticmethod
     def _comfort(agent: Bitzkey, situation: dict) -> float:
@@ -5025,6 +5155,7 @@ class Simulation:
             hearth += (1 + PROTECTION_JOY) * FOLLOW_SAFETY * self._dread(agent, situation)
         hearth -= ENVY_UNEASE * self._envy_of(agent) * situation.get("envy", 0.0)
         hearth += GEAR_EASE * agent.gear_held  # at ease with a weapon in hand and armour on, while it keeps them
+        hearth += situation.get("longing_relief", 0.0) - situation.get("longing_unease", 0.0)  # its longing (see LONGING)
         if regard >= REGARD_STRONG:
             return hearth + REGARD_COMFORT * regard * (0.5 + agent.feeling("trust"))
         if regard <= -REGARD_STRONG:

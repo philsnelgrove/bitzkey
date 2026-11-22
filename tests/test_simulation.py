@@ -1722,7 +1722,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(OUTPUTS[-3], "point_comfort")
         self.assertEqual(OUTPUTS[-2:], ("attend", "ignore"))
         self.assertEqual(len(OUTPUTS), POINT + len(OUTSIDE_SENSES) + 2)
-        self.assertEqual(SENSES[-13:-7], ("pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed"))
+        self.assertEqual(SENSES[-18:-12], ("pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed"))
         dull = self.simulation._add_agent(encode_dna("grazer", sociability=1, intellect=1), 1, 1)
         keen = self.simulation._add_agent(encode_dna("grazer", sociability=7, intellect=7), 8, 8)
         self.assertGreater(Simulation.willing_to_learn(keen), Simulation.willing_to_learn(dull))
@@ -3776,6 +3776,44 @@ class CallTests(unittest.TestCase):
         self.assertIs(world._sense(speaker)[2]["retry_to"], listener)  # a wrong guess: it tries again
         speaker.word_tries = sm.ADDRESS_RETRIES
         self.assertIsNone(world._sense(speaker)[2]["retry_to"])  # tried as often as it may
+
+    def test_longing_parted_from_a_companion_it_longs_for_it_felt_and_sensed_but_never_located_till_met_or_faded(self):
+        sm = simulation_module
+        world = Simulation(width=60, height=60, population=0, seed=3)
+        animal = world._add_agent(encode_dna("grazer"), 10, 10)
+        friend = world._add_agent(encode_dna("grazer"), 11, 10)
+        animal.known.append(sm.Acquaintance(friend.identifier, 0.9, 0))
+        world._index_cells()
+        senses = world._sense(animal)[0]
+        self.assertEqual(animal.longing_kind, sm.NO_LONGING)
+        self.assertEqual(animal.beside_companion, friend.identifier)
+        self.assertEqual(senses[SENSES.index("longing")], 0.0)
+        friend.x = 50  # gone off, out of sight
+        world._index_cells()
+        senses, _, situation = world._sense(animal)
+        self.assertEqual(animal.longing_kind, sm.LONG_COMPANION)
+        first = animal.longing
+        self.assertGreater(first, 0.0)
+        self.assertLessEqual(first, sm.LONGING * 0.9 + 1e-9)
+        self.assertAlmostEqual(senses[SENSES.index("longing")], min(1.0, first))
+        self.assertEqual(senses[SENSES.index("longing_companion")], 1.0)
+        self.assertAlmostEqual(situation["longing_unease"], sm.LONGING_UNEASE * first)
+        world._sense(animal)  # a turn apart: it fades
+        self.assertLess(animal.longing, first)
+        before = animal.longing
+        friend.x = 11  # back beside it
+        world._index_cells()
+        situation = world._sense(animal)[2]
+        self.assertEqual(animal.longing_kind, sm.NO_LONGING)
+        self.assertEqual(animal.longings_reached, 1)
+        self.assertAlmostEqual(situation["longing_relief"], sm.LONGING_JOY * before)
+        friend.x = 50
+        world._index_cells()
+        for _ in range(200):
+            if animal.longings_faded:
+                break
+            world._sense(animal)
+        self.assertEqual(animal.longings_faded, 1)
 
     def test_a_call_is_heard_within_its_reach_the_louder_the_nearer_with_its_way_and_kind(self):
         from tools.Brain import FIRST_CALL

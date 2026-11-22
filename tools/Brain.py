@@ -186,6 +186,8 @@ SENSES = (
     # whether one in its sight attends to it (see WATCHED_REPEAT), and whether the call it heard was said to it alone,
     # from beside it (see the action address), 1 or 0.
     "attending", "sees_pointing", "watched", "addressed",
+    # Its longing (see LONGING): how strong, 0..1, and for what kind of thing, never where. As the C++ version's.
+    "longing", "longing_companion", "longing_fire", "longing_shelter", "longing_joy",
     # Imagining: the action it pictures itself taking, a -1 or 1 for each bit of its number, or all 0 when it pictures
     # nothing. Only its foresight is taught with them set. As the C++ version's.
     "imagined_1", "imagined_2", "imagined_3", "imagined_4", "imagined_5", "imagined_6", "imagined_7",
@@ -195,6 +197,7 @@ MEMORY_SENSE = SENSES.index("memory_1")  # the first sense of what the memory he
 IMAGINED_SENSE = SENSES.index("imagined_1")
 UTTERANCE_SENSE = SENSES.index("heard_first_1")
 POINTED_SENSE = SENSES.index("pointed")  # then "pointed_closeness"
+LONGING_SENSE = SENSES.index("longing")  # then one for each kind: companion, fire, shelter, joy
 OUTSIDE_SENSES = tuple(SENSES.index(f"{thing}_closeness") for thing in OUTSIDE_THINGS)
 
 
@@ -225,7 +228,8 @@ SPARSE_SENSES = frozenset((
     "seed_carried", "road_here", "hide_worn", "envy", "fighting", "cooking_smell", "leader", "standout_leads", "standout_heard", "rank", "standout_rank",
     "bow_carried", "archery",
     *(f"heard_{place}_{call}" for place in ("first", "second", "third") for call in range(1, CALL_COUNT + 1)),
-    "pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed"))
+    "pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed",
+    "longing", "longing_companion", "longing_fire", "longing_shelter", "longing_joy"))
 _READ_SCALE = np.array([1.0 if name in SIGNED_SENSES else 2.0 for name in SENSES])
 _READ_SHIFT = np.array([0.0 if name in SIGNED_SENSES or name in SPARSE_SENSES else -1.0 for name in SENSES])
 
