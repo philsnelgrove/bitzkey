@@ -18,6 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
+from tools.Brain import _READ_SCALE, _READ_SHIFT  # how a brain reads each sense, to undo it
 import tools.Brain as brain_rules  # its rules, as they now stand
 from tools.Brain import (read_senses, ACTIONS, ALERT_CALL, CALL_COUNT, CALLS, FIRST_CALL, MAX_SOUNDS, sound_output, FORESEEN, FORESIGHT, MEMORY_GATES, MEMORY_NEURONS, OUTPUTS, SENSES, SILENT, Brain, BrainBatch, call_output,
                          OUTSIDE, OUTSIDE_FORESEEN, OUTSIDE_SENSES, VOICE_SENSES, utterance_sense, WISH, WISHES, POINT, POINTED_SENSE, ATTEND, ATTEND_YES, ATTEND_NO,
@@ -478,7 +479,7 @@ OUTSIDE_FORESIGHT = 10.0
 # sound, times this; and silence, taught beside each call, the same for hearing nothing, so calling in itself gains
 # nothing. Which call means what is left to them. 0 for none. As the C++ version's.
 # Echo, speak as heard with the odds held: as the C++ version's ECHO. 0 for none.
-ECHO = 2.0
+ECHO = 0.0  # 2 until 1.166: on the call bench it halved what calls tell in a cluttered world
 # Intent: a caller's wishes, learnt at WISH_LEARNING of its learning rate from how its own turn went as its hearers did
 # each deed; its intent the wish it valued most as it called, and its call taught INTENT times the share of its hearers
 # who then did that. As the C++ version's. 0 for none.
@@ -515,6 +516,13 @@ ARENA_PAYOFF = 0.0  # a blinded listener's surprise taught whole to the call it 
 # HABITUATION_RATE each turn), weighed HABITUATION against its plain nearness. As the C++ version's.
 HABITUATION = 0.8
 HABITUATION_RATE = 0.1
+# Harm after calling: struck within CALL_HARM_TURNS turns after it last called, its call is taught the harm, CALL_HARM
+# below nothing, against what it sensed as it called (its last call habit). As the C++ version's.
+CALL_HARM = 1.0
+CALL_HARM_TURNS = 5
+# Hushing: a young one that calls with a parent in sight is taught, of that call, how much its parent now prefers quiet
+# to its best sound, PARENT_HUSH times, as a child's lesson. As the C++ version's.
+PARENT_HUSH = 1.0
 ARENA_ORDER = (4, 5, 7, 0, 1, 2, 3, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
 SPEAK_AS_HEARD = 15.0
 # Cues and cries (CUES 1): each animal links each action to one of the five sounds, its cue for it, at first by chance,
@@ -1421,6 +1429,9 @@ class Bitzkey:
     answer_call: int = -1
     answer_turn: int = -1
     struck_turn: int = -1  # the last turn it was struck
+    voiced_turn: int = -1  # the last turn it made a call (not silence)
+    harm_taught_turn: int = -1  # the last strike whose harm it taught its call (see CALL_HARM)
+    quiet_wish: float = 0.0  # as it last chose: how much its brain preferred silence to its best sound (PARENT_HUSH)
     last_call: int = -1  # its last choice of call, to learn from with its action; -1 for none of its own
     cues: list[int] = field(default_factory=lambda: [-1] * len(ACTIONS))  # its cue for each action, -1: its first, by chance
     cry: int = -1  # the sound it cries out in pain or panic; -1: its first, by chance
@@ -4233,6 +4244,10 @@ class Simulation:
                     agent.sounds[place - 1] = sound
                 agent.last_call, agent.last_sounds = agent.call, list(agent.sounds)
                 agent.call_turn = self.turn
+                if agent.call >= FIRST_CALL:
+                    agent.voiced_turn = self.turn
+                best_sound = max(calls_valued[call_output(call)] for call in range(FIRST_CALL, FIRST_CALL + CALL_COUNT))
+                agent.quiet_wish = float(calls_valued[call_output(SILENT)] - best_sound)  # see PARENT_HUSH
                 if INTENT > 0 and agent.call >= FIRST_CALL:  # with Intent, the wish it values most as it calls
                     agent.intent = 0
                     for wish in range(1, len(WISHES)):
@@ -5065,6 +5080,27 @@ class Simulation:
             return
         listener.cues[caller.last_choice] = caller.last_call
 
+    def _hush_lessons(self, child: Bitzkey) -> list[tuple]:
+        """A young one that called with a parent in sight: its call taught how much that parent would now rather keep quiet
+        than call, as (senses, output, target); only a parent that has come to prefer quiet hushes. As the C++ version's."""
+        if PARENT_HUSH <= 0 or CHILD_CALL_LEARNING <= 0 or not child.infant or child.last_call < FIRST_CALL:
+            return []
+        if self._learning_rate(child) <= 0:
+            return []
+        hushing = None
+        for identifier in (child.mother, child.father):
+            parent = self.find_agent(identifier) if identifier is not None and identifier >= 0 else None
+            if parent is None or not parent.alive or parent.quiet_wish <= 0:
+                continue
+            if abs(parent.x - child.x) + abs(parent.y - child.y) > self._sight_now(parent):
+                continue  # it must see its young call
+            if hushing is None or parent.quiet_wish > hushing.quiet_wish:
+                hushing = parent
+        if hushing is None:
+            return []
+        value = limited_value(-PARENT_HUSH * hushing.quiet_wish)
+        return [(child.last_senses, output, value) for output in self._utterance_outputs(child) if output >= 0]
+
     def _body_language_lessons(self, listener: Bitzkey, target: float, call_target: float) -> list[tuple]:
         """One that sees the caller of its kind it hears, reading what it meant by its intellect (see BODY_LANGUAGE): the
         call, in the caller's situation, to make; and what the caller then did, in its own senses, to take in."""
@@ -5308,17 +5344,41 @@ class Simulation:
             deeds |= 1 << WISHES.index(kinds[name])
         return deeds
 
+    def _call_harm_lessons(self, agent: Bitzkey) -> list[tuple]:
+        """Struck soon after it called: the call it made taught the harm, against what it sensed as it made it (see
+        CALL_HARM). As the C++ version's."""
+        if CALL_HARM <= 0 or agent.struck_turn < 0 or agent.struck_turn <= agent.harm_taught_turn:
+            return []
+        agent.harm_taught_turn = agent.struck_turn
+        if agent.voiced_turn < 0 or agent.voiced_turn > agent.struck_turn or agent.struck_turn - agent.voiced_turn > CALL_HARM_TURNS:
+            return []
+        if not agent.habits or agent.brain is None:
+            return []
+        rate = self._learning_rate(agent)
+        if rate <= 0:
+            return []
+        habit_senses, said = agent.habits[-1]  # its last call, as it sensed it then
+        senses = (habit_senses.astype(float) / 60.0 - _READ_SHIFT) / _READ_SCALE
+        outputs = [call_output(FIRST_CALL + said[0])]
+        for place in range(1, MAX_SOUNDS):  # each place after the first: the sound it added, or its stop
+            outputs.append(sound_output(place, said[place]))
+            if said[place] < 0:
+                break
+        value = limited_value(-CALL_HARM)
+        return [(senses, output, value, rate) for output in outputs]
+
     def _settled_call(self, agent: Bitzkey) -> list[tuple]:
         """Its held call lesson, with what it did to its listeners, as lessons of (senses, output, target, rate)."""
         relieved, agent.relieved = agent.relieved, False  # one who heard it was then less surprised: the itch passes
         if relieved:
             agent.itch = 0.0
+        harm = self._call_harm_lessons(agent)
         if not agent.call_held:
-            return []
+            return harm
         agent.call_held = False
         rate = self._learning_rate(agent)
         if rate <= 0 or agent.call_senses is None:
-            return []
+            return harm
         target = agent.held_call_target
         if relieved:
             target += NAMING_RELIEF
@@ -5332,7 +5392,7 @@ class Simulation:
         understood = agent.understood_sum / agent.understood_count if pointed else 0.0  # how much less surprised, on average
         target += UNDERSTOOD * understood
         target = limited_value(target)
-        lessons = [(agent.call_senses, output, target, rate) for output in agent.call_outputs if output >= 0]
+        lessons = harm + [(agent.call_senses, output, target, rate) for output in agent.call_outputs if output >= 0]
         if WISH_LEARNING > 0 and agent.wish_judged:  # its wishes: each deed its hearers did, by how its own turn went
             value = limited_value(agent.wish_advantage)
             lessons += [(agent.call_senses, WISH + wish, value, rate * WISH_LEARNING)
@@ -5406,6 +5466,14 @@ class Simulation:
             for row, parent_lessons in enumerate(taught):
                 if turn < len(parent_lessons):
                     senses[row], actions[row], targets[row] = parent_lessons[turn]
+                    rates[row] = self._learning_rate(lessons[row][0]) * CHILD_CALL_LEARNING
+            batch.learn(senses, actions, targets, rates)
+        hushed = [self._hush_lessons(lesson[0]) if lesson is not None else [] for lesson in lessons]
+        for turn in range(max(map(len, hushed), default=0)):  # a young one's call, hushed by its parent
+            senses, rates = np.zeros((size, len(SENSES))), np.zeros(size)
+            for row, hush in enumerate(hushed):
+                if turn < len(hush):
+                    senses[row], actions[row], targets[row] = hush[turn]
                     rates[row] = self._learning_rate(lessons[row][0]) * CHILD_CALL_LEARNING
             batch.learn(senses, actions, targets, rates)
         read = [self._body_language_lessons(lesson[0], lesson[1], lesson[3]) if lesson is not None else [] for lesson in lessons]

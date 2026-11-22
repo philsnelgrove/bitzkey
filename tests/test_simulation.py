@@ -1678,7 +1678,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertAlmostEqual(echoed[call_output(ALERT_CALL)], 0.1)
         self.assertAlmostEqual(sum(echoed[call_output(FIRST_CALL + sound)] for sound in range(CALL_COUNT)), 0.5)
         self.assertAlmostEqual(echoed[call_output(FIRST_CALL + 2)] / echoed[call_output(FIRST_CALL)], math.exp(2.0))
-        with patch.multiple("tools.Simulation", NAMING=1.0):
+        with patch.multiple("tools.Simulation", NAMING=1.0, ECHO=2.0):  # echo on, as it is off by default
             for index in range(12):
                 self.simulation._add_agent(encode_dna("grazer", intellect=7, sight=7), 2 + index % 4, 2 + index // 4)
             self.simulation._add_agent(encode_dna("predator"), 6, 6)
