@@ -451,6 +451,7 @@ ALARM_REACH = 6        # an alarmed animal knows where the hunter is within this
 # one, and costs its caller this much hunger, as any call does, the alert among them.
 CALL_REACH = 16
 CALL_COST = 0.0  # hunger for each sound of a call: two sounds cost twice as much as one (0.3 until 3.214)
+CALL_EFFORT = 0.2  # each call taught this much less for its effort, felt not paid; as the C++ version's
 CALL_FATIGUE = 5.0  # stamina for each sound of a call, as listed fatigue (an action is ACTION_FATIGUE)
 TUTOR_COST = 0.3  # hunger a lesson costs its tutor (once as dear as a call)
 CALL_LENGTH = 3  # the most sounds a call may run to, 1 to 3 (Brain.py's MAX_SOUNDS)
@@ -5253,7 +5254,7 @@ class Simulation:
         sounds = 1 if agent.last_call >= ALERT_CALL else 0
         if agent.last_call >= FIRST_CALL:
             sounds += sum(sound >= 0 for sound in agent.last_sounds)
-        return (0.5 + agent.feeling("appetite")) * CALL_COST * sounds / 100
+        return (0.5 + agent.feeling("appetite")) * CALL_COST * sounds / 100 + (CALL_EFFORT if sounds > 0 else 0.0)  # and its effort
 
     @staticmethod
     def _copied_call_target(learner: Bitzkey, caller: Bitzkey, call_target: float) -> float:

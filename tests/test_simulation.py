@@ -4365,6 +4365,7 @@ class MaterialTests(unittest.TestCase):
                                   (parent.last_senses, sound_output(1, -1), 4.0),
                                   (child.last_senses, 0, 5.0)])
 
+    @patch.object(simulation_module, "CALL_EFFORT", 0.0)
     @patch.object(simulation_module, "CALL_COST", 0.3)  # as it was before 3.214, so the cost shows
     def test_by_the_call_baseline_a_call_learns_its_own_part_and_a_copier_takes_the_callers(self):
         simulation = Simulation(30, 30, 0, seed=1)
@@ -4375,6 +4376,8 @@ class MaterialTests(unittest.TestCase):
         self.assertAlmostEqual(Simulation._call_cost(caller), one)  # the alert is one sound
         caller.last_call, caller.last_sounds = simulation_module.FIRST_CALL + 2, [1, 4]
         self.assertAlmostEqual(Simulation._call_cost(caller), 3 * one)
+        with patch.object(simulation_module, "CALL_EFFORT", 0.2):  # the effort, once a call however long
+            self.assertAlmostEqual(Simulation._call_cost(caller), 3 * one + 0.2)
         caller.last_call = simulation_module.SILENT
         self.assertEqual(Simulation._call_cost(caller), 0.0)
         caller.call_part, learner.call_part = 0.4, -0.1
