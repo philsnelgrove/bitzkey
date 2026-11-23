@@ -21,7 +21,7 @@ import numpy as np
 from tools.Brain import _READ_SCALE, _READ_SHIFT  # how a brain reads each sense, to undo it
 import tools.Brain as brain_rules  # its rules, as they now stand
 from tools.Brain import (read_senses, ACTIONS, ALERT_CALL, CALL_COUNT, CALLS, FIRST_CALL, MAX_SOUNDS, sound_output, FORESEEN, FORESIGHT, MEMORY_GATES, MEMORY_NEURONS, OUTPUTS, SENSES, SILENT, Brain, BrainBatch, call_output,
-                         OUTSIDE, OUTSIDE_FORESEEN, OUTSIDE_SENSES, VOICE_SENSES, utterance_sense, WISH, WISHES, POINT, POINTED_SENSE, LONGING_SENSE, MEANT_SENSE, NAMED_SENSE, MEANT_DEED_SENSE, utterance2_sense, word2_output, ATTEND, ATTEND_YES, ATTEND_NO, POINT_ONE, POINT_ONE_THING, POINT_SELF, POINT_SELF_THING, point_output,
+                         OUTSIDE, OUTSIDE_FORESEEN, OUTSIDE_SENSES, VOICE_SENSES, utterance_sense, WISH, WISHES, POINT, POINTED_SENSE, GOAL_SENSE, GOAL_NEED_SENSE, GOAL_THING_SENSE, GOAL_ONE_SENSE, GOAL_DEED_SENSE, MEANT_SENSE, NAMED_SENSE, MEANT_DEED_SENSE, utterance2_sense, word2_output, ATTEND, ATTEND_YES, ATTEND_NO, POINT_ONE, POINT_ONE_THING, POINT_SELF, POINT_SELF_THING, point_output,
                          choice_odds, depth_for, gene_senses, imagined_call, imagining, make_senses, memory_after, width_for)
 from tools.Genome import (GENOME, SPECIES, TEMPERAMENT, TRAIT_MAX, body_word, color_from_word, colour_difference, cross, decode_nocturnal, dot_difference,
                           inherit_mind,
@@ -473,12 +473,24 @@ def minds_met(listener, speaker) -> float:
 # Trying again (the user's idea): a word said to one alone, two turns on not answered with a right guess, may be said
 # again with the same point, up to ADDRESS_RETRIES times: offered, and with a chance of its sociability compelled.
 ADDRESS_RETRIES = 3
-# Longing (the user's idea, a want that persists): parted from a companion it cares for, a friendly fire it was beside,
-# a shelter it was in, or the thing nearest at its greatest recent joy, it longs for it, felt as unease till it fades
-# or is met with joy; sensed by strength and kind, never where. As the C++ version's.
-LONGING = 1.0
-LONGING_FADE = 0.05
-LONGING_PARTING = 5  # a companion out of sight this many turns running, before it is longed for
+# Goals (the user's design, in longing's place): needs, what eases each learnt from its own life, and a goal held with
+# rising urgency till reached, given up or let go. As the C++ version's: see GOAL_JOY there.
+NEEDS = 6
+NEED_HUNGER, NEED_FATIGUE, NEED_PAIN, NEED_FEAR, NEED_LONELINESS, NEED_DISCOMFORT = range(NEEDS)
+NO_GOAL, GOAL_FOR_THING, GOAL_FOR_ONE, GOAL_FOR_DEED = range(4)
+RELIEF_RATE = 0.05
+RELIEF_INHERIT = 0.5
+RELIEF_ONES = 6
+GOAL_MIN_RELIEF = 0.01
+GOAL_RISE = 0.05
+GOAL_STUBBORNNESS = 0.5
+GOAL_PATIENCE = 48
+GOAL_UNEASE = 0.1
+GOAL_JOY = 1.0
+GOAL_GIVE_UP = 0.2
+GOAL_PROGRESS = 0.05
+GOAL_SATED = 0.05
+GOAL_URGENCY_MAX = 2.0
 # The lexicon (the user's design): words settled by accord, a right guess or a corrected one, each with the thing it
 # means and the regard for the one it was settled with; LEXICON_SIZE for each point of intellect and one more, the
 # least used forgotten when full; changed only by a friend or family member regarded more (family at least
@@ -509,10 +521,7 @@ DEEDS_SIZE = 4
 # A second word (the user's design): a call may go on to a second word, chosen sound by sound by its brain; a call
 # holding a name the hearer has for another is an order for that one. 1 for a single word. As the C++ version's.
 CALL_WORDS = 2
-LONGING_UNEASE = 0.1
-LONGING_JOY = 1.0
 MAP_BLIND = 0  # for experiments: 1 withholds the mental map senses and revisit
-NO_LONGING, LONG_COMPANION, LONG_FIRE, LONG_SHELTER, LONG_JOY = range(5)
 CALL_FATIGUE = 0.5  # stamina for each sound of a call, as listed fatigue (an action is ACTION_FATIGUE)
 # Chatter (the user's design), as the C++ version's: see HOARSE, TUNE_OUT, ANNOYANCE and HUNTERS_HEAR there.
 CHATTER_FADE = 0.8
@@ -1594,29 +1603,26 @@ class Bitzkey:
     unknown_deed: int = -1  # caller's deed then, and whether it did the same next turn. As the C++ version's.
     unknown_judged_turn: int = -1
     unknown_same: bool = False
-    longing_kind: int = 0  # what kind of thing it longs for (see LONGING): 0 none
-    longing: float = 0.0  # how strongly, fading
-    longing_for: int = -1  # the companion longed for, or the outside thing
-    longing_x: int = -1  # the fire or shelter longed for
-    longing_y: int = -1
-    longing_turn: int = -1
-    longing_away: int = -1
-    longing_closer: int = 0
-    longing_farther: int = 0
-    longings_reached: int = 0
-    longings_faded: int = 0
-    beside_companion: int = -1
-    missing: int = -1  # a companion gone from its sight, not yet back (see LONGING_PARTING)
-    missing_care: float = 0.0
-    missing_for: int = 0
-    beside_care: float = 0.0
-    fire_x: int = -1
-    fire_y: int = -1
-    shelter_x: int = -1
-    shelter_y: int = -1
-    joy_thing: int = -1
-    joy_best: float = 0.0
-    joy_seen: bool = False
+    # Goals (see GOAL_JOY): its needs last turn and their usual drift; what eased each need, nearer each thing, beside each
+    # companion ([id, closeness last turn, relief for each need]), doing each deed; its goal; and goals in its life.
+    has_needs: bool = False
+    needs: list = field(default_factory=lambda: [0.0] * 6)
+    need_drift: list = field(default_factory=lambda: [0.0] * 6)
+    relief_things: list = field(default_factory=lambda: [[0.0] * 21 for _ in range(6)])
+    relief_deeds: list = field(default_factory=lambda: [[0.0] * len(ACTIONS) for _ in range(6)])
+    relief_ones: list = field(default_factory=list)
+    goal_kind: int = 0
+    goal_target: int = -1
+    goal_need: int = -1
+    goal_turn: int = -1
+    goal_urgency: float = 0.0
+    goal_close: float = -1.0
+    goals_formed: int = 0
+    goals_reached: int = 0
+    goals_abandoned: int = 0
+    goals_switched: int = 0
+    goals_dropped: int = 0
+    goal_reach_turns: int = 0
     harm_taught_turn: int = -1  # the last strike whose harm it taught its call (see CALL_HARM)
     quiet_wish: float = 0.0  # as it last chose: how much its brain preferred silence to its best sound (PARENT_HUSH)
     last_call: int = -1  # its last choice of call, to learn from with its action; -1 for none of its own
@@ -5449,9 +5455,9 @@ class Simulation:
                     for seen, sense in enumerate(OUTSIDE_SENSES):
                         if seen != pointed:
                             senses[sense] *= 1 - min(1.0, ATTENTION)
-        longing_unease, longing_relief = self._long_for(agent, senses, fire, sight)  # before habit dulls what it sees
         agent.heed_answer = -1
-        word_reward = self._heed_words(agent, senses)  # and what it has learnt of each thing, and of words heard
+        word_reward = self._heed_words(agent, senses)  # what it has learnt of each thing, and of words heard, before habit dulls what it sees
+        goal_unease, goal_relief = self._pursue(agent, senses, sight)  # and its needs and goal, likewise
         # Getting used to things (see HABITUATION). As the C++ version's.
         if HABITUATION > 0:
             weight = min(1.0, HABITUATION)
@@ -5552,7 +5558,7 @@ class Simulation:
         situation["land"], situation["war"], situation["ambition"] = land, war, agent.ambition
         situation["admired"], situation["standout"] = admired, standout
         situation["followed"] = agent.followed
-        situation["longing_unease"], situation["longing_relief"] = longing_unease, longing_relief
+        situation["goal_unease"], situation["goal_relief"] = goal_unease, goal_relief
         situation["word_reward"] = word_reward
         situation["inside"] = (2 if ACTIONS[agent.last_choice] == "rest" else 1) if self._under_cover(agent) else 0
         if situation["exposure"] > 0 and (situation["inside"] or self.sheltered(agent) or self._warmed_by_fire(agent, here)):
@@ -5567,116 +5573,154 @@ class Simulation:
         return (-appetite * min(100.0, agent.hunger) / 100
                 - (1 - max(0.0, agent.health) / agent.max_health) - tired)
 
-    def _long_for(self, agent: Bitzkey, senses, fire, sight: int) -> tuple[float, float]:
-        """Its longing: met, faded, or begun; the unease and relief it brings this turn; sensed by strength and kind.
-        As the C++ version's."""
+    def _pursue(self, agent: Bitzkey, senses, sight: int) -> tuple[float, float]:
+        """Its needs, what eases each, and its goal: the unease and relief it brings this turn. As the C++ version's."""
         unease = relief = 0.0
-        if LONGING <= 0 and agent.longing_kind == NO_LONGING:
-            return unease, relief
-        friendly_fire = fire is not None and self._fire_friendly(agent, fire)
-        inside = self._under_cover(agent)
-        if agent.longing_kind != NO_LONGING:
-            away, met = -1, False
-            if agent.longing_kind == LONG_COMPANION:
-                other = self.find_agent(agent.longing_for)
-                if other is None or not other.alive:
-                    agent.longing_kind = NO_LONGING  # gone: grief, not longing
-                else:
-                    away = abs(other.x - agent.x) + abs(other.y - agent.y)
-                    met = away <= 1
-            elif agent.longing_kind == LONG_FIRE:
-                away = abs(agent.longing_x - agent.x) + abs(agent.longing_y - agent.y)
-                met = friendly_fire and abs(fire[0] - agent.x) + abs(fire[1] - agent.y) <= 1
-            elif agent.longing_kind == LONG_SHELTER:
-                away = abs(agent.longing_x - agent.x) + abs(agent.longing_y - agent.y)
-                met = inside
-            elif agent.longing_kind == LONG_JOY:
-                met = agent.longing_for >= 0 and senses[OUTSIDE_SENSES[agent.longing_for]] >= 0.95
-            if away >= 0 and agent.longing_away >= 0:
-                agent.longing_closer += away < agent.longing_away
-                agent.longing_farther += away > agent.longing_away
-            agent.longing_away = away
-            if agent.longing_kind != NO_LONGING and met:
-                relief = LONGING_JOY * agent.longing
-                agent.longings_reached += 1
-                agent.longing_kind = NO_LONGING
-            elif agent.longing_kind != NO_LONGING:
-                steady = agent.feeling("loyalty" if agent.longing_kind == LONG_COMPANION else "patience")
-                agent.longing *= max(0.0, 1 - LONGING_FADE * (1.5 - steady))
-                if agent.longing < 0.05:
-                    agent.longings_faded += 1
-                    agent.longing_kind = NO_LONGING
-            if agent.longing_kind == NO_LONGING:
-                agent.longing = 0.0
-
-        def begin(kind: int, strength: float, target: int, x: int, y: int) -> None:
-            felt = LONGING * min(1.0, max(0.0, strength))
-            if felt <= 0 or felt <= agent.longing:
-                return
-            agent.longing_kind, agent.longing, agent.longing_for = kind, felt, target
-            agent.longing_x, agent.longing_y, agent.longing_turn = x, y, self.turn
-            agent.longing_away, agent.longing_closer, agent.longing_farther = -1, 0, 0
-
-        companion, care, kept, back = -1, 0.0, False, False
+        index = SENSES.index
+        now = [senses[index("hunger")], 1.0 - senses[index("stamina")], 1.0 - senses[index("health")],
+               senses[index("threat_closeness")], 0.0 if solitary(agent.species) else 1.0 - senses[index("herd_closeness")],
+               senses[index("climate_discomfort")]]
+        now = [min(1.0, max(0.0, float(need))) for need in now]
+        # The companions it cares for in sight, kept among the few it learns of.
         for other in self._nearby(agent, sight):
             if (other is agent or not other.alive or other.brain is None
                     or abs(other.x - agent.x) + abs(other.y - agent.y) > sight):
                 continue
-            kin = other.identifier in (agent.mother, agent.father) or agent.identifier in (other.mother, other.father)
-            regard = 1.0 if kin else self._raw_regard_for(agent, other)
-            if regard < REGARD_STRONG:
+            if not self._family(agent, other) and self._raw_regard_for(agent, other) < REGARD_STRONG:
                 continue
-            if other.identifier == agent.beside_companion:
-                kept = True
-            if other.identifier == agent.missing:
-                back = True
-            if regard > care:
-                care, companion = regard, other.identifier
-        # Gone from its sight, a companion is missed; only gone LONGING_PARTING turns running, not back, is it longed for.
-        if (agent.beside_companion >= 0 and not kept and agent.beside_companion != agent.missing
-                and (agent.missing < 0 or agent.beside_care > agent.missing_care)):
-            agent.missing, agent.missing_care, agent.missing_for = agent.beside_companion, agent.beside_care, 0
-        if agent.missing >= 0:
-            gone = self.find_agent(agent.missing)
-            lost = gone is None or not gone.alive
-            if not lost and not back:
-                agent.missing_for += 1
-            if not lost and not back and agent.missing_for >= max(1, LONGING_PARTING):
-                begin(LONG_COMPANION, agent.missing_care, agent.missing, -1, -1)
-                agent.missing = -1
-            elif lost or back:
-                agent.missing = -1  # back again, or gone for good: nothing to long for
-            if agent.missing < 0:
-                agent.missing_care, agent.missing_for = 0.0, 0
-        agent.beside_companion, agent.beside_care = companion, care
-        if agent.fire_x >= 0 and not friendly_fire:
-            begin(LONG_FIRE, 1.0, -1, agent.fire_x, agent.fire_y)
-        agent.fire_x, agent.fire_y = fire if friendly_fire else (-1, -1)
-        if inside:
-            agent.shelter_x, agent.shelter_y = agent.x, agent.y
-        elif agent.shelter_x >= 0 and abs(agent.shelter_x - agent.x) + abs(agent.shelter_y - agent.y) > sight:
-            begin(LONG_SHELTER, 1.0, -1, agent.shelter_x, agent.shelter_y)
-            agent.shelter_x = agent.shelter_y = -1
-        agent.joy_best *= 0.99
-        if agent.reward > agent.joy_best and agent.reward > 0:
-            nearest, most = -1, 0.0
-            for thing, sense in enumerate(OUTSIDE_SENSES):
-                if senses[sense] > most:
-                    most, nearest = senses[sense], thing
-            if nearest >= 0:
-                agent.joy_best, agent.joy_thing, agent.joy_seen = agent.reward, nearest, True
-        if agent.joy_thing >= 0:
-            seen = senses[OUTSIDE_SENSES[agent.joy_thing]] > 0
-            if agent.joy_seen and not seen:
-                begin(LONG_JOY, agent.joy_best, agent.joy_thing, -1, -1)
-            agent.joy_seen = seen
-        if LONGING <= 0:
-            agent.longing_kind, agent.longing = NO_LONGING, 0.0
-        if agent.longing_kind != NO_LONGING:
-            unease = LONGING_UNEASE * agent.longing
-            senses[LONGING_SENSE] = min(1.0, agent.longing)
-            senses[LONGING_SENSE + agent.longing_kind] = 1.0
+            if any(one[0] == other.identifier for one in agent.relief_ones):
+                continue
+            if len(agent.relief_ones) < RELIEF_ONES:
+                agent.relief_ones.append([other.identifier, -1.0, [0.0] * NEEDS])
+                continue
+            least = None
+            for at, one in enumerate(agent.relief_ones):
+                if self.one_closeness(agent, one[0], sight) > 0:
+                    continue
+                if least is None or sum(abs(r) for r in one[2]) < sum(abs(r) for r in agent.relief_ones[least][2]):
+                    least = at
+            if least is not None:
+                agent.relief_ones[least] = [other.identifier, -1.0, [0.0] * NEEDS]
+        agent.relief_ones = [one for one in agent.relief_ones if (found := self.find_agent(one[0])) is not None and found.alive]
+        # What eased each need since last turn, beyond its usual drift, after what it came nearer and what it did.
+        ones_close = [self.one_closeness(agent, one[0], sight) for one in agent.relief_ones]
+        if agent.has_needs and RELIEF_RATE > 0:
+            rate = min(1.0, RELIEF_RATE)
+            for n in range(NEEDS):
+                eased = agent.needs[n] - now[n]
+                gain = eased - agent.need_drift[n]
+                agent.need_drift[n] += rate * (eased - agent.need_drift[n])
+                for thing in range(len(OUTSIDE_SENSES)):
+                    if agent.moved[thing] > 0:
+                        agent.relief_things[n][thing] += rate * (gain - agent.relief_things[n][thing])
+                if 0 <= agent.last_choice < len(ACTIONS):
+                    agent.relief_deeds[n][agent.last_choice] += rate * (gain - agent.relief_deeds[n][agent.last_choice])
+                for one, close in zip(agent.relief_ones, ones_close):
+                    if one[1] >= 0 and close > one[1]:
+                        one[2][n] += rate * (gain - one[2][n])
+        for one, close in zip(agent.relief_ones, ones_close):
+            one[1] = close
+        agent.needs, agent.has_needs = now, True
+
+        def worth(kind: int, target: int, need: int) -> float:
+            if kind == GOAL_FOR_THING:
+                return agent.relief_things[need][target]
+            if kind == GOAL_FOR_DEED:
+                return agent.relief_deeds[need][target]
+            return next((one[2][need] for one in agent.relief_ones if one[0] == target), 0.0)
+
+        if agent.goal_kind != NO_GOAL:
+            met = gone = False
+            close = -1.0
+            if agent.goal_kind == GOAL_FOR_THING:
+                close = senses[OUTSIDE_SENSES[agent.goal_target]]
+                met = close >= 0.99
+            elif agent.goal_kind == GOAL_FOR_ONE:
+                other = self.find_agent(agent.goal_target)
+                gone = other is None or not other.alive
+                close = 0.0 if gone else self.one_closeness(agent, agent.goal_target, sight)
+                met = not gone and close >= 0.99
+            else:
+                met = agent.goal_turn < self.turn and agent.last_choice == agent.goal_target
+            need = now[agent.goal_need]
+            patience = agent.feeling("patience")
+            if met:
+                relief += GOAL_JOY * agent.goal_urgency
+                agent.goals_reached += 1
+                agent.goal_reach_turns += self.turn - agent.goal_turn
+                agent.goal_kind = NO_GOAL
+            elif gone or need < GOAL_SATED:
+                agent.goals_dropped += 1
+                agent.goal_kind = NO_GOAL
+            elif self.turn - agent.goal_turn > GOAL_PATIENCE * (0.5 + patience):
+                relief -= GOAL_GIVE_UP
+                agent.goals_abandoned += 1
+                agent.goal_kind = NO_GOAL
+            else:
+                if close >= 0 and agent.goal_close >= 0:
+                    relief += GOAL_PROGRESS * ((close > agent.goal_close) - (close < agent.goal_close))
+                agent.goal_close = close
+                agent.goal_urgency = min(GOAL_URGENCY_MAX, agent.goal_urgency + GOAL_RISE * need)
+            if agent.goal_kind == NO_GOAL:
+                agent.goal_target = agent.goal_need = -1
+                agent.goal_urgency, agent.goal_close = 0.0, -1.0
+        worst = -1
+        for n in range(NEEDS):
+            if now[n] >= GOAL_SATED and (worst < 0 or now[n] > now[worst]):
+                worst = n
+        if worst >= 0:
+            kind, target, best = NO_GOAL, -1, GOAL_MIN_RELIEF
+            candidates = ([(GOAL_FOR_THING, thing) for thing in range(len(OUTSIDE_SENSES))]
+                          + [(GOAL_FOR_ONE, one[0]) for one in agent.relief_ones]
+                          + [(GOAL_FOR_DEED, deed) for deed in range(len(ACTIONS))])
+            for k, t in candidates:
+                value = worth(k, t, worst)
+                if value >= best and not (kind != NO_GOAL and value == best):
+                    kind, target, best = k, t, value
+            same = kind == agent.goal_kind and target == agent.goal_target and worst == agent.goal_need
+            adopt = kind != NO_GOAL and agent.goal_kind == NO_GOAL
+            if kind != NO_GOAL and agent.goal_kind != NO_GOAL and not same:
+                held = now[agent.goal_need] * worth(agent.goal_kind, agent.goal_target, agent.goal_need)
+                margin = 1.0 + GOAL_STUBBORNNESS * 2.0 * agent.feeling("patience")
+                if now[worst] * best > max(0.0, held) * margin:
+                    adopt = True
+                    agent.goals_switched += 1
+            if adopt:
+                agent.goal_kind, agent.goal_target, agent.goal_need, agent.goal_turn = kind, target, worst, self.turn
+                agent.goal_urgency = now[worst]
+                agent.goal_close = (senses[OUTSIDE_SENSES[target]] if kind == GOAL_FOR_THING
+                                    else self.one_closeness(agent, target, sight) if kind == GOAL_FOR_ONE else -1.0)
+                agent.goals_formed += 1
+        if agent.goal_kind != NO_GOAL:
+            unease = GOAL_UNEASE * agent.goal_urgency
+            senses[GOAL_SENSE] = 1.0
+            senses[GOAL_SENSE + 1] = agent.goal_urgency / GOAL_URGENCY_MAX
+            senses[GOAL_SENSE + 2] = max(0.0, agent.goal_close)
+            senses[GOAL_NEED_SENSE + agent.goal_need] = 1.0
+            if agent.goal_kind == GOAL_FOR_THING:
+                senses[GOAL_THING_SENSE + agent.goal_target] = 1.0
+            elif agent.goal_kind == GOAL_FOR_ONE:
+                senses[GOAL_ONE_SENSE] = 1.0
+                other = self.find_agent(agent.goal_target)
+                if other is not None:
+                    senses[GOAL_SENSE + 3] = max(-1.0, min(1.0, self._regard_for(agent, other)))
+                    senses[GOAL_SENSE + 4] = 1.0 if self._family(agent, other) else 0.0
+            else:
+                senses[GOAL_DEED_SENSE + agent.goal_target] = 1.0
         return unease, relief
+
+    def inherit_relief(self, child: Bitzkey, mother: Bitzkey, father: Bitzkey | None) -> None:
+        """A share of what eased its parents' needs, as if it had learnt it (see RELIEF_INHERIT). As the C++ version's."""
+        if RELIEF_INHERIT <= 0:
+            return
+        share = min(1.0, RELIEF_INHERIT)
+        for n in range(NEEDS):
+            for thing in range(len(OUTSIDE_SENSES)):
+                parents = (mother.relief_things[n][thing] + father.relief_things[n][thing]) / 2 if father is not None else mother.relief_things[n][thing]
+                child.relief_things[n][thing] = share * parents
+            for deed in range(len(ACTIONS)):
+                parents = (mother.relief_deeds[n][deed] + father.relief_deeds[n][deed]) / 2 if father is not None else mother.relief_deeds[n][deed]
+                child.relief_deeds[n][deed] = share * parents
 
     @staticmethod
     def _comfort(agent: Bitzkey, situation: dict) -> float:
@@ -5737,7 +5781,7 @@ class Simulation:
             hearth += (1 + PROTECTION_JOY) * FOLLOW_SAFETY * self._dread(agent, situation)
         hearth -= ENVY_UNEASE * self._envy_of(agent) * situation.get("envy", 0.0)
         hearth += GEAR_EASE * agent.gear_held  # at ease with a weapon in hand and armour on, while it keeps them
-        hearth += situation.get("longing_relief", 0.0) - situation.get("longing_unease", 0.0)  # its longing (see LONGING)
+        hearth += situation.get("goal_relief", 0.0) - situation.get("goal_unease", 0.0)  # its goal (see GOAL_JOY)
         hearth += situation.get("word_reward", 0.0)  # a word heard, heeded (see LEXICON_HEED)
         if regard >= REGARD_STRONG:
             return hearth + REGARD_COMFORT * regard * (0.5 + agent.feeling("trust"))
@@ -8634,6 +8678,7 @@ class Simulation:
             father_now = self.find_agent(father) if father is not None and father >= 0 else None
             if father_now is not None:
                 self.inherit_words(child, father_now)
+            self.inherit_relief(child, mother, father_now)  # and what eased its parents' needs (see RELIEF_INHERIT)
             self.name_at_birth(child, mother)  # and its mother names it (see NAMES_SIZE)
             if CUES:  # its mother's cry, or now and then another
                 child.cry = cue_cry(mother)

@@ -209,6 +209,18 @@ def _mind_from(values) -> dict[str, float]:
     return {trait: float(value) for trait, value in zip(TEMPERAMENT, values)}
 
 
+def goal_record(agent) -> dict:
+    """Its needs, what eases them and its goal (see GOAL_JOY): only reliefs learnt. As the C++ version's."""
+    needs = [float(v) for pair in zip(agent.needs, agent.need_drift) for v in pair]
+    things = [[n, thing, float(v)] for n in range(6) for thing, v in enumerate(agent.relief_things[n]) if v != 0.0]
+    deeds = [[n, deed, float(v)] for n in range(6) for deed, v in enumerate(agent.relief_deeds[n]) if v != 0.0]
+    ones = [[one[0], float(one[1]), *(float(v) for v in one[2])] for one in agent.relief_ones]
+    return {"head": [agent.goal_kind, agent.goal_target, agent.goal_need, agent.goal_turn, float(agent.goal_urgency), float(agent.goal_close),
+                     agent.goals_formed, agent.goals_reached, agent.goals_abandoned, agent.goals_switched, agent.goals_dropped,
+                     agent.goal_reach_turns, int(agent.has_needs)],
+            "needs": needs, "things": things, "deeds": deeds, "ones": ones}
+
+
 def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
     return {
         "identifier": agent.identifier, "dna": _genome(agent.dna), "x": agent.x, "y": agent.y,
@@ -241,7 +253,7 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "last_choice": int(agent.last_choice), "last_forced": bool(agent.last_forced), "last_panicked": bool(agent.last_panicked), "last_wellbeing": float(agent.last_wellbeing),
         "reward": float(agent.reward), "last_comfort": float(agent.last_comfort),
         "odds": {action: float(chance) for action, chance in agent.odds.items()},
-        "call": agent.call, "call_turn": agent.call_turn, "heard_from": agent.heard_from, "heard_call": agent.heard_call, "heard_turn": agent.heard_turn, "heard_hunger": float(agent.heard_hunger), "heard_danger": agent.heard_danger, "struck_turn": agent.struck_turn, "last_call": agent.last_call, "cues": list(agent.cues), "cry": agent.cry, "call_kind": agent.call_kind, "itch": float(agent.itch), "named": agent.named, "named_turn": agent.named_turn, "relieved": agent.relieved, "has_foresaw": agent.has_foresaw, "foresaw": [float(v) for v in agent.foresaw], "used_to": [float(v) for v in agent.used_to], "voiced_turn": agent.voiced_turn, "address_turn": agent.address_turn, "address_to": agent.address_to, "learn_turn": agent.learn_turn, "learn_from": agent.learn_from, "learn_correct": agent.learn_correct, "learn_gain": agent.learn_gain, "learn_call": agent.learn_call, "word_turn": agent.word_turn, "word_call": agent.word_call, "word_sounds": list(agent.word_sounds), "word_point": agent.word_point, "word_tries": agent.word_tries, "learn_thing": agent.learn_thing, "learn_sounds": list(agent.learn_sounds), "lexicon_spoke_turn": agent.lexicon_spoke_turn, "word_worth": [[float(v) for v in agent.nearer_comfort], [float(v) for v in agent.farther_comfort]], "word_heed": [agent.close_turn, agent.meant_turn, agent.meant_thing, float(agent.meant_close), agent.meant_deed, agent.judged_turn, int(agent.heeded), int(agent.acted_good), int(agent.acted_same), float(agent.word_reward), agent.judged_thing, agent.judged_deed, agent.unknown_turn, agent.unknown_deed, agent.unknown_judged_turn, int(agent.unknown_same), int(agent.meant_liked), int(agent.judged_liked)], "was_close": [float(v) for v in agent.was_close], "moved": list(agent.moved), "lexicon": [[int(w[0]), int(w[1]), int(w[2]), int(w[3]), float(w[4]), int(w[5])] for w in agent.lexicon], "names": [[int(w[0]), int(w[1]), int(w[2]), int(w[3]), float(w[4]), int(w[5])] for w in agent.names], "deeds": [[int(w[0]), int(w[1]), int(w[2]), int(w[3]), float(w[4]), int(w[5])] for w in agent.deeds], "deed_heed": [agent.deed_spoke_turn, int(agent.meant_by_deed), int(agent.judged_by_deed), agent.echo_turn, agent.prior_choice], "second_word": [agent.call2, *agent.sounds2, agent.last_call2, *agent.last_sounds2, int(agent.meant_for_me), int(agent.meant_for_other), int(agent.judged_for_me)], "own_name": [agent.own_call, *agent.own_sounds], "name_heed": [agent.name_spoke_turn, agent.called_turn, agent.called_one, float(agent.called_close), agent.called_me_turn, agent.name_judged_turn, int(agent.name_heeded), float(agent.name_reward)], "word_one": agent.word_one, "chatter": [float(agent.chatter), agent.repeat_from, agent.repeat_call, *agent.repeat_sounds, agent.word_from, agent.answered_turn, agent.answered_count], "learn_one": agent.learn_one, "longing": [agent.longing_kind, agent.longing, agent.longing_for, agent.longing_x, agent.longing_y, agent.longing_turn, agent.longing_away, agent.longing_closer, agent.longing_farther, agent.longings_reached, agent.longings_faded, agent.beside_companion, agent.beside_care, agent.fire_x, agent.fire_y, agent.shelter_x, agent.shelter_y, agent.joy_thing, agent.joy_best, int(agent.joy_seen), agent.missing, agent.missing_care, agent.missing_for], "harm_taught_turn": agent.harm_taught_turn, "quiet_wish": float(agent.quiet_wish), "surprised": [float(v) for v in agent.surprised], "outside_surprise": float(agent.outside_surprise), "told_by": agent.told_by, "told_turn": agent.told_turn, "told_surprise": float(agent.told_surprise), "call_urgency": float(agent.call_urgency), "echo_of": [list(row) for row in agent.echo_of],
+        "call": agent.call, "call_turn": agent.call_turn, "heard_from": agent.heard_from, "heard_call": agent.heard_call, "heard_turn": agent.heard_turn, "heard_hunger": float(agent.heard_hunger), "heard_danger": agent.heard_danger, "struck_turn": agent.struck_turn, "last_call": agent.last_call, "cues": list(agent.cues), "cry": agent.cry, "call_kind": agent.call_kind, "itch": float(agent.itch), "named": agent.named, "named_turn": agent.named_turn, "relieved": agent.relieved, "has_foresaw": agent.has_foresaw, "foresaw": [float(v) for v in agent.foresaw], "used_to": [float(v) for v in agent.used_to], "voiced_turn": agent.voiced_turn, "address_turn": agent.address_turn, "address_to": agent.address_to, "learn_turn": agent.learn_turn, "learn_from": agent.learn_from, "learn_correct": agent.learn_correct, "learn_gain": agent.learn_gain, "learn_call": agent.learn_call, "word_turn": agent.word_turn, "word_call": agent.word_call, "word_sounds": list(agent.word_sounds), "word_point": agent.word_point, "word_tries": agent.word_tries, "learn_thing": agent.learn_thing, "learn_sounds": list(agent.learn_sounds), "lexicon_spoke_turn": agent.lexicon_spoke_turn, "word_worth": [[float(v) for v in agent.nearer_comfort], [float(v) for v in agent.farther_comfort]], "word_heed": [agent.close_turn, agent.meant_turn, agent.meant_thing, float(agent.meant_close), agent.meant_deed, agent.judged_turn, int(agent.heeded), int(agent.acted_good), int(agent.acted_same), float(agent.word_reward), agent.judged_thing, agent.judged_deed, agent.unknown_turn, agent.unknown_deed, agent.unknown_judged_turn, int(agent.unknown_same), int(agent.meant_liked), int(agent.judged_liked)], "was_close": [float(v) for v in agent.was_close], "moved": list(agent.moved), "lexicon": [[int(w[0]), int(w[1]), int(w[2]), int(w[3]), float(w[4]), int(w[5])] for w in agent.lexicon], "names": [[int(w[0]), int(w[1]), int(w[2]), int(w[3]), float(w[4]), int(w[5])] for w in agent.names], "deeds": [[int(w[0]), int(w[1]), int(w[2]), int(w[3]), float(w[4]), int(w[5])] for w in agent.deeds], "deed_heed": [agent.deed_spoke_turn, int(agent.meant_by_deed), int(agent.judged_by_deed), agent.echo_turn, agent.prior_choice], "second_word": [agent.call2, *agent.sounds2, agent.last_call2, *agent.last_sounds2, int(agent.meant_for_me), int(agent.meant_for_other), int(agent.judged_for_me)], "own_name": [agent.own_call, *agent.own_sounds], "name_heed": [agent.name_spoke_turn, agent.called_turn, agent.called_one, float(agent.called_close), agent.called_me_turn, agent.name_judged_turn, int(agent.name_heeded), float(agent.name_reward)], "word_one": agent.word_one, "chatter": [float(agent.chatter), agent.repeat_from, agent.repeat_call, *agent.repeat_sounds, agent.word_from, agent.answered_turn, agent.answered_count], "learn_one": agent.learn_one, "goal": goal_record(agent), "harm_taught_turn": agent.harm_taught_turn, "quiet_wish": float(agent.quiet_wish), "surprised": [float(v) for v in agent.surprised], "outside_surprise": float(agent.outside_surprise), "told_by": agent.told_by, "told_turn": agent.told_turn, "told_surprise": float(agent.told_surprise), "call_urgency": float(agent.call_urgency), "echo_of": [list(row) for row in agent.echo_of],
         "held": [float(held) for held in agent.held], "last_wrote": bool(agent.last_wrote),
         "past": [numbers.senses(senses) for senses in agent.past],
         "sounds": list(agent.sounds), "last_sounds": list(agent.last_sounds),
@@ -427,16 +439,33 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
         agent.called_me_turn, agent.name_judged_turn, agent.name_heeded, agent.name_reward = int(n[4]), int(n[5]), bool(n[6]), float(n[7])
     agent.word_one = int(record.get("word_one", -1))
     agent.learn_one = int(record.get("learn_one", -1))
-    if "longing" in record:  # see LONGING
-        l = record["longing"]
-        (agent.longing_kind, agent.longing_for, agent.longing_x, agent.longing_y, agent.longing_turn, agent.longing_away, agent.longing_closer,
-         agent.longing_farther, agent.longings_reached, agent.longings_faded, agent.beside_companion, agent.fire_x, agent.fire_y,
-         agent.shelter_x, agent.shelter_y, agent.joy_thing) = (int(l[0]), int(l[2]), int(l[3]), int(l[4]), int(l[5]), int(l[6]), int(l[7]),
-                                                         int(l[8]), int(l[9]), int(l[10]), int(l[11]), int(l[13]), int(l[14]),
-                                                         int(l[15]), int(l[16]), int(l[17]))
-        agent.longing, agent.beside_care, agent.joy_best, agent.joy_seen = float(l[1]), float(l[12]), float(l[18]), bool(l[19])
-        if len(l) > 22:
-            agent.missing, agent.missing_care, agent.missing_for = int(l[20]), float(l[21]), int(l[22])
+    if "goal" in record:  # see GOAL_JOY
+        g = record["goal"]
+        head = g["head"]
+        agent.goal_kind, agent.goal_target, agent.goal_need, agent.goal_turn = int(head[0]), int(head[1]), int(head[2]), int(head[3])
+        agent.goal_urgency, agent.goal_close = float(head[4]), float(head[5])
+        (agent.goals_formed, agent.goals_reached, agent.goals_abandoned, agent.goals_switched, agent.goals_dropped,
+         agent.goal_reach_turns) = (int(v) for v in head[6:12])
+        agent.has_needs = bool(head[12])
+        if agent.goal_kind == 3:  # a deed no longer had: no goal
+            agent.goal_target = numbers.action(agent.goal_target)
+            if agent.goal_target < 0:
+                agent.goal_kind = 0
+        if agent.goal_kind == 1 and not 0 <= agent.goal_target < 21:
+            agent.goal_kind = 0
+        if agent.goal_kind == 0:
+            agent.goal_target = agent.goal_need = -1
+        needs = g["needs"]
+        agent.needs = [float(needs[2 * n]) for n in range(6)]
+        agent.need_drift = [float(needs[2 * n + 1]) for n in range(6)]
+        for n, thing, value in g["things"]:
+            if 0 <= int(n) < 6 and 0 <= int(thing) < 21:
+                agent.relief_things[int(n)][int(thing)] = float(value)
+        for n, deed, value in g["deeds"]:
+            deed = numbers.action(int(deed))
+            if 0 <= int(n) < 6 and deed >= 0:
+                agent.relief_deeds[int(n)][deed] = float(value)
+        agent.relief_ones = [[int(row[0]), float(row[1]), [float(v) for v in row[2:8]]] for row in g["ones"]]
     agent.harm_taught_turn = int(record.get("harm_taught_turn", -1))
     agent.quiet_wish = float(record.get("quiet_wish", 0.0))
     agent.last_call = int(record.get("last_call", -1))

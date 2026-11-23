@@ -50,6 +50,7 @@ LATER_SOUNDS = tuple(f"{place}_{choice}" for place in ("second", "third")
 OUTSIDE_THINGS = ("threat", "prey", "carrion", "kill", "grass", "plant", "mate", "herd", "parent", "known", "elder", "foe",
                   "standout", "meat_pile", "fruit_pile", "stone_pile", "bone_pile", "wood_pile", "gear_pile", "fire", "comfort")
 OUTSIDE_FORESEEN = tuple(f"foresee_{thing}" for thing in OUTSIDE_THINGS)
+NEED_NAMES = ("hunger", "fatigue", "pain", "fear", "loneliness", "discomfort")  # see GOAL_JOY
 OUTSIDE = MORE_SOUNDS + len(LATER_SOUNDS)  # the first of them
 # Wishes: last of all its outputs, what a caller expects to gain were one who heard its call then to come nearer, go
 # further off, flee, rest, eat, trade or fight; learnt from how its own turn went (see WISH_LEARNING and INTENT). As the
@@ -212,8 +213,11 @@ SENSES = (
     # whether one in its sight attends to it (see WATCHED_REPEAT), and whether the call it heard was said to it alone,
     # from beside it (see the action address), 1 or 0.
     "attending", "sees_pointing", "watched", "addressed",
-    # Its longing (see LONGING): how strong, 0..1, and for what kind of thing, never where. As the C++ version's.
-    "longing", "longing_companion", "longing_fire", "longing_shelter", "longing_joy",
+    # Its goal (see GOAL_JOY): 1 while it holds one; its urgency; how close what it seeks is; for an animal, its regard
+    # and 1 for family; the need it serves; then what it seeks: an outside thing, an animal, or a deed. As the C++ version's.
+    "goal", "goal_urgency", "goal_closeness", "goal_one_regard", "goal_one_family",
+    *(f"goal_need_{need}" for need in NEED_NAMES), *(f"goal_{thing}" for thing in OUTSIDE_THINGS), "goal_one",
+    *(f"goal_deed_{action}" for action in ACTIONS),
     # A word it holds in its lexicon, heard (see LEXICON_SIZE): 1 when the loudest call it heard is one, and its own
     # closeness to the thing that word means. As the C++ version's.
     "meant", "meant_closeness",
@@ -233,7 +237,11 @@ MEMORY_SENSE = SENSES.index("memory_1")  # the first sense of what the memory he
 IMAGINED_SENSE = SENSES.index("imagined_1")
 UTTERANCE_SENSE = SENSES.index("heard_first_1")
 POINTED_SENSE = SENSES.index("pointed")  # then "pointed_closeness"
-LONGING_SENSE = SENSES.index("longing")  # then one for each kind: companion, fire, shelter, joy
+GOAL_SENSE = SENSES.index("goal")  # then urgency, closeness, regard, family, the needs, the things, one, the deeds
+GOAL_NEED_SENSE = SENSES.index("goal_need_hunger")
+GOAL_THING_SENSE = SENSES.index("goal_threat")
+GOAL_ONE_SENSE = SENSES.index("goal_one")
+GOAL_DEED_SENSE = SENSES.index("goal_deed_eat")
 MEANT_SENSE = SENSES.index("meant")  # then "meant_closeness"
 NAMED_SENSE = SENSES.index("named")  # then "named_closeness", "named_regard", "named_me"
 MEANT_DEED_SENSE = SENSES.index("meant_eat")  # then one for each action, in order
@@ -261,7 +269,7 @@ SIGNED_SENSES = frozenset(("latitude", "warmth", "warmth_north", "warmth_south",
                            *(f"memory_{neuron}" for neuron in range(1, MEMORY_NEURONS + 1)),
                            *(f"map_{kind}_{way}" for kind in ("food", "danger", "comfort") for way in ("east", "south")),
                            "known_regard", "known_east", "known_south", "caller_regard", "elder_east", "elder_south",
-                           "own_land_east", "own_land_south", "war_standing", "standout_east", "standout_south", "land_owner_regard", "named_regard",
+                           "own_land_east", "own_land_south", "war_standing", "standout_east", "standout_south", "land_owner_regard", "named_regard", "goal_one_regard",
                            *(f"imagined_{bit}" for bit in range(1, IMAGINED_BITS + 1))))
 # Senses that are mostly nothing, an event or a thing near, carried or worn, read as 0..2: off, they push nothing and
 # teach nothing, where read as -1 each was a steady push that, over dozens of them, jammed neurons; on, they count as
@@ -276,7 +284,8 @@ SPARSE_SENSES = frozenset((
     "bow_carried", "archery",
     *(f"heard_{place}_{call}" for place in ("first", "second", "third") for call in range(1, CALL_COUNT + 1)),
     "pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed",
-    "longing", "longing_companion", "longing_fire", "longing_shelter", "longing_joy", "meant", "meant_closeness", "named", "named_closeness", "named_me", *(f"meant_{action}" for action in ACTIONS),
+    "goal", "goal_urgency", "goal_closeness", "goal_one_family", *(f"goal_need_{need}" for need in NEED_NAMES),
+    *(f"goal_{thing}" for thing in OUTSIDE_THINGS), "goal_one", *(f"goal_deed_{action}" for action in ACTIONS), "meant", "meant_closeness", "named", "named_closeness", "named_me", *(f"meant_{action}" for action in ACTIONS),
     *(f"heard_{place}_{sound}" for place in ("fourth", "fifth", "sixth") for sound in range(1, 6))))
 _READ_SCALE = np.array([1.0 if name in SIGNED_SENSES else 2.0 for name in SENSES])
 _READ_SHIFT = np.array([0.0 if name in SIGNED_SENSES or name in SPARSE_SENSES else -1.0 for name in SENSES])

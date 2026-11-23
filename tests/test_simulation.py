@@ -1723,7 +1723,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(OUTPUTS[-22:-18], ("attend", "ignore", "point_one", "point_self"))  # and pointing at one animal, or itself
         self.assertEqual(OUTPUTS[-1], "sixth_call_5")  # then a second word's sounds
         self.assertEqual(len(OUTPUTS), POINT + len(OUTSIDE_SENSES) + 4 + 18)
-        self.assertEqual(SENSES[-112:-106], ("pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed"))
+        self.assertEqual(SENSES[-213:-207], ("pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed"))
         dull = self.simulation._add_agent(encode_dna("grazer", sociability=1, intellect=1), 1, 1)
         keen = self.simulation._add_agent(encode_dna("grazer", sociability=7, intellect=7), 8, 8)
         self.assertGreater(Simulation.willing_to_learn(keen), Simulation.willing_to_learn(dull))
@@ -4097,56 +4097,50 @@ class CallTests(unittest.TestCase):
         self.assertAlmostEqual(animal.nearer_comfort[7], sm.LEXICON_WORTH_RATE * 2.0)
         self.assertEqual(animal.farther_comfort[7], 0.0)
 
-    def test_longing_parted_from_a_companion_it_longs_for_it_felt_and_sensed_but_never_located_till_met_or_faded(self):
+    def test_goals_what_eases_a_need_is_learnt_and_the_worst_need_picks_a_goal_held_till_reached_or_given_up(self):
         sm = simulation_module
         world = Simulation(width=60, height=60, population=0, seed=3)
         animal = world._add_agent(encode_dna("grazer"), 10, 10)
-        friend = world._add_agent(encode_dna("grazer"), 11, 10)
-        animal.known.append(sm.Acquaintance(friend.identifier, 0.9, 0))
         world._index_cells()
-        senses = world._sense(animal)[0]
-        self.assertEqual(animal.longing_kind, sm.NO_LONGING)
-        self.assertEqual(animal.beside_companion, friend.identifier)
-        self.assertEqual(senses[SENSES.index("longing")], 0.0)
-        friend.x = 50  # gone off, out of sight: missed at first, not yet longed for
-        world._index_cells()
-        for _ in range(sm.LONGING_PARTING - 1):
-            world._sense(animal)
-            self.assertEqual(animal.longing_kind, sm.NO_LONGING)
-            self.assertEqual(animal.missing, friend.identifier)
-        friend.x = 11  # back before the parting: nothing to long for
-        world._index_cells()
+        eat, rest, flee = ACTIONS.index("eat"), ACTIONS.index("rest"), ACTIONS.index("flee")
+        animal.has_needs, animal.needs, animal.hunger, animal.last_choice = True, [0.5, 0.0, 0.0, 0.0, 0.0, 0.0], 20.0, eat
         world._sense(animal)
-        self.assertEqual((animal.missing, animal.longing_kind), (-1, sm.NO_LONGING))
-        friend.x = 50  # gone again, and this time it stays gone
-        world._index_cells()
-        for _ in range(sm.LONGING_PARTING - 1):
-            world._sense(animal)
-        self.assertEqual(animal.longing_kind, sm.NO_LONGING)
+        self.assertAlmostEqual(animal.relief_deeds[sm.NEED_HUNGER][eat], sm.RELIEF_RATE * 0.3)
+        self.assertEqual(animal.relief_deeds[sm.NEED_HUNGER][rest], 0.0)
+        animal.goal_kind = sm.NO_GOAL
+        animal.relief_deeds = [[0.0] * len(ACTIONS) for _ in range(6)]
+        animal.relief_things = [[0.0] * 21 for _ in range(6)]
+        animal.relief_deeds[sm.NEED_LONELINESS][rest] = 0.3
+        animal.last_choice = flee
         senses, _, situation = world._sense(animal)
-        self.assertEqual(animal.longing_kind, sm.LONG_COMPANION)
-        first = animal.longing
-        self.assertGreater(first, 0.0)
-        self.assertLessEqual(first, sm.LONGING * 0.9 + 1e-9)
-        self.assertAlmostEqual(senses[SENSES.index("longing")], min(1.0, first))
-        self.assertEqual(senses[SENSES.index("longing_companion")], 1.0)
-        self.assertAlmostEqual(situation["longing_unease"], sm.LONGING_UNEASE * first)
-        world._sense(animal)  # a turn apart: it fades
-        self.assertLess(animal.longing, first)
-        before = animal.longing
-        friend.x = 11  # back beside it
-        world._index_cells()
-        situation = world._sense(animal)[2]
-        self.assertEqual(animal.longing_kind, sm.NO_LONGING)
-        self.assertEqual(animal.longings_reached, 1)
-        self.assertAlmostEqual(situation["longing_relief"], sm.LONGING_JOY * before)
-        friend.x = 50
-        world._index_cells()
-        for _ in range(200):
-            if animal.longings_faded:
-                break
-            world._sense(animal)
-        self.assertEqual(animal.longings_faded, 1)
+        self.assertEqual((animal.goal_kind, animal.goal_target, animal.goal_need), (sm.GOAL_FOR_DEED, rest, sm.NEED_LONELINESS))
+        urgency = animal.goal_urgency
+        self.assertAlmostEqual(urgency, animal.needs[sm.NEED_LONELINESS])
+        self.assertEqual(senses[SENSES.index("goal")], 1.0)
+        self.assertEqual(senses[SENSES.index("goal_deed_rest")], 1.0)
+        self.assertEqual(senses[SENSES.index("goal_need_loneliness")], 1.0)
+        self.assertAlmostEqual(situation["goal_unease"], sm.GOAL_UNEASE * urgency)
+        _, _, situation = world._sense(animal)
+        self.assertAlmostEqual(animal.goal_urgency, min(sm.GOAL_URGENCY_MAX, urgency + sm.GOAL_RISE * animal.needs[sm.NEED_LONELINESS]))
+        held = animal.goal_urgency
+        animal.goal_turn, animal.last_choice = world.turn - 1, rest
+        _, _, situation = world._sense(animal)
+        self.assertEqual(animal.goals_reached, 1)
+        self.assertAlmostEqual(situation["goal_relief"], sm.GOAL_JOY * held)
+        self.assertEqual(animal.goal_kind, sm.GOAL_FOR_DEED)
+        animal.goal_turn, animal.last_choice = world.turn - 10 * sm.GOAL_PATIENCE, flee
+        _, _, situation = world._sense(animal)
+        self.assertEqual(animal.goals_abandoned, 1)
+        self.assertAlmostEqual(situation["goal_relief"], -sm.GOAL_GIVE_UP)
+        animal.relief_things[sm.NEED_LONELINESS][7] = 100.0  # the herd
+        world._sense(animal)
+        self.assertEqual((animal.goals_switched, animal.goal_kind, animal.goal_target), (1, sm.GOAL_FOR_THING, 7))
+        mother = world._add_agent(encode_dna("grazer"), 20, 20)
+        father = world._add_agent(encode_dna("grazer"), 21, 20)
+        child = world._add_agent(encode_dna("grazer"), 22, 20)
+        mother.relief_things[sm.NEED_HUNGER][4], father.relief_things[sm.NEED_HUNGER][4] = 0.4, 0.2
+        world.inherit_relief(child, mother, father)
+        self.assertAlmostEqual(child.relief_things[sm.NEED_HUNGER][4], sm.RELIEF_INHERIT * 0.3)
 
     def test_learning_a_word_a_wrong_guess_corrected_by_the_speaker_is_worth_a_share_taught_as_the_right_pairing(self):
         sm = simulation_module
