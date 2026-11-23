@@ -68,11 +68,36 @@ POINT = WISH + len(WISHES)  # the first of them
 ATTENDS = ("attend", "ignore")
 ATTEND_YES, ATTEND_NO = range(len(ATTENDS))
 ATTEND = POINT + len(POINTS)  # the first of them
+# Pointing at one animal (names): last of all its outputs, how it values pointing at one animal in its sight rather
+# than a kind of thing; that point numbered POINT_ONE_THING, after the 21 things. As the C++ version's.
+POINT_ONE = ATTEND + len(ATTENDS)
+POINT_ONE_THING = len(POINTS)
+# And pointing at itself (deed-words): what it is doing as it calls. As the C++ version's.
+POINT_SELF = POINT_ONE + 1
+POINT_SELF_THING = POINT_ONE_THING + 1
+# A second word (see CALL_WORDS): places four to six, each stopping or one of the five sounds. As the C++ version's.
+SECOND_WORD = POINT_SELF + 1
+SECOND_WORD_OUTPUTS = tuple(f"{place}_{choice}" for place in ("fourth", "fifth", "sixth")
+                            for choice in ("stop", "call_1", "call_2", "call_3", "call_4", "call_5"))
+
+
+def word2_output(place: int, sound: int) -> int:
+    """The output valuing, at a second word's `place` (0..2), stopping (sound -1) or a sound 0..4."""
+    return SECOND_WORD + place * SOUND_CHOICES + 1 + sound
+
+
+
+
+def point_output(point: int) -> int:
+    """The output valuing a point: a thing's, or pointing at one animal."""
+    return POINT_ONE if point == POINT_ONE_THING else POINT_SELF if point == POINT_SELF_THING else POINT + point
+
+
 # A brain's outputs by name: its actions, then silence and the calls, then its memory's gates and values to write, then
 # what it foresees, then a call's later sounds, then what it foresees of the outside, then its wishes of its hearers.
 OUTPUTS = (ACTIONS + CALLS + tuple(f"memory_gate_{neuron}" for neuron in range(1, MEMORY_NEURONS + 1))
            + tuple(f"memory_value_{neuron}" for neuron in range(1, MEMORY_NEURONS + 1)) + FORESEEN + LATER_SOUNDS
-           + OUTSIDE_FORESEEN + WISHES + POINTS + ATTENDS)
+           + OUTSIDE_FORESEEN + WISHES + POINTS + ATTENDS + ("point_one", "point_self") + SECOND_WORD_OUTPUTS)
 
 
 def sound_output(place: int, sound: int) -> int:
@@ -82,7 +107,8 @@ def sound_output(place: int, sound: int) -> int:
 
 def later_sound(output: int) -> bool:
     """Whether an output values a second or third sound (not stopping): a new brain holds back from them as from calling."""
-    return MORE_SOUNDS <= output < OUTSIDE and (output - MORE_SOUNDS) % SOUND_CHOICES != 0
+    return ((MORE_SOUNDS <= output < OUTSIDE and (output - MORE_SOUNDS) % SOUND_CHOICES != 0)
+            or (SECOND_WORD <= output < len(OUTPUTS) and (output - SECOND_WORD) % SOUND_CHOICES != 0))  # and a second word's
 
 
 def call_output(call: int) -> int:
@@ -191,6 +217,13 @@ SENSES = (
     # A word it holds in its lexicon, heard (see LEXICON_SIZE): 1 when the loudest call it heard is one, and its own
     # closeness to the thing that word means. As the C++ version's.
     "meant", "meant_closeness",
+    # A name it holds, heard (see NAMES_SIZE): 1 when heard; how close that one is; how it regards it, -1 to 1; and 1 when
+    # the name is its own. As the C++ version's.
+    "named", "named_closeness", "named_regard", "named_me",
+    # A deed-word it holds, heard (see DEEDS_SIZE): 1 for the deed it means, one for each action. As the C++ version's.
+    *(f"meant_{action}" for action in ACTIONS),
+    # The loudest call's second word, sound by sound (see CALL_WORDS). As the C++ version's.
+    *(f"heard_{place}_{sound}" for place in ("fourth", "fifth", "sixth") for sound in range(1, 6)),
     # Imagining: the action it pictures itself taking, a -1 or 1 for each bit of its number, or all 0 when it pictures
     # nothing. Only its foresight is taught with them set. As the C++ version's.
     "imagined_1", "imagined_2", "imagined_3", "imagined_4", "imagined_5", "imagined_6", "imagined_7",
@@ -202,6 +235,16 @@ UTTERANCE_SENSE = SENSES.index("heard_first_1")
 POINTED_SENSE = SENSES.index("pointed")  # then "pointed_closeness"
 LONGING_SENSE = SENSES.index("longing")  # then one for each kind: companion, fire, shelter, joy
 MEANT_SENSE = SENSES.index("meant")  # then "meant_closeness"
+NAMED_SENSE = SENSES.index("named")  # then "named_closeness", "named_regard", "named_me"
+MEANT_DEED_SENSE = SENSES.index("meant_eat")  # then one for each action, in order
+UTTERANCE2_SENSE = SENSES.index("heard_fourth_1")
+
+
+def utterance2_sense(place: int, sound: int) -> int:
+    """The sense of hearing `sound` (0..4) at a second word's `place` (0..2) of the loudest call heard."""
+    return UTTERANCE2_SENSE + CALL_COUNT * place + sound
+
+
 OUTSIDE_SENSES = tuple(SENSES.index(f"{thing}_closeness") for thing in OUTSIDE_THINGS)
 
 
@@ -218,7 +261,7 @@ SIGNED_SENSES = frozenset(("latitude", "warmth", "warmth_north", "warmth_south",
                            *(f"memory_{neuron}" for neuron in range(1, MEMORY_NEURONS + 1)),
                            *(f"map_{kind}_{way}" for kind in ("food", "danger", "comfort") for way in ("east", "south")),
                            "known_regard", "known_east", "known_south", "caller_regard", "elder_east", "elder_south",
-                           "own_land_east", "own_land_south", "war_standing", "standout_east", "standout_south", "land_owner_regard",
+                           "own_land_east", "own_land_south", "war_standing", "standout_east", "standout_south", "land_owner_regard", "named_regard",
                            *(f"imagined_{bit}" for bit in range(1, IMAGINED_BITS + 1))))
 # Senses that are mostly nothing, an event or a thing near, carried or worn, read as 0..2: off, they push nothing and
 # teach nothing, where read as -1 each was a steady push that, over dozens of them, jammed neurons; on, they count as
@@ -233,7 +276,8 @@ SPARSE_SENSES = frozenset((
     "bow_carried", "archery",
     *(f"heard_{place}_{call}" for place in ("first", "second", "third") for call in range(1, CALL_COUNT + 1)),
     "pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed",
-    "longing", "longing_companion", "longing_fire", "longing_shelter", "longing_joy", "meant", "meant_closeness"))
+    "longing", "longing_companion", "longing_fire", "longing_shelter", "longing_joy", "meant", "meant_closeness", "named", "named_closeness", "named_me", *(f"meant_{action}" for action in ACTIONS),
+    *(f"heard_{place}_{sound}" for place in ("fourth", "fifth", "sixth") for sound in range(1, 6))))
 _READ_SCALE = np.array([1.0 if name in SIGNED_SENSES else 2.0 for name in SENSES])
 _READ_SHIFT = np.array([0.0 if name in SIGNED_SENSES or name in SPARSE_SENSES else -1.0 for name in SENSES])
 

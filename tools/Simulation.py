@@ -21,7 +21,7 @@ import numpy as np
 from tools.Brain import _READ_SCALE, _READ_SHIFT  # how a brain reads each sense, to undo it
 import tools.Brain as brain_rules  # its rules, as they now stand
 from tools.Brain import (read_senses, ACTIONS, ALERT_CALL, CALL_COUNT, CALLS, FIRST_CALL, MAX_SOUNDS, sound_output, FORESEEN, FORESIGHT, MEMORY_GATES, MEMORY_NEURONS, OUTPUTS, SENSES, SILENT, Brain, BrainBatch, call_output,
-                         OUTSIDE, OUTSIDE_FORESEEN, OUTSIDE_SENSES, VOICE_SENSES, utterance_sense, WISH, WISHES, POINT, POINTED_SENSE, LONGING_SENSE, MEANT_SENSE, ATTEND, ATTEND_YES, ATTEND_NO,
+                         OUTSIDE, OUTSIDE_FORESEEN, OUTSIDE_SENSES, VOICE_SENSES, utterance_sense, WISH, WISHES, POINT, POINTED_SENSE, LONGING_SENSE, MEANT_SENSE, NAMED_SENSE, MEANT_DEED_SENSE, utterance2_sense, word2_output, ATTEND, ATTEND_YES, ATTEND_NO, POINT_ONE, POINT_ONE_THING, POINT_SELF, POINT_SELF_THING, point_output,
                          choice_odds, depth_for, gene_senses, imagined_call, imagining, make_senses, memory_after, width_for)
 from tools.Genome import (GENOME, SPECIES, TEMPERAMENT, TRAIT_MAX, body_word, color_from_word, colour_difference, cross, decode_nocturnal, dot_difference,
                           inherit_mind,
@@ -495,6 +495,20 @@ LEXICON_INHERIT = 0.5
 LEXICON_HEED = 0.1
 LEXICON_ACT = 0.2
 LEXICON_WORTH_RATE = 0.05
+# Sense of duty (the user's idea), hidden, 0..7: TRAIT_MAX times the mean of loyalty, kinship and sociability, times one
+# less dominance. Told by family or one it regards well, the teller's deed is its duty to DUTY_SWAY times as likely (1
+# chance, 0 shuns it), and its LEXICON_ACT for that deed is felt times 1 plus DUTY_FELT times its duty less 1. As the C++ version's.
+DUTY_SWAY = 1.0
+DUTY_FELT = 0.5
+# Names (the user's design): words each for one animal, NAMES_SIZE for each point of intellect and one more, given by
+# its mother at birth and settled by accord pointing at that one; the dead forgotten first. As the C++ version's.
+NAMES_SIZE = 4
+# Deed-words (the user's design): words each for a deed, DEEDS_SIZE for each point of intellect and one more; said
+# pointing at itself, learnt by saying the word back while doing a guess. As the C++ version's.
+DEEDS_SIZE = 4
+# A second word (the user's design): a call may go on to a second word, chosen sound by sound by its brain; a call
+# holding a name the hearer has for another is an order for that one. 1 for a single word. As the C++ version's.
+CALL_WORDS = 2
 LONGING_UNEASE = 0.1
 LONGING_JOY = 1.0
 MAP_BLIND = 0  # for experiments: 1 withholds the mental map senses and revisit
@@ -1488,6 +1502,7 @@ class Bitzkey:
     learn_call: int = -1  # the word's first sound it said back, as a call
     corrected_gain: float = 0.0  # this turn: its wrong guess corrected, what that was worth (see LEARN_CORRECTED)
     corrected_thing: int = -1  # and the thing the speaker meant
+    corrected_one: int = -1  # and, a name, the one named
     learn_bonus: float = 0.0  # this turn: what right guesses of its words were worth, taught with its call
     word_understood: float = 0.0  # this turn: how much less surprised it is by what the one it heard pointed at
     held_learn: float = 0.0  # with its held call: what its guess was worth, said back right
@@ -1495,11 +1510,37 @@ class Bitzkey:
     word_call: int = -1  # that word's first sound, as a call
     word_sounds: list = field(default_factory=lambda: [-1, -1])  # and its later sounds
     word_point: int = -1  # what it pointed at
+    word_one: int = -1  # and, pointing at one animal, which
     word_tries: int = 0  # how many times it has said it again, unanswered
     learn_thing: int = -1  # the thing the one it said a word back to had pointed at
+    learn_one: int = -1  # and, pointing at one animal, which
     learn_sounds: list = field(default_factory=lambda: [-1, -1])  # and the later sounds of the word it said back
     lexicon: list = field(default_factory=list)  # the words it has settled, each [call, sound, sound, thing, regard, uses]
     lexicon_spoke_turn: int = -1  # the last turn it said a word from its lexicon
+    names: list = field(default_factory=list)  # its names, each [call, sound, sound, the one named, regard, uses] (see NAMES_SIZE)
+    deeds: list = field(default_factory=list)  # its deed-words, each [call, sound, sound, action, regard, uses] (see DEEDS_SIZE)
+    deed_spoke_turn: int = -1
+    meant_by_deed: bool = False  # whether the word last heard was a deed-word, meant_deed its deed
+    judged_by_deed: bool = False
+    echo_turn: int = -1  # the last turn it said a deed-word back, doing its guess
+    call2: int = -1  # its call's second word (see CALL_WORDS): first sound as a call, -1 none, and later sounds
+    sounds2: list = field(default_factory=lambda: [-1, -1])
+    last_call2: int = -1
+    last_sounds2: list = field(default_factory=lambda: [-1, -1])
+    call2_outputs: list = field(default_factory=lambda: [-1, -1, -1])
+    meant_for_me: bool = False  # the call it last heard held its own name; a name it has for another
+    meant_for_other: bool = False
+    judged_for_me: bool = False
+    own_call: int = -1  # its own name, given at birth
+    own_sounds: list = field(default_factory=lambda: [-1, -1])
+    name_spoke_turn: int = -1
+    called_turn: int = -1  # the last turn it heard a name it holds, of whom, how close that one was
+    called_one: int = -1
+    called_close: float = 0.0
+    called_me_turn: int = -1
+    name_judged_turn: int = -1
+    name_heeded: bool = False
+    name_reward: float = 0.0
     nearer_comfort: list = field(default_factory=lambda: [0.0] * 21)  # how it felt the turn after going nearer each thing
     farther_comfort: list = field(default_factory=lambda: [0.0] * 21)  # and further (see LEXICON_ACT)
     was_close: list = field(default_factory=lambda: [0.0] * 21)  # how close each was as it last sensed
@@ -1516,6 +1557,8 @@ class Bitzkey:
     word_reward: float = 0.0
     judged_thing: int = -1  # the thing and the speaker's deed it was judged on
     judged_deed: int = -1
+    meant_liked: bool = False  # whether the speaker was family or regarded well (see DUTY_SWAY)
+    judged_liked: bool = False
     unknown_turn: int = -1  # for the probe's chance near a speaker: a call heard that was no word it holds, the
     unknown_deed: int = -1  # caller's deed then, and whether it did the same next turn. As the C++ version's.
     unknown_judged_turn: int = -1
@@ -1588,6 +1631,8 @@ class Bitzkey:
     point_turn: int = -1
     prior_point: int = -1
     prior_point_turn: int = -1
+    point_one: int = -1  # the animal pointed at, when the point is POINT_ONE_THING
+    prior_point_one: int = -1
     held_point: int = -1
     pointed_by: int = -1
     pointed_thing: int = -1
@@ -1664,6 +1709,13 @@ class Bitzkey:
     def pointed_at(self, turn: int) -> int:
         """What it pointed at as it called on `turn`, -1 none (see POINTING)."""
         return self.point if self.point_turn == turn else self.prior_point if self.prior_point_turn == turn else -1
+
+    def pointed_one_at(self, turn: int) -> int:
+        """The animal it pointed at as it called on `turn`, -1 none."""
+        meaning = (POINT_ONE_THING, POINT_SELF_THING)
+        if self.point_turn == turn:
+            return self.point_one if self.point in meaning else -1
+        return self.prior_point_one if self.prior_point_turn == turn and self.prior_point in meaning else -1
 
     @cached_property
     def inborn(self) -> dict[str, int]:
@@ -2186,6 +2238,8 @@ class Simulation:
         self.turn = 0
         # Since the world began or was loaded: words taken into lexicons, and how (see LEXICON_SIZE).
         self.lexicon_tally = defaultdict(lambda: dict.fromkeys(("agreed", "witnessed", "inherited", "confirmed", "overridden", "refused"), 0))
+        self.deed_tally = defaultdict(lambda: dict.fromkeys(("agreed", "witnessed", "inherited", "confirmed", "overridden", "refused"), 0))
+        self.name_tally = defaultdict(lambda: dict.fromkeys(("agreed", "witnessed", "inherited", "confirmed", "overridden", "refused", "named_at_birth"), 0))
         self.deaths = 0
         self.death_causes: dict[str, dict[str, int]] = {}  # every death so far, by species and then cause
         self.next_identifier = 0
@@ -2708,7 +2762,8 @@ class Simulation:
         """How it fared nearer each thing and further, learnt; and whether it heeded the word it heard last turn, and
         fittingly: what that is worth, felt now. As the C++ version's."""
         if agent.close_turn == self.turn:  # sensed again this turn: as it was judged
-            return agent.word_reward if agent.judged_turn == self.turn else 0.0
+            return ((agent.word_reward if agent.judged_turn == self.turn else 0.0)
+                    + (agent.name_reward if agent.name_judged_turn == self.turn else 0.0))
         close = [float(senses[sense]) for sense in OUTSIDE_SENSES]
         last = agent.close_turn == self.turn - 1
         if last and LEXICON_WORTH_RATE > 0:
@@ -2724,17 +2779,28 @@ class Simulation:
         if last and agent.unknown_turn == self.turn - 1:  # a call that was no word it knew: for the probe's chance alone
             agent.unknown_same = agent.unknown_deed >= 0 and agent.last_choice == agent.unknown_deed
             agent.unknown_judged_turn = self.turn
-        if last and agent.meant_turn == self.turn - 1 and agent.meant_thing >= 0:
-            thing = agent.meant_thing
-            now, then = close[thing], agent.meant_close
-            worth = agent.nearer_comfort[thing] - agent.farther_comfort[thing]
-            agent.heeded = now > then
-            agent.acted_good = (worth > 0 and now > then) or (worth < 0 and now < then)
+        if last and agent.meant_turn == self.turn - 1 and (agent.meant_thing >= 0 or agent.meant_by_deed):
+            agent.heeded = agent.acted_good = False
+            if agent.meant_thing >= 0:  # a thing meant: came nearer it, and as its life taught it
+                thing = agent.meant_thing
+                now, then = close[thing], agent.meant_close
+                worth = agent.nearer_comfort[thing] - agent.farther_comfort[thing]
+                agent.heeded = now > then
+                agent.acted_good = (worth > 0 and now > then) or (worth < 0 and now < then)
+            agent.judged_by_deed = agent.meant_by_deed
             agent.acted_same = agent.meant_deed >= 0 and agent.last_choice == agent.meant_deed
-            agent.word_reward = LEXICON_HEED * agent.heeded + LEXICON_ACT * (agent.acted_good + agent.acted_same)
+            dutiful = 1.0 + DUTY_FELT * (self.duty(agent) - 1.0) if agent.meant_liked and not agent.meant_for_other else 1.0  # told by one it heeds
+            agent.judged_for_me = agent.meant_for_me
+            agent.word_reward = LEXICON_HEED * agent.heeded + LEXICON_ACT * (agent.acted_good + dutiful * agent.acted_same)
+            agent.judged_liked = agent.meant_liked
             agent.judged_turn = self.turn
             agent.judged_thing, agent.judged_deed = agent.meant_thing, agent.meant_deed
             reward = agent.word_reward
+        if last and agent.called_turn == self.turn - 1 and agent.called_one >= 0:  # a name heard last turn: nearer that one?
+            agent.name_heeded = self.one_closeness(agent, agent.called_one, self._sight_now(agent)) > agent.called_close
+            agent.name_reward = LEXICON_HEED * agent.name_heeded
+            agent.name_judged_turn = self.turn
+            reward += agent.name_reward
         agent.was_close, agent.close_turn = close, self.turn
         return reward
 
@@ -2743,12 +2809,89 @@ class Simulation:
         """How many words it can hold (see LEXICON_SIZE). As the C++ version's."""
         return 0 if LEXICON_SIZE <= 0 else int(math.floor(LEXICON_SIZE * (1 + agent.mind["intellect"]) + 0.5))
 
-    def accord(self, who: Bitzkey, teacher: Bitzkey, call: int, sounds: list, thing: int, witnessed: bool = False) -> None:
-        """A word settled with `teacher` (or seen settled), taken into `who`'s lexicon as the rule allows. As the C++ version's."""
-        room = self.lexicon_capacity(who)
-        if room <= 0 or call < FIRST_CALL or thing < 0 or thing >= len(OUTSIDE_SENSES) or who is teacher or not who.alive:
+    @staticmethod
+    def deeds_capacity(agent: Bitzkey) -> int:
+        """How many deed-words it can hold (see DEEDS_SIZE). As the C++ version's."""
+        return 0 if DEEDS_SIZE <= 0 else int(math.floor(DEEDS_SIZE * (1 + agent.mind["intellect"]) + 0.5))
+
+    @staticmethod
+    def names_capacity(agent: Bitzkey) -> int:
+        """How many names it can hold (see NAMES_SIZE). As the C++ version's."""
+        return 0 if NAMES_SIZE <= 0 else int(math.floor(NAMES_SIZE * (1 + agent.mind["intellect"]) + 0.5))
+
+    def one_closeness(self, agent: Bitzkey, one: int, sight: int) -> float:
+        """How close that one is, 0 out of sight."""
+        other = self.find_agent(one) if one >= 0 else None
+        if other is None or not other.alive or abs(other.x - agent.x) + abs(other.y - agent.y) > sight:
+            return 0.0
+        return self._closeness(agent, (other.x, other.y), sight)
+
+    def one_to_point_at(self, agent: Bitzkey, prefer: int) -> int:
+        """The one it would point at: `prefer` if in sight, else the nearest it holds a name for, else the nearest of its kind."""
+        sight = self._sight_now(agent)
+        if prefer >= 0:
+            other = self.find_agent(prefer)
+            if other is not None and other.alive and other is not agent and abs(other.x - agent.x) + abs(other.y - agent.y) <= sight:
+                return prefer
+        named, kind, named_at, kind_at = None, None, sight + 1, sight + 1
+        held = {name[3] for name in agent.names}
+        for other in self._nearby(agent, sight):
+            if other is agent or not other.alive:
+                continue
+            away = abs(other.x - agent.x) + abs(other.y - agent.y)
+            if away > sight:
+                continue
+            if away < named_at and other.identifier in held:
+                named, named_at = other, away
+            if away < kind_at and other.species == agent.species:
+                kind, kind_at = other, away
+        return named.identifier if named is not None else kind.identifier if kind is not None else -1
+
+    def name_at_birth(self, child: Bitzkey, mother: Bitzkey) -> None:
+        """Its mother names it: her last call if no one she names has it, else another; family in sight learn it."""
+        if NAMES_SIZE <= 0:
             return
-        tally = self.lexicon_tally[who.species]
+
+        def taken(call: int, sounds: list) -> bool:
+            if mother.own_call == call and list(mother.own_sounds) == list(sounds):
+                return True
+            return any(name[0] == call and [name[1], name[2]] == list(sounds) for name in mother.names)
+        call, sounds = mother.last_call, list(mother.last_sounds)
+        if call < FIRST_CALL or taken(call, sounds):  # another, by chance among every word of up to three sounds, the first free
+            words = CALL_COUNT * (1 + CALL_COUNT + CALL_COUNT * CALL_COUNT)
+            start = min(words - 1, int(whim(child.identifier ^ 0x4E414D, self.turn) * words))
+            call = -1
+            for step in range(words):
+                word = (start + step) % words
+                rest = word // CALL_COUNT
+                tried = [-1, -1] if rest == 0 else [rest - 1, -1] if rest <= CALL_COUNT else [(rest - 1 - CALL_COUNT) // CALL_COUNT, (rest - 1 - CALL_COUNT) % CALL_COUNT]
+                if not taken(FIRST_CALL + word % CALL_COUNT, tried):
+                    call, sounds = FIRST_CALL + word % CALL_COUNT, tried
+                    break
+            if call < 0:
+                return
+        child.own_call, child.own_sounds = call, list(sounds)
+        self.accord(mother, child, call, sounds, POINT_ONE_THING, False, child.identifier)
+        self.name_tally[child.species]["named_at_birth"] += 1
+        for other in self._nearby(mother, MAX_SIGHT):  # family in sight learn it
+            if other is mother or other is child or not other.alive or not self._family(other, child):
+                continue
+            if abs(other.x - mother.x) + abs(other.y - mother.y) > other.sight:
+                continue
+            self.accord(other, mother, call, sounds, POINT_ONE_THING, True, child.identifier)
+
+    def accord(self, who: Bitzkey, teacher: Bitzkey, call: int, sounds: list, thing: int, witnessed: bool = False, one: int = -1) -> None:
+        """A word settled with `teacher` (or seen settled), taken into `who`'s lexicon as the rule allows; a thing
+        POINT_ONE_THING is a name, `one` the one named, into its names. As the C++ version's."""
+        naming, deed = thing == POINT_ONE_THING, thing == POINT_SELF_THING
+        if naming or deed:
+            thing = one
+        room = self.names_capacity(who) if naming else self.deeds_capacity(who) if deed else self.lexicon_capacity(who)
+        if (room <= 0 or call < FIRST_CALL or thing < 0 or (not naming and thing >= (len(ACTIONS) if deed else len(OUTSIDE_SENSES)))
+                or who is teacher or not who.alive):
+            return
+        tally = (self.name_tally if naming else self.deed_tally if deed else self.lexicon_tally)[who.species]
+        lexicon = who.names if naming else who.deeds if deed else who.lexicon
         kin = self._family(who, teacher)
         regard = self._regard_for(who, teacher)
         if kin:
@@ -2756,7 +2899,7 @@ class Simulation:
         friendly = kin or any(known.identifier == teacher.identifier and known.regard > 0 for known in who.known)
         sounds = list(sounds)
         held, clash = -2.0, False
-        for word in who.lexicon:
+        for word in lexicon:
             same_word = word[0] == call and [word[1], word[2]] == sounds
             if same_word and word[3] == thing:  # as it held it: held the more surely
                 word[4] = max(word[4], regard)
@@ -2769,17 +2912,22 @@ class Simulation:
             if not friendly or regard <= held:
                 tally["refused"] += 1
                 return
-            who.lexicon = [w for w in who.lexicon if not ((w[0] == call and [w[1], w[2]] == sounds) or w[3] == thing)]
+            lexicon[:] = [w for w in lexicon if not ((w[0] == call and [w[1], w[2]] == sounds) or w[3] == thing)]
             tally["overridden"] += 1
-        while len(who.lexicon) >= room:  # full: the word used least is forgotten
-            least = min(range(len(who.lexicon)), key=lambda at: who.lexicon[at][5])
-            del who.lexicon[least]
-        who.lexicon.append([call, sounds[0], sounds[1], thing, float(regard), 0])
+        while len(lexicon) >= room:  # full: a name of the dead first, else the word used least, is forgotten
+            if naming:
+                dead = next((at for at, name in enumerate(lexicon) if (self.find_agent(name[3]) is None or not self.find_agent(name[3]).alive)), None)
+                if dead is not None:
+                    del lexicon[dead]
+                    continue
+            least = min(range(len(lexicon)), key=lambda at: lexicon[at][5])
+            del lexicon[least]
+        lexicon.append([call, sounds[0], sounds[1], thing, float(regard), 0])
         tally["witnessed" if witnessed else "agreed"] += 1
 
-    def _witness_word(self, learner: Bitzkey, speaker: Bitzkey, call: int, sounds: list, thing: int) -> None:
+    def _witness_word(self, learner: Bitzkey, speaker: Bitzkey, call: int, sounds: list, thing: int, one: int = -1) -> None:
         """Those of the learner's kind who see a word agreed take it up, as taught by the one whose word it was."""
-        if LEXICON_SIZE <= 0 or LEXICON_WITNESS <= 0:
+        if (NAMES_SIZE if thing == POINT_ONE_THING else DEEDS_SIZE if thing == POINT_SELF_THING else LEXICON_SIZE) <= 0 or LEXICON_WITNESS <= 0:
             return
         for other in self._nearby(learner, MAX_SIGHT):
             if other is speaker or other.species != learner.species:
@@ -2788,10 +2936,33 @@ class Simulation:
                 continue
             if whim(other.identifier ^ 0x57495453, self.turn) >= LEXICON_WITNESS:
                 continue
-            self.accord(other, speaker, call, sounds, thing, True)
+            self.accord(other, speaker, call, sounds, thing, True, one)
 
     def inherit_words(self, child: Bitzkey, parent: Bitzkey) -> None:
         """A newborn's share of a parent's words, the most used first, as if taught by family. As the C++ version's."""
+        if NAMES_SIZE > 0 and LEXICON_INHERIT > 0 and parent.names:  # and its names, alike, of the living
+            living = [name for name in parent.names if (named := self.find_agent(name[3])) is not None and named.alive and named is not child]
+            names = sorted(living, key=lambda w: -w[5])
+            count = int(math.floor(LEXICON_INHERIT * len(names) + 0.5))
+            room = self.names_capacity(child)
+            for name in names[:count]:
+                if len(child.names) >= room:
+                    break
+                if any((held[0] == name[0] and held[1:3] == name[1:3]) or held[3] == name[3] for held in child.names):
+                    continue
+                child.names.append([name[0], name[1], name[2], name[3], float(LEXICON_FAMILY), 0])
+                self.name_tally[child.species]["inherited"] += 1
+        if DEEDS_SIZE > 0 and LEXICON_INHERIT > 0 and parent.deeds:  # and its deed-words, alike
+            deeds = sorted(parent.deeds, key=lambda w: -w[5])
+            count = int(math.floor(LEXICON_INHERIT * len(deeds) + 0.5))
+            room = self.deeds_capacity(child)
+            for word in deeds[:count]:
+                if len(child.deeds) >= room:
+                    break
+                if any((held[0] == word[0] and held[1:3] == word[1:3]) or held[3] == word[3] for held in child.deeds):
+                    continue
+                child.deeds.append([word[0], word[1], word[2], word[3], float(LEXICON_FAMILY), 0])
+                self.deed_tally[child.species]["inherited"] += 1
         if LEXICON_SIZE <= 0 or LEXICON_INHERIT <= 0 or not parent.lexicon:
             return
         words = sorted(parent.lexicon, key=lambda w: -w[5])
@@ -3490,6 +3661,12 @@ class Simulation:
                 if sound < 0:
                     break
                 heard[f"heard_{place}_{sound + 1}"] = 1.0
+            if caller.call2 >= FIRST_CALL:  # and its second word
+                heard[f"heard_fourth_{caller.call2 - FIRST_CALL + 1}"] = 1.0
+                for place, sound in zip(("fifth", "sixth"), caller.sounds2):
+                    if sound < 0:
+                        break
+                    heard[f"heard_{place}_{sound + 1}"] = 1.0
             heard.update(zip(VOICE_SENSES, call_tag(caller, agent)))  # and the tag it carries, read by all who hear it
         return heard, caller
 
@@ -4355,6 +4532,10 @@ class Simulation:
             valued = add_instincts(agent, valued, options, agent.hunger, hungriest)
             self._add_scruples(agent, valued, situation)
             valued = hope_for_untried(agent, valued, options)
+            if (agent.meant_turn == self.turn and agent.meant_liked and not agent.meant_for_other and agent.meant_deed >= 0 and DUTY_SWAY != 0
+                    and agent.meant_deed in options):  # told: its duty sways it
+                valued = list(valued)
+                valued[agent.meant_deed] += brain_rules.TEMPERATURE * DUTY_SWAY * math.log(max(0.01, self.duty(agent)))
             sights = self._imagine(agent, senses, options, calls_valued, situation) if not idle[index] else {}
             if sights:  # each against the others, so imagining favours none of them over the rest of its options
                 mean = sum(foreseen_worth(sight) for sight in sights.values()) / len(sights)
@@ -4402,13 +4583,14 @@ class Simulation:
             previous_call, previous_sounds = agent.last_call, list(agent.last_sounds)  # should it be watched and say it again
             agent.call, agent.last_call, agent.intent = SILENT, -1, -1
             agent.sounds, agent.last_sounds = [-1, -1], [-1, -1]
+            agent.call2, agent.last_call2, agent.sounds2, agent.last_sounds2 = -1, -1, [-1, -1], [-1, -1]
             if not idle[index]:  # what its brain made of what it chose, to judge the turn against
                 agent.chosen_value, agent.chosen_turn = valued[choice], self.turn
                 heeded = situation.get("heard_from")
                 agent.call_heeded = -1 if heeded is None else heeded.identifier
             agent.call_kind = 0
             chosen[index] = choice
-            if POINTING > 0 and not idle[index] and situation.get("pointed", -1) >= 0:  # a finger read: how surprised by that thing as it heard
+            if POINTING > 0 and not idle[index] and 0 <= situation.get("pointed", -1) < len(OUTSIDE_SENSES):  # a finger read: how surprised by that thing as it heard
                 thing = situation["pointed"]
                 agent.pointed_by, agent.pointed_thing, agent.pointed_turn = situation["pointed_from"], thing, self.turn
                 agent.pointed_off = (max(0.0, min(1.0, abs(senses[OUTSIDE_SENSES[thing]] - agent.foresaw[thing])))
@@ -4499,7 +4681,30 @@ class Simulation:
                     if sound < 0:
                         break  # it stopped
                     agent.sounds[place - 1] = sound
+                # And it may go on to a second word (see CALL_WORDS), sound by sound, by its brain alone.
+                for place in range(min(CALL_LENGTH, MAX_SOUNDS)) if CALL_WORDS > 1 and forced < 0 and agent.call >= FIRST_CALL else ():
+                    roll, picked = whim((agent.identifier ^ 0x57320000) + place, self.turn), word2_output(place, -1)
+                    for output, chance in choice_odds(calls_valued, [word2_output(place, sound) for sound in range(-1, CALL_COUNT)], CALL_TEMPERATURE).items():
+                        roll -= chance
+                        picked = output
+                        if roll < 0:
+                            break
+                    sound = picked - word2_output(place, 0)
+                    if sound < 0:
+                        break  # it stopped
+                    if place == 0:
+                        agent.call2 = FIRST_CALL + sound
+                    else:
+                        agent.sounds2[place - 1] = sound
+                # A deed-word said to it (see DEEDS_SIZE): choosing to speak, it says the word back as it does what it guesses.
+                echoed = (forced < 0 and agent.call >= FIRST_CALL and DEEDS_SIZE > 0 and situation.get("learn_by") is not None
+                          and situation.get("learn_thing", -1) == POINT_SELF_THING and ACTIONS[choice] != "learn")
+                if echoed:
+                    agent.call, agent.sounds = situation["learn_word"][0], list(situation["learn_word"][1])  # as it was heard
+                    agent.call2, agent.sounds2 = -1, [-1, -1]  # the word alone
+                    agent.echo_turn = self.turn
                 agent.last_call, agent.last_sounds = agent.call, list(agent.sounds)
+                agent.last_call2, agent.last_sounds2 = agent.call2, list(agent.sounds2)
                 agent.call_turn = self.turn
                 if agent.call >= FIRST_CALL:
                     agent.voiced_turn = self.turn
@@ -4512,22 +4717,35 @@ class Simulation:
                             agent.intent = wish
                 if POINTING > 0 and agent.call >= FIRST_CALL:  # and what it points at, by its brain's odds, as it picks a sound
                     roll, picked = whim(agent.identifier ^ 0x504F494E, self.turn), POINT
-                    if (ACTIONS[choice] == "learn" and situation.get("learn_by") is not None and situation.get("learn_thing", -1) >= 0
+                    learning_one = (ACTIONS[choice] == "learn" and situation.get("learn_by") is not None
+                                    and situation.get("learn_thing", -1) == POINT_ONE_THING)
+                    one = self.one_to_point_at(agent, situation.get("learn_one", -1) if learning_one else -1) if NAMES_SIZE > 0 else -1
+                    target = one
+                    if echoed:
+                        picked = POINT_SELF  # its guess is what it does
+                    elif (ACTIONS[choice] == "learn" and situation.get("learn_by") is not None and situation.get("learn_thing", -1) >= 0
                             and whim(agent.identifier ^ 0x494E5349, self.turn) < LEARN_INSIGHT * agent.mind["intellect"] / TRAIT_MAX):
-                        picked = POINT + situation["learn_thing"]  # it sees what the speaker meant, the more surely the cleverer
+                        picked = point_output(situation["learn_thing"])  # it sees what the speaker meant, the more surely the cleverer
+                        if learning_one:
+                            target = situation.get("learn_one", -1)
                     elif repeated and agent.point >= 0 and agent.point_turn == self.turn - 1:
-                        picked = POINT + agent.point  # the same thing again
+                        picked = point_output(agent.point)  # the same thing again
+                        target = agent.point_one
                     elif ACTIONS[choice] == "address" and situation.get("retry_to") is not None and agent.word_point >= 0:
-                        picked = POINT + agent.word_point  # what it pointed at as it first said the word
+                        picked = point_output(agent.word_point)  # what it pointed at as it first said the word
+                        target = agent.word_one
                     else:
-                        for output, chance in choice_odds(calls_valued, [POINT + thing for thing in range(len(OUTSIDE_SENSES))],
+                        for output, chance in choice_odds(calls_valued, [POINT + thing for thing in range(len(OUTSIDE_SENSES))] + ([POINT_ONE] if one >= 0 else []) + ([POINT_SELF] if DEEDS_SIZE > 0 else []),
                                                           CALL_TEMPERATURE).items():
                             roll -= chance
                             picked = output
                             if roll < 0:
                                 break
-                    agent.prior_point, agent.prior_point_turn = agent.point, agent.point_turn
-                    agent.point, agent.point_turn = picked - POINT, self.turn
+                    agent.prior_point, agent.prior_point_turn, agent.prior_point_one = agent.point, agent.point_turn, agent.point_one
+                    agent.point = ((POINT_ONE_THING if target >= 0 else -1) if picked == POINT_ONE else POINT_SELF_THING if picked == POINT_SELF
+                                   else picked - POINT)
+                    agent.point_one = target if agent.point == POINT_ONE_THING else choice if agent.point == POINT_SELF_THING else -1
+                    agent.point_turn = self.turn
                     # A thing it has a word for: it says that word, the more surely the more sociable (see LEXICON_SPEAK).
                     cried = CUES and (situation.get("panic") or agent.struck_turn >= self.turn - 1)
                     if (LEXICON_SIZE > 0 and LEXICON_SPEAK > 0 and not cried and not repeated and ACTIONS[choice] != "learn"
@@ -4541,16 +4759,44 @@ class Simulation:
                                 agent.voiced_turn = agent.lexicon_spoke_turn = self.turn
                                 word[5] += 1
                             break
+                    # A deed it has a word for, pointing at itself: it says that word.
+                    if (DEEDS_SIZE > 0 and LEXICON_SPEAK > 0 and agent.point == POINT_SELF_THING and not cried and not repeated and not echoed
+                            and ACTIONS[choice] != "learn" and not (ACTIONS[choice] == "address" and situation.get("retry_to") is not None)):
+                        for word in agent.deeds:
+                            if word[3] != agent.point_one:
+                                continue
+                            if whim(agent.identifier ^ 0x44454544, self.turn) < LEXICON_SPEAK * agent.feeling("sociability"):
+                                agent.call = agent.last_call = word[0]
+                                agent.sounds, agent.last_sounds = [word[1], word[2]], [word[1], word[2]]
+                                agent.voiced_turn = agent.deed_spoke_turn = self.turn
+                                word[5] += 1
+                            break
+                    # One it has a name for: it says that name, as it says a word.
+                    if (NAMES_SIZE > 0 and LEXICON_SPEAK > 0 and agent.point == POINT_ONE_THING and not cried and not repeated
+                            and ACTIONS[choice] != "learn" and not (ACTIONS[choice] == "address" and situation.get("retry_to") is not None)):
+                        for name in agent.names:
+                            if name[3] != agent.point_one:
+                                continue
+                            if whim(agent.identifier ^ 0x4E414D45, self.turn) < LEXICON_SPEAK * agent.feeling("sociability"):
+                                agent.call = agent.last_call = name[0]
+                                agent.sounds, agent.last_sounds = [name[1], name[2]], [name[1], name[2]]
+                                agent.voiced_turn = agent.name_spoke_turn = self.turn
+                                name[5] += 1
+                            break
                 if ACTIONS[choice] == "address" and agent.call >= FIRST_CALL and agent.point_turn == self.turn:  # a word, with its point
                     again = situation.get("retry_to") is not None and agent.call == agent.word_call
                     agent.word_tries = agent.word_tries + 1 if again else 0
                     agent.word_turn, agent.word_call, agent.word_sounds, agent.word_point = self.turn, agent.call, list(agent.sounds), agent.point
-                if ACTIONS[choice] == "learn" and situation.get("learn_by") is not None and agent.call == situation["learn_by"].call:
+                    agent.word_one = agent.point_one
+                if ((ACTIONS[choice] == "learn" and situation.get("learn_by") is not None and agent.call == situation["learn_by"].call)
+                        or (echoed and agent.call == situation["learn_word"][0])):
                     agent.learn_turn, agent.learn_from = self.turn, situation["learn_by"].identifier  # and whether it guessed right
-                    agent.learn_correct = agent.point_turn == self.turn and agent.point == situation["learn_thing"]
+                    agent.learn_correct = (agent.point_turn == self.turn and agent.point == situation["learn_thing"]
+                                           and (agent.point < len(OUTSIDE_SENSES) or agent.point_one == situation.get("learn_one", -1)))
                     agent.learn_gain = 0.0
                     agent.learn_call = agent.call
                     agent.learn_thing, agent.learn_sounds = situation["learn_thing"], list(agent.sounds)
+                    agent.learn_one = situation.get("learn_one", -1)
                 # Its urgency, carried in its call's tag: the strongest of what stirs it, surprise, a threat in sight (the
                 # more for the fearful), hunger and pain.
                 threat = senses[SENSES.index("threat_closeness")] * (0.5 + agent.fearfulness) / 1.5
@@ -5002,12 +5248,16 @@ class Simulation:
             available.update(("go_south", "walk_south"))
 
         heard, caller = self._heard(agent)
-        learn_by, learn_thing = None, -1
+        learn_by, learn_thing, learn_one = None, -1, -1
         if heard.get("addressed") and caller is not None and POINTING > 0 and LEARN_GAIN > 0 and caller.call >= FIRST_CALL:
             learn_thing = caller.pointed_at(self.turn - 1)
+            learn_one = caller.pointed_one_at(self.turn - 1) if learn_thing >= len(OUTSIDE_SENSES) else -1
+            if learn_thing >= len(OUTSIDE_SENSES) and learn_one < 0:
+                learn_thing = -1
             if learn_thing >= 0:  # a word it may say back, pointing at what it guesses it means
                 learn_by = caller
-                available.add("learn")  # any one addressed may try; whether it does is its own choice
+                if learn_thing != POINT_SELF_THING:  # a deed-word is said back as it acts, not by going to say it
+                    available.add("learn")  # any one addressed may try; whether it does is its own choice
         heard_from = self._kin_caller(agent)
         lands, land, war = self._land_senses(agent, sight)
         standing, admired, standout = self._standing(agent, sight)
@@ -5125,7 +5375,9 @@ class Simulation:
                 if pointed >= 0:
                     pointed_from = watched.identifier
                     senses[POINTED_SENSE] = 1.0
-                    senses[POINTED_SENSE + 1] = senses[OUTSIDE_SENSES[pointed]]
+                    senses[POINTED_SENSE + 1] = (self._closeness(agent, (watched.x, watched.y), sight) if pointed == POINT_SELF_THING
+                                                 else self.one_closeness(agent, watched.pointed_one_at(self.turn - 1), sight)
+                                                 if pointed == POINT_ONE_THING else senses[OUTSIDE_SENSES[pointed]])
                 if ATTENTION > 0:
                     for seen, sense in enumerate(OUTSIDE_SENSES):
                         if seen != pointed:
@@ -5150,7 +5402,7 @@ class Simulation:
         if LEXICON_SIZE > 0 and caller is not None and caller.call >= FIRST_CALL:  # a word it holds, heard: it knows what is meant
             agent.unknown_turn, agent.unknown_deed = self.turn, caller.last_choice  # till found among its words (for the probe)
             for word in agent.lexicon:
-                if word[0] != caller.call or [word[1], word[2]] != list(caller.sounds):
+                if not self.says(caller, word[0], word[1:3]):
                     continue
                 senses[MEANT_SENSE] = 1.0
                 senses[MEANT_SENSE + 1] = senses[OUTSIDE_SENSES[word[3]]]
@@ -5158,14 +5410,52 @@ class Simulation:
                 word[5] += 1
                 agent.meant_turn, agent.meant_thing = self.turn, word[3]  # to be judged next turn (see LEXICON_HEED)
                 agent.meant_close, agent.meant_deed = agent.was_close[word[3]], caller.last_choice
+                agent.meant_liked = self._family(agent, caller) or self._regard_for(agent, caller) > 0
+                agent.meant_by_deed = False
                 agent.unknown_turn = -1
                 break
+        if DEEDS_SIZE > 0 and caller is not None and caller.call >= FIRST_CALL:  # a deed-word it holds, heard: the deed meant
+            for word in agent.deeds:
+                if not self.says(caller, word[0], word[1:3]):
+                    continue
+                senses[MEANT_DEED_SENSE + word[3]] = 1.0
+                word[5] += 1
+                if agent.meant_turn != self.turn:  # no word for a thing heard in it
+                    agent.meant_thing, agent.meant_close = -1, 0.0
+                agent.meant_turn, agent.meant_deed, agent.meant_by_deed = self.turn, word[3], True
+                agent.meant_liked = self._family(agent, caller) or self._regard_for(agent, caller) > 0
+                agent.unknown_turn = -1
+                break
+        agent.meant_for_me = agent.meant_for_other = False
+        if NAMES_SIZE > 0 and caller is not None and caller.call >= FIRST_CALL:  # a name heard: its own, or of one it knows by it
+            if self.says(caller, agent.own_call, agent.own_sounds):
+                senses[NAMED_SENSE + 3] = 1.0
+                agent.called_me_turn = self.turn
+            for name in agent.names:
+                if not self.says(caller, name[0], name[1:3]):
+                    continue
+                senses[NAMED_SENSE] = 1.0
+                name[5] += 1
+                named = self.find_agent(name[3])
+                if name[3] == agent.identifier:
+                    senses[NAMED_SENSE + 3] = 1.0
+                    agent.called_me_turn = self.turn
+                elif named is not None and named.alive:
+                    near = self.one_closeness(agent, name[3], sight)
+                    senses[NAMED_SENSE + 1] = near
+                    senses[NAMED_SENSE + 2] = max(-1.0, min(1.0, self._regard_for(agent, named)))
+                    agent.called_turn, agent.called_one, agent.called_close = self.turn, name[3], near
+                break
+        if caller is not None:  # a call with its own name is for it; with a name it has for another, for that one
+            agent.meant_for_me = senses[NAMED_SENSE + 3] > 0
+            agent.meant_for_other = not agent.meant_for_me and agent.called_turn == self.turn
         if ARENA_BLIND > 0 and caller is not None and whim(agent.identifier ^ 0x424C4E44, self.turn) < ARENA_BLIND:
             agent.blinded_turn = self.turn
             for sense in OUTSIDE_SENSES:
                 senses[sense] = 0.0
             senses[POINTED_SENSE + 1] = 0.0
             senses[MEANT_SENSE + 1] = 0.0
+            senses[NAMED_SENSE + 1] = 0.0
         situation = {"meant": meant, "pointed": pointed, "pointed_from": pointed_from, "attend_to": attend_to, "attend_known": attend_known, "watched": watched_by,"envy": envied, "claim_from": claim_from, "claim": claim, "gift_to": gift_to, "gift": gift, "trade_with": trade_with, "wanted": wanted_good, "offered": offered_good, "teacher_steps": -1 if teacher is None else abs(teacher.x - agent.x) + abs(teacher.y - agent.y),
                      "mate": mate, "nurseries": nurseries, "young_near": young, "young": own_young, "prey": target, "threat": threat,
                      "threats": len(threats), "heard_from": heard_from, "loudest_from": caller, "loudest_sounds": ([caller.call - FIRST_CALL, *caller.sounds] if caller is not None and caller.call >= FIRST_CALL else None), "quarry": quarry, "shoot_at": shoot_at, "practise_on": practise_on, "hunter": hunter, "suitor": suitor, "suitor_at": suitor and (suitor.x, suitor.y),
@@ -5175,7 +5465,7 @@ class Simulation:
                      "exposure": min(2, discomfort) / 2 * agent.exposure_share(here), "uprootable": uprootable, "timber": timber, "eat_meat": eat_meat, "eat_fruit": eat_fruit, "fire": fire, "gear_pile": gear_pile, "gear_kind": gear_kind, "wagon_near": wagon_near, "stone_pile": stone_pile, "bone_pile": bone_pile, "wood_pile": wood_pile, "dressable": dressable, "tears": tears, "meat_pile": meat_pile, "fruit_pile": fruit_pile,
                      "home_distance": home_distance * agent.exposure_share(here),
                      "alert_to": alert_to, "revisit": agent.food_memory and agent.food_memory[:2],
-                     "student": students[0] if students else None, "pupil": pupil, "lesson": lesson, "addressee": addressee, "retry_to": retry_to, "learn_by": learn_by, "learn_thing": learn_thing,
+                     "student": students[0] if students else None, "pupil": pupil, "lesson": lesson, "addressee": addressee, "retry_to": retry_to, "learn_by": learn_by, "learn_thing": learn_thing, "learn_one": learn_one, "learn_word": (caller.call, list(caller.sounds)) if learn_by is not None else None,
                      "calls": [SILENT, *([ALERT_CALL] if alert_to is not None else []), *range(FIRST_CALL, len(CALLS))]}
         situation["land"], situation["war"], situation["ambition"] = land, war, agent.ambition
         situation["admired"], situation["standout"] = admired, standout
@@ -5569,6 +5859,30 @@ class Simulation:
                 (listener.last_senses, caller.last_choice, target)]
 
     @staticmethod
+    def _utterance2_outputs(agent: Bitzkey) -> list[int]:
+        """Its last call's second word's outputs, or its stop after the first word. As the C++ version's."""
+        outputs = [-1, -1, -1]
+        if CALL_WORDS < 2 or agent.last_call < FIRST_CALL:
+            return outputs
+        if agent.last_call2 < FIRST_CALL:
+            outputs[0] = word2_output(0, -1)
+            return outputs
+        outputs[0] = word2_output(0, agent.last_call2 - FIRST_CALL)
+        for place in range(1, min(CALL_LENGTH, MAX_SOUNDS)):
+            outputs[place] = word2_output(place, agent.last_sounds2[place - 1])
+            if agent.last_sounds2[place - 1] < 0:
+                break
+        return outputs
+
+    @staticmethod
+    def says(caller: Bitzkey, call: int, sounds) -> bool:
+        """Whether a word of its call is this one. As the C++ version's."""
+        if call < FIRST_CALL:
+            return False
+        return ((caller.call == call and list(caller.sounds) == list(sounds))
+                or (caller.call2 == call and list(caller.sounds2) == list(sounds)))
+
+    @staticmethod
     def _utterance_outputs(agent: Bitzkey) -> list[int]:
         """The outputs its last call is learnt by: its first sound's (or silence's, or the alert's), then where it went on to,
         or stopped, at each later place offered; -1 for places it never reached. As the C++ version's."""
@@ -5636,6 +5950,13 @@ class Simulation:
             quiet[SENSES.index(name)] = 0.0
         quiet[POINTED_SENSE] = quiet[POINTED_SENSE + 1] = quiet[POINTED_SENSE + 2] = quiet[POINTED_SENSE + 3] = 0.0
         quiet[MEANT_SENSE] = quiet[MEANT_SENSE + 1] = 0.0
+        for part in range(4):
+            quiet[NAMED_SENSE + part] = 0.0
+        for deed in range(len(ACTIONS)):
+            quiet[MEANT_DEED_SENSE + deed] = 0.0
+        for place in range(MAX_SOUNDS):
+            for sound in range(CALL_COUNT):
+                quiet[utterance2_sense(place, sound)] = 0.0
         own = call_tag(agent, agent)  # heard, its call carries its own tag
 
         def hear(senses: list[float], place: int, sound: int) -> None:
@@ -5720,12 +6041,12 @@ class Simulation:
         for plan in plans:
             plan[0].understood_sum, plan[0].understood_count = 0.0, 0
             plan[0].learn_bonus = plan[0].word_understood = 0.0
-            plan[0].corrected_gain, plan[0].corrected_thing = 0.0, -1
+            plan[0].corrected_gain, plan[0].corrected_thing, plan[0].corrected_one = 0.0, -1, -1
         if POINTING <= 0 and UNDERSTOOD <= 0:
             return
         for hearer, senses, _, _ in plans:
             if (hearer.pointed_turn != self.turn - 1 or hearer.pointed_off < 0 or not hearer.has_foresaw
-                    or hearer.pointed_thing < 0):
+                    or hearer.pointed_thing < 0 or hearer.pointed_thing >= len(OUTSIDE_SENSES)):
                 continue
             caller = self.find_agent(hearer.pointed_by)
             if caller is None or not caller.alive or caller is hearer:
@@ -5744,11 +6065,11 @@ class Simulation:
                     or speaker.address_to != learner.identifier or speaker.word_point < 0 or speaker.word_call != learner.learn_call):
                 continue
             learner.corrected_gain = LEARN_CORRECTED * LEARN_GAIN * LEARN_MATCH * minds_met(learner, speaker)
-            learner.corrected_thing = speaker.word_point
+            learner.corrected_thing, learner.corrected_one = speaker.word_point, speaker.word_one
             word = (speaker.word_call, list(speaker.word_sounds), speaker.word_point)  # agreed, once corrected
-            self.accord(learner, speaker, *word)
-            self.accord(speaker, learner, *word)
-            self._witness_word(learner, speaker, *word)
+            self.accord(learner, speaker, *word, False, speaker.word_one)
+            self.accord(speaker, learner, *word, False, speaker.word_one)
+            self._witness_word(learner, speaker, *word, speaker.word_one)
         for plan in plans:  # a word said back last turn, and guessed right: worth as much to the one who said it
             learner = plan[0]
             if LEARN_GAIN <= 0 or learner.learn_turn != self.turn - 1 or not learner.learn_correct:
@@ -5760,9 +6081,9 @@ class Simulation:
             if there:
                 speaker.learn_bonus += learner.learn_gain
                 word = (learner.learn_call, list(learner.learn_sounds), learner.learn_thing)  # agreed: both lexicons, and onlookers'
-                self.accord(learner, speaker, *word)
-                self.accord(speaker, learner, *word)
-                self._witness_word(learner, speaker, *word)
+                self.accord(learner, speaker, *word, False, learner.learn_one)
+                self.accord(speaker, learner, *word, False, learner.learn_one)
+                self._witness_word(learner, speaker, *word, learner.learn_one)
 
     def _credit_callers(self, plans: list, lessons: dict[int, tuple]) -> None:
         """How each one's turn went against what it expected of its choice, shared with the caller of its kind it heard as
@@ -5874,15 +6195,15 @@ class Simulation:
         learnt = agent.learn_bonus + agent.held_learn  # its word said back right: as its sayer, and as the one who said it back
         target += learnt + agent.corrected_gain  # and its wrong guess, corrected: worth a share
         target = limited_value(target)
-        lessons = harm + [(agent.call_senses, output, target, rate) for output in agent.call_outputs if output >= 0]
+        lessons = harm + [(agent.call_senses, output, target, rate) for output in agent.call_outputs + agent.call2_outputs if output >= 0]
         if WISH_LEARNING > 0 and agent.wish_judged:  # its wishes: each deed its hearers did, by how its own turn went
             value = limited_value(agent.wish_advantage)
             lessons += [(agent.call_senses, WISH + wish, value, rate * WISH_LEARNING)
                         for wish in range(len(WISHES)) if agent.wishes_done & (1 << wish)]
         if POINTING > 0 and agent.held_point >= 0 and (pointed or learnt != 0.0):  # what it pointed at: by how well it was understood
-            lessons.append((agent.call_senses, POINT + agent.held_point, limited_value(UNDERSTOOD * understood + learnt), rate * POINTING))
+            lessons.append((agent.call_senses, point_output(agent.held_point), limited_value(UNDERSTOOD * understood + learnt), rate * POINTING))
         if POINTING > 0 and agent.corrected_thing >= 0 and agent.corrected_gain > 0:  # corrected: the thing meant, as its point
-            lessons.append((agent.call_senses, POINT + agent.corrected_thing, limited_value(agent.corrected_gain), rate * POINTING))
+            lessons.append((agent.call_senses, point_output(agent.corrected_thing), limited_value(agent.corrected_gain), rate * POINTING))
         return lessons
 
     def _learn_batch(self, batch: BrainBatch, lessons: list[tuple | None], agents: list[Bitzkey] | None = None) -> None:
@@ -5905,11 +6226,12 @@ class Simulation:
                 outputs = self._utterance_outputs(agent)
                 if CALL_EMPATHY > 0 or INTENT > 0 or WISH_LEARNING > 0 or POINTING > 0 or UNDERSTOOD > 0:  # feeling for or wanting of its listeners, it holds
                     agent.call_senses, agent.call_outputs = agent.last_senses, outputs  # the lesson a turn, till theirs is judged
+                    agent.call2_outputs = self._utterance2_outputs(agent)
                     agent.held_call_target, agent.call_held, agent.held_intent = call_target, rate > 0, agent.intent
                     agent.held_point = agent.pointed_at(self.turn - 1)
                     agent.held_learn = agent.learn_gain if agent.learn_correct and agent.learn_turn == self.turn - 1 else 0.0
                 else:
-                    calls[row] += [(agent.last_senses, output, call_target, rate) for output in outputs if output >= 0]
+                    calls[row] += [(agent.last_senses, output, call_target, rate) for output in outputs + self._utterance2_outputs(agent) if output >= 0]
                 quiet = self._silence_target(agent, call_target)
                 if quiet is not None:  # and what keeping quiet would have brought
                     calls[row].append((agent.last_senses, call_output(SILENT), quiet, rate * SILENCE_LESSON))
@@ -6446,6 +6768,12 @@ class Simulation:
             valued[HUNT] -= tolerance
         if prey is not None and not self._is_prey(agent, prey):
             valued[ATTACK] -= tolerance
+
+    @staticmethod
+    def duty(agent: Bitzkey) -> float:
+        """Sense of duty, 0..7: 1 is chance (see DUTY_SWAY). As the C++ version's."""
+        bond = (agent.feeling("loyalty") + agent.feeling("kinship") + agent.feeling("sociability")) / 3.0
+        return min(float(TRAIT_MAX), max(0.0, TRAIT_MAX * bond * (1.0 - agent.feeling("dominance"))))
 
     @staticmethod
     def _gluttony(agent: Bitzkey) -> float:
@@ -8197,6 +8525,7 @@ class Simulation:
             father_now = self.find_agent(father) if father is not None and father >= 0 else None
             if father_now is not None:
                 self.inherit_words(child, father_now)
+            self.name_at_birth(child, mother)  # and its mother names it (see NAMES_SIZE)
             if CUES:  # its mother's cry, or now and then another
                 child.cry = cue_cry(mother)
                 if whim(child.identifier ^ 0xC27, self.turn) < CRY_DRIFT:

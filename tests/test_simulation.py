@@ -1652,7 +1652,7 @@ class NewTraitTests(unittest.TestCase):
     def test_outside_foresight_learns_how_near_it_will_next_sense_a_hunter_prey_and_meat(self):
         from tools.Brain import OUTPUTS, OUTSIDE, OUTSIDE_SENSES, later_sound
         self.assertEqual(OUTPUTS[OUTSIDE:OUTSIDE + 3], ("foresee_threat", "foresee_prey", "foresee_carrion"))
-        self.assertEqual(len(OUTPUTS[OUTSIDE:]), 21 + 7 + 21 + 2)  # then the seven wishes, then pointing, then attention
+        self.assertEqual(len(OUTPUTS[OUTSIDE:]), 21 + 7 + 21 + 2 + 2 + 18)  # then the seven wishes, then pointing, then attention, then pointing at one
         self.assertFalse(later_sound(OUTSIDE))
         self.assertTrue(later_sound(OUTSIDE - 1))
         grazer = self.simulation._add_agent(encode_dna("grazer"), 5, 5)
@@ -1719,10 +1719,11 @@ class NewTraitTests(unittest.TestCase):
     def test_pointing_a_caller_points_at_an_outside_thing_and_its_hearers_read_the_finger(self):
         from tools.Brain import OUTPUTS, OUTSIDE_SENSES, POINT, SENSES
         self.assertEqual(OUTPUTS[POINT], "point_threat")
-        self.assertEqual(OUTPUTS[-3], "point_comfort")
-        self.assertEqual(OUTPUTS[-2:], ("attend", "ignore"))
-        self.assertEqual(len(OUTPUTS), POINT + len(OUTSIDE_SENSES) + 2)
-        self.assertEqual(SENSES[-20:-14], ("pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed"))
+        self.assertEqual(OUTPUTS[-23], "point_comfort")
+        self.assertEqual(OUTPUTS[-22:-18], ("attend", "ignore", "point_one", "point_self"))  # and pointing at one animal, or itself
+        self.assertEqual(OUTPUTS[-1], "sixth_call_5")  # then a second word's sounds
+        self.assertEqual(len(OUTPUTS), POINT + len(OUTSIDE_SENSES) + 4 + 18)
+        self.assertEqual(SENSES[-112:-106], ("pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed"))
         dull = self.simulation._add_agent(encode_dna("grazer", sociability=1, intellect=1), 1, 1)
         keen = self.simulation._add_agent(encode_dna("grazer", sociability=7, intellect=7), 8, 8)
         self.assertGreater(Simulation.willing_to_learn(keen), Simulation.willing_to_learn(dull))
@@ -1740,7 +1741,7 @@ class NewTraitTests(unittest.TestCase):
                 self.simulation._take_turn()
                 for agent in self.simulation.living:
                     attended = attended or agent.attend_turn >= 0
-                    self.assertLess(agent.point, len(OUTSIDE_SENSES))
+                    self.assertLessEqual(agent.point, len(OUTSIDE_SENSES) + 1)  # a thing, one animal, or itself
                     if agent.point >= 0:
                         pointed = True
                         self.assertLessEqual(agent.point_turn, agent.call_turn)  # only a call points
@@ -3850,6 +3851,158 @@ class CallTests(unittest.TestCase):
         self.assertEqual(child.lexicon[0][3], room - 1)  # the most used first
         self.assertAlmostEqual(child.lexicon[0][4], sm.LEXICON_FAMILY)
 
+    def test_deed_words_hearing_one_it_holds_it_senses_the_deed_and_doing_it_is_doing_as_said(self):
+        from tools.Brain import ACTIONS, MEANT_DEED_SENSE, POINT_SELF_THING
+        sm = simulation_module
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        caller = world._add_agent(encode_dna("grazer"), 10, 10)
+        hearer = world._add_agent(encode_dna("grazer"), 12, 10)
+        world._index_cells()
+        flee, rest = ACTIONS.index("flee"), ACTIONS.index("rest")
+        hearer.deeds.append([FIRST_CALL + 4, 1, 1, flee, 0.5, 0])
+        caller.call, caller.sounds, caller.call_turn, caller.last_choice = FIRST_CALL + 4, [1, 1], world.turn - 1, rest
+        senses, _, _ = world._sense(hearer)
+        self.assertEqual(senses[MEANT_DEED_SENSE + flee], 1.0)
+        self.assertEqual(senses[MEANT_DEED_SENSE + rest], 0.0)
+        self.assertEqual(hearer.meant_deed, flee)
+        self.assertTrue(hearer.meant_by_deed)
+        hearer.close_turn = hearer.meant_turn = world.turn - 1
+        hearer.last_choice, hearer.meant_liked = flee, False
+        _, _, situation = world._sense(hearer)
+        self.assertTrue(hearer.judged_by_deed and hearer.acted_same and not hearer.heeded)
+        self.assertAlmostEqual(situation["word_reward"], sm.LEXICON_ACT)
+        world.accord(hearer, caller, FIRST_CALL + 1, [-1, -1], POINT_SELF_THING, False, rest)
+        self.assertEqual(len(hearer.deeds), 2)
+        self.assertEqual(hearer.lexicon, [])
+
+    def test_deed_words_one_addressed_choosing_to_speak_says_the_word_back_as_it_acts(self):
+        from tools.Brain import ACTIONS, CALLS, POINT_SELF_THING, call_output
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        speaker = world._add_agent(encode_dna("grazer"), 10, 10)
+        learner = world._add_agent(encode_dna("grazer"), 11, 10)
+        world._index_cells()
+        rest = ACTIONS.index("rest")
+        echoes = right = 0
+        for _ in range(40):
+            if learner.deeds:
+                break
+            speaker.call, speaker.sounds = FIRST_CALL + 2, [0, -1]
+            speaker.call_turn = speaker.address_turn = world.turn
+            speaker.address_to = learner.identifier
+            speaker.point, speaker.point_one, speaker.point_turn = POINT_SELF_THING, rest, world.turn
+            for action in range(len(ACTIONS)):
+                learner.brain.output_biases[action] = 50.0 if action == rest else -50.0
+            for call in range(len(CALLS)):
+                learner.brain.output_biases[call_output(call)] = 50.0 if call >= FIRST_CALL else -50.0
+            world.advance()
+            if not learner.alive or not speaker.alive:
+                break
+            if learner.echo_turn == world.turn:
+                echoes += 1
+                self.assertEqual(learner.last_call, FIRST_CALL + 2)  # the word, said back
+                right += learner.learn_correct
+        self.assertGreater(echoes, 0)
+        self.assertGreater(right, 0)
+        self.assertTrue(learner.deeds and learner.deeds[0][3] == rest)
+        self.assertTrue(any(word[3] == rest for word in speaker.deeds))
+
+    def test_two_words_a_second_word_is_heard_and_a_name_with_a_deed_word_is_an_order_for_the_one_named(self):
+        from tools.Brain import ACTIONS, MEANT_DEED_SENSE, NAMED_SENSE, utterance2_sense, word2_output
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        caller = world._add_agent(encode_dna("grazer"), 10, 10)
+        hearer = world._add_agent(encode_dna("grazer"), 12, 10)
+        other = world._add_agent(encode_dna("grazer"), 13, 11)
+        world._index_cells()
+        flee = ACTIONS.index("flee")
+        hearer.deeds.append([FIRST_CALL + 4, 1, -1, flee, 0.5, 0])
+        hearer.names.append([FIRST_CALL + 2, -1, -1, other.identifier, 0.5, 0])
+        hearer.own_call, hearer.own_sounds = FIRST_CALL + 3, [0, 0]
+        caller.call_turn = world.turn - 1
+        caller.call, caller.sounds, caller.call2, caller.sounds2 = FIRST_CALL, [-1, -1], FIRST_CALL + 4, [1, -1]
+        senses, _, _ = world._sense(hearer)
+        self.assertEqual(senses[utterance2_sense(0, 4)], 1.0)
+        self.assertEqual(senses[utterance2_sense(1, 1)], 1.0)
+        self.assertEqual(senses[MEANT_DEED_SENSE + flee], 1.0)
+        self.assertFalse(hearer.meant_for_other)
+        caller.call = FIRST_CALL + 2
+        senses, _, _ = world._sense(hearer)
+        self.assertEqual(senses[NAMED_SENSE], 1.0)
+        self.assertTrue(hearer.meant_for_other and not hearer.meant_for_me)
+        caller.call, caller.sounds = FIRST_CALL + 3, [0, 0]
+        senses, _, _ = world._sense(hearer)
+        self.assertEqual(senses[NAMED_SENSE + 3], 1.0)
+        self.assertTrue(hearer.meant_for_me and not hearer.meant_for_other)
+        caller.last_call, caller.last_sounds, caller.last_call2 = FIRST_CALL + 1, [-1, -1], -1
+        self.assertEqual(Simulation._utterance2_outputs(caller), [word2_output(0, -1), -1, -1])
+        caller.last_call2, caller.last_sounds2 = FIRST_CALL + 2, [3, -1]
+        self.assertEqual(Simulation._utterance2_outputs(caller), [word2_output(0, 2), word2_output(1, 3), word2_output(2, -1)])
+
+    def test_names_a_mother_names_her_newborn_with_her_last_call_and_family_in_sight_learn_it(self):
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        mother = world._add_agent(encode_dna("grazer"), 10, 10)
+        sister = world._add_agent(encode_dna("grazer"), 12, 10)
+        child = world._add_agent(encode_dna("grazer"), 11, 10)
+        twin = world._add_agent(encode_dna("grazer"), 11, 11)
+        sister.mother = child.mother = twin.mother = mother.identifier
+        world._index_cells()
+        mother.last_call, mother.last_sounds = FIRST_CALL + 3, [1, -1]
+        world.name_at_birth(child, mother)
+        self.assertEqual((child.own_call, child.own_sounds), (FIRST_CALL + 3, [1, -1]))
+        self.assertEqual([name[3] for name in mother.names], [child.identifier])
+        self.assertEqual([name[3] for name in sister.names], [child.identifier])
+        world.name_at_birth(twin, mother)  # taken: another
+        self.assertNotEqual((twin.own_call, twin.own_sounds), (child.own_call, child.own_sounds))
+        self.assertEqual(len(mother.names), 2)
+
+    def test_names_hearing_a_name_it_holds_it_senses_that_one_and_its_own_name(self):
+        from tools.Brain import NAMED_SENSE
+        sm = simulation_module
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        caller = world._add_agent(encode_dna("grazer"), 10, 10)
+        hearer = world._add_agent(encode_dna("grazer"), 12, 10)
+        named = world._add_agent(encode_dna("grazer"), 14, 10)
+        world._index_cells()
+        hearer.names.append([FIRST_CALL + 1, 2, -1, named.identifier, 0.5, 0])
+        caller.call, caller.sounds, caller.call_turn = FIRST_CALL + 1, [2, -1], world.turn - 1
+        senses, _, _ = world._sense(hearer)
+        self.assertEqual(senses[NAMED_SENSE], 1.0)
+        self.assertGreater(senses[NAMED_SENSE + 1], 0.0)
+        self.assertEqual(senses[NAMED_SENSE + 3], 0.0)
+        self.assertEqual(hearer.called_one, named.identifier)
+        hearer.own_call, hearer.own_sounds = FIRST_CALL + 1, [2, -1]
+        senses, _, _ = world._sense(hearer)
+        self.assertEqual(senses[NAMED_SENSE + 3], 1.0)
+        hearer.close_turn = hearer.called_turn = world.turn - 1
+        hearer.called_close, hearer.meant_turn = 0.0, -1
+        _, _, situation = world._sense(hearer)
+        self.assertTrue(hearer.name_heeded)
+        self.assertAlmostEqual(situation["word_reward"], sm.LEXICON_HEED)
+
+    def test_names_full_the_dead_are_forgotten_first_and_the_one_pointed_at_is_in_sight(self):
+        from tools.Brain import POINT_ONE_THING
+        sm = simulation_module
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        holder = world._add_agent(encode_dna("grazer"), 10, 10)
+        teacher = world._add_agent(encode_dna("grazer"), 11, 10)
+        holder.mind["intellect"] = 0.0
+        room = Simulation.names_capacity(holder)
+        self.assertEqual(room, sm.NAMES_SIZE)
+        others = [world._add_agent(encode_dna("grazer"), 13 + at, 12) for at in range(room)]
+        world._index_cells()
+        for at in range(room):
+            world.accord(holder, teacher, FIRST_CALL + at, [-1, -1], POINT_ONE_THING, False, others[at].identifier)
+        self.assertEqual(len(holder.names), room)
+        for name in holder.names:
+            name[5] = 5
+        others[2].health = 0
+        newcomer = world._add_agent(encode_dna("grazer"), 10, 12)
+        world._index_cells()
+        world.accord(holder, teacher, FIRST_CALL, [3, -1], POINT_ONE_THING, False, newcomer.identifier)
+        self.assertEqual(len(holder.names), room)
+        self.assertNotIn(others[2].identifier, [name[3] for name in holder.names])
+        self.assertEqual(world.one_to_point_at(holder, -1), newcomer.identifier)
+        self.assertEqual(world.one_to_point_at(holder, teacher.identifier), teacher.identifier)
+
     def test_the_lexicon_hearing_a_word_it_holds_it_senses_what_is_meant(self):
         from tools.Brain import OUTSIDE_SENSES
         world = Simulation(width=40, height=40, population=0, seed=3)
@@ -3899,6 +4052,33 @@ class CallTests(unittest.TestCase):
         hearer.meant_close = hearer.was_close[7] + 0.2
         _, _, situation = world._sense(hearer)
         self.assertAlmostEqual(situation["word_reward"], sm.LEXICON_ACT)
+
+    def test_sense_of_duty_scales_with_bonds_falls_with_dominance_and_colours_doing_as_told(self):
+        from tools.Brain import ACTIONS
+        sm = simulation_module
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        hearer = world._add_agent(encode_dna("grazer"), 12, 10)
+        hearer.mind["loyalty"] = hearer.mind["kinship"] = hearer.mind["sociability"] = 7.0
+        hearer.mind["dominance"] = 0.0
+        self.assertAlmostEqual(Simulation.duty(hearer), 7.0)
+        hearer.mind["dominance"] = 7.0
+        self.assertAlmostEqual(Simulation.duty(hearer), 0.0)
+        hearer.mind["dominance"] = 0.0
+        hearer.mind["loyalty"] = hearer.mind["kinship"] = hearer.mind["sociability"] = 1.0
+        self.assertAlmostEqual(Simulation.duty(hearer), 1.0)
+        hearer.mind["loyalty"] = hearer.mind["kinship"] = hearer.mind["sociability"] = 7.0
+        world._index_cells()
+        rest = ACTIONS.index("rest")
+        for dominance, liked, expected in ((0.0, True, sm.LEXICON_ACT * (1 + sm.DUTY_FELT * 6)),
+                                           (7.0, True, sm.LEXICON_ACT * (1 - sm.DUTY_FELT)), (7.0, False, sm.LEXICON_ACT)):
+            hearer.mind["dominance"] = dominance
+            hearer.close_turn = hearer.meant_turn = world.turn - 1
+            hearer.meant_thing, hearer.meant_close = 7, hearer.was_close[7]
+            hearer.meant_deed = hearer.last_choice = rest
+            hearer.meant_liked = liked
+            _, _, situation = world._sense(hearer)
+            self.assertEqual(hearer.judged_liked, liked)
+            self.assertAlmostEqual(situation["word_reward"], expected)
 
     def test_heeding_a_word_an_animal_learns_how_it_fares_going_nearer_each_thing_and_further(self):
         sm = simulation_module
