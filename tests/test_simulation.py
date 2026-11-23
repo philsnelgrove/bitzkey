@@ -1722,7 +1722,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(OUTPUTS[-3], "point_comfort")
         self.assertEqual(OUTPUTS[-2:], ("attend", "ignore"))
         self.assertEqual(len(OUTPUTS), POINT + len(OUTSIDE_SENSES) + 2)
-        self.assertEqual(SENSES[-18:-12], ("pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed"))
+        self.assertEqual(SENSES[-20:-14], ("pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed"))
         dull = self.simulation._add_agent(encode_dna("grazer", sociability=1, intellect=1), 1, 1)
         keen = self.simulation._add_agent(encode_dna("grazer", sociability=7, intellect=7), 8, 8)
         self.assertGreater(Simulation.willing_to_learn(keen), Simulation.willing_to_learn(dull))
@@ -3779,6 +3779,94 @@ class CallTests(unittest.TestCase):
         self.assertIs(world._sense(speaker)[2]["retry_to"], listener)  # a wrong guess: it tries again
         speaker.word_tries = sm.ADDRESS_RETRIES
         self.assertIsNone(world._sense(speaker)[2]["retry_to"])  # tried as often as it may
+
+    def test_the_lexicon_a_word_agreed_by_a_right_guess_goes_into_both_lexicons_and_those_of_its_kind_who_saw_it(self):
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        speaker = world._add_agent(encode_dna("grazer"), 10, 10)
+        learner = world._add_agent(encode_dna("grazer"), 11, 10)
+        onlooker = world._add_agent(encode_dna("grazer"), 13, 10)
+        far_off = world._add_agent(encode_dna("grazer"), 35, 35)
+        world._index_cells()
+        learner.learn_turn, learner.learn_from, learner.learn_correct = world.turn - 1, speaker.identifier, True
+        learner.learn_call, learner.learn_sounds, learner.learn_thing = FIRST_CALL + 2, [1, -1], 5
+        plans = [(agent, world._sense(agent)[0], None, None) for agent in (speaker, learner, onlooker, far_off)]
+        world._gauge_understanding(plans)
+        for one in (learner, speaker, onlooker):
+            self.assertEqual(len(one.lexicon), 1)
+            self.assertEqual(one.lexicon[0][:4], [FIRST_CALL + 2, 1, -1, 5])
+        self.assertEqual(far_off.lexicon, [])  # out of sight: it saw nothing
+        tally = world.lexicon_tally[speaker.species]
+        self.assertEqual((tally["agreed"], tally["witnessed"]), (2, 1))
+        world._gauge_understanding(plans)  # the same word for the same thing again: held the more surely
+        self.assertEqual(len(learner.lexicon), 1)
+        self.assertEqual(learner.lexicon[0][5], 1)
+
+    def test_the_lexicon_a_word_held_is_changed_only_by_a_friend_or_family_member_regarded_more_than_whoever_settled_it(self):
+        sm = simulation_module
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        learner = world._add_agent(encode_dna("grazer"), 10, 10)
+        stranger = world._add_agent(encode_dna("grazer"), 11, 10)
+        acquaintance = world._add_agent(encode_dna("grazer"), 12, 10)
+        friend = world._add_agent(encode_dna("grazer"), 13, 10)
+        learner.known.append(sm.Acquaintance(acquaintance.identifier, 0.2, 0))
+        learner.known.append(sm.Acquaintance(friend.identifier, 0.9, 0))
+        learner.lexicon.append([FIRST_CALL + 1, -1, -1, 6, 0.4, 3])  # settled with one it regarded at 0.4
+        world.accord(learner, stranger, FIRST_CALL + 3, [-1, -1], 6)  # a stranger's word for the same thing: refused
+        self.assertEqual(learner.lexicon[0][0], FIRST_CALL + 1)
+        world.accord(learner, acquaintance, FIRST_CALL + 3, [-1, -1], 6)  # a friend, but regarded less
+        self.assertEqual(learner.lexicon[0][0], FIRST_CALL + 1)
+        world.accord(learner, acquaintance, FIRST_CALL + 1, [-1, -1], 9)  # the same word for another thing: refused too
+        self.assertEqual([w[3] for w in learner.lexicon], [6])
+        world.accord(learner, friend, FIRST_CALL + 3, [-1, -1], 6)  # a friend regarded more: it changes its mind
+        self.assertEqual(len(learner.lexicon), 1)
+        self.assertEqual(learner.lexicon[0][0], FIRST_CALL + 3)
+        self.assertAlmostEqual(learner.lexicon[0][4], 0.9)
+        tally = world.lexicon_tally[learner.species]
+        self.assertEqual((tally["refused"], tally["overridden"]), (3, 1))
+        world.accord(learner, stranger, FIRST_CALL + 4, [0, -1], 2)  # a new word for a new thing: any one may teach it
+        self.assertEqual(len(learner.lexicon), 2)
+
+    def test_the_lexicon_full_it_forgets_the_word_used_least_and_a_newborn_starts_with_a_share_of_its_parents_words(self):
+        sm = simulation_module
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        parent = world._add_agent(encode_dna("grazer"), 10, 10)
+        teacher = world._add_agent(encode_dna("grazer"), 11, 10)
+        child = world._add_agent(encode_dna("grazer"), 12, 10)
+        parent.mind["intellect"] = 0.0  # room for LEXICON_SIZE words
+        room = Simulation.lexicon_capacity(parent)
+        self.assertEqual(room, sm.LEXICON_SIZE)
+        for thing in range(room):
+            world.accord(parent, teacher, FIRST_CALL + thing % 5, [thing // 5, -1], thing)
+        self.assertEqual(len(parent.lexicon), room)
+        for word in parent.lexicon:
+            word[5] = 10 + word[3]
+        parent.lexicon[1][5] = 0  # the least used
+        world.accord(parent, teacher, FIRST_CALL, [4, 4], 15)
+        self.assertEqual(len(parent.lexicon), room)
+        self.assertNotIn(1, [w[3] for w in parent.lexicon])
+        child.mother = parent.identifier
+        world.inherit_words(child, parent)
+        self.assertEqual(len(child.lexicon), int(sm.LEXICON_INHERIT * room + 0.5))
+        self.assertEqual(child.lexicon[0][3], room - 1)  # the most used first
+        self.assertAlmostEqual(child.lexicon[0][4], sm.LEXICON_FAMILY)
+
+    def test_the_lexicon_hearing_a_word_it_holds_it_senses_what_is_meant(self):
+        from tools.Brain import OUTSIDE_SENSES
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        caller = world._add_agent(encode_dna("grazer"), 10, 10)
+        hearer = world._add_agent(encode_dna("grazer"), 12, 10)
+        world._index_cells()
+        hearer.lexicon.append([FIRST_CALL + 2, 0, -1, 4, 0.5, 0])
+        caller.call, caller.sounds, caller.call_turn = FIRST_CALL + 2, [0, -1], world.turn - 1
+        senses, _, situation = world._sense(hearer)
+        heard = dict(zip(SENSES, senses))
+        self.assertEqual(heard["meant"], 1.0)
+        self.assertEqual(heard["meant_closeness"], senses[OUTSIDE_SENSES[4]])
+        self.assertEqual(situation["meant"], 4)
+        caller.sounds = [1, -1]  # another word: not one it holds
+        senses, _, situation = world._sense(hearer)
+        self.assertEqual(dict(zip(SENSES, senses))["meant"], 0.0)
+        self.assertEqual(situation["meant"], -1)
 
     def test_longing_parted_from_a_companion_it_longs_for_it_felt_and_sensed_but_never_located_till_met_or_faded(self):
         sm = simulation_module
