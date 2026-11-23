@@ -489,6 +489,12 @@ LEXICON_SPEAK = 1.0
 LEXICON_FAMILY = 0.5
 LEXICON_WITNESS = 1.0
 LEXICON_INHERIT = 0.5
+# Heeding a word (the user's idea): nearer the thing a word heard means by the next turn, LEXICON_HEED; and LEXICON_ACT
+# for each fitting way: nearer a thing its own life found good to near (or further from one found bad), learnt at
+# LEXICON_WORTH_RATE, and doing what the speaker did. As the C++ version's.
+LEXICON_HEED = 0.1
+LEXICON_ACT = 0.2
+LEXICON_WORTH_RATE = 0.05
 LONGING_UNEASE = 0.1
 LONGING_JOY = 1.0
 MAP_BLIND = 0  # for experiments: 1 withholds the mental map senses and revisit
@@ -1494,6 +1500,20 @@ class Bitzkey:
     learn_sounds: list = field(default_factory=lambda: [-1, -1])  # and the later sounds of the word it said back
     lexicon: list = field(default_factory=list)  # the words it has settled, each [call, sound, sound, thing, regard, uses]
     lexicon_spoke_turn: int = -1  # the last turn it said a word from its lexicon
+    nearer_comfort: list = field(default_factory=lambda: [0.0] * 21)  # how it felt the turn after going nearer each thing
+    farther_comfort: list = field(default_factory=lambda: [0.0] * 21)  # and further (see LEXICON_ACT)
+    was_close: list = field(default_factory=lambda: [0.0] * 21)  # how close each was as it last sensed
+    moved: list = field(default_factory=lambda: [0] * 21)  # and whether it had then come nearer (1), gone further (-1)
+    close_turn: int = -1
+    meant_turn: int = -1  # the last turn it heard a word it holds, what it means, how close that was, the speaker's deed
+    meant_thing: int = -1
+    meant_close: float = 0.0
+    meant_deed: int = -1
+    judged_turn: int = -1  # the last turn it was judged on a word heard, and how (see LEXICON_HEED)
+    heeded: bool = False
+    acted_good: bool = False
+    acted_same: bool = False
+    word_reward: float = 0.0
     longing_kind: int = 0  # what kind of thing it longs for (see LONGING): 0 none
     longing: float = 0.0  # how strongly, fading
     longing_for: int = -1  # the companion longed for, or the outside thing
@@ -2677,6 +2697,36 @@ class Simulation:
     @staticmethod
     def _help_felt(agent: Bitzkey, regard: float) -> float:
         return FRIEND_JOY * regard * (0.5 + agent.feeling("empathy")) if regard >= REGARD_STRONG else 0.0
+
+    def _heed_words(self, agent: Bitzkey, senses) -> float:
+        """How it fared nearer each thing and further, learnt; and whether it heeded the word it heard last turn, and
+        fittingly: what that is worth, felt now. As the C++ version's."""
+        if agent.close_turn == self.turn:  # sensed again this turn: as it was judged
+            return agent.word_reward if agent.judged_turn == self.turn else 0.0
+        close = [float(senses[sense]) for sense in OUTSIDE_SENSES]
+        last = agent.close_turn == self.turn - 1
+        if last and LEXICON_WORTH_RATE > 0:
+            rate = min(1.0, LEXICON_WORTH_RATE)
+            for seen in range(len(close)):
+                if agent.moved[seen] > 0:
+                    agent.nearer_comfort[seen] += rate * (agent.last_comfort - agent.nearer_comfort[seen])
+                if agent.moved[seen] < 0:
+                    agent.farther_comfort[seen] += rate * (agent.last_comfort - agent.farther_comfort[seen])
+        agent.moved = [0 if not last else 1 if close[seen] > agent.was_close[seen] else -1 if close[seen] < agent.was_close[seen] else 0
+                       for seen in range(len(close))]
+        reward = 0.0
+        if last and agent.meant_turn == self.turn - 1 and agent.meant_thing >= 0:
+            thing = agent.meant_thing
+            now, then = close[thing], agent.meant_close
+            worth = agent.nearer_comfort[thing] - agent.farther_comfort[thing]
+            agent.heeded = now > then
+            agent.acted_good = (worth > 0 and now > then) or (worth < 0 and now < then)
+            agent.acted_same = agent.meant_deed >= 0 and agent.last_choice == agent.meant_deed
+            agent.word_reward = LEXICON_HEED * agent.heeded + LEXICON_ACT * (agent.acted_good + agent.acted_same)
+            agent.judged_turn = self.turn
+            reward = agent.word_reward
+        agent.was_close, agent.close_turn = close, self.turn
+        return reward
 
     @staticmethod
     def lexicon_capacity(agent: Bitzkey) -> int:
@@ -5071,6 +5121,7 @@ class Simulation:
                         if seen != pointed:
                             senses[sense] *= 1 - min(1.0, ATTENTION)
         longing_unease, longing_relief = self._long_for(agent, senses, fire, sight)  # before habit dulls what it sees
+        word_reward = self._heed_words(agent, senses)  # and what it has learnt of each thing, and of words heard
         # Getting used to things (see HABITUATION). As the C++ version's.
         if HABITUATION > 0:
             weight = min(1.0, HABITUATION)
@@ -5094,6 +5145,8 @@ class Simulation:
                 senses[MEANT_SENSE + 1] = senses[OUTSIDE_SENSES[word[3]]]
                 meant = word[3]
                 word[5] += 1
+                agent.meant_turn, agent.meant_thing = self.turn, word[3]  # to be judged next turn (see LEXICON_HEED)
+                agent.meant_close, agent.meant_deed = agent.was_close[word[3]], caller.last_choice
                 break
         if ARENA_BLIND > 0 and caller is not None and whim(agent.identifier ^ 0x424C4E44, self.turn) < ARENA_BLIND:
             agent.blinded_turn = self.turn
@@ -5116,6 +5169,7 @@ class Simulation:
         situation["admired"], situation["standout"] = admired, standout
         situation["followed"] = agent.followed
         situation["longing_unease"], situation["longing_relief"] = longing_unease, longing_relief
+        situation["word_reward"] = word_reward
         situation["inside"] = (2 if ACTIONS[agent.last_choice] == "rest" else 1) if self._under_cover(agent) else 0
         if situation["exposure"] > 0 and (situation["inside"] or self.sheltered(agent) or self._warmed_by_fire(agent, here)):
             situation["spared"], situation["exposure"] = situation["exposure"], 0.0  # kept from the weather, it feels none, only relief
@@ -5300,6 +5354,7 @@ class Simulation:
         hearth -= ENVY_UNEASE * self._envy_of(agent) * situation.get("envy", 0.0)
         hearth += GEAR_EASE * agent.gear_held  # at ease with a weapon in hand and armour on, while it keeps them
         hearth += situation.get("longing_relief", 0.0) - situation.get("longing_unease", 0.0)  # its longing (see LONGING)
+        hearth += situation.get("word_reward", 0.0)  # a word heard, heeded (see LEXICON_HEED)
         if regard >= REGARD_STRONG:
             return hearth + REGARD_COMFORT * regard * (0.5 + agent.feeling("trust"))
         if regard <= -REGARD_STRONG:

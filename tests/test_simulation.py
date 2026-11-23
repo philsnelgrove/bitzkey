@@ -3868,6 +3868,55 @@ class CallTests(unittest.TestCase):
         self.assertEqual(dict(zip(SENSES, senses))["meant"], 0.0)
         self.assertEqual(situation["meant"], -1)
 
+    def test_heeding_a_word_nearer_next_turn_is_felt_and_more_for_going_the_way_its_life_found_good_and_doing_as_the_speaker_did(self):
+        from tools.Brain import ACTIONS
+        sm = simulation_module
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        caller = world._add_agent(encode_dna("grazer"), 10, 10)
+        hearer = world._add_agent(encode_dna("grazer"), 12, 10)
+        world._index_cells()
+        hearer.lexicon.append([FIRST_CALL + 2, 0, -1, 7, 0.5, 0])  # its word for the herd
+        rest, flee = ACTIONS.index("rest"), ACTIONS.index("flee")
+        caller.call, caller.sounds, caller.call_turn, caller.last_choice = FIRST_CALL + 2, [0, -1], world.turn - 1, rest
+        _, _, situation = world._sense(hearer)
+        self.assertEqual(situation["meant"], 7)
+        self.assertEqual((hearer.meant_turn, hearer.meant_deed), (world.turn, rest))
+        self.assertEqual(situation["word_reward"], 0.0)
+        hearer.close_turn = hearer.meant_turn = world.turn - 1
+        hearer.meant_close = hearer.was_close[7] - 0.2
+        hearer.nearer_comfort[7], hearer.farther_comfort[7] = 1.0, 0.0
+        hearer.last_choice = rest
+        _, _, situation = world._sense(hearer)
+        self.assertTrue(hearer.heeded and hearer.acted_good and hearer.acted_same)
+        self.assertAlmostEqual(situation["word_reward"], sm.LEXICON_HEED + 2 * sm.LEXICON_ACT)
+        hearer.close_turn = hearer.meant_turn = world.turn - 1
+        hearer.meant_close = hearer.was_close[7] - 0.2
+        hearer.nearer_comfort[7] = -1.0
+        hearer.last_choice = flee
+        _, _, situation = world._sense(hearer)
+        self.assertAlmostEqual(situation["word_reward"], sm.LEXICON_HEED)
+        hearer.close_turn = hearer.meant_turn = world.turn - 1
+        hearer.meant_close = hearer.was_close[7] + 0.2
+        _, _, situation = world._sense(hearer)
+        self.assertAlmostEqual(situation["word_reward"], sm.LEXICON_ACT)
+
+    def test_heeding_a_word_an_animal_learns_how_it_fares_going_nearer_each_thing_and_further(self):
+        sm = simulation_module
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        animal = world._add_agent(encode_dna("grazer"), 10, 10)
+        world._add_agent(encode_dna("grazer"), 13, 10)
+        world._index_cells()
+        world._sense(animal)
+        animal.close_turn = world.turn - 1
+        animal.was_close[7] -= 0.2
+        world._sense(animal)
+        self.assertEqual(animal.moved[7], 1)
+        animal.close_turn = world.turn - 1
+        animal.last_comfort = 2.0
+        world._sense(animal)
+        self.assertAlmostEqual(animal.nearer_comfort[7], sm.LEXICON_WORTH_RATE * 2.0)
+        self.assertEqual(animal.farther_comfort[7], 0.0)
+
     def test_longing_parted_from_a_companion_it_longs_for_it_felt_and_sensed_but_never_located_till_met_or_faded(self):
         sm = simulation_module
         world = Simulation(width=60, height=60, population=0, seed=3)
