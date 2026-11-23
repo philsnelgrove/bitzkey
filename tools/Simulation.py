@@ -4744,7 +4744,7 @@ class Simulation:
                     agent.prior_point, agent.prior_point_turn, agent.prior_point_one = agent.point, agent.point_turn, agent.point_one
                     agent.point = ((POINT_ONE_THING if target >= 0 else -1) if picked == POINT_ONE else POINT_SELF_THING if picked == POINT_SELF
                                    else picked - POINT)
-                    agent.point_one = target if agent.point == POINT_ONE_THING else choice if agent.point == POINT_SELF_THING else -1
+                    agent.point_one = target if agent.point == POINT_ONE_THING else (agent.last_choice if ACTIONS[choice] == "address" else choice) if agent.point == POINT_SELF_THING else -1  # what it did before addressing
                     agent.point_turn = self.turn
                     # A thing it has a word for: it says that word, the more surely the more sociable (see LEXICON_SPEAK).
                     cried = CUES and (situation.get("panic") or agent.struck_turn >= self.turn - 1)
