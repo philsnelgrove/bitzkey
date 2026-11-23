@@ -4369,13 +4369,13 @@ class Simulation:
                             agent.intent = wish
                 if POINTING > 0 and agent.call >= FIRST_CALL:  # and what it points at, by its brain's odds, as it picks a sound
                     roll, picked = whim(agent.identifier ^ 0x504F494E, self.turn), POINT
-                    if repeated and agent.point >= 0 and agent.point_turn == self.turn - 1:
+                    if (ACTIONS[choice] == "learn" and situation.get("learn_by") is not None and situation.get("learn_thing", -1) >= 0
+                            and whim(agent.identifier ^ 0x494E5349, self.turn) < LEARN_INSIGHT * agent.mind["intellect"] / TRAIT_MAX):
+                        picked = POINT + situation["learn_thing"]  # it sees what the speaker meant, the more surely the cleverer
+                    elif repeated and agent.point >= 0 and agent.point_turn == self.turn - 1:
                         picked = POINT + agent.point  # the same thing again
                     elif ACTIONS[choice] == "address" and situation.get("retry_to") is not None and agent.word_point >= 0:
                         picked = POINT + agent.word_point  # what it pointed at as it first said the word
-                    elif (ACTIONS[choice] == "learn" and situation.get("learn_by") is not None and situation.get("learn_thing", -1) >= 0
-                          and whim(agent.identifier ^ 0x494E5349, self.turn) < LEARN_INSIGHT * agent.intelligence):
-                        picked = POINT + situation["learn_thing"]  # it sees what the speaker meant, the more surely the cleverer
                     else:
                         for output, chance in choice_odds(calls_valued, [POINT + thing for thing in range(len(OUTSIDE_SENSES))],
                                                           CALL_TEMPERATURE).items():
@@ -4850,8 +4850,7 @@ class Simulation:
             learn_thing = caller.pointed_at(self.turn - 1)
             if learn_thing >= 0:  # a word it may say back, pointing at what it guesses it means
                 learn_by = caller
-                if whim(agent.identifier ^ 0x4C45524E, self.turn) < max(agent.feeling("curiosity"), agent.intelligence):
-                    available.add("learn")  # the more curious or the cleverer, the likelier to try
+                available.add("learn")  # any one addressed may try; whether it does is its own choice
         heard_from = self._kin_caller(agent)
         lands, land, war = self._land_senses(agent, sight)
         standing, admired, standout = self._standing(agent, sight)
