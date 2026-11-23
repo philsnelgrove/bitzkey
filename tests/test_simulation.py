@@ -5826,3 +5826,48 @@ class LandTests(unittest.TestCase):
         stranger = simulation._add_agent(encode_dna("grazer", size=3), 5, 6)
         self.assertEqual(lesson(stranger), -1)  # not of its kind
 
+
+class ChatterTest(unittest.TestCase):
+    def test_a_chatterer_costs_more_is_heard_less_annoys_and_draws_hunters(self):
+        sm = simulation_module
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        caller = world._add_agent(encode_dna("grazer"), 10, 10)
+        hearer = world._add_agent(encode_dna("grazer"), 12, 10)
+        world._index_cells()
+        caller.call, caller.sounds, caller.call_turn = FIRST_CALL + 1, [-1, -1], world.turn - 1
+        fresh = world._sense(hearer)[0][SENSES.index("heard_call_2")]
+        self.assertGreater(fresh, 0)
+        caller.chatter = 2.0
+        senses, _, situation = world._sense(hearer)
+        self.assertAlmostEqual(senses[SENSES.index("heard_call_2")], fresh * sm.attention(2.0))
+        self.assertEqual(situation["annoyed_by"], caller.identifier)
+        regard = world._regard_for(hearer, caller)
+        world._act(hearer, "rest", situation)
+        self.assertLess(world._regard_for(hearer, caller), regard)
+        def spent(calls, chatter):  # stamina left short of the same turn kept quiet
+            caller.call_turn, caller.stamina, caller.chatter = world.turn if calls else world.turn - 5, 50.0, chatter
+            world._act(caller, "rest", {"alert_to": None})
+            return caller.stamina
+        quiet = spent(False, 0.0)
+        fresh_cost = quiet - spent(True, 0.0)
+        self.assertAlmostEqual(caller.chatter, 1.0)
+        self.assertGreater(fresh_cost, 0)
+        self.assertAlmostEqual(quiet - spent(True, 3.0 / sm.CHATTER_FADE), fresh_cost * (1 + 3 * sm.HOARSE))
+
+
+class InitiativeTest(unittest.TestCase):
+    def test_babbling_fades_with_age_and_answers_are_felt(self):
+        sm = simulation_module
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        young = world._add_agent(encode_dna("grazer"), 10, 10)
+        elder = world._add_agent(encode_dna("grazer"), 11, 10)
+        world._index_cells()
+        young.age, elder.age = 0, sm.BABBLE_AGE
+        self.assertAlmostEqual(sm.babble_urge(young), sm.BABBLE * young.feeling("sociability"))
+        self.assertEqual(sm.babble_urge(elder), 0.0)
+        before = young.reward
+        situation = {"alert_to": None, "answers": [-1, young.identifier]}
+        world._act(elder, "rest", situation)
+        self.assertAlmostEqual(young.reward, before + sm.ANSWERED_JOY * young.feeling("sociability"))
+        self.assertEqual(world.initiative_tally["grazer"]["answered_back"], 1)
+        self.assertEqual(situation["answers"], [-1, -1])

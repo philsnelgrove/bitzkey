@@ -452,7 +452,7 @@ ALARM_REACH = 6        # an alarmed animal knows where the hunter is within this
 # one, and costs its caller this much hunger, as any call does, the alert among them.
 CALL_REACH = 16
 CALL_COST = 0.0  # hunger for each sound of a call: two sounds cost twice as much as one (0.3 until 3.214)
-CALL_EFFORT = 0.2  # each call taught this much less for its effort, felt not paid; as the C++ version's
+CALL_EFFORT = 0.05  # each call taught this much less for its effort, felt not paid; as the C++ version's
 # Learning a word (the user's idea, the action learn): one spoken to alone may say the sounds back to the speaker,
 # pointing at what it guesses they mean, offered with a chance of the higher of its curiosity and intellect. A right
 # guess is worth LEARN_GAIN times what the learner understood of it, at least LEARN_MATCH, to both. As the C++ version's.
@@ -513,7 +513,23 @@ LONGING_UNEASE = 0.1
 LONGING_JOY = 1.0
 MAP_BLIND = 0  # for experiments: 1 withholds the mental map senses and revisit
 NO_LONGING, LONG_COMPANION, LONG_FIRE, LONG_SHELTER, LONG_JOY = range(5)
-CALL_FATIGUE = 5.0  # stamina for each sound of a call, as listed fatigue (an action is ACTION_FATIGUE)
+CALL_FATIGUE = 0.5  # stamina for each sound of a call, as listed fatigue (an action is ACTION_FATIGUE)
+# Chatter (the user's design), as the C++ version's: see HOARSE, TUNE_OUT, ANNOYANCE and HUNTERS_HEAR there.
+CHATTER_FADE = 0.8
+HOARSE = 1.0
+TUNE_OUT = 1.0
+ANNOYANCE = 0.05
+HUNTERS_HEAR = 1
+# Initiative (the user's design), as the C++ version's: see BABBLE, BABBLE_AGE and ANSWERED_JOY there.
+BABBLE = 0.3
+BABBLE_AGE = 24
+ANSWERED_JOY = 0.2
+ANSWERS_A_TURN = 3
+
+
+def attention(chatter: float) -> float:
+    """How far a chatterer is heeded (see TUNE_OUT)."""
+    return 1.0 / (1.0 + TUNE_OUT * chatter)
 TUTOR_COST = 0.3  # hunger a lesson costs its tutor (once as dear as a call)
 CALL_LENGTH = 3  # the most sounds a call may run to, 1 to 3 (Brain.py's MAX_SOUNDS)
 # What a caller feels of what its call did to those of its kind who heard it: whether their next turn went better or
@@ -1360,6 +1376,13 @@ def predator_dna(dna: int) -> int:
     return (dna & ~(0x7 << shift)) | (((trait & 0x4) | 0x3) << shift)
 
 
+def babble_urge(agent: Bitzkey) -> float:
+    """The young and sociable, the more (see BABBLE)."""
+    if BABBLE <= 0 or BABBLE_AGE <= 0:
+        return 0.0
+    return BABBLE * agent.feeling("sociability") * max(0.0, 1.0 - agent.age / BABBLE_AGE)
+
+
 def call_reach(caller: Bitzkey) -> int:
     """How many steps its calls carry (Call reach)."""
     return min(MAX_CALL_REACH, max(1, round(CALL_REACH * (0.5 + caller.physique("size")))))
@@ -1485,6 +1508,14 @@ class Bitzkey:
     call_turn: int = -1  # the turn it called it
     heard_from: int = -1  # the loudest caller of its kind it heard when it last chose, -1 none
     heard_call: int = -1  # and its call
+    chatter: float = 0.0  # its calls of late, each fading by CHATTER_FADE a turn
+    repeat_from: int = -1  # the last call it heard of its kind, and who made it (see ANNOYANCE)
+    repeat_call: int = -1
+    repeat_sounds: list = field(default_factory=lambda: [-1, -1])
+    word_from: int = -1  # who said the word or name it last heard (see ANSWERED_JOY)
+    answered_turn: int = -1  # the turn it was last answered, and by how many then
+    answered_count: int = 0
+    heed_answer: int = -1  # whom it answered this turn by doing as told (transient)
     heard_turn: int = -1  # that turn
     heard_hunger: float = 0.0  # its hunger then
     heard_danger: bool = False  # and whether a hunter was in sight
@@ -2240,6 +2271,7 @@ class Simulation:
         # Since the world began or was loaded: words taken into lexicons, and how (see LEXICON_SIZE).
         self.lexicon_tally = defaultdict(lambda: dict.fromkeys(("agreed", "witnessed", "inherited", "confirmed", "overridden", "refused"), 0))
         self.deed_tally = defaultdict(lambda: dict.fromkeys(("agreed", "witnessed", "inherited", "confirmed", "overridden", "refused"), 0))
+        self.initiative_tally = {}  # see BABBLE and ANSWERED_JOY
         self.name_tally = defaultdict(lambda: dict.fromkeys(("agreed", "witnessed", "inherited", "confirmed", "overridden", "refused", "named_at_birth"), 0))
         self.deaths = 0
         self.death_causes: dict[str, dict[str, int]] = {}  # every death so far, by species and then cause
@@ -2797,11 +2829,15 @@ class Simulation:
             agent.judged_turn = self.turn
             agent.judged_thing, agent.judged_deed = agent.meant_thing, agent.meant_deed
             reward = agent.word_reward
+            if agent.heeded or agent.acted_same:  # it did as told: an answer (see ANSWERED_JOY)
+                agent.heed_answer = agent.word_from
         if last and agent.called_turn == self.turn - 1 and agent.called_one >= 0:  # a name heard last turn: nearer that one?
             agent.name_heeded = self.one_closeness(agent, agent.called_one, self._sight_now(agent)) > agent.called_close
             agent.name_reward = LEXICON_HEED * agent.name_heeded
             agent.name_judged_turn = self.turn
             reward += agent.name_reward
+            if agent.name_heeded:
+                agent.heed_answer = agent.word_from
         agent.was_close, agent.close_turn = close, self.turn
         return reward
 
@@ -3633,7 +3669,7 @@ class Simulation:
             away = abs(other.x - agent.x) + abs(other.y - agent.y)
             if away > reach:
                 continue
-            loudness = 1 - away / (reach + 1)
+            loudness = (1 - away / (reach + 1)) * attention(other.chatter)  # a chatterer, tuned out
             if loudness > loudest_of_all:
                 caller, loudest_of_all = other, loudness
             for call in (other.call, *(FIRST_CALL + sound for sound in other.sounds if sound >= 0)):  # each sound, as if called alone
@@ -3651,7 +3687,7 @@ class Simulation:
             for call in (addressed.call, *(FIRST_CALL + sound for sound in addressed.sounds if sound >= 0)):
                 name = f"heard_call_{call - FIRST_CALL + 1}"
                 east = (addressed.x - agent.x + self.width // 2) % self.width - self.width // 2
-                heard[name] = ADDRESS_LOUDNESS
+                heard[name] = ADDRESS_LOUDNESS * attention(addressed.chatter)
                 heard[f"{name}_east"] = max(-1.0, min(1.0, float(east)))
                 heard[f"{name}_south"] = max(-1.0, min(1.0, float(addressed.y - agent.y)))
                 heard[f"{name}_kin"] = float(addressed.species == agent.species)
@@ -3687,7 +3723,7 @@ class Simulation:
             away = abs(other.x - agent.x) + abs(other.y - agent.y)
             if away > reach:
                 continue
-            loudness = 1 - away / (reach + 1)
+            loudness = (1 - away / (reach + 1)) * attention(other.chatter)
             if loudness > kin_loudest:
                 found, kin_loudest = other, loudness
         if addressed is not None and addressed.species == agent.species:
@@ -4576,6 +4612,11 @@ class Simulation:
                 fresh = 1.0 if self._hungry_meal(agent, choice) else self._novelty(agent, choice)
                 agent.boredom = max(0.0, min(1.0, agent.boredom + BOREDOM_RISE * (1.0 - fresh) - BOREDOM_RELIEF * fresh))
                 agent.last_tried[ACTIONS[choice]] = self.turn + 1
+            # The urge to speak: the young and sociable go up to one they may address, now and then, whatever they chose.
+            if (not peril and not idle[index] and ACTIONS[choice] != "address" and ACTIONS.index("address") in options
+                    and whim(agent.identifier ^ 0x42414241, self.turn) < babble_urge(agent) * agent.feeling("sociability")):
+                choice = ACTIONS.index("address")
+                situation["babble_addressed"] = True
             action = ACTIONS[choice]
             if not situation.get("panic") and not situation.get("frozen"):  # a panicked flight, or freezing, was no choice
                 self.insights.record(agent.species, agent.profile, (ACTIONS[option] for option in options), action)
@@ -4666,6 +4707,16 @@ class Simulation:
                         agent.call = output - len(ACTIONS)
                         if call_roll < 0:
                             break
+                    # Silent by its brain's choice, the young may babble anyway: the call its brain liked best but silence.
+                    if agent.call == SILENT and whim(agent.identifier ^ 0x42414242, self.turn) < babble_urge(agent):
+                        best = None
+                        for call in offered or [SILENT]:
+                            output = call_output(call)
+                            if call != SILENT and (best is None or weighed[output] > weighed[best]):
+                                best = output
+                        if best is not None:
+                            agent.call = best - len(ACTIONS)
+                            situation["babbled"] = True
                 # A sound may run on: at each place after the first, it stops or adds one of the five, by its brain alone.
                 for place in range(1, min(CALL_LENGTH, MAX_SOUNDS)) if forced < 0 and agent.call >= FIRST_CALL else ():
                     roll, picked = whim(agent.identifier * MAX_SOUNDS + place, self.turn), sound_output(place, -1)
@@ -4704,6 +4755,12 @@ class Simulation:
                     agent.call, agent.sounds = situation["learn_word"][0], list(situation["learn_word"][1])  # as it was heard
                     agent.call2, agent.sounds2 = -1, [-1, -1]  # the word alone
                     agent.echo_turn = self.turn
+                # Answering: saying back or guessing the word of one that spoke to it, else calling back to its kind's loudest caller.
+                learn_by = situation.get("learn_by")
+                if (echoed or ACTIONS[choice] == "learn") and learn_by is not None:
+                    situation["answers"][1] = learn_by.identifier
+                elif agent.call >= FIRST_CALL and situation["heard_from"] is not None and situation["heard_from"] is not agent:
+                    situation["answers"][1] = situation["heard_from"].identifier
                 agent.last_call, agent.last_sounds = agent.call, list(agent.sounds)
                 agent.last_call2, agent.last_sounds2 = agent.call2, list(agent.sounds2)
                 agent.call_turn = self.turn
@@ -4886,6 +4943,14 @@ class Simulation:
         kill = self._nearest_kill(agent, sight) if agent.species in ("omnivore", "predator") else None
         prey_sight = sight + (PREDATOR_SIGHT if agent.species == "predator" else 0)
         quarry, hunter, suitor, flora = self._look_around(agent, sight, prey_sight)
+        if HUNTERS_HEAR and quarry is None and agent.species in ("predator", "omnivore"):  # prey it heard call, out of sight
+            nearest = None
+            for other in self._nearby(agent, MAX_CALL_REACH):
+                if other.call < FIRST_CALL or other.call_turn != self.turn - 1 or other.spoke_alone or not other.alive or not self._preys_on(agent, other):
+                    continue
+                away = abs(other.x - agent.x) + abs(other.y - agent.y)
+                if away <= call_reach(other) and (nearest is None or away < nearest or (away == nearest and other.identifier < quarry.identifier)):
+                    nearest, quarry = away, other
         shoot_at = practise_on = None
         if agent.bow_uses > 0:  # what it might shoot at: the prey it would hunt, else the nearest foe; and a plant to practise on
             if quarry is not None and abs(quarry.x - agent.x) + abs(quarry.y - agent.y) <= sight:
@@ -5385,6 +5450,7 @@ class Simulation:
                         if seen != pointed:
                             senses[sense] *= 1 - min(1.0, ATTENTION)
         longing_unease, longing_relief = self._long_for(agent, senses, fire, sight)  # before habit dulls what it sees
+        agent.heed_answer = -1
         word_reward = self._heed_words(agent, senses)  # and what it has learnt of each thing, and of words heard
         # Getting used to things (see HABITUATION). As the C++ version's.
         if HABITUATION > 0:
@@ -5412,6 +5478,7 @@ class Simulation:
                 word[5] += 1
                 agent.meant_turn, agent.meant_thing = self.turn, word[3]  # to be judged next turn (see LEXICON_HEED)
                 agent.meant_close, agent.meant_deed = agent.was_close[word[3]], caller.prior_choice
+                agent.word_from = caller.identifier
                 agent.meant_liked = self._family(agent, caller) or self._regard_for(agent, caller) > 0
                 agent.meant_by_deed = False
                 agent.unknown_turn = -1
@@ -5425,9 +5492,15 @@ class Simulation:
                 if agent.meant_turn != self.turn:  # no word for a thing heard in it
                     agent.meant_thing, agent.meant_close = -1, 0.0
                 agent.meant_turn, agent.meant_deed, agent.meant_by_deed = self.turn, word[3], True
+                agent.word_from = caller.identifier
                 agent.meant_liked = self._family(agent, caller) or self._regard_for(agent, caller) > 0
                 agent.unknown_turn = -1
                 break
+        annoyed_by = -1
+        if ANNOYANCE > 0 and caller is not None and caller.species == agent.species and caller.call >= FIRST_CALL:  # the same again, from the same one
+            if caller.identifier == agent.repeat_from and caller.call == agent.repeat_call and list(caller.sounds) == list(agent.repeat_sounds):
+                annoyed_by = caller.identifier
+            agent.repeat_from, agent.repeat_call, agent.repeat_sounds = caller.identifier, caller.call, list(caller.sounds)
         agent.meant_for_me = agent.meant_for_other = False
         if NAMES_SIZE > 0 and caller is not None and caller.call >= FIRST_CALL:  # a name heard: its own, or of one it knows by it
             if self.says(caller, agent.own_call, agent.own_sounds):
@@ -5447,10 +5520,17 @@ class Simulation:
                     senses[NAMED_SENSE + 1] = near
                     senses[NAMED_SENSE + 2] = max(-1.0, min(1.0, self._regard_for(agent, named)))
                     agent.called_turn, agent.called_one, agent.called_close = self.turn, name[3], near
+                    agent.word_from = caller.identifier
                 break
         if caller is not None:  # a call with its own name is for it; with a name it has for another, for that one
             agent.meant_for_me = senses[NAMED_SENSE + 3] > 0
             agent.meant_for_other = not agent.meant_for_me and agent.called_turn == self.turn
+            heed = attention(caller.chatter)  # a chatterer's words felt the less (see TUNE_OUT)
+            senses[MEANT_SENSE] *= heed
+            for deed in range(len(ACTIONS)):
+                senses[MEANT_DEED_SENSE + deed] *= heed
+            senses[NAMED_SENSE] *= heed
+            senses[NAMED_SENSE + 3] *= heed
         if ARENA_BLIND > 0 and caller is not None and whim(agent.identifier ^ 0x424C4E44, self.turn) < ARENA_BLIND:
             agent.blinded_turn = self.turn
             for sense in OUTSIDE_SENSES:
@@ -5460,7 +5540,7 @@ class Simulation:
             senses[NAMED_SENSE + 1] = 0.0
         situation = {"meant": meant, "pointed": pointed, "pointed_from": pointed_from, "attend_to": attend_to, "attend_known": attend_known, "watched": watched_by,"envy": envied, "claim_from": claim_from, "claim": claim, "gift_to": gift_to, "gift": gift, "trade_with": trade_with, "wanted": wanted_good, "offered": offered_good, "teacher_steps": -1 if teacher is None else abs(teacher.x - agent.x) + abs(teacher.y - agent.y),
                      "mate": mate, "nurseries": nurseries, "young_near": young, "young": own_young, "prey": target, "threat": threat,
-                     "threats": len(threats), "heard_from": heard_from, "loudest_from": caller, "loudest_sounds": ([caller.call - FIRST_CALL, *caller.sounds] if caller is not None and caller.call >= FIRST_CALL else None), "quarry": quarry, "shoot_at": shoot_at, "practise_on": practise_on, "hunter": hunter, "suitor": suitor, "suitor_at": suitor and (suitor.x, suitor.y),
+                     "threats": len(threats), "annoyed_by": annoyed_by, "answers": [agent.heed_answer, -1], "babbled": False, "babble_addressed": False, "heard_from": heard_from, "loudest_from": caller, "loudest_sounds": ([caller.call - FIRST_CALL, *caller.sounds] if caller is not None and caller.call >= FIRST_CALL else None), "quarry": quarry, "shoot_at": shoot_at, "practise_on": practise_on, "hunter": hunter, "suitor": suitor, "suitor_at": suitor and (suitor.x, suitor.y),
                      "grass": grass, "grass_here": grass_here, "carrion": carrion, "kill": kill, "flora": flora, "assailant": assailant, "rivalry": agent.rivalry, "kin": kin,
                      "others": others, "defend_target": defend_target, "for_herd": assailant is None,
                      "herd": herd, "herd_near": herd_near, "herd_middle": herd_middle, "store": store, "fletch_for": fletch_for,
@@ -6404,10 +6484,37 @@ class Simulation:
 
     def _act(self, agent: Bitzkey, action: str, situation: dict) -> None:
         """Call, act, remember where it fed, and tire (see ACTIVE_SHARE)."""
+        agent.chatter *= CHATTER_FADE
+        if situation.get("annoyed_by", -1) >= 0:  # said again what it said before: held the less well (see ANNOYANCE)
+            chatterer = self.find_agent(situation["annoyed_by"])
+            if chatterer is not None:
+                self._note_deed(agent, chatterer, -1.0, ANNOYANCE, "plain", True)
+            situation["annoyed_by"] = -1
+        tally = self.initiative_tally.setdefault(agent.species, {"calls": 0, "babbled": 0, "babble_addressed": 0, "answered_back": 0, "answered_heeded": 0})
+        tally["calls"] += agent.call >= FIRST_CALL and agent.call_turn == self.turn
+        tally["babbled"] += bool(situation.get("babbled"))
+        tally["babble_addressed"] += bool(situation.get("babble_addressed"))
+        situation["babbled"] = situation["babble_addressed"] = False
+        answers = situation.get("answers", [-1, -1])
+        for kind, answered_from in enumerate(answers):  # those it answered feel it (see ANSWERED_JOY)
+            answers[kind] = -1
+            caller = self.find_agent(answered_from) if answered_from >= 0 and ANSWERED_JOY > 0 else None
+            if caller is None or caller is agent or not caller.alive:
+                continue
+            if caller.answered_turn != self.turn:
+                caller.answered_turn, caller.answered_count = self.turn, 0
+            if caller.answered_count >= ANSWERS_A_TURN:
+                continue
+            caller.answered_count += 1
+            caller.reward += ANSWERED_JOY * caller.feeling("sociability")
+            caller_tally = self.initiative_tally.setdefault(caller.species, {"calls": 0, "babbled": 0, "babble_addressed": 0, "answered_back": 0, "answered_heeded": 0})
+            caller_tally["answered_heeded" if kind == 0 else "answered_back"] += 1
         if agent.call != SILENT and agent.call_turn == self.turn:  # its call, as it sets about its action
-            sounds = max(1, self._sounds_made(agent))  # each sound costs, in hunger and in stamina
+            # each sound costs, in hunger and in stamina, the dearer the more it has called of late (see HOARSE)
+            sounds = max(1, self._sounds_made(agent)) * (1.0 + HOARSE * agent.chatter)
             agent.hunger = min(100.0, agent.hunger + CALL_COST * sounds)
             agent.stamina = max(0.0, agent.stamina - agent.fatigue(CALL_FATIGUE * sounds))
+            agent.chatter += 1.0
             if agent.call == ALERT_CALL and situation["alert_to"] is not None:
                 self._alert(agent, situation["alert_to"])
         passed = len(agent.trail)
