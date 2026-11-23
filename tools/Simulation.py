@@ -1514,6 +1514,12 @@ class Bitzkey:
     acted_good: bool = False
     acted_same: bool = False
     word_reward: float = 0.0
+    judged_thing: int = -1  # the thing and the speaker's deed it was judged on
+    judged_deed: int = -1
+    unknown_turn: int = -1  # for the probe's chance near a speaker: a call heard that was no word it holds, the
+    unknown_deed: int = -1  # caller's deed then, and whether it did the same next turn. As the C++ version's.
+    unknown_judged_turn: int = -1
+    unknown_same: bool = False
     longing_kind: int = 0  # what kind of thing it longs for (see LONGING): 0 none
     longing: float = 0.0  # how strongly, fading
     longing_for: int = -1  # the companion longed for, or the outside thing
@@ -2715,6 +2721,9 @@ class Simulation:
         agent.moved = [0 if not last else 1 if close[seen] > agent.was_close[seen] else -1 if close[seen] < agent.was_close[seen] else 0
                        for seen in range(len(close))]
         reward = 0.0
+        if last and agent.unknown_turn == self.turn - 1:  # a call that was no word it knew: for the probe's chance alone
+            agent.unknown_same = agent.unknown_deed >= 0 and agent.last_choice == agent.unknown_deed
+            agent.unknown_judged_turn = self.turn
         if last and agent.meant_turn == self.turn - 1 and agent.meant_thing >= 0:
             thing = agent.meant_thing
             now, then = close[thing], agent.meant_close
@@ -2724,6 +2733,7 @@ class Simulation:
             agent.acted_same = agent.meant_deed >= 0 and agent.last_choice == agent.meant_deed
             agent.word_reward = LEXICON_HEED * agent.heeded + LEXICON_ACT * (agent.acted_good + agent.acted_same)
             agent.judged_turn = self.turn
+            agent.judged_thing, agent.judged_deed = agent.meant_thing, agent.meant_deed
             reward = agent.word_reward
         agent.was_close, agent.close_turn = close, self.turn
         return reward
@@ -5138,6 +5148,7 @@ class Simulation:
                 senses[OUTSIDE_SENSES[kept]] = 0.0
         meant = -1
         if LEXICON_SIZE > 0 and caller is not None and caller.call >= FIRST_CALL:  # a word it holds, heard: it knows what is meant
+            agent.unknown_turn, agent.unknown_deed = self.turn, caller.last_choice  # till found among its words (for the probe)
             for word in agent.lexicon:
                 if word[0] != caller.call or [word[1], word[2]] != list(caller.sounds):
                     continue
@@ -5147,6 +5158,7 @@ class Simulation:
                 word[5] += 1
                 agent.meant_turn, agent.meant_thing = self.turn, word[3]  # to be judged next turn (see LEXICON_HEED)
                 agent.meant_close, agent.meant_deed = agent.was_close[word[3]], caller.last_choice
+                agent.unknown_turn = -1
                 break
         if ARENA_BLIND > 0 and caller is not None and whim(agent.identifier ^ 0x424C4E44, self.turn) < ARENA_BLIND:
             agent.blinded_turn = self.turn
