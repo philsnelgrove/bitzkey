@@ -4030,7 +4030,7 @@ class CallTests(unittest.TestCase):
         world._index_cells()
         hearer.lexicon.append([FIRST_CALL + 2, 0, -1, 7, 0.5, 0])  # its word for the herd
         rest, flee = ACTIONS.index("rest"), ACTIONS.index("flee")
-        caller.call, caller.sounds, caller.call_turn, caller.last_choice = FIRST_CALL + 2, [0, -1], world.turn - 1, rest
+        caller.call, caller.sounds, caller.call_turn, caller.prior_choice = FIRST_CALL + 2, [0, -1], world.turn - 1, rest
         _, _, situation = world._sense(hearer)
         self.assertEqual(situation["meant"], 7)
         self.assertEqual((hearer.meant_turn, hearer.meant_deed), (world.turn, rest))

@@ -1690,6 +1690,7 @@ class Bitzkey:
     # The last decision, kept until the next one so the brain can learn from how it turned out.
     last_senses: list[float] | None = None
     last_choice: int = 0
+    prior_choice: int = 0  # the decision before last_choice
     last_forced: bool = False  # whether it had no choice but last_choice
     last_panicked: bool = False  # whether that was a panicked flight, which teaches though it was no choice
     last_wellbeing: float = 0.0
@@ -4819,6 +4820,7 @@ class Simulation:
                 agent.held = memory_after(calls_valued, agent.held)
             agent.expected = sights.get(choice)
             agent.last_senses = senses
+            agent.prior_choice = agent.last_choice
             agent.last_choice = choice
             agent.last_forced = len(options) == 1
             agent.last_panicked = bool(situation.get("panic"))
@@ -5400,7 +5402,7 @@ class Simulation:
                 senses[OUTSIDE_SENSES[kept]] = 0.0
         meant = -1
         if LEXICON_SIZE > 0 and caller is not None and caller.call >= FIRST_CALL:  # a word it holds, heard: it knows what is meant
-            agent.unknown_turn, agent.unknown_deed = self.turn, caller.last_choice  # till found among its words (for the probe)
+            agent.unknown_turn, agent.unknown_deed = self.turn, caller.prior_choice  # till found among its words (for the probe)
             for word in agent.lexicon:
                 if not self.says(caller, word[0], word[1:3]):
                     continue
@@ -5409,7 +5411,7 @@ class Simulation:
                 meant = word[3]
                 word[5] += 1
                 agent.meant_turn, agent.meant_thing = self.turn, word[3]  # to be judged next turn (see LEXICON_HEED)
-                agent.meant_close, agent.meant_deed = agent.was_close[word[3]], caller.last_choice
+                agent.meant_close, agent.meant_deed = agent.was_close[word[3]], caller.prior_choice
                 agent.meant_liked = self._family(agent, caller) or self._regard_for(agent, caller) > 0
                 agent.meant_by_deed = False
                 agent.unknown_turn = -1
