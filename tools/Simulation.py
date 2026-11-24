@@ -504,6 +504,12 @@ DESIRE_LINGER = 0.7
 DESIRE_MIN = 0.01
 PLEASURE_FADE = 0.3
 PLEASURE_RETURN = 0.02
+# Remembered places (desire's option A): where it stood when a thing was close (CLOSE_SEEN), where it last saw each
+# companion; out of sight, a remembered place wakes desire REMEMBERED_CUE as strongly as sight, fading over PLACE_MEMORY
+# turns, forgotten when found empty; a goal's way is sensed toward it. As the C++ version's.
+REMEMBERED_CUE = 0.3
+PLACE_MEMORY = 500
+CLOSE_SEEN = 0.75
 # The lexicon (the user's design): words settled by accord, a right guess or a corrected one, each with the thing it
 # means and the regard for the one it was settled with; LEXICON_SIZE for each point of intellect and one more, the
 # least used forgotten when full; changed only by a friend or family member regarded more (family at least
@@ -1647,6 +1653,10 @@ class Bitzkey:
     good_drift: float = 0.0
     joy_mark: float = 0.0
     goal_desire: bool = False
+    goal_remembered: bool = False  # its goal out of sight, sought at a remembered place (PLACE_MEMORY)
+    place_x: list = field(default_factory=lambda: [-1] * 21)  # where each thing was last close, and when
+    place_y: list = field(default_factory=lambda: [-1] * 21)
+    place_turn: list = field(default_factory=lambda: [-1] * 21)
     desires_formed: int = 0
     desires_reached: int = 0
     desire_reach_turns: int = 0
@@ -5611,7 +5621,7 @@ class Simulation:
                senses[index("climate_discomfort")]]
         now = [min(1.0, max(0.0, float(need))) for need in now]
         # The companions it cares for in sight, kept among the few it learns of ([id, closeness last turn, relief for each
-        # need, liked, spark, faded]); and the deeds it sees done, each as close as the nearest doing it (see DESIRE).
+        # need, liked, spark, faded, last seen x, y, turn]); and the deeds it sees done, each as close as the nearest doing it (see DESIRE).
         seen_deeds = [0.0] * len(ACTIONS)
         for other in self._nearby(agent, sight):
             if (other is agent or not other.alive or other.brain is None
@@ -5624,7 +5634,7 @@ class Simulation:
             if any(one[0] == other.identifier for one in agent.relief_ones):
                 continue
             if len(agent.relief_ones) < RELIEF_ONES:
-                agent.relief_ones.append([other.identifier, -1.0, [0.0] * NEEDS, 0.0, 0.0, 0.0])
+                agent.relief_ones.append([other.identifier, -1.0, [0.0] * NEEDS, 0.0, 0.0, 0.0, -1, -1, -1])
                 continue
             least = None
             for at, one in enumerate(agent.relief_ones):
@@ -5633,7 +5643,7 @@ class Simulation:
                 if least is None or sum(abs(r) for r in one[2]) < sum(abs(r) for r in agent.relief_ones[least][2]):
                     least = at
             if least is not None:
-                agent.relief_ones[least] = [other.identifier, -1.0, [0.0] * NEEDS, 0.0, 0.0, 0.0]
+                agent.relief_ones[least] = [other.identifier, -1.0, [0.0] * NEEDS, 0.0, 0.0, 0.0, -1, -1, -1]
         agent.relief_ones = [one for one in agent.relief_ones if (found := self.find_agent(one[0])) is not None and found.alive]
         # What eased each need since last turn, beyond its usual drift, after what it came nearer and what it did.
         ones_close = [self.one_closeness(agent, one[0], sight) for one in agent.relief_ones]
@@ -5668,6 +5678,44 @@ class Simulation:
                 return agent.spark_deeds[target]
             return next((one[4] for one in agent.relief_ones if one[0] == target), 0.0)
 
+        # Places (see PLACE_MEMORY): where it stood when each thing was close, where each companion it saw stood; come back
+        # to a place and find nothing there, forgotten.
+        for thing in range(len(OUTSIDE_SENSES)):
+            sensed = senses[OUTSIDE_SENSES[thing]]
+            if sensed >= CLOSE_SEEN:
+                agent.place_x[thing], agent.place_y[thing], agent.place_turn[thing] = agent.x, agent.y, self.turn
+            elif sensed <= 0 and agent.place_turn[thing] >= 0 and abs(agent.place_x[thing] - agent.x) + abs(agent.place_y[thing] - agent.y) <= 1:
+                agent.place_turn[thing] = -1
+        for one, close in zip(agent.relief_ones, ones_close):
+            if close > 0 and (other := self.find_agent(one[0])) is not None:
+                one[6], one[7], one[8] = other.x, other.y, self.turn
+
+        def remembered(seen_turn: int) -> float:
+            if seen_turn < 0 or REMEMBERED_CUE <= 0 or PLACE_MEMORY <= 0:
+                return 0.0
+            return min(1.0, max(0.0, REMEMBERED_CUE)) * max(0.0, 1.0 - (self.turn - seen_turn) / PLACE_MEMORY)
+
+        def place_of(kind: int, target: int):
+            if kind == GOAL_FOR_THING:
+                if agent.place_turn[target] >= 0 and self.turn - agent.place_turn[target] <= PLACE_MEMORY:
+                    return agent.place_x[target], agent.place_y[target]
+            elif kind == GOAL_FOR_ONE:
+                for one in agent.relief_ones:
+                    if one[0] == target and one[8] >= 0:
+                        return one[6], one[7]
+            return None
+
+        def goal_closeness(kind: int, target: int) -> float:
+            agent.goal_remembered = False
+            close = (senses[OUTSIDE_SENSES[target]] if kind == GOAL_FOR_THING
+                     else self.one_closeness(agent, target, sight) if kind == GOAL_FOR_ONE else -1.0)
+            if close == 0.0:
+                place = place_of(kind, target)
+                if place is not None:
+                    close = 0.5 / (1.0 + abs(place[0] - agent.x) + abs(place[1] - agent.y))
+                    agent.goal_remembered = True
+            return close
+
         # Desire (see DESIRE): each want's spark, lingering, and woken by a cue; and pleasure faded, returning.
         linger, recover = min(1.0, max(0.0, DESIRE_LINGER)), min(1.0, max(0.0, PLEASURE_RETURN))
         heard = min(1.0, max(0.0, HEARD_CUE))
@@ -5685,6 +5733,8 @@ class Simulation:
 
         for thing in range(len(OUTSIDE_SENSES)):
             cue = max(0.0, float(senses[OUTSIDE_SENSES[thing]]))
+            if cue <= 0:
+                cue = remembered(agent.place_turn[thing])
             if thing == heard_thing:
                 cue = max(cue, heard)
             agent.spark_things[thing], agent.fade_things[thing] = wake(agent.spark_things[thing], agent.fade_things[thing],
@@ -5696,19 +5746,21 @@ class Simulation:
             agent.spark_deeds[deed], agent.fade_deeds[deed] = wake(agent.spark_deeds[deed], agent.fade_deeds[deed],
                                                                    agent.want_deeds[deed], cue, curious)
         for one, close in zip(agent.relief_ones, ones_close):
-            cue = max(close, heard) if one[0] == heard_one else close
+            cue = close if close > 0 else remembered(one[8])
+            if one[0] == heard_one:
+                cue = max(cue, heard)
             one[4], one[5] = wake(one[4], one[5], one[3], cue, social)
 
         if agent.goal_kind != NO_GOAL:
             met = gone = False
             close = -1.0
             if agent.goal_kind == GOAL_FOR_THING:
-                close = senses[OUTSIDE_SENSES[agent.goal_target]]
+                close = goal_closeness(agent.goal_kind, agent.goal_target)
                 met = close >= 0.99
             elif agent.goal_kind == GOAL_FOR_ONE:
                 other = self.find_agent(agent.goal_target)
                 gone = other is None or not other.alive
-                close = 0.0 if gone else self.one_closeness(agent, agent.goal_target, sight)
+                close = 0.0 if gone else goal_closeness(agent.goal_kind, agent.goal_target)
                 met = not gone and close >= 0.99
             else:
                 met = agent.goal_turn < self.turn and agent.last_choice == agent.goal_target
@@ -5754,10 +5806,11 @@ class Simulation:
                 agent.goal_target = agent.goal_need = -1
                 agent.goal_urgency, agent.goal_close = 0.0, -1.0
                 agent.goal_desire = False
+                agent.goal_remembered = False
         # What it liked (see DESIRE): the good it felt since last turn, beyond its usual, after what it came nearer and did.
         if lived and WANTING_RATE > 0:
             rate = min(1.0, WANTING_RATE)
-            good = max(0.0, agent.reward - agent.joy_mark) + max(0.0, relief)
+            good = max(0.0, agent.reward - agent.joy_mark)  # its own joys only, not a goal's, lest the sought be liked for being sought
             gain = good - agent.good_drift
             agent.good_drift += rate * (good - agent.good_drift)
             for thing in range(len(OUTSIDE_SENSES)):
@@ -5817,8 +5870,7 @@ class Simulation:
                 agent.goal_kind, agent.goal_target, agent.goal_turn = kind, target, self.turn
                 agent.goal_need, agent.goal_desire = (-1 if desired else worst), desired
                 agent.goal_urgency = min(GOAL_URGENCY_MAX, wish if desired else need_pull)
-                agent.goal_close = (senses[OUTSIDE_SENSES[target]] if kind == GOAL_FOR_THING
-                                    else self.one_closeness(agent, target, sight) if kind == GOAL_FOR_ONE else -1.0)
+                agent.goal_close = goal_closeness(kind, target)
                 agent.goals_formed += 1
                 if desired:
                     agent.desires_formed += 1
@@ -5827,6 +5879,11 @@ class Simulation:
             senses[GOAL_SENSE] = 1.0
             senses[GOAL_SENSE + 1] = agent.goal_urgency / GOAL_URGENCY_MAX
             senses[GOAL_SENSE + 2] = max(0.0, agent.goal_close)
+            place = place_of(agent.goal_kind, agent.goal_target)
+            if place is not None:  # its way there
+                steps = max(1, abs(place[0] - agent.x) + abs(place[1] - agent.y))
+                senses[GOAL_DESIRE_SENSE + 1] = (place[0] - agent.x) / steps
+                senses[GOAL_DESIRE_SENSE + 2] = (place[1] - agent.y) / steps
             if agent.goal_desire:
                 senses[GOAL_DESIRE_SENSE] = 1.0
             else:

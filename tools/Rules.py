@@ -385,6 +385,8 @@ _TABLE: dict[str, list[tuple]] = {
         ("DESIRE_LINGER", "Desire lingering", "share of a desire's spark kept each turn after its cue has gone", 0.0, 1.0, 0.05),
         ("DESIRE_MIN", "Desire threshold", "the least spark of desire that can make a goal", 0.0, 1.0, 0.005),
         ("PLEASURE_FADE", "Pleasure fading", "share of what is left of its pleasure in a thing, companion or deed that fades each time it reaches it as a desire", 0.0, 1.0, 0.05),
+        ("REMEMBERED_CUE", "Remembered cue", "how strongly a remembered place, out of sight, wakes desire for what was there, against seeing it close by; fading to nothing over the place memory", 0.0, 1.0, 0.05),
+        ("PLACE_MEMORY", "Place memory", "turns an animal remembers where it last found a thing close by, or last saw a companion", 1, 5000, 10),
         ("PLEASURE_RETURN", "Pleasure returning", "share of faded pleasure that returns each turn", 0.0, 1.0, 0.005),
         ("CALL_WORDS", "Call words", "the most words a call may hold: 2 lets a call go on to a second word after its first, chosen sound by sound; a call holding a name is for the one so named; 1 a single word", 1, 2, 1),
         ("MAP_BLIND", "Map blind", "for experiments: 1 withholds the mental map senses and the way back to the last meal, so only its own memory can hold where things are", 0, 1, 1),

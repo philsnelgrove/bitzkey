@@ -214,8 +214,8 @@ SENSES = (
     # from beside it (see the action address), 1 or 0.
     "attending", "sees_pointing", "watched", "addressed",
     # Its goal (see GOAL_JOY): 1 while it holds one; its urgency; how close what it seeks is; for an animal, its regard
-    # and 1 for family; 1 for a desire; the need it serves; then what it seeks: an outside thing, an animal, or a deed. As the C++ version's.
-    "goal", "goal_urgency", "goal_closeness", "goal_one_regard", "goal_one_family", "goal_desire",
+    # and 1 for family; 1 for a desire; its way, east and south, to a remembered place; the need it serves; then what it seeks: an outside thing, an animal, or a deed. As the C++ version's.
+    "goal", "goal_urgency", "goal_closeness", "goal_one_regard", "goal_one_family", "goal_desire", "goal_east", "goal_south",
     *(f"goal_need_{need}" for need in NEED_NAMES), *(f"goal_{thing}" for thing in OUTSIDE_THINGS), "goal_one",
     *(f"goal_deed_{action}" for action in ACTIONS),
     # A word it holds in its lexicon, heard (see LEXICON_SIZE): 1 when the loudest call it heard is one, and its own
@@ -265,7 +265,7 @@ IMAGINED_BITS = 7  # enough to number every action (65 since archery)
 # both ways (senses never below 0 push all its weights the same way, lesson after lesson, until the neuron jams at its
 # limit, the same whatever it senses, and learns no more); those already running -1..1 read as they are. As the C++
 # version's read_sense.
-SIGNED_SENSES = frozenset(("latitude", "warmth", "warmth_north", "warmth_south", "home_direction", "parent_east", "parent_south",
+SIGNED_SENSES = frozenset(("goal_east", "goal_south", "latitude", "warmth", "warmth_north", "warmth_south", "home_direction", "parent_east", "parent_south",
                            *(f"heard_call_{call}_{way}" for call in range(1, 6) for way in ("east", "south")),
                            *(f"memory_{neuron}" for neuron in range(1, MEMORY_NEURONS + 1)),
                            *(f"map_{kind}_{way}" for kind in ("food", "danger", "comfort") for way in ("east", "south")),

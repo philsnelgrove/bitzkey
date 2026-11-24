@@ -1723,7 +1723,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(OUTPUTS[-22:-18], ("attend", "ignore", "point_one", "point_self"))  # and pointing at one animal, or itself
         self.assertEqual(OUTPUTS[-1], "sixth_call_5")  # then a second word's sounds
         self.assertEqual(len(OUTPUTS), POINT + len(OUTSIDE_SENSES) + 4 + 18)
-        self.assertEqual(SENSES[-214:-208], ("pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed"))
+        self.assertEqual(SENSES[-216:-210], ("pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed"))
         dull = self.simulation._add_agent(encode_dna("grazer", sociability=1, intellect=1), 1, 1)
         keen = self.simulation._add_agent(encode_dna("grazer", sociability=7, intellect=7), 8, 8)
         self.assertGreater(Simulation.willing_to_learn(keen), Simulation.willing_to_learn(dull))
@@ -4184,6 +4184,39 @@ class CallTests(unittest.TestCase):
         mother.want_things[4], father.want_things[4] = 0.4, 0.2
         world.inherit_relief(child, mother, father)
         self.assertAlmostEqual(child.want_things[4], sm.WANTING_INHERIT * 0.3)
+
+    def test_remembered_places_wake_desire_out_of_sight_and_give_the_goal_a_way(self):
+        sm = simulation_module
+        from tools.Brain import OUTSIDE_SENSES
+        world = Simulation(width=80, height=80, population=0, seed=3)
+        animal = world._add_agent(encode_dna("grazer", sight=7), 30, 30)
+        other = world._add_agent(encode_dna("grazer", sight=7), 31, 30)
+        world._index_cells()
+        herd = 7
+        senses, _, _ = world._sense(animal)
+        self.assertGreaterEqual(senses[OUTSIDE_SENSES[herd]], sm.CLOSE_SEEN)
+        self.assertEqual((animal.place_x[herd], animal.place_y[herd], animal.place_turn[herd]), (30, 30, world.turn))
+        animal.x = 60
+        world._index_cells()
+        animal.goal_kind, animal.goal_desire = sm.NO_GOAL, False
+        animal.relief_deeds = [[0.0] * len(ACTIONS) for _ in range(6)]
+        animal.relief_things = [[0.0] * 21 for _ in range(6)]
+        animal.relief_ones = []
+        animal.want_things = [0.0] * 21
+        animal.want_things[herd] = 0.5
+        animal.spark_things, animal.fade_things = [0.0] * 21, [0.0] * 21
+        animal.meant_turn = animal.called_turn = -10
+        senses, _, _ = world._sense(animal)
+        self.assertEqual(senses[OUTSIDE_SENSES[herd]], 0.0)
+        self.assertAlmostEqual(animal.spark_things[herd], sm.DESIRE * 0.5 * sm.REMEMBERED_CUE * (0.5 + animal.feeling("curiosity")))
+        self.assertEqual((animal.goal_kind, animal.goal_target, animal.goal_desire, animal.goal_remembered), (sm.GOAL_FOR_THING, herd, True, True))
+        self.assertAlmostEqual(senses[SENSES.index("goal_east")], -1.0)
+        self.assertEqual(senses[SENSES.index("goal_south")], 0.0)
+        other.x = other.y = 75
+        animal.x = 30
+        world._index_cells()
+        world._sense(animal)
+        self.assertEqual(animal.place_turn[herd], -1)
 
     def test_learning_a_word_a_wrong_guess_corrected_by_the_speaker_is_worth_a_share_taught_as_the_right_pairing(self):
         sm = simulation_module
