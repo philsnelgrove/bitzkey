@@ -1723,7 +1723,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(OUTPUTS[-22:-18], ("attend", "ignore", "point_one", "point_self"))  # and pointing at one animal, or itself
         self.assertEqual(OUTPUTS[-1], "sixth_call_5")  # then a second word's sounds
         self.assertEqual(len(OUTPUTS), POINT + len(OUTSIDE_SENSES) + 4 + 18)
-        self.assertEqual(SENSES[-213:-207], ("pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed"))
+        self.assertEqual(SENSES[-214:-208], ("pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed"))
         dull = self.simulation._add_agent(encode_dna("grazer", sociability=1, intellect=1), 1, 1)
         keen = self.simulation._add_agent(encode_dna("grazer", sociability=7, intellect=7), 8, 8)
         self.assertGreater(Simulation.willing_to_learn(keen), Simulation.willing_to_learn(dull))
@@ -4141,6 +4141,49 @@ class CallTests(unittest.TestCase):
         mother.relief_things[sm.NEED_HUNGER][4], father.relief_things[sm.NEED_HUNGER][4] = 0.4, 0.2
         world.inherit_relief(child, mother, father)
         self.assertAlmostEqual(child.relief_things[sm.NEED_HUNGER][4], sm.RELIEF_INHERIT * 0.3)
+
+    def test_desire_what_felt_good_is_liked_a_cue_sparks_it_lingering_the_stronger_pull_is_the_goal_pleasure_fades(self):
+        sm = simulation_module
+        world = Simulation(width=60, height=60, population=0, seed=3)
+        animal = world._add_agent(encode_dna("grazer"), 10, 10)
+        world._index_cells()
+        browse, rest, flee = ACTIONS.index("browse"), ACTIONS.index("rest"), ACTIONS.index("flee")
+        animal.has_needs, animal.last_choice, animal.joy_mark, animal.reward = True, browse, 0.0, 0.5
+        world._sense(animal)
+        self.assertAlmostEqual(animal.want_deeds[browse], sm.WANTING_RATE * 0.5)
+        self.assertEqual(animal.want_deeds[rest], 0.0)
+        animal.goal_kind, animal.goal_desire = sm.NO_GOAL, False
+        animal.relief_deeds = [[0.0] * len(ACTIONS) for _ in range(6)]
+        animal.relief_things = [[0.0] * 21 for _ in range(6)]
+        animal.want_deeds = [0.0] * len(ACTIONS)
+        animal.want_deeds[browse] = 0.5
+        animal.spark_deeds = [0.0] * len(ACTIONS)
+        animal.reward = animal.joy_mark = 0.0
+        animal.last_choice = flee
+        animal.meant_turn, animal.meant_by_deed, animal.meant_deed = world.turn - 1, True, browse
+        senses, _, _ = world._sense(animal)
+        spark = sm.DESIRE * 0.5 * sm.HEARD_CUE * (0.5 + animal.feeling("curiosity"))
+        self.assertAlmostEqual(animal.spark_deeds[browse], spark)
+        self.assertEqual((animal.goal_kind, animal.goal_target, animal.goal_need, animal.goal_desire), (sm.GOAL_FOR_DEED, browse, -1, True))
+        self.assertEqual(animal.desires_formed, 1)
+        self.assertAlmostEqual(animal.goal_urgency, spark)
+        self.assertEqual(senses[SENSES.index("goal_desire")], 1.0)
+        self.assertEqual(sum(senses[SENSES.index(f"goal_need_{need}")] for need in ("hunger", "fatigue", "pain", "fear", "loneliness", "discomfort")), 0.0)
+        animal.meant_turn = -10
+        world._sense(animal)
+        self.assertAlmostEqual(animal.spark_deeds[browse], spark * sm.DESIRE_LINGER)
+        held = animal.goal_urgency
+        animal.goal_turn, animal.last_choice = world.turn - 1, browse
+        _, _, situation = world._sense(animal)
+        self.assertEqual(animal.desires_reached, 1)
+        self.assertAlmostEqual(situation["goal_relief"], sm.GOAL_JOY * held)
+        self.assertAlmostEqual(animal.fade_deeds[browse], sm.PLEASURE_FADE)
+        mother = world._add_agent(encode_dna("grazer"), 20, 20)
+        father = world._add_agent(encode_dna("grazer"), 21, 20)
+        child = world._add_agent(encode_dna("grazer"), 22, 20)
+        mother.want_things[4], father.want_things[4] = 0.4, 0.2
+        world.inherit_relief(child, mother, father)
+        self.assertAlmostEqual(child.want_things[4], sm.WANTING_INHERIT * 0.3)
 
     def test_learning_a_word_a_wrong_guess_corrected_by_the_speaker_is_worth_a_share_taught_as_the_right_pairing(self):
         sm = simulation_module

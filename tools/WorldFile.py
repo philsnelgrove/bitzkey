@@ -209,16 +209,26 @@ def _mind_from(values) -> dict[str, float]:
     return {trait: float(value) for trait, value in zip(TEMPERAMENT, values)}
 
 
+def desire_record(agent) -> dict:
+    """What it likes, its sparks and faded pleasures (see DESIRE): only what is not 0. As the C++ version's."""
+    things = [[thing, float(agent.want_things[thing]), float(agent.spark_things[thing]), float(agent.fade_things[thing])]
+              for thing in range(21) if agent.want_things[thing] or agent.spark_things[thing] or agent.fade_things[thing]]
+    deeds = [[deed, float(agent.want_deeds[deed]), float(agent.spark_deeds[deed]), float(agent.fade_deeds[deed])]
+             for deed in range(len(agent.want_deeds)) if agent.want_deeds[deed] or agent.spark_deeds[deed] or agent.fade_deeds[deed]]
+    return {"head": [float(agent.good_drift), float(agent.joy_mark), int(agent.goal_desire), agent.desires_formed,
+                     agent.desires_reached, agent.desire_reach_turns], "things": things, "deeds": deeds}
+
+
 def goal_record(agent) -> dict:
     """Its needs, what eases them and its goal (see GOAL_JOY): only reliefs learnt. As the C++ version's."""
     needs = [float(v) for pair in zip(agent.needs, agent.need_drift) for v in pair]
     things = [[n, thing, float(v)] for n in range(6) for thing, v in enumerate(agent.relief_things[n]) if v != 0.0]
     deeds = [[n, deed, float(v)] for n in range(6) for deed, v in enumerate(agent.relief_deeds[n]) if v != 0.0]
-    ones = [[one[0], float(one[1]), *(float(v) for v in one[2])] for one in agent.relief_ones]
+    ones = [[one[0], float(one[1]), *(float(v) for v in one[2]), float(one[3]), float(one[4]), float(one[5])] for one in agent.relief_ones]
     return {"head": [agent.goal_kind, agent.goal_target, agent.goal_need, agent.goal_turn, float(agent.goal_urgency), float(agent.goal_close),
                      agent.goals_formed, agent.goals_reached, agent.goals_abandoned, agent.goals_switched, agent.goals_dropped,
                      agent.goal_reach_turns, int(agent.has_needs)],
-            "needs": needs, "things": things, "deeds": deeds, "ones": ones}
+            "needs": needs, "things": things, "deeds": deeds, "ones": ones, "desire": desire_record(agent)}
 
 
 def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
@@ -453,8 +463,23 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
                 agent.goal_kind = 0
         if agent.goal_kind == 1 and not 0 <= agent.goal_target < 21:
             agent.goal_kind = 0
+        if "desire" in g:  # see DESIRE
+            d = g["desire"]
+            top = d["head"]
+            agent.good_drift, agent.joy_mark, agent.goal_desire = float(top[0]), float(top[1]), bool(top[2])
+            agent.desires_formed, agent.desires_reached, agent.desire_reach_turns = int(top[3]), int(top[4]), int(top[5])
+            for thing, want, spark, fade in d["things"]:
+                if 0 <= int(thing) < 21:
+                    agent.want_things[int(thing)], agent.spark_things[int(thing)], agent.fade_things[int(thing)] = float(want), float(spark), float(fade)
+            for deed, want, spark, fade in d["deeds"]:
+                deed = numbers.action(int(deed))
+                if deed >= 0:
+                    agent.want_deeds[deed], agent.spark_deeds[deed], agent.fade_deeds[deed] = float(want), float(spark), float(fade)
+        if not agent.goal_desire and agent.goal_kind != 0 and not 0 <= agent.goal_need < 6:
+            agent.goal_kind = 0
         if agent.goal_kind == 0:
             agent.goal_target = agent.goal_need = -1
+            agent.goal_desire = False
         needs = g["needs"]
         agent.needs = [float(needs[2 * n]) for n in range(6)]
         agent.need_drift = [float(needs[2 * n + 1]) for n in range(6)]
@@ -465,7 +490,8 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
             deed = numbers.action(int(deed))
             if 0 <= int(n) < 6 and deed >= 0:
                 agent.relief_deeds[int(n)][deed] = float(value)
-        agent.relief_ones = [[int(row[0]), float(row[1]), [float(v) for v in row[2:8]]] for row in g["ones"]]
+        agent.relief_ones = [[int(row[0]), float(row[1]), [float(v) for v in row[2:8]],
+                              *((float(row[8]), float(row[9]), float(row[10])) if len(row) >= 11 else (0.0, 0.0, 0.0))] for row in g["ones"]]
     agent.harm_taught_turn = int(record.get("harm_taught_turn", -1))
     agent.quiet_wish = float(record.get("quiet_wish", 0.0))
     agent.last_call = int(record.get("last_call", -1))

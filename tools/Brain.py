@@ -214,8 +214,8 @@ SENSES = (
     # from beside it (see the action address), 1 or 0.
     "attending", "sees_pointing", "watched", "addressed",
     # Its goal (see GOAL_JOY): 1 while it holds one; its urgency; how close what it seeks is; for an animal, its regard
-    # and 1 for family; the need it serves; then what it seeks: an outside thing, an animal, or a deed. As the C++ version's.
-    "goal", "goal_urgency", "goal_closeness", "goal_one_regard", "goal_one_family",
+    # and 1 for family; 1 for a desire; the need it serves; then what it seeks: an outside thing, an animal, or a deed. As the C++ version's.
+    "goal", "goal_urgency", "goal_closeness", "goal_one_regard", "goal_one_family", "goal_desire",
     *(f"goal_need_{need}" for need in NEED_NAMES), *(f"goal_{thing}" for thing in OUTSIDE_THINGS), "goal_one",
     *(f"goal_deed_{action}" for action in ACTIONS),
     # A word it holds in its lexicon, heard (see LEXICON_SIZE): 1 when the loudest call it heard is one, and its own
@@ -239,6 +239,7 @@ UTTERANCE_SENSE = SENSES.index("heard_first_1")
 POINTED_SENSE = SENSES.index("pointed")  # then "pointed_closeness"
 GOAL_SENSE = SENSES.index("goal")  # then urgency, closeness, regard, family, the needs, the things, one, the deeds
 GOAL_NEED_SENSE = SENSES.index("goal_need_hunger")
+GOAL_DESIRE_SENSE = SENSES.index("goal_desire")  # 1 when its goal is a desire (see DESIRE), not a need's
 GOAL_THING_SENSE = SENSES.index("goal_threat")
 GOAL_ONE_SENSE = SENSES.index("goal_one")
 GOAL_DEED_SENSE = SENSES.index("goal_deed_eat")
@@ -284,7 +285,7 @@ SPARSE_SENSES = frozenset((
     "bow_carried", "archery",
     *(f"heard_{place}_{call}" for place in ("first", "second", "third") for call in range(1, CALL_COUNT + 1)),
     "pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed",
-    "goal", "goal_urgency", "goal_closeness", "goal_one_family", *(f"goal_need_{need}" for need in NEED_NAMES),
+    "goal", "goal_urgency", "goal_closeness", "goal_one_family", "goal_desire", *(f"goal_need_{need}" for need in NEED_NAMES),
     *(f"goal_{thing}" for thing in OUTSIDE_THINGS), "goal_one", *(f"goal_deed_{action}" for action in ACTIONS), "meant", "meant_closeness", "named", "named_closeness", "named_me", *(f"meant_{action}" for action in ACTIONS),
     *(f"heard_{place}_{sound}" for place in ("fourth", "fifth", "sixth") for sound in range(1, 6))))
 _READ_SCALE = np.array([1.0 if name in SIGNED_SENSES else 2.0 for name in SENSES])
