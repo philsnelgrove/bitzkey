@@ -225,8 +225,9 @@ def ingenuity_record(agent) -> dict:
     C++ version's."""
     def node(n: int) -> int:
         return n if n < 21 else -1 - (n - 21)
-    return {"head": [agent.step_turn, agent.chain_goal_turn, int(agent.chain_spent), agent.chains_begun, agent.steps_reached,
-                     agent.chains_given_up, agent.links_first_followed, int(agent.has_open)],
+    return {"head": [agent.step_turn, agent.chain_goal_turn, 0, agent.chains_begun, agent.steps_reached,
+                     agent.steps_given_up, agent.links_first_followed, int(agent.has_open), agent.chains_unfinished],
+            "failed": [[node(a), node(b)] for a, b in agent.failed_links],
             "links": [[node(l[0]), node(l[1]), float(l[2]), int(l[3])] for l in agent.opens],
             "steps": [node(step) for step in agent.goal_steps],
             "open": [node(n) for n, was in enumerate(agent.was_open) if was]}
@@ -498,8 +499,9 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
         if "ingenuity" in g:  # see OPENS_RATE
             i = g["ingenuity"]
             top = i["head"]
-            agent.step_turn, agent.chain_goal_turn, agent.chain_spent = int(top[0]), int(top[1]), bool(top[2])
-            agent.chains_begun, agent.steps_reached, agent.chains_given_up, agent.links_first_followed = (int(v) for v in top[3:7])
+            agent.step_turn, agent.chain_goal_turn = int(top[0]), int(top[1])
+            agent.chains_begun, agent.steps_reached, agent.steps_given_up, agent.links_first_followed = (int(v) for v in top[3:7])
+            agent.chains_unfinished = int(top[8]) if len(top) > 8 else 0
             agent.has_open = len(top) > 7 and bool(top[7])
 
             def node(saved: int) -> int:  # by the deed's saved number
@@ -508,6 +510,7 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
                     return saved if saved < 21 else -1
                 deed = numbers.action(-1 - saved)
                 return -1 if deed < 0 else 21 + deed
+            agent.failed_links = [[node(a), node(b)] for a, b in i.get("failed", []) if node(a) >= 0 and node(b) >= 0]
             for n in i.get("open", []):
                 if node(n) >= 0:
                     agent.was_open[node(n)] = True

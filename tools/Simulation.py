@@ -1681,10 +1681,11 @@ class Bitzkey:
     goal_steps: list = field(default_factory=list)
     step_turn: int = -1
     chain_goal_turn: int = -1
-    chain_spent: bool = False
+    failed_links: list = field(default_factory=list)  # links given up as steps toward its present goal [from, to]
     chains_begun: int = 0
     steps_reached: int = 0
-    chains_given_up: int = 0
+    steps_given_up: int = 0
+    chains_unfinished: int = 0  # goals that ended, reached or not, with steps still open
     links_first_followed: int = 0
     harm_taught_turn: int = -1  # the last strike whose harm it taught its call (see CALL_HARM)
     quiet_wish: float = 0.0  # as it last chose: how much its brain preferred silence to its best sound (PARENT_HUSH)
@@ -5940,8 +5941,10 @@ class Simulation:
         root = (agent.goal_target if agent.goal_kind == GOAL_FOR_THING else things + agent.goal_target
                 if agent.goal_kind == GOAL_FOR_DEED else -1)
         if root < 0 or agent.goal_turn != agent.chain_goal_turn:  # a new goal, or none, or a companion: no steps of old
+            if agent.goal_steps:
+                agent.chains_unfinished += 1
             agent.goal_steps = []
-            agent.chain_spent = False
+            agent.failed_links = []
             agent.chain_goal_turn = -1 if root < 0 else agent.goal_turn
         if root >= 0:
             def above(at: int) -> int:
@@ -5966,19 +5969,27 @@ class Simulation:
                     del agent.goal_steps[at:]
                     break
             patience = agent.feeling("patience")
-            if agent.goal_steps and self.turn - agent.step_turn > GOAL_PATIENCE * (0.5 + patience):
-                agent.goal_steps = []
-                agent.chain_spent = True
-                agent.chains_given_up += 1
+            if agent.goal_steps and self.turn - agent.step_turn > GOAL_PATIENCE * (0.5 + patience) / 2.0:
+                # held too long: that step given up, its link weakened and not tried again for this goal
+                step, up = agent.goal_steps[-1], above(len(agent.goal_steps) - 1)
+                for link in agent.opens:
+                    if link[0] == step and link[1] == up:
+                        link[2] += min(1.0, max(0.0, OPENS_RATE)) * (0.0 - link[2])
+                agent.failed_links.append([step, up])
+                agent.goal_steps.pop()
+                agent.step_turn = self.turn
+                agent.steps_given_up += 1
             mind = (patience + agent.feeling("curiosity")) / 2.0
             depth = 1 + int(math.floor(max(0.0, PLAN_DEPTH) * mind + 0.5))
-            while not agent.chain_spent and len(agent.goal_steps) < depth:
+            while len(agent.goal_steps) < depth:
                 current = agent.goal_steps[-1] if agent.goal_steps else root
                 if not shut(current):
                     break
                 best = None
                 for link in agent.opens:
                     if link[1] != current or link[0] == root or link[0] in agent.goal_steps:
+                        continue
+                    if [link[0], link[1]] in agent.failed_links:
                         continue
                     if link[2] * (0.5 + mind) < OPENS_MIN:
                         continue

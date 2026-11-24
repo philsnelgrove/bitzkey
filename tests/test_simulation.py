@@ -4259,11 +4259,18 @@ class CallTests(unittest.TestCase):
             animal.last_choice, animal.step_turn = ACTIONS.index("go_east"), world.turn - 1
             world._sense(animal)
             self.assertEqual((animal.steps_reached, animal.links_first_followed, animal.opens[1][3]), (1, 1, True))
+            self.assertEqual(animal.goal_steps, [wood, east])
+            strength = animal.opens[1][2]
+            animal.last_choice, animal.step_turn = ACTIONS.index("rest"), world.turn - 1000
+            world._sense(animal)
+            self.assertEqual((animal.steps_given_up, animal.goal_steps, animal.failed_links), (1, [wood], [[east, wood]]))
+            self.assertLess(animal.opens[1][2], strength)
             animal.goal_kind, animal.goal_target = sm.NO_GOAL, -1
             animal.spark_deeds = [0.0] * len(ACTIONS)
             animal.want_deeds = [0.0] * len(ACTIONS)
             world._sense(animal)
             self.assertEqual(animal.goal_steps, [])
+            self.assertEqual(animal.chains_unfinished, 1)
         mother = world._add_agent(encode_dna("grazer"), 20, 20)
         father = world._add_agent(encode_dna("grazer"), 21, 20)
         child = world._add_agent(encode_dna("grazer"), 22, 20)
