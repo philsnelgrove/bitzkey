@@ -510,6 +510,8 @@ PLEASURE_RETURN = 0.02
 REMEMBERED_CUE = 0.3
 PLACE_MEMORY = 500
 CLOSE_SEEN = 0.75
+# What woke a desire's spark (for the probe): nothing, seen, its remembered place, another seen doing the deed, heard.
+CUE_NONE, CUE_SEEN, CUE_REMEMBERED, CUE_SEEN_DONE, CUE_HEARD = range(5)
 # Ingenuity (see OPENS_RATE): what opens what, learnt; steps toward a goal shut to it, as deep as patience and curiosity
 # allow. As the C++ version's.
 OPENS_RATE = 0.05
@@ -1665,6 +1667,9 @@ class Bitzkey:
     place_y: list = field(default_factory=lambda: [-1] * 21)
     place_turn: list = field(default_factory=lambda: [-1] * 21)
     desires_formed: int = 0
+    spark_from_things: list = field(default_factory=lambda: [0] * 21)  # what woke each spark (CUE_SEEN...)
+    spark_from_deeds: list = field(default_factory=lambda: [0] * len(ACTIONS))
+    desires_by_cue: list = field(default_factory=lambda: [0] * 5)  # desires formed, by what woke them
     desires_reached: int = 0
     desire_reach_turns: int = 0
     # Ingenuity (see OPENS_RATE): links [from, to, strength, used], nodes a thing's index or 21 plus a deed's; what was open
@@ -5655,7 +5660,7 @@ class Simulation:
             if any(one[0] == other.identifier for one in agent.relief_ones):
                 continue
             if len(agent.relief_ones) < RELIEF_ONES:
-                agent.relief_ones.append([other.identifier, -1.0, [0.0] * NEEDS, 0.0, 0.0, 0.0, -1, -1, -1])
+                agent.relief_ones.append([other.identifier, -1.0, [0.0] * NEEDS, 0.0, 0.0, 0.0, -1, -1, -1, 0])
                 continue
             least = None
             for at, one in enumerate(agent.relief_ones):
@@ -5664,7 +5669,7 @@ class Simulation:
                 if least is None or sum(abs(r) for r in one[2]) < sum(abs(r) for r in agent.relief_ones[least][2]):
                     least = at
             if least is not None:
-                agent.relief_ones[least] = [other.identifier, -1.0, [0.0] * NEEDS, 0.0, 0.0, 0.0, -1, -1, -1]
+                agent.relief_ones[least] = [other.identifier, -1.0, [0.0] * NEEDS, 0.0, 0.0, 0.0, -1, -1, -1, 0]
         agent.relief_ones = [one for one in agent.relief_ones if (found := self.find_agent(one[0])) is not None and found.alive]
         # What eased each need since last turn, beyond its usual drift, after what it came nearer and what it did.
         ones_close = [self.one_closeness(agent, one[0], sight) for one in agent.relief_ones]
@@ -5772,31 +5777,33 @@ class Simulation:
         heard_deed = agent.meant_deed if heard_last and agent.meant_by_deed else -1
         heard_one = agent.called_one if agent.called_turn == self.turn - 1 else -1
 
-        def wake(spark: float, fade: float, want: float, cue: float, trait: float) -> tuple[float, float]:
+        def wake(spark: float, fade: float, source_was: int, want: float, cue: float, source: int, trait: float) -> tuple[float, float, int]:
             spark *= linger
             if DESIRE > 0 and want > 0 and cue > 0:
-                spark = max(spark, DESIRE * want * cue * trait * (1.0 - fade))
-            return spark, fade * (1.0 - recover)
+                woken = DESIRE * want * cue * trait * (1.0 - fade)
+                if woken > spark:
+                    spark, source_was = woken, source
+            return spark, fade * (1.0 - recover), source_was
 
         for thing in range(len(OUTSIDE_SENSES)):
-            cue = max(0.0, float(senses[OUTSIDE_SENSES[thing]]))
+            cue, source = max(0.0, float(senses[OUTSIDE_SENSES[thing]])), CUE_SEEN
             if cue <= 0:
-                cue = remembered(agent.place_turn[thing])
-            if thing == heard_thing:
-                cue = max(cue, heard)
-            agent.spark_things[thing], agent.fade_things[thing] = wake(agent.spark_things[thing], agent.fade_things[thing],
-                                                                       agent.want_things[thing], cue, curious)
+                cue, source = remembered(agent.place_turn[thing]), CUE_REMEMBERED
+            if thing == heard_thing and heard > cue:
+                cue, source = heard, CUE_HEARD
+            agent.spark_things[thing], agent.fade_things[thing], agent.spark_from_things[thing] = wake(
+                agent.spark_things[thing], agent.fade_things[thing], agent.spark_from_things[thing], agent.want_things[thing], cue, source, curious)
         for deed in range(len(ACTIONS)):
-            cue = seen_deeds[deed]
-            if deed == heard_deed:
-                cue = max(cue, heard)
-            agent.spark_deeds[deed], agent.fade_deeds[deed] = wake(agent.spark_deeds[deed], agent.fade_deeds[deed],
-                                                                   agent.want_deeds[deed], cue, curious)
+            cue, source = seen_deeds[deed], CUE_SEEN_DONE
+            if deed == heard_deed and heard > cue:
+                cue, source = heard, CUE_HEARD
+            agent.spark_deeds[deed], agent.fade_deeds[deed], agent.spark_from_deeds[deed] = wake(
+                agent.spark_deeds[deed], agent.fade_deeds[deed], agent.spark_from_deeds[deed], agent.want_deeds[deed], cue, source, curious)
         for one, close in zip(agent.relief_ones, ones_close):
-            cue = close if close > 0 else remembered(one[8])
-            if one[0] == heard_one:
-                cue = max(cue, heard)
-            one[4], one[5] = wake(one[4], one[5], one[3], cue, social)
+            cue, source = (close, CUE_SEEN) if close > 0 else (remembered(one[8]), CUE_REMEMBERED)
+            if one[0] == heard_one and heard > cue:
+                cue, source = heard, CUE_HEARD
+            one[4], one[5], one[9] = wake(one[4], one[5], one[9], one[3], cue, source, social)
 
         if agent.goal_kind != NO_GOAL:
             met = gone = False
@@ -5921,6 +5928,9 @@ class Simulation:
                 agent.goals_formed += 1
                 if desired:
                     agent.desires_formed += 1
+                    source = (agent.spark_from_things[target] if kind == GOAL_FOR_THING else agent.spark_from_deeds[target]
+                              if kind == GOAL_FOR_DEED else next((one[9] for one in agent.relief_ones if one[0] == target), CUE_NONE))
+                    agent.desires_by_cue[min(4, max(0, source))] += 1
         # Ingenuity (see OPENS_RATE): its goal shut to it, the steps it seeks toward it, each what it learnt opens the one above.
         def shut(node: int) -> bool:
             if node < things:

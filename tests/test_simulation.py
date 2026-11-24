@@ -4166,6 +4166,7 @@ class CallTests(unittest.TestCase):
         self.assertAlmostEqual(animal.spark_deeds[browse], spark)
         self.assertEqual((animal.goal_kind, animal.goal_target, animal.goal_need, animal.goal_desire), (sm.GOAL_FOR_DEED, browse, -1, True))
         self.assertEqual(animal.desires_formed, 1)
+        self.assertEqual(animal.desires_by_cue[sm.CUE_HEARD], 1)  # woken by the word heard
         self.assertAlmostEqual(animal.goal_urgency, spark)
         self.assertEqual(senses[SENSES.index("goal_desire")], 1.0)
         self.assertEqual(sum(senses[SENSES.index(f"goal_need_{need}")] for need in ("hunger", "fatigue", "pain", "fear", "loneliness", "discomfort")), 0.0)
@@ -4210,6 +4211,7 @@ class CallTests(unittest.TestCase):
         self.assertEqual(senses[OUTSIDE_SENSES[herd]], 0.0)
         self.assertAlmostEqual(animal.spark_things[herd], sm.DESIRE * 0.5 * sm.REMEMBERED_CUE * (0.5 + animal.feeling("curiosity")))
         self.assertEqual((animal.goal_kind, animal.goal_target, animal.goal_desire, animal.goal_remembered), (sm.GOAL_FOR_THING, herd, True, True))
+        self.assertEqual(animal.desires_by_cue[sm.CUE_REMEMBERED], 1)  # woken by the place remembered
         self.assertAlmostEqual(senses[SENSES.index("goal_east")], -1.0)
         self.assertEqual(senses[SENSES.index("goal_south")], 0.0)
         other.x = other.y = 75
