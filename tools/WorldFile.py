@@ -220,6 +220,18 @@ def desire_record(agent) -> dict:
             "places": [[thing, agent.place_x[thing], agent.place_y[thing], agent.place_turn[thing]] for thing in range(21) if agent.place_turn[thing] >= 0]}
 
 
+def ingenuity_record(agent) -> dict:
+    """What it learnt opens what, its steps (see OPENS_RATE): a node saved as a thing's index, or -1 less a deed's. As the
+    C++ version's."""
+    def node(n: int) -> int:
+        return n if n < 21 else -1 - (n - 21)
+    return {"head": [agent.step_turn, agent.chain_goal_turn, int(agent.chain_spent), agent.chains_begun, agent.steps_reached,
+                     agent.chains_given_up, agent.links_first_followed, int(agent.has_open)],
+            "links": [[node(l[0]), node(l[1]), float(l[2]), int(l[3])] for l in agent.opens],
+            "steps": [node(step) for step in agent.goal_steps],
+            "open": [node(n) for n, was in enumerate(agent.was_open) if was]}
+
+
 def goal_record(agent) -> dict:
     """Its needs, what eases them and its goal (see GOAL_JOY): only reliefs learnt. As the C++ version's."""
     needs = [float(v) for pair in zip(agent.needs, agent.need_drift) for v in pair]
@@ -229,7 +241,7 @@ def goal_record(agent) -> dict:
     return {"head": [agent.goal_kind, agent.goal_target, agent.goal_need, agent.goal_turn, float(agent.goal_urgency), float(agent.goal_close),
                      agent.goals_formed, agent.goals_reached, agent.goals_abandoned, agent.goals_switched, agent.goals_dropped,
                      agent.goal_reach_turns, int(agent.has_needs)],
-            "needs": needs, "things": things, "deeds": deeds, "ones": ones, "desire": desire_record(agent)}
+            "needs": needs, "things": things, "deeds": deeds, "ones": ones, "desire": desire_record(agent), "ingenuity": ingenuity_record(agent)}
 
 
 def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
@@ -479,6 +491,27 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
             for thing, x, y, seen in d.get("places", []):
                 if 0 <= int(thing) < 21:
                     agent.place_x[int(thing)], agent.place_y[int(thing)], agent.place_turn[int(thing)] = int(x), int(y), int(seen)
+        if "ingenuity" in g:  # see OPENS_RATE
+            i = g["ingenuity"]
+            top = i["head"]
+            agent.step_turn, agent.chain_goal_turn, agent.chain_spent = int(top[0]), int(top[1]), bool(top[2])
+            agent.chains_begun, agent.steps_reached, agent.chains_given_up, agent.links_first_followed = (int(v) for v in top[3:7])
+            agent.has_open = len(top) > 7 and bool(top[7])
+
+            def node(saved: int) -> int:  # by the deed's saved number
+                saved = int(saved)
+                if saved >= 0:
+                    return saved if saved < 21 else -1
+                deed = numbers.action(-1 - saved)
+                return -1 if deed < 0 else 21 + deed
+            for n in i.get("open", []):
+                if node(n) >= 0:
+                    agent.was_open[node(n)] = True
+            for source, to, strength, used in i["links"]:
+                if node(source) >= 0 and node(to) >= 0 and len(agent.opens) < 24:
+                    agent.opens.append([node(source), node(to), float(strength), bool(used)])
+            steps = [node(step) for step in i["steps"]]
+            agent.goal_steps = [] if any(step < 0 for step in steps) else steps
         if not agent.goal_desire and agent.goal_kind != 0 and not 0 <= agent.goal_need < 6:
             agent.goal_kind = 0
         if agent.goal_kind == 0:

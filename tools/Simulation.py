@@ -510,6 +510,13 @@ PLEASURE_RETURN = 0.02
 REMEMBERED_CUE = 0.3
 PLACE_MEMORY = 500
 CLOSE_SEEN = 0.75
+# Ingenuity (see OPENS_RATE): what opens what, learnt; steps toward a goal shut to it, as deep as patience and curiosity
+# allow. As the C++ version's.
+OPENS_RATE = 0.05
+OPENS_INHERIT = 0.5
+OPENS_MIN = 0.1
+PLAN_DEPTH = 3.0
+OPENS_LINKS = 24
 # The lexicon (the user's design): words settled by accord, a right guess or a corrected one, each with the thing it
 # means and the regard for the one it was settled with; LEXICON_SIZE for each point of intellect and one more, the
 # least used forgotten when full; changed only by a friend or family member regarded more (family at least
@@ -1660,6 +1667,20 @@ class Bitzkey:
     desires_formed: int = 0
     desires_reached: int = 0
     desire_reach_turns: int = 0
+    # Ingenuity (see OPENS_RATE): links [from, to, strength, used], nodes a thing's index or 21 plus a deed's; what was open
+    # last turn; the steps sought, the last its present one; since when, for which goal, whether spent; and in its life,
+    # chains begun, steps reached, chains given up, steps reached by a link followed the first time.
+    opens: list = field(default_factory=list)
+    was_open: list = field(default_factory=lambda: [False] * (21 + len(ACTIONS)))
+    has_open: bool = False
+    goal_steps: list = field(default_factory=list)
+    step_turn: int = -1
+    chain_goal_turn: int = -1
+    chain_spent: bool = False
+    chains_begun: int = 0
+    steps_reached: int = 0
+    chains_given_up: int = 0
+    links_first_followed: int = 0
     harm_taught_turn: int = -1  # the last strike whose harm it taught its call (see CALL_HARM)
     quiet_wish: float = 0.0  # as it last chose: how much its brain preferred silence to its best sound (PARENT_HUSH)
     last_call: int = -1  # its last choice of call, to learn from with its action; -1 for none of its own
@@ -5495,7 +5516,7 @@ class Simulation:
                             senses[sense] *= 1 - min(1.0, ATTENTION)
         agent.heed_answer = -1
         word_reward = self._heed_words(agent, senses)  # what it has learnt of each thing, and of words heard, before habit dulls what it sees
-        goal_unease, goal_relief = self._pursue(agent, senses, sight)  # and its needs and goal, likewise
+        goal_unease, goal_relief = self._pursue(agent, senses, sight, available)  # and its needs and goal, likewise
         # Getting used to things (see HABITUATION). As the C++ version's.
         if HABITUATION > 0:
             weight = min(1.0, HABITUATION)
@@ -5611,7 +5632,7 @@ class Simulation:
         return (-appetite * min(100.0, agent.hunger) / 100
                 - (1 - max(0.0, agent.health) / agent.max_health) - tired)
 
-    def _pursue(self, agent: Bitzkey, senses, sight: int) -> tuple[float, float]:
+    def _pursue(self, agent: Bitzkey, senses, sight: int, available=frozenset()) -> tuple[float, float]:
         """Its needs, what eases each, what it likes, and its goal: the unease and relief it brings this turn. As the C++
         version's."""
         unease = relief = 0.0
@@ -5663,6 +5684,32 @@ class Simulation:
                     if one[1] >= 0 and close > one[1]:
                         one[2][n] += rate * (gain - one[2][n])
         agent.needs, agent.has_needs = now, True
+        # Ingenuity (see OPENS_RATE): what is open to it now; and, from what it did and came nearer last turn, what opened what.
+        things = len(OUTSIDE_SENSES)
+        open_now = [senses[OUTSIDE_SENSES[thing]] >= CLOSE_SEEN for thing in range(things)] + [action in available for action in ACTIONS]
+        if agent.has_open and lived and OPENS_RATE > 0:
+            rate = min(1.0, OPENS_RATE)
+            causes = [thing for thing in range(things) if agent.moved[thing] > 0]
+            if 0 <= agent.last_choice < len(ACTIONS):
+                causes.append(things + agent.last_choice)
+            for source in causes:
+                for link in agent.opens:  # shut before and shut still: it did not open it
+                    if link[0] == source and not agent.was_open[link[1]] and not open_now[link[1]]:
+                        link[2] += rate * (0.0 - link[2])
+                for to in range(len(open_now)):  # shut before, open now: it opened it
+                    if to == source or agent.was_open[to] or not open_now[to]:
+                        continue
+                    found = next((link for link in agent.opens if link[0] == source and link[1] == to), None)
+                    if found is not None:
+                        found[2] += rate * (1.0 - found[2])
+                    elif len(agent.opens) < OPENS_LINKS:
+                        agent.opens.append([source, to, rate, False])
+                    else:
+                        weakest = min(range(len(agent.opens)), key=lambda at: agent.opens[at][2])
+                        if agent.opens[weakest][2] < rate:
+                            agent.opens[weakest] = [source, to, rate, False]
+        agent.was_open = open_now
+        agent.has_open = True
 
         def worth(kind: int, target: int, need: int) -> float:
             if kind == GOAL_FOR_THING:
@@ -5874,12 +5921,81 @@ class Simulation:
                 agent.goals_formed += 1
                 if desired:
                     agent.desires_formed += 1
+        # Ingenuity (see OPENS_RATE): its goal shut to it, the steps it seeks toward it, each what it learnt opens the one above.
+        def shut(node: int) -> bool:
+            if node < things:
+                return senses[OUTSIDE_SENSES[node]] <= 0 and place_of(GOAL_FOR_THING, node) is None
+            return not open_now[node]
+
+        root = (agent.goal_target if agent.goal_kind == GOAL_FOR_THING else things + agent.goal_target
+                if agent.goal_kind == GOAL_FOR_DEED else -1)
+        if root < 0 or agent.goal_turn != agent.chain_goal_turn:  # a new goal, or none, or a companion: no steps of old
+            agent.goal_steps = []
+            agent.chain_spent = False
+            agent.chain_goal_turn = -1 if root < 0 else agent.goal_turn
+        if root >= 0:
+            def above(at: int) -> int:
+                return root if at == 0 else agent.goal_steps[at - 1]
+
+            while agent.goal_steps:  # a step reached, done or close, hands back to the one above
+                step = agent.goal_steps[-1]
+                reached = open_now[step] if step < things else agent.step_turn < self.turn and agent.last_choice == step - things
+                if not reached:
+                    break
+                up = above(len(agent.goal_steps) - 1)
+                for link in agent.opens:
+                    if link[0] == step and link[1] == up:
+                        if not link[3]:
+                            agent.links_first_followed += 1
+                        link[3] = True
+                agent.steps_reached += 1
+                agent.goal_steps.pop()
+                agent.step_turn = self.turn
+            for at in range(len(agent.goal_steps)):  # what it sought a step for, open now: no need of the rest
+                if not shut(above(at)):
+                    del agent.goal_steps[at:]
+                    break
+            patience = agent.feeling("patience")
+            if agent.goal_steps and self.turn - agent.step_turn > GOAL_PATIENCE * (0.5 + patience):
+                agent.goal_steps = []
+                agent.chain_spent = True
+                agent.chains_given_up += 1
+            mind = (patience + agent.feeling("curiosity")) / 2.0
+            depth = 1 + int(math.floor(max(0.0, PLAN_DEPTH) * mind + 0.5))
+            while not agent.chain_spent and len(agent.goal_steps) < depth:
+                current = agent.goal_steps[-1] if agent.goal_steps else root
+                if not shut(current):
+                    break
+                best = None
+                for link in agent.opens:
+                    if link[1] != current or link[0] == root or link[0] in agent.goal_steps:
+                        continue
+                    if link[2] * (0.5 + mind) < OPENS_MIN:
+                        continue
+                    if best is None or link[2] > best[2]:
+                        best = link
+                if best is None:
+                    break
+                if not agent.goal_steps:
+                    agent.chains_begun += 1
+                agent.goal_steps.append(best[0])
+                agent.step_turn = self.turn
+        # Felt, and sensed: the goal's urgency and need, but what it seeks now, its step if it has one.
         if agent.goal_kind != NO_GOAL:
             unease = GOAL_UNEASE * agent.goal_urgency
             senses[GOAL_SENSE] = 1.0
             senses[GOAL_SENSE + 1] = agent.goal_urgency / GOAL_URGENCY_MAX
-            senses[GOAL_SENSE + 2] = max(0.0, agent.goal_close)
-            place = place_of(agent.goal_kind, agent.goal_target)
+            seek_kind, seek, seek_close = agent.goal_kind, agent.goal_target, agent.goal_close
+            if agent.goal_steps:
+                step = agent.goal_steps[-1]
+                seek_kind, seek = (GOAL_FOR_THING, step) if step < things else (GOAL_FOR_DEED, step - things)
+                remembered_goal = agent.goal_remembered
+                seek_close = goal_closeness(seek_kind, seek) if seek_kind == GOAL_FOR_THING else -1.0
+                agent.goal_remembered = remembered_goal
+                deep = float(len(agent.goal_steps))
+                senses[GOAL_DESIRE_SENSE + 3] = deep / (deep + 1.0)
+            senses[GOAL_SENSE + 2] = max(0.0, seek_close)
+            place = place_of(seek_kind, seek)
             if place is not None:  # its way there
                 steps = max(1, abs(place[0] - agent.x) + abs(place[1] - agent.y))
                 senses[GOAL_DESIRE_SENSE + 1] = (place[0] - agent.x) / steps
@@ -5888,16 +6004,16 @@ class Simulation:
                 senses[GOAL_DESIRE_SENSE] = 1.0
             else:
                 senses[GOAL_NEED_SENSE + agent.goal_need] = 1.0
-            if agent.goal_kind == GOAL_FOR_THING:
-                senses[GOAL_THING_SENSE + agent.goal_target] = 1.0
-            elif agent.goal_kind == GOAL_FOR_ONE:
+            if seek_kind == GOAL_FOR_THING:
+                senses[GOAL_THING_SENSE + seek] = 1.0
+            elif seek_kind == GOAL_FOR_ONE:
                 senses[GOAL_ONE_SENSE] = 1.0
                 other = self.find_agent(agent.goal_target)
                 if other is not None:
                     senses[GOAL_SENSE + 3] = max(-1.0, min(1.0, self._regard_for(agent, other)))
                     senses[GOAL_SENSE + 4] = 1.0 if self._family(agent, other) else 0.0
             else:
-                senses[GOAL_DEED_SENSE + agent.goal_target] = 1.0
+                senses[GOAL_DEED_SENSE + seek] = 1.0
         return unease, relief
 
     def inherit_relief(self, child: Bitzkey, mother: Bitzkey, father: Bitzkey | None) -> None:
@@ -5919,6 +6035,25 @@ class Simulation:
             for deed in range(len(ACTIONS)):
                 parents = (mother.want_deeds[deed] + father.want_deeds[deed]) / 2 if father is not None else mother.want_deeds[deed]
                 child.want_deeds[deed] = liked * parents
+        # And what they learnt opens what (see OPENS_INHERIT): a share of each link, the parents' averaged, the strongest kept.
+        opened = min(1.0, max(0.0, OPENS_INHERIT))
+        child.opens = []
+        if opened > 0:
+            links = []
+            each = 0.5 if father is not None else 1.0
+            for parent in (mother, father):
+                if parent is None:
+                    continue
+                for link in parent.opens:
+                    found = next((l for l in links if l[0] == link[0] and l[1] == link[1]), None)
+                    if found is not None:
+                        found[2] += each * link[2]
+                    else:
+                        links.append([link[0], link[1], each * link[2], False])
+            for link in links:
+                link[2] *= opened
+            links.sort(key=lambda l: -l[2])
+            child.opens = links[:OPENS_LINKS]
 
     @staticmethod
     def _comfort(agent: Bitzkey, situation: dict) -> float:

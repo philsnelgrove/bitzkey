@@ -1723,7 +1723,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(OUTPUTS[-22:-18], ("attend", "ignore", "point_one", "point_self"))  # and pointing at one animal, or itself
         self.assertEqual(OUTPUTS[-1], "sixth_call_5")  # then a second word's sounds
         self.assertEqual(len(OUTPUTS), POINT + len(OUTSIDE_SENSES) + 4 + 18)
-        self.assertEqual(SENSES[-216:-210], ("pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed"))
+        self.assertEqual(SENSES[-217:-211], ("pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed"))
         dull = self.simulation._add_agent(encode_dna("grazer", sociability=1, intellect=1), 1, 1)
         keen = self.simulation._add_agent(encode_dna("grazer", sociability=7, intellect=7), 8, 8)
         self.assertGreater(Simulation.willing_to_learn(keen), Simulation.willing_to_learn(dull))
@@ -4217,6 +4217,59 @@ class CallTests(unittest.TestCase):
         world._index_cells()
         world._sense(animal)
         self.assertEqual(animal.place_turn[herd], -1)
+
+    def test_ingenuity_learns_what_opens_what_and_seeks_a_shut_goal_by_steps(self):
+        sm = simulation_module
+        world = Simulation(width=80, height=80, population=0, seed=3)
+        animal = world._add_agent(encode_dna("grazer", patience=7, curiosity=7), 30, 30)
+        world._index_cells()
+        bow, wood, east, rest = (21 + ACTIONS.index(a) for a in ("make_bow", "take_wood", "go_east", "rest"))
+        world._sense(animal)
+        animal.has_needs = animal.has_open = True
+        animal.was_open = [True] * len(animal.was_open)
+        animal.was_open[east] = False
+        animal.moved = [0.0] * len(animal.moved)
+        animal.last_choice = ACTIONS.index("rest")
+        animal.opens = []
+        world._sense(animal)
+        self.assertEqual(len(animal.opens), 1)
+        self.assertEqual(animal.opens[0][:2], [rest, east])
+        self.assertAlmostEqual(animal.opens[0][2], sm.OPENS_RATE)
+        with patch.object(sm, "PLAN_DEPTH", 8.0):
+            animal.opens = [[wood, bow, 0.8, False], [east, wood, 0.8, False]]
+            animal.goal_kind, animal.goal_target, animal.goal_desire, animal.goal_need = sm.GOAL_FOR_DEED, ACTIONS.index("make_bow"), True, -1
+            animal.goal_turn, animal.goal_urgency = world.turn - 1, 0.5
+            animal.relief_deeds = [[0.0] * len(ACTIONS) for _ in range(6)]
+            animal.relief_things = [[0.0] * 21 for _ in range(6)]
+            animal.want_deeds = [0.0] * len(ACTIONS)
+            animal.want_deeds[ACTIONS.index("make_bow")] = 0.5
+            animal.spark_deeds = [0.0] * len(ACTIONS)
+            animal.spark_deeds[ACTIONS.index("make_bow")] = 0.5
+            senses, options, _ = world._sense(animal)
+            self.assertNotIn(ACTIONS.index("make_bow"), options)
+            self.assertNotIn(ACTIONS.index("take_wood"), options)
+            self.assertEqual(animal.goal_kind, sm.GOAL_FOR_DEED)
+            self.assertEqual(animal.goal_steps, [wood, east])
+            self.assertEqual(animal.chains_begun, 1)
+            self.assertEqual(senses[SENSES.index("goal_deed_go_east")], 1.0)
+            self.assertEqual(senses[SENSES.index("goal_deed_make_bow")], 0.0)
+            self.assertAlmostEqual(senses[SENSES.index("goal_depth")], 2.0 / 3.0)
+            animal.last_choice, animal.step_turn = ACTIONS.index("go_east"), world.turn - 1
+            world._sense(animal)
+            self.assertEqual((animal.steps_reached, animal.links_first_followed, animal.opens[1][3]), (1, 1, True))
+            animal.goal_kind, animal.goal_target = sm.NO_GOAL, -1
+            animal.spark_deeds = [0.0] * len(ACTIONS)
+            animal.want_deeds = [0.0] * len(ACTIONS)
+            world._sense(animal)
+            self.assertEqual(animal.goal_steps, [])
+        mother = world._add_agent(encode_dna("grazer"), 20, 20)
+        father = world._add_agent(encode_dna("grazer"), 21, 20)
+        child = world._add_agent(encode_dna("grazer"), 22, 20)
+        mother.opens, father.opens = [[wood, bow, 0.4, True]], [[wood, bow, 0.2, False]]
+        world.inherit_relief(child, mother, father)
+        self.assertEqual(len(child.opens), 1)
+        self.assertAlmostEqual(child.opens[0][2], sm.OPENS_INHERIT * 0.3)
+        self.assertFalse(child.opens[0][3])
 
     def test_learning_a_word_a_wrong_guess_corrected_by_the_speaker_is_worth_a_share_taught_as_the_right_pairing(self):
         sm = simulation_module
