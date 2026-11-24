@@ -4,7 +4,7 @@ Bitzkeys began as an arena of sorts.  It was a test to see who would be the last
 So, we started implementing rules... some of them are natural laws, and some of them are instinct.  The goal of these rules was to bring balance to the world.  The first such rules nerfed omnivores by buffing the food gathering of grazers and predators.
 The coming years brought numerous tweaks, balances and special case considerations.  What follows below, is a complete list of every rule and it's definition.  These are all configurable in the sim client.
 
-There are 562 rules in 13 sections. Each gives its default, the range it may be set within and the step it moves by. Rules declared together in the code, because they shape one behaviour, are listed as numbered subsections of the first of them; where such a rule sits in another section, the connection is noted beneath it.
+There are 564 rules in 13 sections. Each gives its default, the range it may be set within and the step it moves by. Rules declared together in the code, because they shape one behaviour, are listed as numbered subsections of the first of them; where such a rule sits in another section, the connection is noted beneath it.
 
 ## Contents
 
@@ -14,7 +14,7 @@ There are 562 rules in 13 sections. Each gives its default, the range it may be 
 4. [Feelings](#4-feelings) (26 rules)
 5. [Society](#5-society) (30 rules)
 6. [Mind](#6-mind) (190 rules)
-7. [Fighting](#7-fighting) (142 rules)
+7. [Fighting](#7-fighting) (144 rules)
 8. [Territory](#8-territory) (11 rules)
 9. [Herding](#9-herding) (9 rules)
 10. [Food](#10-food) (16 rules)
@@ -2328,541 +2328,553 @@ How far each marrow meal edges a grazer toward meat; at the full of it, it and i
 
 Default **0.05**; from 0 to 1, in steps of 0.01.
 
-### 7.18 Skinning joy (`SKINNING_JOY`)
+### 7.18 Cooked food lean (`COOKED_LEAN`)
+
+Share of a marrow meal's lean toward omnivore that each cooked meal of another's food gives: cooked meat to a grazer, cooked fruit to a predator; 0 for none.
+
+Default **0.5**; from 0 to 1, in steps of 0.05.
+
+#### 7.18.1 Predator cooked fruit (`PREDATOR_COOKED_FRUIT`)
+
+Share of an omnivore's nourishment from fruit that a predator gets from cooked fruit; raw fruit it cannot eat; 0 for none.
+
+Default **0.5**; from 0 to 1, in steps of 0.05.
+
+### 7.19 Skinning joy (`SKINNING_JOY`)
 
 Pleasure of wearing a new, finer hide, times curiosity, the more for a finer one.
 
 Default **1**; from 0 to 5, in steps of 0.1.
 
-#### 7.18.1 Hide warmth (`HIDE_WARMTH`)
+#### 7.19.1 Hide warmth (`HIDE_WARMTH`)
 
 Steps of cold a worn hide keeps out.
 
 Default **1**; from 0 to 3, in steps of 0.25.
 
-#### 7.18.2 Hide armour share (`HIDE_ARMOUR_SHARE`)
+#### 7.19.2 Hide armour share (`HIDE_ARMOUR_SHARE`)
 
 Share of the armour of the body a hide came from that it adds to its wearer's.
 
 Default **0.5**; from 0 to 1, in steps of 0.05.
 
-#### 7.18.3 Warrior garb (`WARRIOR_GARB`)
+#### 7.19.3 Warrior garb (`WARRIOR_GARB`)
 
 Regard an omnivore's hide, a warrior's garb, draws those who see it toward.
 
 Default **0.5**; from 0 to 1, in steps of 0.05.
 
-#### 7.18.4 Prestige garb (`PRESTIGE_GARB`)
+#### 7.19.4 Prestige garb (`PRESTIGE_GARB`)
 
 Regard a predator's hide, a mark of prestige, draws those who see it toward.
 
 Default **1**; from 0 to 1, in steps of 0.05.
 
-#### 7.18.5 Garb regard (`GARB_REGARD`)
+#### 7.19.5 Garb regard (`GARB_REGARD`)
 
 How much of a deed's weight each turn's sight of a garb has on regard.
 
 Default **0.05**; from 0 to 1, in steps of 0.01.
 
-#### 7.18.6 Lie disregard (`LIE_DISREGARD`)
+#### 7.19.6 Lie disregard (`LIE_DISREGARD`)
 
 Disregard for one seen fleeing a fight in a garb, as a share of the regard its garb had won, which is lost too.
 
 Default **1**; from 0 to 3, in steps of 0.1.
 
-#### 7.18.7 Envy level (`ENVY_LEVEL`)
+#### 7.19.7 Envy level (`ENVY_LEVEL`)
 
 Share of its own kind, ranked by moodiness or dominance, that envies no one: 0.75 leaves the top quarter envious; 1 for none.
 
 Default **0.75**; from 0 to 1, in steps of 0.05.
 
-#### 7.18.8 Envy unease (`ENVY_UNEASE`)
+#### 7.19.8 Envy unease (`ENVY_UNEASE`)
 
 Unease of seeing possessions better than its own, by how much better, at the most envious.
 
 Default **0.5**; from 0 to 3, in steps of 0.05.
 
-#### 7.18.9 Envy joy (`ENVY_JOY`)
+#### 7.19.9 Envy joy (`ENVY_JOY`)
 
 Gladness of the envious at gaining a better possession, by how much better.
 
 Default **1**; from 0 to 3, in steps of 0.05.
 
-### 7.19 Foe level (`FOE_LEVEL`)
+### 7.20 Foe level (`FOE_LEVEL`)
 
 Disregard beyond which one is a foe, times 0.5 plus half the beholder's empathy and sociability together.
 
 Default **0.5**; from 0 to 1, in steps of 0.05.
 
-#### 7.19.1 Victory regard (`VICTORY_REGARD`)
+#### 7.20.1 Victory regard (`VICTORY_REGARD`)
 
 How much a victory seen moves regard for the winner: up for a friend, down for a foe.
 
 Default **0.3**; from 0 to 1, in steps of 0.05.
 
-#### 7.19.2 Foe defeat regard (`FOE_DEFEAT_REGARD`)
+#### 7.20.2 Foe defeat regard (`FOE_DEFEAT_REGARD`)
 
 How much more regard a victory over one's foe wins.
 
 Default **0.3**; from 0 to 1, in steps of 0.05.
 
-#### 7.19.3 Coward disregard (`COWARD_DISREGARD`)
+#### 7.20.3 Coward disregard (`COWARD_DISREGARD`)
 
 How much fleeing a fight costs one's regard with those who hold it a friend or foe.
 
 Default **0.3**; from 0 to 1, in steps of 0.05.
 
-### 7.20 Culture regard (`CULTURE_REGARD`)
+### 7.21 Culture regard (`CULTURE_REGARD`)
 
 Esteem for a deed its kind values, seen done by one of its kind (twice from family, or a predator's pack): victories for predators, crafting and building for omnivores, sowing and fruit picked without uprooting for grazers.
 
 Default **0.3**; from 0 to 1, in steps of 0.05.
 
-#### 7.20.1 Give level (`GIVE_LEVEL`)
+#### 7.21.1 Give level (`GIVE_LEVEL`)
 
 Share of its own kind, ranked by empathy or sociability, that never gives a friend a possession: 0.75 leaves the top quarter giving; 1 for none.
 
 Default **0.75**; from 0 to 1, in steps of 0.05.
 
-#### 7.20.2 Give joy (`GIVE_JOY`)
+#### 7.21.2 Give joy (`GIVE_JOY`)
 
 Pleasure of giving a friend a possession, times 0.5 plus empathy or sociability.
 
 Default **0.5**; from 0 to 3, in steps of 0.05.
 
-#### 7.20.3 Take level (`TAKE_LEVEL`)
+#### 7.21.3 Take level (`TAKE_LEVEL`)
 
 Share of its own kind, ranked by aggression or dominance, that never demands or steals a possession: 0.75 leaves the top quarter taking; 1 for none.
 
 Default **0.75**; from 0 to 1, in steps of 0.05.
 
-#### 7.20.4 Theft disregard (`THEFT_DISREGARD`)
+#### 7.21.4 Theft disregard (`THEFT_DISREGARD`)
 
 How much a theft seen costs the thief's regard, twice with its victim; regard instead with those who hold the victim a foe.
 
 Default **0.5**; from 0 to 1, in steps of 0.05.
 
-### 7.21 Trade misjudgement (`TRADE_MISJUDGE`)
+### 7.22 Trade misjudgement (`TRADE_MISJUDGE`)
 
 How far an animal may misjudge a good's worth in a deal, either way, times one less its intelligence.
 
 Default **0.2**; from 0 to 2, in steps of 0.05.
 
-#### 7.21.1 Trade regard (`TRADE_REGARD`)
+#### 7.22.1 Trade regard (`TRADE_REGARD`)
 
 How much of a deed's weight an accepted offer has on regard, a kindness both ways.
 
 Default **0.5**; from 0 to 1, in steps of 0.05.
 
-#### 7.21.2 Trade joy (`TRADE_JOY`)
+#### 7.22.2 Trade joy (`TRADE_JOY`)
 
 Pleasure a side takes in a deal it truly gained by; one that truly lost thinks as much the worse of the other.
 
 Default **0.5**; from 0 to 3, in steps of 0.05.
 
-#### 7.21.3 Trade wariness (`TRADE_WARINESS`)
+#### 7.22.3 Trade wariness (`TRADE_WARINESS`)
 
 How much worse an offer seems from one its owner thinks ill of, times that ill regard.
 
 Default **0.5**; from 0 to 2, in steps of 0.05.
 
-### 7.22 Leader followers (`LEADER_FOLLOWERS`)
+### 7.23 Leader followers (`LEADER_FOLLOWERS`)
 
 Members of its colour group who must hold one as their standout for it to be recognised a leader, kept until fewer than half as many do; 0 for no leaders.
 
 Default **5**; from 0 to 100, in steps of 1.
 
-### 7.23 Leader deference (`LEADER_DEFERENCE`)
+### 7.24 Leader deference (`LEADER_DEFERENCE`)
 
 How much kinder a follower judges its leader's offers; it yields to its leader's demands without a fight.
 
 Default **0.5**; from 0 to 2, in steps of 0.05.
 
-#### 7.23.1 Leader joy (`LEADER_JOY`)
+#### 7.24.1 Leader joy (`LEADER_JOY`)
 
 Pleasure a leader takes in its followers in sight, in full with as many as Leader followers.
 
 Default **0.3**; from 0 to 3, in steps of 0.05.
 
-#### 7.23.2 Leader allure (`LEADER_ALLURE`)
+#### 7.24.2 Leader allure (`LEADER_ALLURE`)
 
 How much more joy breeding with a leader gives its partner; a leader is courted first by any that may breed with it.
 
 Default **0.5**; from 0 to 3, in steps of 0.05.
 
-#### 7.23.3 Land ambition (`LAND_AMBITION`)
+#### 7.24.3 Land ambition (`LAND_AMBITION`)
 
 Pull to stay in the land of a group it dislikes, and unease in the land of one it likes unless welcome there, times its regard for that group.
 
 Default **0.1**; from 0 to 1, in steps of 0.01.
 
-#### 7.23.4 Welcome level (`WELCOME_LEVEL`)
+#### 7.24.4 Welcome level (`WELCOME_LEVEL`)
 
 How well a group's members must think of a colour group, on average, to welcome it in their land as guests who neither trespass nor contest it; above 1 for none.
 
 Default **0.5**; from 0 to 1.5, in steps of 0.05.
 
-#### 7.23.5 Leader rally (`LEADER_RALLY`)
+#### 7.24.5 Leader rally (`LEADER_RALLY`)
 
 Share of the chance to panic or break that a follower in sight of its leader overcomes.
 
 Default **0.5**; from 0 to 1, in steps of 0.05.
 
-### 7.24 Rank bonus (`RANK_BONUS`)
+### 7.25 Rank bonus (`RANK_BONUS`)
 
 Share more of each leader's bonuses (deference, rally, joy in followers, allure) for each rank above chief.
 
 Default **0.25**; from 0 to 2, in steps of 0.05.
 
-#### 7.24.1 Title regard (`TITLE_REGARD`)
+#### 7.25.1 Title regard (`TITLE_REGARD`)
 
 Esteem a titled leader wins each turn from each who sees it and holds it no foe, times its rank.
 
 Default **0.01**; from 0 to 0.2, in steps of 0.005.
 
-### 7.25 Warrior mark (`WARRIOR_MARK`)
+### 7.26 Warrior mark (`WARRIOR_MARK`)
 
 Regard the mark of the warrior, earned by defeating an omnivore, draws those who see it toward.
 
 Default **0.5**; from 0 to 1, in steps of 0.05.
 
-#### 7.25.1 Prestige mark (`PRESTIGE_MARK`)
+#### 7.26.1 Prestige mark (`PRESTIGE_MARK`)
 
 Regard the mark of prestige, earned by defeating a predator, draws those who see it toward.
 
 Default **1**; from 0 to 1, in steps of 0.05.
 
-#### 7.25.2 Mark regard (`MARK_REGARD`)
+#### 7.26.2 Mark regard (`MARK_REGARD`)
 
 How much of a deed's weight each turn's sight of a mark has on regard, or, for a foe, on how dangerous it holds the bearer.
 
 Default **0.05**; from 0 to 1, in steps of 0.01.
 
-#### 7.25.3 Mark dread (`MARK_DREAD`)
+#### 7.26.3 Mark dread (`MARK_DREAD`)
 
 Unease of a foe at the sight of a mark, times its worth and a half plus its fear.
 
 Default **0.3**; from 0 to 3, in steps of 0.05.
 
-### 7.26 Land size (`LAND_SIZE`)
+### 7.27 Land size (`LAND_SIZE`)
 
 Members a colour group needs to claim land; 0 for no lands.
 
 Default **12**; from 0 to 500, in steps of 1.
 
-#### 7.26.1 Land square (`LAND_PATCH`)
+#### 7.27.1 Land square (`LAND_PATCH`)
 
 Cells on a side of a square of land; a change begins all claims again.
 
 Default **8**; from 2 to 64, in steps of 1.
 
-#### 7.26.2 Land hold (`LAND_HOLD`)
+#### 7.27.2 Land hold (`LAND_HOLD`)
 
 Members of a group standing in a square that claim it.
 
 Default **3**; from 1 to 50, in steps of 1.
 
-#### 7.26.3 Land memory (`LAND_MEMORY`)
+#### 7.27.3 Land memory (`LAND_MEMORY`)
 
 Counts a claim lasts with none of its group in the square, or while clearly losing the war for it.
 
 Default **5**; from 1 to 100, in steps of 1.
 
-#### 7.26.4 Land count (`LAND_TURNS`)
+#### 7.27.4 Land count (`LAND_TURNS`)
 
 Turns between counts of the groups and their lands.
 
 Default **24**; from 1 to 1000, in steps of 1.
 
-#### 7.26.5 Land healing (`LAND_HEALING`)
+#### 7.27.5 Land healing (`LAND_HEALING`)
 
 How much faster an animal heals in its own land: 1 for twice as fast.
 
 Default **1**; from 0 to 5, in steps of 0.1.
 
-#### 7.26.6 Land defence (`LAND_DEFENCE`)
+#### 7.27.6 Land defence (`LAND_DEFENCE`)
 
 Share of a blow from an outsider kept off one in its own land.
 
 Default **0.25**; from 0 to 1, in steps of 0.05.
 
-#### 7.26.7 Land herd (`LAND_HERD`)
+#### 7.27.7 Land herd (`LAND_HERD`)
 
 How much more its herd counts in its own land, for safety and the pack's blows: 1 for twice.
 
 Default **0.5**; from 0 to 3, in steps of 0.05.
 
-#### 7.26.8 Land comfort (`LAND_COMFORT`)
+#### 7.27.8 Land comfort (`LAND_COMFORT`)
 
 Ease in its own land, and unease as much away from it while its group holds land.
 
 Default **0.1**; from 0 to 2, in steps of 0.05.
 
-#### 7.26.9 Trespass regard (`TRESPASS_REGARD`)
+#### 7.27.9 Trespass regard (`TRESPASS_REGARD`)
 
 How much of a deed's weight a trespasser's first turn in a land costs it with those of the land who see it.
 
 Default **0.02**; from 0 to 1, in steps of 0.01.
 
-#### 7.26.10 Trespass growth (`TRESPASS_GROWTH`)
+#### 7.27.10 Trespass growth (`TRESPASS_GROWTH`)
 
 How much that grows, of itself, each turn the trespasser stays, to a whole deed.
 
 Default **0.25**; from 0 to 2, in steps of 0.05.
 
-#### 7.26.11 Land rally (`LAND_RALLY`)
+#### 7.27.11 Land rally (`LAND_RALLY`)
 
 Share of the chance to panic, break or be overcome by primal fear that defending its own land overcomes, a born coward's too.
 
 Default **0.75**; from 0 to 1, in steps of 0.05.
 
-#### 7.26.12 War enmity (`WAR_ENMITY`)
+#### 7.27.12 War enmity (`WAR_ENMITY`)
 
 How much of a deed's weight each count of a war sets each member against its enemy's colour.
 
 Default **0.1**; from 0 to 1, in steps of 0.05.
 
-#### 7.26.13 War kills (`WAR_KILLS`)
+#### 7.27.13 War kills (`WAR_KILLS`)
 
 Deaths at each other's hands before a war counts as clearly won (two thirds of them or more) or lost (a third or less).
 
 Default **3**; from 1 to 100, in steps of 1.
 
-#### 7.26.14 War morale (`WAR_MORALE`)
+#### 7.27.14 War morale (`WAR_MORALE`)
 
 Gladness of a war clearly being won, and unease as much of one clearly being lost, each turn.
 
 Default **0.1**; from 0 to 2, in steps of 0.05.
 
-#### 7.26.15 War nerve (`WAR_NERVE`)
+#### 7.27.15 War nerve (`WAR_NERVE`)
 
 How much less likely to panic a war clearly being won leaves its side, and more the losing side.
 
 Default **0.25**; from 0 to 1, in steps of 0.05.
 
-#### 7.26.16 War fade (`WAR_FADE`)
+#### 7.27.16 War fade (`WAR_FADE`)
 
 Share of a war's kills forgotten at each count of the lands, so recent deaths decide it and an old defeat is in time forgiven.
 
 Default **0.1**; from 0 to 1, in steps of 0.01.
 
-### 7.27 Call payoff (`CALL_PAYOFF`)
+### 7.28 Call payoff (`CALL_PAYOFF`)
 
 Joy a caller takes in each of its kind that heard its call and then got away from a hunter or, hungry, ate; times a half and its empathy or sociability.
 
 Default **0**; from 0 to 2, in steps of 0.05.
 
-#### 7.27.1 Communication joy (`COMMUNICATION_JOY`)
+#### 7.28.1 Communication joy (`COMMUNICATION_JOY`)
 
 Share of its own gain each takes when one answers a call it heard, within a day, with a deed good for both: the caller glad to be understood, the listener to understand.
 
 Default **0.5**; from 0 to 2, in steps of 0.05.
 
-#### 7.27.2 Heeded regard (`HEEDED_REGARD`)
+#### 7.28.2 Heeded regard (`HEEDED_REGARD`)
 
 How much better one helped so thinks of its caller, of a deed's weight.
 
 Default **0**; from 0 to 1, in steps of 0.01.
 
-### 7.28 Standing joy (`STANDING_JOY`)
+### 7.29 Standing joy (`STANDING_JOY`)
 
 Pleasure of being held a friend by those about it, in full with three or more, times a half and its dominance.
 
 Default **0.2**; from 0 to 2, in steps of 0.05.
 
-#### 7.28.1 Follow comfort (`FOLLOW_COMFORT`)
+#### 7.29.1 Follow comfort (`FOLLOW_COMFORT`)
 
 Ease near the member of its own colour group in sight it esteems most, times that esteem and closeness, and a half plus its trust and sociability together.
 
 Default **0.2**; from 0 to 2, in steps of 0.05.
 
-#### 7.28.2 Weapon force (`WEAPON_FORCE`)
+#### 7.29.2 Weapon force (`WEAPON_FORCE`)
 
 Times as hard an axe or club strikes.
 
 Default **2**; from 1 to 5, in steps of 0.1.
 
-#### 7.28.3 Stone force (`STONE_FORCE`)
+#### 7.29.3 Stone force (`STONE_FORCE`)
 
 Times as hard a wielded stone strikes.
 
 Default **1.5**; from 1 to 5, in steps of 0.1.
 
-#### 7.28.4 Armour force (`ARMOUR_FORCE`)
+#### 7.29.4 Armour force (`ARMOUR_FORCE`)
 
 Times its armour that worn armour counts for.
 
 Default **2**; from 1 to 5, in steps of 0.1.
 
-#### 7.28.5 Dig chance (`DIG_CHANCE`)
+#### 7.29.5 Dig chance (`DIG_CHANCE`)
 
 Chance that digging finds a stone.
 
 Default **0.1**; from 0 to 1, in steps of 0.05.
 
-### 7.29 Gear uses (`GEAR_USES`)
+### 7.30 Gear uses (`GEAR_USES`)
 
 Uses before a tool or armour of bone or wood breaks.
 
 Default **7**; from 1 to 20, in steps of 1.
 
-#### 7.29.1 Fire life (`FIRE_TURNS`)
+#### 7.30.1 Fire life (`FIRE_TURNS`)
 
 Turns a fire burns, and each wood fed to it adds.
 
 Default **24**; from 1 to 200, in steps of 1.
 
-#### 7.29.2 Fire panic (`FIRE_PANIC`)
+#### 7.30.2 Fire panic (`FIRE_PANIC`)
 
 Chance an animal panics, seeing a fire not its own or its herd's.
 
 Default **0.25**; from 0 to 1, in steps of 0.05.
 
-#### 7.29.3 Fire joy (`FIRE_JOY`)
+#### 7.30.3 Fire joy (`FIRE_JOY`)
 
 The sense of accomplishment in lighting a fire, beside the comfort of it.
 
 Default **2**; from 0 to 5, in steps of 0.1.
 
-#### 7.29.4 Fire comfort (`FIRE_COMFORT`)
+#### 7.30.4 Fire comfort (`FIRE_COMFORT`)
 
 Comfort in sight of a fire that is its own or its herd's.
 
 Default **0.3**; from 0 to 2, in steps of 0.05.
 
-#### 7.29.5 Cooked food (`COOKED_FOOD`)
+#### 7.30.5 Cooked food (`COOKED_FOOD`)
 
 Times as nourishing as raw.
 
 Default **2**; from 1 to 5, in steps of 0.1.
 
-#### 7.29.6 Carried spoilage (`CARRIED_SPOIL`)
+#### 7.30.6 Carried spoilage (`CARRIED_SPOIL`)
 
 The chance each turn a raw portion carried goes off; cooked food keeps.
 
 Default **0.02**; from 0 to 0.5, in steps of 0.005.
 
-### 7.30 Bow uses (`BOW_USES`)
+### 7.31 Bow uses (`BOW_USES`)
 
 Shots a bow makes before it is spent.
 
 Default **20**; from 1 to 100, in steps of 1.
 
-### 7.31 Fire feeding joy (`FIRE_FEED_JOY`)
+### 7.32 Fire feeding joy (`FIRE_FEED_JOY`)
 
 The satisfaction of feeding a fire, so that it burns on.
 
 Default **1**; from 0 to 5, in steps of 0.1.
 
-### 7.32 Seed food (`SEED_FOOD`)
+### 7.33 Seed food (`SEED_FOOD`)
 
 How much of a fruit's portion a seed feeds.
 
 Default **0.1**; from 0 to 1, in steps of 0.05.
 
-#### 7.32.1 Planting joy (`PLANTING_JOY`)
+#### 7.33.1 Planting joy (`PLANTING_JOY`)
 
 The gladness of planting a seed; more if curious.
 
 Default **1**; from 0 to 5, in steps of 0.1.
 
-### 7.33 Harvest joy (`HARVEST_JOY`)
+### 7.34 Harvest joy (`HARVEST_JOY`)
 
 The gladness of picking a fruit from a plant without uprooting it.
 
 Default **0.1**; from 0 to 5, in steps of 0.05.
 
-#### 7.33.1 Regrowth joy (`REGROWTH_JOY`)
+#### 7.34.1 Regrowth joy (`REGROWTH_JOY`)
 
 The gladness of seeing a plant it last picked bear fruit again.
 
 Default **0.5**; from 0 to 5, in steps of 0.05.
 
-### 7.34 Arable fruit (`ARABLE_FRUIT`)
+### 7.35 Arable fruit (`ARABLE_FRUIT`)
 
 Times as much fruit a plant on worked land bears each morning.
 
 Default **2**; from 1 to 5, in steps of 1.
 
-#### 7.34.1 Fertilized fruit (`FERTILIZED_FRUIT`)
+#### 7.35.1 Fertilized fruit (`FERTILIZED_FRUIT`)
 
 Times as much again on worked land fed bone; the bone is spent.
 
 Default **2**; from 1 to 5, in steps of 1.
 
-### 7.35 Fallow years (`FALLOW_YEARS`)
+### 7.36 Fallow years (`FALLOW_YEARS`)
 
 Years worked land lies untended before it goes wild, its bone with it; 0, never.
 
 Default **1**; from 0 to 10, in steps of 0.25.
 
-### 7.36 Cooked delight (`COOKED_JOY`)
+### 7.37 Cooked delight (`COOKED_JOY`)
 
 Pleasure of eating a cooked portion, times a half and its taste for cooked food.
 
 Default **1**; from 0 to 5, in steps of 0.1.
 
-#### 7.36.1 Raw distaste (`RAW_DISTASTE`)
+#### 7.37.1 Raw distaste (`RAW_DISTASTE`)
 
 Letdown of eating a raw portion once it knows the taste of cooked, times that taste.
 
 Default **0.5**; from 0 to 5, in steps of 0.1.
 
-#### 7.36.2 Cooking joy (`COOK_JOY`)
+#### 7.37.2 Cooking joy (`COOK_JOY`)
 
 Pleasure of cooking a portion, times a half and its taste for cooked food.
 
 Default **1**; from 0 to 5, in steps of 0.1.
 
-#### 7.36.3 Smell reach (`SMELL_REACH`)
+#### 7.37.3 Smell reach (`SMELL_REACH`)
 
 How many times as far as it sees an animal smells cooked food and a fire cooked on.
 
 Default **3**; from 1 to 4, in steps of 0.1.
 
-### 7.37 Taste joy (`TASTE_JOY`)
+### 7.38 Taste joy (`TASTE_JOY`)
 
 How tasty a cooked portion is, and how untasty a raw one from a pile or carried, times its appetite.
 
 Default **1**; from 0 to 5, in steps of 0.1.
 
-### 7.38 Fresh kill turns (`FRESH_KILL_TURNS`)
+### 7.39 Fresh kill turns (`FRESH_KILL_TURNS`)
 
 Turns after the one it died in that a body is a fresh kill.
 
 Default **9**; from 0 to 30, in steps of 1.
 
-#### 7.38.1 Fresh kill meals (`FRESH_KILL_MEALS`)
+#### 7.39.1 Fresh kill meals (`FRESH_KILL_MEALS`)
 
 Times the kill meal a predator or omnivore gets eating a fresh kill.
 
 Default **3**; from 0 to 10, in steps of 0.5.
 
-### 7.39 Kind difference (`KIND_DIFFERENCE`)
+### 7.40 Kind difference (`KIND_DIFFERENCE`)
 
 Predators whose rings differ no more are one kind, to hunt and breed with.
 
 Default **0.25**; from 0 to 1, in steps of 0.01.
 
-### 7.40 Flee range (`FLEE_RANGE`)
+### 7.41 Flee range (`FLEE_RANGE`)
 
 A hunter is only worth fleeing within this many steps, unless alarmed.
 
 Default **3**; from 0 to 12, in steps of 1.
 
-#### 7.40.1 Herd vigilance (`HERD_VIGILANCE`)
+#### 7.41.1 Herd vigilance (`HERD_VIGILANCE`)
 
 How far a close herd shrinks that range.
 
 Default **0.5**; from 0 to 1, in steps of 0.05.
 
-### 7.41 Prey switching (`SWITCH_SHARE`)
+### 7.42 Prey switching (`SWITCH_SHARE`)
 
 A prey is hunted while it is at least this share of the food.
 
 Default **0.5**; from 0 to 1, in steps of 0.05.
 
-#### 7.41.1 Omnivores' last resort (`OMNIVORE_PREDATOR_FOOD`)
+#### 7.42.1 Omnivores' last resort (`OMNIVORE_PREDATOR_FOOD`)
 
 An omnivore hunts predators only while no more grazers, plants and grassy cells than this are near.
 

@@ -1009,6 +1009,11 @@ FALLOW_YEARS = 1.0
 # Each marrow meal edges a grazer MARROW_LEAN toward meat; at the full of it, it gives in: an omnivore, in its genes
 # too, so its young are born omnivores.
 FERTILIZING_JOY, MARROW_LEAN = 1.0, 0.05
+# Cooked food (the user's rules): a grazer eating cooked meat, or a predator cooked fruit, leans toward omnivore as a
+# grazer does from marrow, COOKED_LEAN as much a meal. A predator cannot eat raw fruit, but cooked it feeds it
+# PREDATOR_COOKED_FRUIT of what it feeds an omnivore. As the C++ version's.
+COOKED_LEAN = 0.5
+PREDATOR_COOKED_FRUIT = 0.5
 # Clothing, as the C++ version's: with a bone or stone axe, one skins a fresh body for the better of its own hide and any it
 # wore, if better than its own (SKINNING_JOY). A hide keeps out HIDE_WARMTH steps of cold and adds HIDE_ARMOUR_SHARE of its
 # body's armour. An omnivore's hide is a warrior's garb, a predator's a mark of prestige: each turn all who see it move
@@ -5247,6 +5252,8 @@ class Simulation:
             available.add("drop_fruit")
         cooked_fruit = self._nearest_pile(agent, reach, self.cooked_fruit_piles) if self._any_piles else None
         eat_fruit = cooked_fruit if seen(cooked_fruit) else fruit_pile or cooked_fruit
+        if agent.species == "predator":
+            eat_fruit = cooked_fruit  # raw fruit it cannot eat (PREDATOR_COOKED_FRUIT)
         beside_fire = fire is not None and abs(fire[0] - agent.x) + abs(fire[1] - agent.y) <= 1
         if agent.any_tool and agent.carried_stone + agent.carried_wood and (agent.x, agent.y) not in self.shelters and not self.sea(agent.x, agent.y):
             available.add("construct")
@@ -5325,9 +5332,10 @@ class Simulation:
             available.add("feed_fire")
         if beside_fire and self._food_to_cook(agent, kill, flora, meat_pile, fruit_pile):
             available.add("cook")
-        if (eat_meat and MEAT_PORTION * agent.digestion > 0) or (eat_fruit and FRUIT_PORTION * agent.browsing > 0):
+        if (eat_meat and MEAT_PORTION * agent.digestion > 0) or (eat_fruit and FRUIT_PORTION * self.fruit_share(agent, True) > 0):
             available.add("eat_pile")
-        if (agent.carried_meat + agent.cooked_meat > 0 and MEAT_PORTION * agent.digestion > 0) or (agent.carried_fruit + agent.cooked_fruit > 0 and FRUIT_PORTION * agent.browsing > 0):
+        if ((agent.carried_meat + agent.cooked_meat > 0 and MEAT_PORTION * agent.digestion > 0) or (agent.carried_fruit + agent.cooked_fruit > 0 and FRUIT_PORTION * agent.browsing > 0)
+                or (agent.cooked_fruit > 0 and FRUIT_PORTION * self.fruit_share(agent, True) > 0)):
             available.add("eat_carried")
         fletch_for = None  # arrows: for its own bow, else a bow beside it, with a wood at hand
         if known("make_bow"):
@@ -7595,14 +7603,15 @@ class Simulation:
     def _eat_pile(self, agent: Bitzkey, situation: dict) -> None:
         """A portion of whichever pile in sight would fill it more, going to it first."""
         meat = MEAT_PORTION * agent.digestion if situation["eat_meat"] else 0.0
-        fruit = FRUIT_PORTION * agent.browsing if situation["eat_fruit"] else 0.0
+        fruit = FRUIT_PORTION * self.fruit_share(agent, True) if situation["eat_fruit"] else 0.0
         eats_meat = meat >= fruit
         pile = situation["eat_meat"] if eats_meat else situation["eat_fruit"]
         piles = self.cooked_meat_piles if eats_meat else self.cooked_fruit_piles  # the cooked first
         if piles.get(pile, 0) <= 0:
             piles = self.meat_piles if eats_meat else self.fruit_piles
         self._move_toward(agent, *pile)
-        if abs(pile[0] - agent.x) + abs(pile[1] - agent.y) > 1 or piles.get(pile, 0) <= 0:
+        if (abs(pile[0] - agent.x) + abs(pile[1] - agent.y) > 1 or piles.get(pile, 0) <= 0
+                or (piles is self.fruit_piles and self.fruit_share(agent, False) <= 0)):
             agent.last_action = "sought a pile"
             return
         self._add_to_pile(piles, pile, -1)
@@ -7611,6 +7620,8 @@ class Simulation:
             self._keep_seed(agent)
         agent.nourish((meat if eats_meat else fruit) * (COOKED_FOOD if cooked else 1.0), meat=eats_meat)
         self._taste(agent, cooked)
+        if piles is (self.cooked_fruit_piles if agent.species == "predator" else self.cooked_meat_piles):
+            self._lean_to_meat(agent, MARROW_LEAN * max(0.0, COOKED_LEAN))  # see COOKED_LEAN
         agent.last_action = "ate from a pile"
 
     @staticmethod
@@ -7644,20 +7655,26 @@ class Simulation:
 
     def _eat_carried(self, agent: Bitzkey) -> None:
         """A portion of whichever it carries would fill it more."""
-        has_meat, has_fruit = agent.carried_meat + agent.cooked_meat > 0, agent.carried_fruit + agent.cooked_fruit > 0
+        has_meat = agent.carried_meat + agent.cooked_meat > 0
+        has_fruit = (agent.carried_fruit + agent.cooked_fruit > 0 if self.fruit_share(agent, False) > 0
+                     else agent.cooked_fruit > 0 and self.fruit_share(agent, True) > 0)
         if not has_meat and not has_fruit:  # gone since it chose: spoilt, or passed on
             agent.last_action = "found nothing carried"
             return
         meat = MEAT_PORTION * agent.digestion * (COOKED_FOOD if agent.cooked_meat > 0 else 1.0) if has_meat else 0.0
-        fruit = FRUIT_PORTION * agent.browsing * (COOKED_FOOD if agent.cooked_fruit > 0 else 1.0) if has_fruit else 0.0
+        fruit = FRUIT_PORTION * self.fruit_share(agent, agent.cooked_fruit > 0) * (COOKED_FOOD if agent.cooked_fruit > 0 else 1.0) if has_fruit else 0.0
         eats_meat = has_meat and (not has_fruit or meat >= fruit)
         self._taste(agent, (agent.cooked_meat if eats_meat else agent.cooked_fruit) > 0)
         if eats_meat:  # the cooked first
             if agent.cooked_meat > 0:
+                if agent.species == "grazer":
+                    self._lean_to_meat(agent, MARROW_LEAN * max(0.0, COOKED_LEAN))  # see COOKED_LEAN
                 agent.cooked_meat -= 1
             else:
                 agent.carried_meat -= 1
         elif agent.cooked_fruit > 0:
+            if agent.species == "predator":
+                self._lean_to_meat(agent, MARROW_LEAN * max(0.0, COOKED_LEAN))  # see COOKED_LEAN
             agent.cooked_fruit -= 1
         else:
             agent.carried_fruit -= 1
@@ -7965,9 +7982,23 @@ class Simulation:
             return
         agent.nourish(MEAT_PORTION * agent.digestion, True)
         agent.last_action = "ate marrow"
-        if agent.species != "grazer" or MARROW_LEAN <= 0:
+        self._lean_to_meat(agent, MARROW_LEAN)
+
+    @staticmethod
+    def fruit_share(agent: Bitzkey, cooked: bool) -> float:
+        """The share of fruit's food it gets (PREDATOR_COOKED_FRUIT). As the C++ version's."""
+        if agent.browsing > 0:
+            return agent.browsing
+        if not cooked or agent.species != "predator":
+            return 0.0
+        return BROWSING["omnivore"] * max(0.0, PREDATOR_COOKED_FRUIT)
+
+    @staticmethod
+    def _lean_to_meat(agent: Bitzkey, lean: float) -> None:
+        """A grazer's or predator's lean toward omnivore; at the full of it, one (MARROW_LEAN, COOKED_LEAN). As the C++ version's."""
+        if agent.species not in ("grazer", "predator") or lean <= 0:
             return
-        agent.meat_lean = min(1.0, agent.meat_lean + MARROW_LEAN)
+        agent.meat_lean = min(1.0, agent.meat_lean + lean)
         if agent.meat_lean < 1.0 - 1e-9:
             return
         shift = 32  # the species trait is the ring's first; the species is it mod 4

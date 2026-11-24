@@ -4967,6 +4967,35 @@ class MaterialTests(unittest.TestCase):
         simulation._eat_marrow(grazer)
         self.assertEqual(grazer.meat_lean, 0.0)  # only grazers lean
 
+    def test_a_grazer_eating_cooked_meat_leans_toward_meat_half_as_much_as_from_marrow(self):
+        sm = simulation_module
+        simulation = Simulation(10, 40, 0, seed=1)
+        grazer = simulation._add_agent(encode_dna("grazer", size=3, carrion=7), 2, 20)
+        simulation._index_cells()
+        grazer.cooked_meat = 2
+        simulation._eat_carried(grazer)
+        self.assertEqual(grazer.cooked_meat, 1)
+        self.assertAlmostEqual(grazer.meat_lean, sm.MARROW_LEAN * sm.COOKED_LEAN)
+        grazer.meat_lean = 1.0 - sm.MARROW_LEAN * sm.COOKED_LEAN / 2
+        simulation._eat_carried(grazer)
+        self.assertEqual((grazer.species, grazer.meat_lean), ("omnivore", 0.0))
+
+    def test_a_predator_may_eat_cooked_fruit_not_raw_fed_a_share_and_leans_toward_omnivore(self):
+        sm = simulation_module
+        simulation = Simulation(10, 40, 0, seed=1)
+        predator = simulation._add_agent(encode_dna("predator"), 2, 20)
+        simulation._index_cells()
+        self.assertEqual(Simulation.fruit_share(predator, False), 0.0)
+        self.assertAlmostEqual(Simulation.fruit_share(predator, True), sm.BROWSING["omnivore"] * sm.PREDATOR_COOKED_FRUIT)
+        predator.carried_fruit, predator.cooked_fruit, predator.hunger = 1, 2, 50
+        simulation._eat_carried(predator)
+        self.assertEqual((predator.cooked_fruit, predator.carried_fruit), (1, 1))
+        self.assertLess(predator.hunger, 50)
+        self.assertAlmostEqual(predator.meat_lean, sm.MARROW_LEAN * sm.COOKED_LEAN)
+        predator.meat_lean = 1.0 - sm.MARROW_LEAN * sm.COOKED_LEAN / 2
+        simulation._eat_carried(predator)
+        self.assertEqual(predator.species, "omnivore")
+
     def test_a_child_hearing_its_parent_call_learns_the_call_and_what_the_parent_did_a_strangers_not(self):
         simulation = Simulation(30, 30, 0, seed=1)
         parent = simulation._add_agent(encode_dna("grazer"), 5, 5)
