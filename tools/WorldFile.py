@@ -258,6 +258,9 @@ def goal_record(agent) -> dict:
                      agent.goals_formed, agent.goals_reached, agent.goals_abandoned, agent.goals_switched, agent.goals_dropped,
                      agent.goal_reach_turns, int(agent.has_needs)],
             "needs": needs, "things": things, "deeds": deeds, "ones": ones, "desire": desire_record(agent), "ingenuity": ingenuity_record(agent), "project": project_record(agent),
+            "vendetta": {"enemies": [[e[0], float(e[1]), float(e[2]), e[3], e[4], e[5], int(e[6])] for e in agent.enemies],
+                         "head": [int(agent.goal_vendetta), agent.humbled_until, agent.vendettas_formed, agent.vendettas_settled, agent.vendettas_ended,
+                                  agent.challenges_made, agent.challenges_won, agent.challenges_faced, agent.challenges_held]},
             "asking": [int(agent.stuck), agent.stuck_goal_turn, agent.help_call_turn, agent.stuck_turns, agent.free_turns, agent.stuck_calls,
                        agent.free_calls, agent.unstuck_after_call, agent.unstuck_silent, agent.helped, agent.helping, agent.helped_turn, agent.help_taught_turn]}
 
@@ -513,6 +516,13 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
             for thing, x, y, seen in d.get("places", []):
                 if 0 <= int(thing) < 21:
                     agent.place_x[int(thing)], agent.place_y[int(thing)], agent.place_turn[int(thing)] = int(x), int(y), int(seen)
+        if "vendetta" in g:  # see VENDETTA
+            v = g["vendetta"]
+            agent.enemies = [[int(e[0]), float(e[1]), float(e[2]), int(e[3]), int(e[4]), int(e[5]), bool(e[6])] for e in v["enemies"]][:4]
+            h = [int(x) for x in v["head"]]
+            agent.goal_vendetta, agent.humbled_until = bool(h[0]), h[1]
+            (agent.vendettas_formed, agent.vendettas_settled, agent.vendettas_ended, agent.challenges_made, agent.challenges_won,
+             agent.challenges_faced, agent.challenges_held) = h[2:9]
         if "project" in g:  # see PROJECT_PULL
             p = g["project"]
             agent.aim_value, agent.aim_last = [float(v) for v in p["values"]], [float(v) for v in p["last"]]
@@ -571,7 +581,7 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
                     agent.opens.append([node(source), node(to), float(strength), bool(used)])
             steps = [node(step) for step in i["steps"]]
             agent.goal_steps = [] if any(step < 0 for step in steps) else steps
-        if not agent.goal_desire and not agent.goal_project and not agent.goal_instructed and agent.goal_kind != 0 and not 0 <= agent.goal_need < 6:
+        if not agent.goal_desire and not agent.goal_project and not agent.goal_instructed and not agent.goal_vendetta and agent.goal_kind != 0 and not 0 <= agent.goal_need < 6:
             agent.goal_kind = 0
         if agent.goal_kind == 0:
             agent.goal_target = agent.goal_need = -1

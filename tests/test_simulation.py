@@ -1723,7 +1723,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(OUTPUTS[-22:-18], ("attend", "ignore", "point_one", "point_self"))  # and pointing at one animal, or itself
         self.assertEqual(OUTPUTS[-1], "sixth_call_5")  # then a second word's sounds
         self.assertEqual(len(OUTPUTS), POINT + len(OUTSIDE_SENSES) + 4 + 18)
-        self.assertEqual(SENSES[-232:-226], ("pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed"))
+        self.assertEqual(SENSES[-235:-229], ("pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed"))
         dull = self.simulation._add_agent(encode_dna("grazer", sociability=1, intellect=1), 1, 1)
         keen = self.simulation._add_agent(encode_dna("grazer", sociability=7, intellect=7), 8, 8)
         self.assertGreater(Simulation.willing_to_learn(keen), Simulation.willing_to_learn(dull))
@@ -5068,6 +5068,44 @@ class MaterialTests(unittest.TestCase):
             self.assertEqual((leader.confided, follower.confided_to, follower.project_aim, follower.project_confided, follower.project_from),
                              (1, 1, sm.SELF_GEAR, True, leader.identifier))
             self.assertGreater(follower.aim_value[sm.SELF_GEAR], 0.0)
+
+    def test_vendetta_struck_makes_an_enemy_sought_and_a_challenge_is_a_duel_the_loser_shamed(self):
+        sm = simulation_module
+        world = Simulation(width=80, height=80, population=0, seed=3)
+        victim = world._add_agent(encode_dna("grazer", aggression=7, size=7), 30, 30)
+        striker = world._add_agent(encode_dna("grazer", size=0), 31, 30)
+        world._index_cells()
+        world._attack(striker, victim)
+        self.assertTrue(victim.alive)
+        self.assertEqual([e[0] for e in victim.enemies], [striker.identifier])
+        self.assertAlmostEqual(victim.enemies[0][1], sm.ENEMY_STRUCK)
+        victim.enemies[0][1] = 1.0
+        victim.relief_deeds = [[0.0] * len(ACTIONS) for _ in range(6)]
+        victim.relief_things = [[0.0] * 21 for _ in range(6)]
+        victim.want_deeds, victim.want_things, victim.relief_ones = [0.0] * len(ACTIONS), [0.0] * 21, []
+        victim.goal_kind = sm.NO_GOAL
+        senses, _, _ = world._sense(victim)
+        self.assertGreater(victim.enemies[0][2], 0.0)
+        self.assertEqual((victim.goal_kind, victim.goal_target, victim.goal_vendetta, victim.vendettas_formed),
+                         (sm.GOAL_FOR_ONE, striker.identifier, True, 1))
+        self.assertEqual(senses[SENSES.index("goal_enemy")], 1.0)
+        leader = world._add_agent(encode_dna("grazer"), 40, 40)
+        rival = world._add_agent(encode_dna("grazer"), 41, 40)
+        onlooker = world._add_agent(encode_dna("grazer"), 42, 40)
+        world._index_cells()
+        leader.realm = rival.realm = onlooker.realm = 7
+        leader.leader = True
+        _, options, situation = world._sense(rival)
+        self.assertIs(situation["challenge_to"], leader)
+        self.assertIn(ACTIONS.index("challenge"), options)
+        world._act(rival, "challenge", situation)
+        self.assertEqual(rival.challenges_made, 1)
+        rival.health = rival.max_health * 0.4
+        world._settle_fights()
+        self.assertEqual((leader.challenges_faced, leader.challenges_held, rival.humbled_until), (1, 1, world.turn + sm.CHALLENGE_HUMBLED))
+        regard = {known.identifier: known.regard for known in onlooker.known}
+        self.assertLess(regard.get(rival.identifier, 0.0), 0.0)
+        self.assertGreater(regard.get(leader.identifier, 0.0), 0.0)
 
     def test_a_child_hearing_its_parent_call_learns_the_call_and_what_the_parent_did_a_strangers_not(self):
         simulation = Simulation(30, 30, 0, seed=1)

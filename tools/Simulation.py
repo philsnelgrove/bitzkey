@@ -546,6 +546,15 @@ PROJECT_RESOLVE = 2.0
 PROJECT_INHERIT = 0.5
 INSTRUCTED_PULL = 0.5
 CONFIDE_SHARE = 0.5
+# Vendetta and challenges (see VENDETTA and CHALLENGE_GLORY in the C++ version). As the C++ version's.
+ENEMIES = 4
+VENDETTA = 1.0
+VENDETTA_RATE = 0.05
+VENDETTA_MEMORY = 1000
+ENEMY_STRUCK, ENEMY_KIN_KILLED, ENEMY_GROUP_KILLED = 0.3, 1.0, 0.5
+CHALLENGE_GLORY, CHALLENGE_LOSS, CHALLENGE_ESTEEM, CHALLENGE_SHAME = 1.0, 2.0, 1.0, 2.0
+CHALLENGE_HUMBLED = 500
+CHALLENGE_FIGHT = -2  # a fight's possession when it is a challenge
 # The lexicon (the user's design): words settled by accord, a right guess or a corrected one, each with the thing it
 # means and the regard for the one it was settled with; LEXICON_SIZE for each point of intellect and one more, the
 # least used forgotten when full; changed only by a friend or family member regarded more (family at least
@@ -1754,6 +1763,16 @@ class Bitzkey:
     instructions_taken: int = 0
     confided: int = 0
     confided_to: int = 0
+    enemies: list = field(default_factory=list)  # each [one, grudge, spark, seen x, y, turn, settled] (see VENDETTA)
+    goal_vendetta: bool = False
+    humbled_until: int = -1
+    vendettas_formed: int = 0
+    vendettas_settled: int = 0
+    vendettas_ended: int = 0
+    challenges_made: int = 0
+    challenges_won: int = 0
+    challenges_faced: int = 0
+    challenges_held: int = 0
     project_stuck_turns: int = 0
     project_stuck_calls: int = 0
     project_unstuck_after_call: int = 0
@@ -2879,7 +2898,7 @@ class Simulation:
         """After the turn: new fights begun, and those won, fled or ended, settled."""
         self.fights.extend(self._fights_begun)
         self._fights_begun = []
-        going, won = [], []  # victories judged once the fight is over, so none sees a fight in them
+        going, won, challenges = [], [], []  # victories judged once the fight is over, so none sees a fight in them
         for fight in self.fights:
             thief, victim = self.find_agent(fight[0]), self.find_agent(fight[1])
             if thief is None or victim is None or not thief.alive or not victim.alive:
@@ -2893,12 +2912,33 @@ class Simulation:
                     going.append(fight)
                 continue
             winner = thief if loser is victim else victim
+            if fight[2] == CHALLENGE_FIGHT:  # a challenge for leadership: nothing handed over
+                challenges.append((winner, loser, thief, victim))
+                won.append((winner, loser))
+                continue
             if loser is victim and not fight[3]:
                 self._hand_over(victim, thief, fight[2])
             if loser is thief and fight[3] and self._value_of(thief, fight[2]) > self._value_of(victim, fight[2]):
                 self._hand_over(thief, victim, fight[2])
             won.append((winner, loser))
         self.fights = going
+        for winner, loser, challenger, leader in challenges:  # glory and shame (see CHALLENGE_GLORY)
+            winner.reward += CHALLENGE_GLORY * (0.5 + winner.feeling("dominance"))
+            loser.reward -= CHALLENGE_LOSS
+            loser.humbled_until = self.turn + max(0, CHALLENGE_HUMBLED)
+            leader.challenges_faced += 1
+            if winner is challenger:
+                challenger.challenges_won += 1
+            else:
+                leader.challenges_held += 1
+            for other in self._nearby(loser, MAX_SIGHT):
+                if (other is winner or not other.alive or other.brain is None or other.realm != loser.realm
+                        or abs(other.x - loser.x) + abs(other.y - loser.y) > other.sight):
+                    continue
+                if CHALLENGE_ESTEEM > 0:
+                    self._note_deed(other, winner, 1.0, CHALLENGE_ESTEEM)
+                if CHALLENGE_SHAME > 0:
+                    self._note_deed(other, loser, -1.0, CHALLENGE_SHAME)
         for winner, loser in won:
             self._deed_seen(winner, 0.0, loser, "victory")
             self._earn_mark(winner, loser)
@@ -5468,6 +5508,17 @@ class Simulation:
             available.add("address")
             if agent.project_aim >= 0 and not agent.project_confided:
                 available.add("confide")  # see CONFIDE_SHARE
+        challenge_to = None  # a leader of its own group in sight (see CHALLENGE_GLORY)
+        if agent.realm >= 0 and agent.humbled_until <= self.turn and self._fight_of(agent.identifier) is None:
+            nearest = sight + 1
+            for other in self._nearby(agent, sight):
+                if not other.alive or not other.leader or other.realm != agent.realm or other.species != agent.species:
+                    continue
+                away = abs(other.x - agent.x) + abs(other.y - agent.y)
+                if away <= sight and away < nearest and self._fight_of(other.identifier) is None:
+                    nearest, challenge_to = away, other
+        if challenge_to is not None:
+            available.add("challenge")
         if agent.y > 0:
             available.update(("go_north", "walk_north"))
         if agent.y < self.height - 1:
@@ -5706,7 +5757,7 @@ class Simulation:
                      "exposure": min(2, discomfort) / 2 * agent.exposure_share(here), "uprootable": uprootable, "timber": timber, "eat_meat": eat_meat, "eat_fruit": eat_fruit, "fire": fire, "gear_pile": gear_pile, "gear_kind": gear_kind, "wagon_near": wagon_near, "stone_pile": stone_pile, "bone_pile": bone_pile, "wood_pile": wood_pile, "dressable": dressable, "tears": tears, "meat_pile": meat_pile, "fruit_pile": fruit_pile,
                      "home_distance": home_distance * agent.exposure_share(here),
                      "alert_to": alert_to, "revisit": agent.food_memory and agent.food_memory[:2],
-                     "student": students[0] if students else None, "pupil": pupil, "lesson": lesson, "addressee": addressee, "retry_to": retry_to, "learn_by": learn_by, "learn_thing": learn_thing, "learn_one": learn_one, "learn_word": (caller.call, list(caller.sounds)) if learn_by is not None else None,
+                     "student": students[0] if students else None, "pupil": pupil, "lesson": lesson, "addressee": addressee, "challenge_to": challenge_to, "retry_to": retry_to, "learn_by": learn_by, "learn_thing": learn_thing, "learn_one": learn_one, "learn_word": (caller.call, list(caller.sounds)) if learn_by is not None else None,
                      "calls": [SILENT, *([ALERT_CALL] if alert_to is not None else []), *range(FIRST_CALL, len(CALLS))]}
         situation["land"], situation["war"], situation["ambition"] = land, war, agent.ambition
         situation["admired"], situation["standout"] = admired, standout
@@ -5817,7 +5868,7 @@ class Simulation:
                 return agent.spark_things[target]
             if kind == GOAL_FOR_DEED:
                 return agent.spark_deeds[target]
-            return next((one[4] for one in agent.relief_ones if one[0] == target), 0.0)
+            return next((one[4] for one in agent.relief_ones if one[0] == target), next((e[2] for e in agent.enemies if e[0] == target), 0.0))
 
         # Places (see PLACE_MEMORY): where it stood when each thing was close, where each companion it saw stood; come back
         # to a place and find nothing there, forgotten.
@@ -5844,6 +5895,9 @@ class Simulation:
                 for one in agent.relief_ones:
                     if one[0] == target and one[8] >= 0:
                         return one[6], one[7]
+                for enemy in agent.enemies:  # an enemy where last seen (see VENDETTA)
+                    if enemy[0] == target and enemy[5] >= 0 and self.turn - enemy[5] <= VENDETTA_MEMORY:
+                        return enemy[3], enemy[4]
             return None
 
         def goal_closeness(kind: int, target: int) -> float:
@@ -5893,6 +5947,29 @@ class Simulation:
             if one[0] == heard_one and heard > cue:
                 cue, source = heard, CUE_HEARD
             one[4], one[5], one[9] = wake(one[4], one[5], one[9], one[3], cue, source, social)
+        # Its enemies (see VENDETTA): seen, the grudge faded, the dead let go, and each sparked by sight, place or name.
+        fierce, fading = 0.5 + agent.feeling("aggression"), (1.0 / VENDETTA_MEMORY if VENDETTA_MEMORY > 0 else 1.0)
+        kept = []
+        for enemy in agent.enemies:
+            other = self.find_agent(enemy[0])
+            if other is None or not other.alive or enemy[1] < 0.01:
+                if not enemy[6] and (other is None or not other.alive):
+                    agent.vendettas_ended += 1
+                continue
+            enemy[1] *= 1.0 - fading
+            close = self.one_closeness(agent, enemy[0], sight)
+            if close > 0:
+                enemy[3], enemy[4], enemy[5] = other.x, other.y, self.turn
+            cue = close
+            if cue <= 0 and enemy[5] >= 0 and VENDETTA_MEMORY > 0:
+                cue = min(1.0, max(0.0, REMEMBERED_CUE)) * max(0.0, 1.0 - (self.turn - enemy[5]) / VENDETTA_MEMORY)
+            if enemy[0] == heard_one:
+                cue = max(cue, heard)
+            enemy[2] *= linger
+            if VENDETTA > 0 and cue > 0:
+                enemy[2] = max(enemy[2], VENDETTA * enemy[1] * cue * fierce)
+            kept.append(enemy)
+        agent.enemies = kept
 
         if agent.goal_kind != NO_GOAL:
             met = gone = False
@@ -5917,7 +5994,7 @@ class Simulation:
             sated = not pulled and push < GOAL_SATED
             patience = agent.feeling("patience")
             if met:
-                joy = 0.0 if agent.goal_project else GOAL_JOY * agent.goal_urgency  # a project's step: only progress brings joy
+                joy = 0.0 if agent.goal_project or agent.goal_vendetta else GOAL_JOY * agent.goal_urgency  # a project's step: only progress brings joy
                 if agent.goal_instructed:
                     agent.instructions_taken += 1
                 if agent.goal_desire:  # as much as its pleasure in it has not faded, and fading the more (PLEASURE_FADE)
@@ -5957,7 +6034,7 @@ class Simulation:
                 agent.goal_urgency, agent.goal_close = 0.0, -1.0
                 agent.goal_desire = False
                 agent.goal_remembered = False
-                agent.goal_project = agent.goal_instructed = False
+                agent.goal_project = agent.goal_instructed = agent.goal_vendetta = False
                 agent.instructed_by = -1
         # What it liked (see DESIRE): the good it felt since last turn, beyond its usual, after what it came nearer and did.
         if lived and WANTING_RATE > 0:
@@ -6090,6 +6167,7 @@ class Simulation:
                 if value >= best and not (kind != NO_GOAL and value == best):
                     kind, target, best = k, t, value
         wish_kind, wish_target = NO_GOAL, -1
+        wish_enemy = False
         wish = DESIRE_MIN if DESIRE > 0 else 0.0
         if DESIRE > 0:
             wishes = ([(GOAL_FOR_THING, thing, agent.spark_things[thing]) for thing in range(len(OUTSIDE_SENSES))]
@@ -6098,6 +6176,9 @@ class Simulation:
             for k, t, spark in wishes:
                 if spark >= wish and not (wish_kind != NO_GOAL and spark == wish):
                     wish_kind, wish_target, wish = k, t, spark
+            for enemy in agent.enemies:  # a vendetta (see VENDETTA)
+                if enemy[2] >= wish and not (wish_kind != NO_GOAL and enemy[2] == wish):
+                    wish_kind, wish_target, wish, wish_enemy = GOAL_FOR_ONE, enemy[0], enemy[2], True
         need_pull = now[worst] if kind != NO_GOAL else 0.0
         desired = wish_kind != NO_GOAL and wish > need_pull
         if desired:
@@ -6136,6 +6217,9 @@ class Simulation:
                 agent.goal_kind, agent.goal_target, agent.goal_turn = kind, target, self.turn
                 agent.goal_need, agent.goal_desire = (-1 if desired or projected or instructed else worst), desired
                 agent.goal_project, agent.goal_instructed = projected, instructed
+                agent.goal_vendetta = desired and wish_enemy and kind == GOAL_FOR_ONE and target == wish_target
+                if agent.goal_vendetta:
+                    agent.vendettas_formed += 1
                 agent.instructed_by = instructor if instructed else -1
                 if instructed:
                     if instructed_word:
@@ -6284,6 +6368,8 @@ class Simulation:
                 senses[GOAL_DESIRE_SENSE + 5] = 1.0
             if agent.goal_instructed:
                 senses[GOAL_DESIRE_SENSE + 6] = 1.0
+            if agent.goal_vendetta:
+                senses[GOAL_DESIRE_SENSE + 7] = 1.0
             senses[GOAL_SENSE + 2] = max(0.0, seek_close)
             place = place_of(seek_kind, seek)
             if place is not None:  # its way there
@@ -6925,6 +7011,22 @@ class Simulation:
         value = limited_value(-CALL_HARM)
         return [(senses, output, value, rate) for output in outputs]
 
+    @staticmethod
+    def _record_enemy(agent: Bitzkey, enemy: int, grudge: float) -> None:
+        """One that harmed it or its own (see VENDETTA). As the C++ version's."""
+        if enemy < 0 or enemy == agent.identifier or agent.brain is None or grudge <= 0:
+            return
+        for known in agent.enemies:
+            if known[0] == enemy:
+                known[1] = max(known[1], grudge)
+                return
+        if len(agent.enemies) < ENEMIES:
+            agent.enemies.append([enemy, grudge, 0.0, -1, -1, -1, False])
+            return
+        least = min(range(len(agent.enemies)), key=lambda at: agent.enemies[at][1])
+        if agent.enemies[least][1] < grudge:
+            agent.enemies[least] = [enemy, grudge, 0.0, -1, -1, -1, False]
+
     def _hostile_realm(self, agent: Bitzkey) -> int:
         """The colour group it regards worst, if below nothing; -1 none. As the C++ version's."""
         found, worst = -1, 0.0
@@ -7497,6 +7599,20 @@ class Simulation:
             agent.last_action = "spoke to one" if self._speak_beside(agent, situation["addressee"]) else "went to speak to one"
         elif action == "learn":
             agent.last_action = "said a word back" if self._speak_beside(agent, situation["learn_by"]) else "went to say a word back"
+        elif action == "challenge":  # a leader of its own group challenged, beside it (see CHALLENGE_GLORY)
+            leader = situation.get("challenge_to")
+            if leader is None or agent.humbled_until > self.turn:
+                agent.last_action = "had none to challenge"
+            else:
+                away = abs(leader.x - agent.x) + abs(leader.y - agent.y)
+                if away > 1:
+                    self._move_toward(agent, leader.x, leader.y, min(agent.steps, away - 1))
+                if abs(leader.x - agent.x) + abs(leader.y - agent.y) <= 1 and leader.alive and self._fight_of(leader.identifier) is None:
+                    self._fights_begun.append([agent.identifier, leader.identifier, CHALLENGE_FIGHT, False])
+                    agent.challenges_made += 1
+                    agent.last_action = "challenged a leader"
+                else:
+                    agent.last_action = "went to challenge"
         elif action == "confide":  # its plan shared with one beside it (see CONFIDE_SHARE)
             other = situation.get("addressee")
             if other is None or agent.project_aim < 0:
@@ -9014,6 +9130,25 @@ class Simulation:
         agent.last_action = "attacked"
         self._experience(agent, "hit")
         killed = not victim.alive
+        if victim.species != "plant":  # a vendetta's harm: its grudge follows the joy of it (see VENDETTA)
+            for enemy in agent.enemies:
+                if enemy[0] != victim.identifier:
+                    continue
+                enemy[1] += min(1.0, max(0.0, VENDETTA_RATE)) * (self._harm_felt(agent, self._regard_for(agent, victim)) - enemy[1])
+                if killed and not enemy[6]:
+                    enemy[6] = True
+                    agent.vendettas_settled += 1
+            if not killed:
+                self._record_enemy(victim, agent.identifier, ENEMY_STRUCK)
+            else:  # its kin and its own group who saw it killed hold the killer an enemy
+                for other in self._nearby(victim, MAX_SIGHT):
+                    if (not other.alive or other.brain is None or other.identifier == agent.identifier
+                            or abs(other.x - victim.x) + abs(other.y - victim.y) > other.sight):
+                        continue
+                    if self._family(other, victim):
+                        self._record_enemy(other, agent.identifier, ENEMY_KIN_KILLED)
+                    elif other.species == victim.species and other.realm >= 0 and other.realm == victim.realm:
+                        self._record_enemy(other, agent.identifier, ENEMY_GROUP_KILLED)
         if not killed:
             victim.last_action = "wounded"
             self._struck(victim, agent)
