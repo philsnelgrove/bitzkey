@@ -522,6 +522,7 @@ OPENS_LINKS = 24
 # Asking (see HELPED_JOY): a stuck goal (shut to it) coming free within HELP_WINDOW turns after it called while stuck,
 # one of its kind beside it, is HELPED_JOY times its sociability; coming beside one of its kind it heard call while
 # stuck, HELPING_JOY times its sociability. As the C++ version's.
+_SITUATION = np.array([sense for sense in range(SENSES.index("heard_first_1")) if not SENSES.index("heard_call_1") <= sense < SENSES.index("memory_1") + MEMORY_NEURONS])  # see _keep_habit
 HELP_WINDOW = 3
 HELPED_JOY = 1.0  # and the call it made while stuck is taught it (as CALL_HARM); brains sense their goal stuck
 HELPING_JOY = 0.2
@@ -6651,7 +6652,7 @@ class Simulation:
         return outputs
 
     @staticmethod
-    def _keep_habit(agent: Bitzkey, senses) -> None:
+    def _keep_habit(agent: Bitzkey, senses) -> None:  # noqa: see _SITUATION
         """Weighs its call against its habits (see CALL_HABIT), then remembers it. As the C++ version's."""
         agent.habit_pull = 0.0
         if agent.call < FIRST_CALL:
@@ -6660,11 +6661,15 @@ class Simulation:
         now = np.clip(np.where(scaled >= 0, np.floor(scaled + 0.5), np.ceil(scaled - 0.5)), -127, 127).astype(np.int8)
         said = (agent.call - FIRST_CALL, agent.sounds[0], agent.sounds[1])
         if CALL_HABIT > 0 and len(agent.habits) >= HABIT_NEIGHBOURS:
-            mine = math.sqrt(float(np.dot(now.astype(np.int64), now.astype(np.int64))))
+            # situations alike by what it senses of itself and the world, not what it heard, its memory, goals, plans or
+            # what it pictures. As the C++ version's.
+            mine_part = now[_SITUATION].astype(np.int64)
+            mine = math.sqrt(float(np.dot(mine_part, mine_part)))
             alike, at_large = [], 0.0
             for habit_senses, habit_said in agent.habits:
-                theirs = math.sqrt(float(np.dot(habit_senses.astype(np.int64), habit_senses.astype(np.int64))))
-                dot = float(np.dot(now.astype(np.int64), habit_senses.astype(np.int64)))
+                part = habit_senses[_SITUATION].astype(np.int64)
+                theirs = math.sqrt(float(np.dot(part, part)))
+                dot = float(np.dot(mine_part, part))
                 match = sum(a == b for a, b in zip(said, habit_said)) / MAX_SOUNDS
                 alike.append((dot / (mine * theirs) if mine > 0 and theirs > 0 else 0.0, match))
                 at_large += match
