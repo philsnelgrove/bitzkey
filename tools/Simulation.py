@@ -552,6 +552,8 @@ PROJECT_RESOLVE = 2.0
 PROJECT_INHERIT = 0.5
 INSTRUCTED_PULL = 0.5
 CONFIDE_SHARE = 0.5
+CONFIDE_STEPS = 1  # one that takes up a plan confided takes up what moves its aim (see the C++ version)
+CONFIDE_WORDS = 1  # confiding shares the words its plan and goal need (see the C++ version)
 # Vendetta and challenges (see VENDETTA and CHALLENGE_GLORY in the C++ version). As the C++ version's.
 ENEMIES = 4
 VENDETTA = 1.0
@@ -2455,8 +2457,8 @@ class Simulation:
         self._death_order: deque[tuple[int, int]] = deque()  # (turn, identifier) of each death, oldest first
         self.turn = 0
         # Since the world began or was loaded: words taken into lexicons, and how (see LEXICON_SIZE).
-        self.lexicon_tally = defaultdict(lambda: dict.fromkeys(("agreed", "witnessed", "inherited", "confirmed", "overridden", "refused"), 0))
-        self.deed_tally = defaultdict(lambda: dict.fromkeys(("agreed", "witnessed", "inherited", "confirmed", "overridden", "refused"), 0))
+        self.lexicon_tally = defaultdict(lambda: dict.fromkeys(("agreed", "witnessed", "inherited", "confirmed", "overridden", "refused", "confided"), 0))
+        self.deed_tally = defaultdict(lambda: dict.fromkeys(("agreed", "witnessed", "inherited", "confirmed", "overridden", "refused", "confided"), 0))
         self.initiative_tally = {}  # see BABBLE and ANSWERED_JOY
         self.name_tally = defaultdict(lambda: dict.fromkeys(("agreed", "witnessed", "inherited", "confirmed", "overridden", "refused", "named_at_birth"), 0))
         self.deaths = 0
@@ -7675,6 +7677,15 @@ class Simulation:
                 regard = min(1.0, max(0.0, self._regard_for(other, agent)))
                 other.aim_value[aim] += min(1.0, max(0.0, CONFIDE_SHARE)) * agent.aim_value[aim] * regard
                 other.confided_to += 1
+                if CONFIDE_WORDS:  # the words its plan and goal need, taken up as words settled are (see CONFIDE_WORDS)
+                    deed_words = [list(w) for w in agent.deeds if 0 <= w[3] < len(ACTIONS) and (agent.project_deeds[w[3]] > 0 or (agent.goal_kind == GOAL_FOR_DEED and agent.goal_target == w[3]))]
+                    thing_words = [list(w) for w in agent.lexicon if 0 <= w[3] < 21 and (agent.project_things[w[3]] > 0 or (agent.goal_kind == GOAL_FOR_THING and agent.goal_target == w[3]))]
+                    for deed, words in ((True, deed_words), (False, thing_words)):
+                        tally = (self.deed_tally if deed else self.lexicon_tally)[other.species]
+                        for w in words:
+                            before = tally["agreed"] + tally["overridden"]
+                            self.accord(other, agent, w[0], [w[1], w[2]], POINT_SELF_THING if deed else w[3], False, w[3] if deed else -1)
+                            tally["confided"] += tally["agreed"] + tally["overridden"] - before
                 if other.project_aim < 0 or other.project_confided:
                     other.project_aim, other.project_dir = aim, agent.project_dir
                     other.project_x, other.project_y = agent.project_x, agent.project_y
@@ -7683,8 +7694,8 @@ class Simulation:
                     other.project_last = self._aim_measure(other, aim, other.project_x, other.project_y, other.project_group,
                                                            other.project_concept, self._sight_now(other))
                     other.project_confided, other.project_from = True, agent.identifier
-                    other.project_deeds = [0.0] * len(ACTIONS)
-                    other.project_things = [0.0] * 21
+                    other.project_deeds = list(agent.project_deeds) if CONFIDE_STEPS else [0.0] * len(ACTIONS)  # the steps (see CONFIDE_STEPS)
+                    other.project_things = list(agent.project_things) if CONFIDE_STEPS else [0.0] * 21
         elif action == "take_meat":
             self._take_meat(agent, situation)
         elif action == "take_fruit":

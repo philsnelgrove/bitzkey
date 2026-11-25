@@ -5073,7 +5073,15 @@ class MaterialTests(unittest.TestCase):
             _, _, situation = world._sense(leader)
             situation["addressee"] = follower
             follower.project_aim = -1
+            leader.project_deeds = [0.0] * len(ACTIONS)
+            leader.project_deeds[rest] = 0.5
+            leader.goal_kind = sm.NO_GOAL
+            leader.deeds = [[sm.FIRST_CALL, 1, -1, rest, 1.0, 0], [sm.FIRST_CALL + 1, 2, -1, ACTIONS.index("dig"), 1.0, 0]]
+            follower.deeds = []
             world._act(leader, "confide", situation)
+            self.assertEqual([(w[0], w[3]) for w in follower.deeds], [(sm.FIRST_CALL, rest)])  # the step's word, not dig's
+            self.assertEqual(world.deed_tally[follower.species]["confided"], 1)
+            self.assertEqual((follower.project_deeds[rest], follower.project_deeds[ACTIONS.index("dig")]), (0.5, 0.0))  # and the steps
             self.assertEqual((leader.confided, follower.confided_to, follower.project_aim, follower.project_confided, follower.project_from),
                              (1, 1, sm.SELF_GEAR, True, leader.identifier))
             self.assertGreater(follower.aim_value[sm.SELF_GEAR], 0.0)

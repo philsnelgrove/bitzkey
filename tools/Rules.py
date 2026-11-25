@@ -383,6 +383,8 @@ _TABLE: dict[str, list[tuple]] = {
         ("PROJECT_INHERIT", "Project inheritance", "share of what its parents learnt of the long aims that a newborn starts with", 0.0, 1.0, 0.05),
         ("INSTRUCTED_PULL", "Instruction pull", "how strongly its leader's instruction, shown or said, draws a follower, times its regard for the one instructing", 0.0, 2.0, 0.05),
         ("CONFIDE_SHARE", "Confided share", "share of the one confiding's worth for its aim that one confided in gains, times its regard for it; and how strongly a plan confided draws it", 0.0, 1.0, 0.05),
+        ("CONFIDE_STEPS", "Confided steps", "1: one that takes up a plan confided also takes up what the one confiding learnt of the deeds and things that move its aim, so it knows the steps; 0: it starts knowing none", 0, 1, 1),
+        ("CONFIDE_WORDS", "Confided words", "1: confiding a plan also shares the words the one confiding holds for what its plan and goal need, the deeds and things it learnt move its aim and its goal's deed or thing, taken up as words settled are; 0: plans pass without words", 0, 1, 1),
         ("VENDETTA", "Vendetta", "how strongly a grudge against an enemy that harmed it or its own pulls it to go after that one, times its aggression and a half; 0 for none", 0.0, 5.0, 0.1),
         ("VENDETTA_RATE", "Grudge learning", "how fast its grudge against an enemy follows the joy it felt harming that one", 0.0, 1.0, 0.01),
         ("VENDETTA_MEMORY", "Grudge memory", "turns over which a grudge fades away, and an enemy's last-seen place is remembered", 1, 20000, 10),
