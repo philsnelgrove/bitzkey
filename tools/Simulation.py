@@ -536,7 +536,8 @@ AIM_SCALE = (5, 10, 3, 10, 10, 50, 50, 1, 5, 4, 6, 10, 10, 10, 10)
 PROJECT_REACH = 3
 PROJECT_RATE = 0.05
 PROJECT_EVERY = 24
-PROJECT_MIN = 0.003
+PROJECT_MIN = 0.02
+PROJECT_CONSISTENCY = 0.3  # how surely an aim moved its way with good felt, to be taken up
 PROJECT_PROGRESS = 0.2
 PROJECT_PATIENCE = 480
 PROJECT_PULL = 0.4
@@ -1722,6 +1723,7 @@ class Bitzkey:
     helped_turn: int = -1  # when last helped, and when that was last taught its call
     aim_value: list = field(default_factory=lambda: [0.0] * 15)  # projects (see PROJECT_PULL): each aim's worth to it
     aim_last: list = field(default_factory=lambda: [0.0] * 15)
+    aim_agree: list = field(default_factory=lambda: [0.0] * 15)
     aim_sampled: bool = False
     aim_good: float = 0.0
     aim_good_drift: float = 0.0
@@ -1751,6 +1753,12 @@ class Bitzkey:
     instructions_taken: int = 0
     confided: int = 0
     confided_to: int = 0
+    project_stuck_turns: int = 0
+    project_stuck_calls: int = 0
+    project_unstuck_after_call: int = 0
+    project_unstuck_silent: int = 0
+    instructed_by_sign: int = 0
+    instructed_by_word: int = 0
     help_taught_turn: int = -1
     stuck_turns: int = 0
     free_turns: int = 0
@@ -5982,18 +5990,23 @@ class Simulation:
                 for aim in range(PROJECT_AIMS):
                     moved = min(1.0, max(-1.0, (measured[aim] - agent.aim_last[aim]) / AIM_SCALE[aim]))
                     agent.aim_value[aim] += rate * (moved * gain - agent.aim_value[aim])
+                    together = moved * gain
+                    if together != 0.0:
+                        agent.aim_agree[aim] += rate * ((1.0 if together > 0 else -1.0) - agent.aim_agree[aim])
             agent.aim_last = measured
             agent.aim_sampled = True
             agent.aim_good = 0.0
             if agent.project_aim < 0 or agent.project_confided:  # the aim it values most, if enough, its own project
+                def sure(aim: int) -> float:  # consistency its way (see PROJECT_CONSISTENCY)
+                    return abs(agent.aim_agree[aim]) if agent.aim_value[aim] * agent.aim_agree[aim] > 0 else 0.0
                 best = 0
                 for aim in range(1, PROJECT_AIMS):
-                    if abs(agent.aim_value[aim]) > abs(agent.aim_value[best]):
+                    if abs(agent.aim_value[aim]) * sure(aim) > abs(agent.aim_value[best]) * sure(best):
                         best = aim
                 best_worth = abs(agent.aim_value[best])
                 group = self._hostile_realm(agent)
                 targetable = best not in (GROUP_FOES, GROUP_PEACE) or group >= 0
-                if PROJECT_MIN > 0 and targetable and best_worth * (0.5 + mind) >= PROJECT_MIN:
+                if PROJECT_MIN > 0 and targetable and best_worth * (0.5 + mind) >= PROJECT_MIN and sure(best) >= PROJECT_CONSISTENCY:
                     agent.project_aim = best
                     agent.project_dir = 1 if agent.aim_value[best] >= 0 else -1
                     agent.project_turn = agent.project_progress_turn = self.turn
@@ -6042,24 +6055,24 @@ class Simulation:
             if project_kind != NO_GOAL:
                 project_pull = PROJECT_PULL * (0.5 + patience_now) * (CONFIDE_SHARE if agent.project_confided else 1.0)
         # Its leader's instruction (see INSTRUCTED_PULL), shown in its sight last turn or said to it.
-        instructed_deed, instructor, instructed_pull = -1, -1, 0.0
+        instructed_deed, instructor, instructed_pull, instructed_word = -1, -1, 0.0, False
         if INSTRUCTED_PULL > 0 and agent.follows >= 0:
             for other in self._nearby(agent, sight):
                 if abs(other.x - agent.x) + abs(other.y - agent.y) > sight:
                     continue
                 if other.identifier != agent.follows and other.project_from != agent.follows:
                     continue
-                deed = -1
+                deed, word = -1, False
                 if other.shown_turn == self.turn - 1 and other.shown_step >= 0:
                     deed = other.shown_step
                 if (other.plan_open and agent.meant_turn == self.turn - 1 and agent.meant_by_deed and agent.word_from == other.identifier
                         and agent.meant_deed >= 0):
-                    deed = agent.meant_deed
+                    deed, word = agent.meant_deed, True
                 if deed < 0:
                     continue
                 pull_of = INSTRUCTED_PULL * min(1.0, max(0.0, self._regard_for(agent, other)))
                 if pull_of > instructed_pull:
-                    instructed_pull, instructed_deed, instructor = pull_of, deed, other.identifier
+                    instructed_pull, instructed_deed, instructor, instructed_word = pull_of, deed, other.identifier, word
         # Its worst need and what eases it most; and its strongest desire. The greater pull is a goal, or a better one.
         worst = -1
         for n in range(NEEDS):
@@ -6123,6 +6136,11 @@ class Simulation:
                 agent.goal_need, agent.goal_desire = (-1 if desired or projected or instructed else worst), desired
                 agent.goal_project, agent.goal_instructed = projected, instructed
                 agent.instructed_by = instructor if instructed else -1
+                if instructed:
+                    if instructed_word:
+                        agent.instructed_by_word += 1
+                    else:
+                        agent.instructed_by_sign += 1
                 agent.goal_urgency = min(GOAL_URGENCY_MAX, pull)
                 agent.goal_close = goal_closeness(kind, target)
                 agent.goals_formed += 1
@@ -6207,8 +6225,16 @@ class Simulation:
                 agent.stuck_turns += 1
             else:
                 agent.free_turns += 1
+        if stuck and agent.goal_project:
+            agent.project_stuck_turns += 1
         if agent.stuck and not stuck and agent.goal_kind != NO_GOAL and agent.goal_turn == agent.stuck_goal_turn:
-            if agent.help_call_turn >= 0 and self.turn - agent.help_call_turn <= HELP_WINDOW:
+            called = agent.help_call_turn >= 0 and self.turn - agent.help_call_turn <= HELP_WINDOW
+            if agent.goal_project:
+                if called:
+                    agent.project_unstuck_after_call += 1
+                else:
+                    agent.project_unstuck_silent += 1
+            if called:
                 agent.unstuck_after_call += 1
                 if any(other is not agent and other.alive and other.species == agent.species
                        and abs(other.x - agent.x) + abs(other.y - agent.y) <= 1 for other in self._nearby(agent, 1)):
@@ -7272,6 +7298,7 @@ class Simulation:
         if agent.call != SILENT and agent.call_turn == self.turn:  # its call, as it sets about its action
             if agent.stuck:  # called while its goal was stuck (see HELPED_JOY)
                 agent.stuck_calls += 1
+                agent.project_stuck_calls += agent.goal_project
                 agent.help_call_turn = self.turn
             elif agent.goal_kind != NO_GOAL:
                 agent.free_calls += 1

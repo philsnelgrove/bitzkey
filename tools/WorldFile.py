@@ -235,7 +235,9 @@ def ingenuity_record(agent) -> dict:
 
 def project_record(agent) -> dict:
     """Its long aims and project (see PROJECT_PULL). As the C++ version's."""
-    return {"values": [float(v) for v in agent.aim_value], "last": [float(v) for v in agent.aim_last],
+    return {"values": [float(v) for v in agent.aim_value], "last": [float(v) for v in agent.aim_last], "agree": [float(v) for v in agent.aim_agree],
+            "asking": [agent.project_stuck_turns, agent.project_stuck_calls, agent.project_unstuck_after_call, agent.project_unstuck_silent,
+                       agent.instructed_by_sign, agent.instructed_by_word],
             "head": [int(agent.aim_sampled), agent.project_aim, agent.project_dir, agent.project_turn, agent.project_progress_turn,
                      agent.project_x, agent.project_y, agent.project_group, agent.project_concept, agent.project_from, agent.project_waited,
                      int(agent.project_confided), int(agent.goal_project), int(agent.goal_instructed), agent.instructed_by,
@@ -514,6 +516,11 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
         if "project" in g:  # see PROJECT_PULL
             p = g["project"]
             agent.aim_value, agent.aim_last = [float(v) for v in p["values"]], [float(v) for v in p["last"]]
+            if "agree" in p:
+                agent.aim_agree = [float(v) for v in p["agree"]]
+            if "asking" in p:
+                (agent.project_stuck_turns, agent.project_stuck_calls, agent.project_unstuck_after_call, agent.project_unstuck_silent,
+                 agent.instructed_by_sign, agent.instructed_by_word) = (int(v) for v in p["asking"])
             h = [int(v) for v in p["head"]]
             agent.aim_sampled = bool(h[0])
             (agent.project_aim, agent.project_dir, agent.project_turn, agent.project_progress_turn, agent.project_x, agent.project_y,

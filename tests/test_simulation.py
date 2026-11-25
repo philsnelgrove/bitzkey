@@ -5033,7 +5033,9 @@ class MaterialTests(unittest.TestCase):
             leader = world._add_agent(encode_dna("grazer", patience=7, curiosity=7), 30, 30)
             follower = world._add_agent(encode_dna("grazer"), 31, 30)
             world._index_cells()
-            leader.aim_sampled, leader.aim_last, leader.aim_good, leader.aim_good_drift = True, [0.0] * 15, 1.0, 0.0
+            leader.aim_sampled, leader.aim_last, leader.aim_good, leader.aim_good_drift = True, [0.0] * 15, 4.0, 0.0
+            leader.aim_agree = [0.0] * 15
+            leader.aim_agree[sm.SELF_GEAR] = 0.9  # it has moved its way, with good, nearly always
             leader.bow = True
             world._sense(leader)
             self.assertGreater(leader.aim_value[sm.SELF_GEAR], 0.0)
