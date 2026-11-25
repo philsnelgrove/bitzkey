@@ -525,6 +525,25 @@ OPENS_LINKS = 24
 HELP_WINDOW = 3
 HELPED_JOY = 1.0  # and the call it made while stuck is taught it (as CALL_HARM); brains sense their goal stuck
 HELPING_JOY = 0.2
+# Projects (see PROJECT_PULL in the C++ version): long aims about a site, a group, its kin, itself or a concept, learnt
+# from its own life, held as one project, raised or lowered; leaders instruct by sign or word; CONFIDE shares a plan.
+SITE_BUILT, SITE_ROADS, SITE_FIRES, SITE_STORES, SITE_KIND, GROUP_FOES, GROUP_OWN, GROUP_PEACE, KIN_FAMILY, SELF_GEAR, SELF_SKILLS, \
+    SELF_STANDING, CONCEPT_CRAFT, CONCEPT_WORD, CONCEPT_CUSTOM = range(15)
+PROJECT_AIMS = 15
+TARGET_SITE, TARGET_GROUP, TARGET_KIN, TARGET_SELF, TARGET_CONCEPT = range(5)
+AIM_TARGET = (0, 0, 0, 0, 0, 1, 1, 1, 2, 3, 3, 3, 4, 4, 4)
+AIM_SCALE = (5, 10, 3, 10, 10, 50, 50, 1, 5, 4, 6, 10, 10, 10, 10)
+PROJECT_REACH = 3
+PROJECT_RATE = 0.05
+PROJECT_EVERY = 24
+PROJECT_MIN = 0.003
+PROJECT_PROGRESS = 0.2
+PROJECT_PATIENCE = 480
+PROJECT_PULL = 0.4
+PROJECT_RESOLVE = 2.0
+PROJECT_INHERIT = 0.5
+INSTRUCTED_PULL = 0.5
+CONFIDE_SHARE = 0.5
 # The lexicon (the user's design): words settled by accord, a right guess or a corrected one, each with the thing it
 # means and the regard for the one it was settled with; LEXICON_SIZE for each point of intellect and one more, the
 # least used forgotten when full; changed only by a friend or family member regarded more (family at least
@@ -1701,6 +1720,37 @@ class Bitzkey:
     stuck_goal_turn: int = -1
     help_call_turn: int = -1
     helped_turn: int = -1  # when last helped, and when that was last taught its call
+    aim_value: list = field(default_factory=lambda: [0.0] * 15)  # projects (see PROJECT_PULL): each aim's worth to it
+    aim_last: list = field(default_factory=lambda: [0.0] * 15)
+    aim_sampled: bool = False
+    aim_good: float = 0.0
+    aim_good_drift: float = 0.0
+    project_aim: int = -1
+    project_dir: int = 0
+    project_turn: int = -1
+    project_progress_turn: int = -1
+    project_x: int = -1
+    project_y: int = -1
+    project_group: int = -1
+    project_concept: int = -1
+    project_from: int = -1
+    project_waited: int = 0
+    project_last: float = 0.0
+    project_confided: bool = False
+    project_deeds: list = field(default_factory=lambda: [0.0] * len(ACTIONS))
+    project_things: list = field(default_factory=lambda: [0.0] * 21)
+    goal_project: bool = False
+    goal_instructed: bool = False
+    instructed_by: int = -1
+    shown_step: int = -1
+    shown_turn: int = -1
+    plan_open: bool = False
+    projects_taken: int = 0
+    projects_given_up: int = 0
+    project_progress_turns: int = 0
+    instructions_taken: int = 0
+    confided: int = 0
+    confided_to: int = 0
     help_taught_turn: int = -1
     stuck_turns: int = 0
     free_turns: int = 0
@@ -5407,6 +5457,8 @@ class Simulation:
                 retry_to = addressee = other
         if addressee is not None:
             available.add("address")
+            if agent.project_aim >= 0 and not agent.project_confided:
+                available.add("confide")  # see CONFIDE_SHARE
         if agent.y > 0:
             available.update(("go_north", "walk_north"))
         if agent.y < self.height - 1:
@@ -5846,12 +5898,19 @@ class Simulation:
                 met = not gone and close >= 0.99
             else:
                 met = agent.goal_turn < self.turn and agent.last_choice == agent.goal_target
-            # A need's goal is pushed by that need; a desire's pulled by its spark, and not let go for a need met.
-            push = spark_of(agent.goal_kind, agent.goal_target) if agent.goal_desire else now[agent.goal_need]
-            sated = not agent.goal_desire and push < GOAL_SATED
+            # A need's goal is pushed by that need; a desire's pulled by its spark, and not let go for a need met; a project's
+            # step by its project, gone with it; an instruction by its urgency (see PROJECT_PULL).
+            if agent.goal_project and agent.project_aim < 0:
+                gone = True
+            pulled = agent.goal_desire or agent.goal_project or agent.goal_instructed
+            push = (spark_of(agent.goal_kind, agent.goal_target) if agent.goal_desire
+                    else agent.goal_urgency if pulled else now[max(0, agent.goal_need)])
+            sated = not pulled and push < GOAL_SATED
             patience = agent.feeling("patience")
             if met:
-                joy = GOAL_JOY * agent.goal_urgency
+                joy = 0.0 if agent.goal_project else GOAL_JOY * agent.goal_urgency  # a project's step: only progress brings joy
+                if agent.goal_instructed:
+                    agent.instructions_taken += 1
                 if agent.goal_desire:  # as much as its pleasure in it has not faded, and fading the more (PLEASURE_FADE)
                     fade_rate = min(1.0, max(0.0, PLEASURE_FADE))
                     if agent.goal_kind == GOAL_FOR_THING:
@@ -5889,6 +5948,8 @@ class Simulation:
                 agent.goal_urgency, agent.goal_close = 0.0, -1.0
                 agent.goal_desire = False
                 agent.goal_remembered = False
+                agent.goal_project = agent.goal_instructed = False
+                agent.instructed_by = -1
         # What it liked (see DESIRE): the good it felt since last turn, beyond its usual, after what it came nearer and did.
         if lived and WANTING_RATE > 0:
             rate = min(1.0, WANTING_RATE)
@@ -5905,6 +5966,100 @@ class Simulation:
                     one[3] += rate * (gain - one[3])
         for one, close in zip(agent.relief_ones, ones_close):
             one[1] = close
+        # Projects (see PROJECT_PULL): the long aims sampled, now and then, and learnt against the good felt since.
+        felt_good = max(0.0, agent.reward - agent.joy_mark) if lived else 0.0
+        agent.aim_good += felt_good
+        patience_now = agent.feeling("patience")
+        mind = (patience_now + agent.feeling("curiosity")) / 2.0
+        if PROJECT_EVERY > 0 and (self.turn + agent.identifier) % PROJECT_EVERY == 0:
+            here_group = self._hostile_realm(agent)
+            measured = [self._aim_measure(agent, aim, agent.x, agent.y, here_group, self._chosen_concept(agent, aim), sight) for aim in range(PROJECT_AIMS)]
+            if agent.aim_sampled and PROJECT_RATE > 0:
+                rate = min(1.0, PROJECT_RATE)
+                good = agent.aim_good / PROJECT_EVERY
+                gain = good - agent.aim_good_drift
+                agent.aim_good_drift += rate * (good - agent.aim_good_drift)
+                for aim in range(PROJECT_AIMS):
+                    moved = min(1.0, max(-1.0, (measured[aim] - agent.aim_last[aim]) / AIM_SCALE[aim]))
+                    agent.aim_value[aim] += rate * (moved * gain - agent.aim_value[aim])
+            agent.aim_last = measured
+            agent.aim_sampled = True
+            agent.aim_good = 0.0
+            if agent.project_aim < 0 or agent.project_confided:  # the aim it values most, if enough, its own project
+                best = 0
+                for aim in range(1, PROJECT_AIMS):
+                    if abs(agent.aim_value[aim]) > abs(agent.aim_value[best]):
+                        best = aim
+                best_worth = abs(agent.aim_value[best])
+                group = self._hostile_realm(agent)
+                targetable = best not in (GROUP_FOES, GROUP_PEACE) or group >= 0
+                if PROJECT_MIN > 0 and targetable and best_worth * (0.5 + mind) >= PROJECT_MIN:
+                    agent.project_aim = best
+                    agent.project_dir = 1 if agent.aim_value[best] >= 0 else -1
+                    agent.project_turn = agent.project_progress_turn = self.turn
+                    agent.project_x, agent.project_y, agent.project_group = agent.x, agent.y, group
+                    agent.project_concept = self._chosen_concept(agent, best)
+                    agent.project_last = measured[best]
+                    agent.project_confided, agent.project_from = False, -1
+                    agent.project_deeds = [0.0] * len(ACTIONS)
+                    agent.project_things = [0.0] * 21
+                    agent.projects_taken += 1
+        project_kind, project_target, project_pull = NO_GOAL, -1, 0.0
+        if agent.project_aim >= 0:
+            m = self._aim_measure(agent, agent.project_aim, agent.project_x, agent.project_y, agent.project_group, agent.project_concept, sight)
+            moved = (m - agent.project_last) * agent.project_dir
+            if moved > 1e-9:
+                relief += PROJECT_PROGRESS
+                agent.project_progress_turn = self.turn
+                agent.project_progress_turns += 1
+            if lived and RELIEF_RATE > 0:
+                rate = min(1.0, RELIEF_RATE)
+                gain = min(1.0, max(-1.0, moved / AIM_SCALE[agent.project_aim]))
+                if 0 <= agent.last_choice < len(ACTIONS):
+                    agent.project_deeds[agent.last_choice] += rate * (gain - agent.project_deeds[agent.last_choice])
+                for thing in range(21):
+                    if agent.moved[thing] > 0:
+                        agent.project_things[thing] += rate * (gain - agent.project_things[thing])
+            agent.project_last = m
+            if self.turn - agent.project_progress_turn > PROJECT_PATIENCE * (0.5 + patience_now):
+                if not agent.project_confided:
+                    agent.projects_given_up += 1
+                agent.project_aim = -1
+        if agent.project_aim >= 0:  # the step it would take: to its site first, else what it learnt moves its aim most
+            dx, dy = agent.project_x - agent.x, agent.project_y - agent.y
+            if AIM_TARGET[agent.project_aim] == TARGET_SITE and abs(dx) + abs(dy) > PROJECT_REACH:
+                project_kind = GOAL_FOR_DEED
+                project_target = ACTIONS.index(("go_east" if dx > 0 else "go_west") if abs(dx) >= abs(dy) else ("go_south" if dy > 0 else "go_north"))
+            else:
+                best = GOAL_MIN_RELIEF
+                for deed in range(len(ACTIONS)):
+                    value = agent.project_deeds[deed]
+                    if value >= best and not (project_kind != NO_GOAL and value == best):
+                        best, project_kind, project_target = value, GOAL_FOR_DEED, deed
+                for thing in range(21):
+                    if agent.project_things[thing] > best:
+                        best, project_kind, project_target = agent.project_things[thing], GOAL_FOR_THING, thing
+            if project_kind != NO_GOAL:
+                project_pull = PROJECT_PULL * (0.5 + patience_now) * (CONFIDE_SHARE if agent.project_confided else 1.0)
+        # Its leader's instruction (see INSTRUCTED_PULL), shown in its sight last turn or said to it.
+        instructed_deed, instructor, instructed_pull = -1, -1, 0.0
+        if INSTRUCTED_PULL > 0 and agent.follows >= 0:
+            for other in self._nearby(agent, sight):
+                if abs(other.x - agent.x) + abs(other.y - agent.y) > sight:
+                    continue
+                if other.identifier != agent.follows and other.project_from != agent.follows:
+                    continue
+                deed = -1
+                if other.shown_turn == self.turn - 1 and other.shown_step >= 0:
+                    deed = other.shown_step
+                if (other.plan_open and agent.meant_turn == self.turn - 1 and agent.meant_by_deed and agent.word_from == other.identifier
+                        and agent.meant_deed >= 0):
+                    deed = agent.meant_deed
+                if deed < 0:
+                    continue
+                pull_of = INSTRUCTED_PULL * min(1.0, max(0.0, self._regard_for(agent, other)))
+                if pull_of > instructed_pull:
+                    instructed_pull, instructed_deed, instructor = pull_of, deed, other.identifier
         # Its worst need and what eases it most; and its strongest desire. The greater pull is a goal, or a better one.
         worst = -1
         for n in range(NEEDS):
@@ -5933,25 +6088,42 @@ class Simulation:
         desired = wish_kind != NO_GOAL and wish > need_pull
         if desired:
             kind, target = wish_kind, wish_target
+        pull = wish if desired else need_pull
+        held_up = project_pull * (1.0 + PROJECT_RESOLVE * patience_now) / (1.0 + GOAL_RISE * agent.project_waited)
+        projected = instructed = False
+        if project_kind != NO_GOAL and held_up > pull:
+            projected, desired = True, False
+            kind, target, pull = project_kind, project_target, held_up
+        if instructed_deed >= 0 and instructed_pull > pull:
+            instructed, projected, desired = True, False, False
+            kind, target, pull = GOAL_FOR_DEED, instructed_deed, instructed_pull
+        if projected and worst >= 0:
+            agent.project_waited += 1
+        elif not projected:
+            agent.project_waited = 0
         if kind != NO_GOAL:
-            same = (kind == agent.goal_kind and target == agent.goal_target and desired == agent.goal_desire
-                    and (desired or worst == agent.goal_need))
+            same = (kind == agent.goal_kind and target == agent.goal_target and desired == agent.goal_desire and projected == agent.goal_project
+                    and instructed == agent.goal_instructed and (desired or projected or instructed or worst == agent.goal_need))
             adopt = agent.goal_kind == NO_GOAL
             if agent.goal_kind != NO_GOAL and not same:
                 margin = 1.0 + GOAL_STUBBORNNESS * 2.0 * agent.feeling("patience")
-                if not desired and not agent.goal_desire:  # need against need: each by how much it eases its need
+                held_pulled = agent.goal_desire or agent.goal_project or agent.goal_instructed
+                if not desired and not projected and not instructed and not held_pulled:  # need against need: each by how much it eases its need
                     held = now[agent.goal_need] * worth(agent.goal_kind, agent.goal_target, agent.goal_need)
                     offered = need_pull * worth(kind, target, worst)
                 else:  # a desire in it: pull against pull
-                    held = spark_of(agent.goal_kind, agent.goal_target) if agent.goal_desire else now[agent.goal_need]
-                    offered = wish if desired else need_pull
+                    held = (spark_of(agent.goal_kind, agent.goal_target) if agent.goal_desire
+                            else agent.goal_urgency if held_pulled else now[max(0, agent.goal_need)])
+                    offered = pull
                 if offered > max(0.0, held) * margin:
                     adopt = True
                     agent.goals_switched += 1
             if adopt:
                 agent.goal_kind, agent.goal_target, agent.goal_turn = kind, target, self.turn
-                agent.goal_need, agent.goal_desire = (-1 if desired else worst), desired
-                agent.goal_urgency = min(GOAL_URGENCY_MAX, wish if desired else need_pull)
+                agent.goal_need, agent.goal_desire = (-1 if desired or projected or instructed else worst), desired
+                agent.goal_project, agent.goal_instructed = projected, instructed
+                agent.instructed_by = instructor if instructed else -1
+                agent.goal_urgency = min(GOAL_URGENCY_MAX, pull)
                 agent.goal_close = goal_closeness(kind, target)
                 agent.goals_formed += 1
                 if desired:
@@ -6054,6 +6226,17 @@ class Simulation:
                     and caller.help_call_turn == self.turn - 2 and abs(caller.x - agent.x) + abs(caller.y - agent.y) <= 1):
                 agent.helping += 1
                 relief += HELPING_JOY * agent.feeling("sociability")
+        if agent.project_aim >= 0:  # its project, sensed (see PROJECT_PULL)
+            plan = SENSES.index("plan")
+            senses[plan] = 0.5 if agent.project_confided else 1.0
+            senses[plan + 1] = 1.0 if self.turn - agent.project_progress_turn <= DAY_LENGTH else 0.0
+            target_kind = AIM_TARGET[agent.project_aim]
+            if target_kind == TARGET_SITE:
+                steps = max(1, abs(agent.project_x - agent.x) + abs(agent.project_y - agent.y))
+                senses[plan + 2] = (agent.project_x - agent.x) / steps
+                senses[plan + 3] = (agent.project_y - agent.y) / steps
+            senses[plan + 4 + target_kind] = 1.0
+            senses[plan + 9] = float(agent.project_dir)
         # Felt, and sensed: the goal's urgency and need, but what it seeks now, its step if it has one.
         if agent.goal_kind != NO_GOAL:
             unease = GOAL_UNEASE * agent.goal_urgency
@@ -6070,6 +6253,10 @@ class Simulation:
                 senses[GOAL_DESIRE_SENSE + 3] = deep / (deep + 1.0)
             if agent.stuck:  # shut to it (see HELPED_JOY)
                 senses[GOAL_DESIRE_SENSE + 4] = 1.0
+            if agent.goal_project:
+                senses[GOAL_DESIRE_SENSE + 5] = 1.0
+            if agent.goal_instructed:
+                senses[GOAL_DESIRE_SENSE + 6] = 1.0
             senses[GOAL_SENSE + 2] = max(0.0, seek_close)
             place = place_of(seek_kind, seek)
             if place is not None:  # its way there
@@ -6079,7 +6266,8 @@ class Simulation:
             if agent.goal_desire:
                 senses[GOAL_DESIRE_SENSE] = 1.0
             else:
-                senses[GOAL_NEED_SENSE + agent.goal_need] = 1.0
+                if agent.goal_need >= 0:
+                    senses[GOAL_NEED_SENSE + agent.goal_need] = 1.0
             if seek_kind == GOAL_FOR_THING:
                 senses[GOAL_THING_SENSE + seek] = 1.0
             elif seek_kind == GOAL_FOR_ONE:
@@ -6130,6 +6318,9 @@ class Simulation:
                 link[2] *= opened
             links.sort(key=lambda l: -l[2])
             child.opens = links[:OPENS_LINKS]
+        aims = min(1.0, max(0.0, PROJECT_INHERIT))  # and what the long aims were worth to them (see PROJECT_INHERIT)
+        child.aim_value = [aims * ((mother.aim_value[aim] + father.aim_value[aim]) / 2 if father is not None else mother.aim_value[aim])
+                           for aim in range(PROJECT_AIMS)]
 
     @staticmethod
     def _comfort(agent: Bitzkey, situation: dict) -> float:
@@ -6703,6 +6894,95 @@ class Simulation:
         value = limited_value(-CALL_HARM)
         return [(senses, output, value, rate) for output in outputs]
 
+    def _hostile_realm(self, agent: Bitzkey) -> int:
+        """The colour group it regards worst, if below nothing; -1 none. As the C++ version's."""
+        found, worst = -1, 0.0
+        for identifier in sorted(self.realms):
+            if identifier == agent.realm:
+                continue
+            ring = self.realms[identifier].ring
+            for faction in agent.factions:
+                if faction.ring == ring and faction.regard < worst:
+                    worst, found = faction.regard, identifier
+        return found
+
+    @staticmethod
+    def _chosen_concept(agent: Bitzkey, aim: int) -> int:
+        """The craft it has tried most of those it knows, or the thing of the word it uses most. As the C++ version's."""
+        if aim == CONCEPT_CRAFT:
+            best = -1
+            for craft in range(len(agent.craft_tries)):
+                if agent.crafts >> craft & 1 and (best < 0 or agent.craft_tries[craft] > agent.craft_tries[best]):
+                    best = craft
+            return best
+        if aim == CONCEPT_WORD:
+            best = None
+            for word in agent.lexicon:
+                if best is None or word[5] > best[5]:
+                    best = word
+            return best[3] if best is not None else -1
+        return -1
+
+    def _aim_measure(self, agent: Bitzkey, aim: int, x: int, y: int, group: int, idea: int, sight: int) -> float:
+        """A long aim's quantity now (see PROJECT_PULL). As the C++ version's."""
+        if AIM_TARGET[aim] == TARGET_SITE:
+            count = 0.0
+            for dy in range(-PROJECT_REACH, PROJECT_REACH + 1):
+                for dx in range(-PROJECT_REACH, PROJECT_REACH + 1):
+                    cx, cy = x + dx, y + dy
+                    if not (0 <= cx < self.width and 0 <= cy < self.height):
+                        continue
+                    cell = (cx, cy)
+                    if aim == SITE_BUILT:
+                        count += (cell in self.shelters) + (cell in self.works)
+                    elif aim == SITE_ROADS:
+                        count += cell in self.roads
+                    elif aim == SITE_FIRES:
+                        count += self.fires.get(cell, (0,))[0] > self.turn
+                    elif aim == SITE_STORES:
+                        count += (self.meat_piles.get(cell, 0) + self.fruit_piles.get(cell, 0) + self.cooked_meat_piles.get(cell, 0)
+                                  + self.cooked_fruit_piles.get(cell, 0))
+                    elif aim == SITE_KIND and abs(dx) + abs(dy) <= PROJECT_REACH:
+                        count += sum(other.alive and other.species == agent.species for other in self._cells.get(cell, ()))
+            return count
+        if aim in (GROUP_FOES, GROUP_OWN):
+            realm = self.realms.get(agent.realm if aim == GROUP_OWN else group)
+            return float(realm.members) if realm is not None else 0.0
+        if aim == GROUP_PEACE:
+            realm = self.realms.get(group)
+            if realm is None:
+                return 0.0
+            return next((faction.regard for faction in agent.factions if faction.ring == realm.ring), 0.0)
+        if aim == SELF_GEAR:
+            return float(agent.wielding + agent.wearing + agent.bow + len(agent.spare_tools))
+        if aim == SELF_SKILLS:
+            return float(sum((agent.crafts >> craft & 1) + (agent.craft_tries[craft] >= CRAFT_TRIES) for craft in range(len(agent.craft_tries))))
+        if aim == SELF_STANDING:
+            return float(agent.followers + agent.rank)
+        word = None
+        if aim == CONCEPT_WORD:
+            for each in agent.lexicon:
+                if each[3] == idea and (word is None or each[5] > word[5]):
+                    word = each
+            if word is None:
+                return 0.0
+        count = 0.0
+        for other in self._nearby(agent, sight):
+            if abs(other.x - agent.x) + abs(other.y - agent.y) > sight:
+                continue
+            if aim == KIN_FAMILY:
+                count += self._family(agent, other)
+                continue
+            if other.species != agent.species:
+                continue
+            if aim == CONCEPT_CRAFT:
+                count += idea >= 0 and bool(other.crafts >> idea & 1)
+            elif aim == CONCEPT_CUSTOM:
+                count += other.cooked_known > 0
+            elif aim == CONCEPT_WORD:
+                count += any(each[3] == word[3] and each[0] == word[0] and each[1] == word[1] and each[2] == word[2] for each in other.lexicon)
+        return count
+
     def _call_help_lessons(self, agent: Bitzkey) -> list[tuple]:
         """Helped soon after it called while stuck: the call it made then taught the joy, against what it sensed as it
         called (see HELPED_JOY). As the C++ version's."""
@@ -6985,6 +7265,10 @@ class Simulation:
             caller.reward += ANSWERED_JOY * caller.feeling("sociability")
             caller_tally = self.initiative_tally.setdefault(caller.species, {"calls": 0, "babbled": 0, "babble_addressed": 0, "answered_back": 0, "answered_heeded": 0})
             caller_tally["answered_heeded" if kind == 0 else "answered_back"] += 1
+        agent.plan_open = agent.project_aim >= 0  # its project's step shown in sight (see INSTRUCTED_PULL)
+        if (agent.plan_open and (agent.goal_project or agent.goal_instructed) and agent.goal_kind == GOAL_FOR_DEED
+                and ACTIONS.index(action) == agent.goal_target):
+            agent.shown_step, agent.shown_turn = agent.goal_target, self.turn
         if agent.call != SILENT and agent.call_turn == self.turn:  # its call, as it sets about its action
             if agent.stuck:  # called while its goal was stuck (see HELPED_JOY)
                 agent.stuck_calls += 1
@@ -7181,6 +7465,29 @@ class Simulation:
             agent.last_action = "spoke to one" if self._speak_beside(agent, situation["addressee"]) else "went to speak to one"
         elif action == "learn":
             agent.last_action = "said a word back" if self._speak_beside(agent, situation["learn_by"]) else "went to say a word back"
+        elif action == "confide":  # its plan shared with one beside it (see CONFIDE_SHARE)
+            other = situation.get("addressee")
+            if other is None or agent.project_aim < 0:
+                agent.last_action = "had no plan to share"
+            elif not self._speak_beside(agent, other):
+                agent.last_action = "went to share its plan"
+            else:
+                agent.last_action = "shared its plan"
+                agent.confided += 1
+                aim = agent.project_aim
+                regard = min(1.0, max(0.0, self._regard_for(other, agent)))
+                other.aim_value[aim] += min(1.0, max(0.0, CONFIDE_SHARE)) * agent.aim_value[aim] * regard
+                other.confided_to += 1
+                if other.project_aim < 0 or other.project_confided:
+                    other.project_aim, other.project_dir = aim, agent.project_dir
+                    other.project_x, other.project_y = agent.project_x, agent.project_y
+                    other.project_group, other.project_concept = agent.project_group, agent.project_concept
+                    other.project_turn = other.project_progress_turn = self.turn
+                    other.project_last = self._aim_measure(other, aim, other.project_x, other.project_y, other.project_group,
+                                                           other.project_concept, self._sight_now(other))
+                    other.project_confided, other.project_from = True, agent.identifier
+                    other.project_deeds = [0.0] * len(ACTIONS)
+                    other.project_things = [0.0] * 21
         elif action == "take_meat":
             self._take_meat(agent, situation)
         elif action == "take_fruit":

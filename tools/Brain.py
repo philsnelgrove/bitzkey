@@ -14,7 +14,7 @@ from tools.Genome import (BODY_TRAITS, SPECIES, TEMPERAMENT, TEMPERATURES, TRAIT
 ACTIONS = ("eat", "forage", "browse", "uproot", "scavenge", "feast", "rest", "court", "breed", "hunt", "attack", "defend",
            "flee", "herd", "go_north", "go_south", "go_east", "go_west", "walk_north", "walk_south", "walk_east",
            "walk_west", "revisit", "feed_young", "teach", "take_meat", "take_fruit", "drop_meat", "drop_fruit", "eat_pile", "eat_carried",
-           "take_stone", "take_bone", "take_wood", "drop_stone", "drop_bone", "drop_wood", "dress", "make_bone_axe", "make_bone_armour", "make_club", "make_wood_armour", "make_stone_axe", "make_bow", "make_wagon", "take_gear", "drop_weapon", "drop_armour", "cut", "dig", "light_fire", "feed_fire", "cook", "construct", "eat_seed", "plant_seed", "build_road", "eat_marrow", "fertilize", "skin", "demand", "steal", "give", "offer", "shoot", "practise", "tutor", "hitch", "unhitch", "store_food", "craft_arrows", "address", "learn")
+           "take_stone", "take_bone", "take_wood", "drop_stone", "drop_bone", "drop_wood", "dress", "make_bone_axe", "make_bone_armour", "make_club", "make_wood_armour", "make_stone_axe", "make_bow", "make_wagon", "take_gear", "drop_weapon", "drop_armour", "cut", "dig", "light_fire", "feed_fire", "cook", "construct", "eat_seed", "plant_seed", "build_road", "eat_marrow", "fertilize", "skin", "demand", "steal", "give", "offer", "shoot", "practise", "tutor", "hitch", "unhitch", "store_food", "craft_arrows", "address", "learn", "confide")
 # Alongside its action, every animal that thinks keeps silent or calls: the alert, to its herd, of a hunter (grazers)
 # or a fresh kill (hunters) it sees, or one of five calls that mean only what its kind come to make of them, heard by
 # all close enough. A brain values them as it values its actions, after them, and learns them the same way.
@@ -215,9 +215,12 @@ SENSES = (
     "attending", "sees_pointing", "watched", "addressed",
     # Its goal (see GOAL_JOY): 1 while it holds one; its urgency; how close what it seeks is; for an animal, its regard
     # and 1 for family; 1 for a desire; its way, east and south, to a remembered place; how deep in a chain of steps (see OPENS_RATE); the need it serves; then what it seeks: an outside thing, an animal, or a deed. As the C++ version's.
-    "goal", "goal_urgency", "goal_closeness", "goal_one_regard", "goal_one_family", "goal_desire", "goal_east", "goal_south", "goal_depth", "goal_stuck",
+    "goal", "goal_urgency", "goal_closeness", "goal_one_regard", "goal_one_family", "goal_desire", "goal_east", "goal_south", "goal_depth", "goal_stuck", "goal_project", "goal_instructed",
     *(f"goal_need_{need}" for need in NEED_NAMES), *(f"goal_{thing}" for thing in OUTSIDE_THINGS), "goal_one",
     *(f"goal_deed_{action}" for action in ACTIONS),
+    # Its project (see PROJECT_PULL): its own 1, confided a half; moved its way within the day; its site's way, east and
+    # south; what it is about, a site, a group, its kin, itself or a concept; 1 to raise it, -1 to lower. As the C++ version's.
+    "plan", "plan_progressing", "plan_east", "plan_south", "plan_site", "plan_group", "plan_kin", "plan_self", "plan_concept", "plan_raise",
     # A word it holds in its lexicon, heard (see LEXICON_SIZE): 1 when the loudest call it heard is one, and its own
     # closeness to the thing that word means. As the C++ version's.
     "meant", "meant_closeness",
@@ -265,7 +268,7 @@ IMAGINED_BITS = 7  # enough to number every action (65 since archery)
 # both ways (senses never below 0 push all its weights the same way, lesson after lesson, until the neuron jams at its
 # limit, the same whatever it senses, and learns no more); those already running -1..1 read as they are. As the C++
 # version's read_sense.
-SIGNED_SENSES = frozenset(("goal_east", "goal_south", "latitude", "warmth", "warmth_north", "warmth_south", "home_direction", "parent_east", "parent_south",
+SIGNED_SENSES = frozenset(("goal_east", "goal_south", "plan_east", "plan_south", "plan_raise", "latitude", "warmth", "warmth_north", "warmth_south", "home_direction", "parent_east", "parent_south",
                            *(f"heard_call_{call}_{way}" for call in range(1, 6) for way in ("east", "south")),
                            *(f"memory_{neuron}" for neuron in range(1, MEMORY_NEURONS + 1)),
                            *(f"map_{kind}_{way}" for kind in ("food", "danger", "comfort") for way in ("east", "south")),
@@ -285,7 +288,7 @@ SPARSE_SENSES = frozenset((
     "bow_carried", "archery",
     *(f"heard_{place}_{call}" for place in ("first", "second", "third") for call in range(1, CALL_COUNT + 1)),
     "pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed",
-    "goal", "goal_urgency", "goal_closeness", "goal_one_family", "goal_desire", *(f"goal_need_{need}" for need in NEED_NAMES),
+    "goal", "goal_urgency", "goal_closeness", "goal_one_family", "goal_desire", "goal_depth", "goal_stuck", "goal_project", "goal_instructed", *(f"goal_need_{need}" for need in NEED_NAMES),
     *(f"goal_{thing}" for thing in OUTSIDE_THINGS), "goal_one", *(f"goal_deed_{action}" for action in ACTIONS), "meant", "meant_closeness", "named", "named_closeness", "named_me", *(f"meant_{action}" for action in ACTIONS),
     *(f"heard_{place}_{sound}" for place in ("fourth", "fifth", "sixth") for sound in range(1, 6))))
 _READ_SCALE = np.array([1.0 if name in SIGNED_SENSES else 2.0 for name in SENSES])

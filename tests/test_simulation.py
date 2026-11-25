@@ -1723,7 +1723,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(OUTPUTS[-22:-18], ("attend", "ignore", "point_one", "point_self"))  # and pointing at one animal, or itself
         self.assertEqual(OUTPUTS[-1], "sixth_call_5")  # then a second word's sounds
         self.assertEqual(len(OUTPUTS), POINT + len(OUTSIDE_SENSES) + 4 + 18)
-        self.assertEqual(SENSES[-218:-212], ("pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed"))
+        self.assertEqual(SENSES[-232:-226], ("pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed"))
         dull = self.simulation._add_agent(encode_dna("grazer", sociability=1, intellect=1), 1, 1)
         keen = self.simulation._add_agent(encode_dna("grazer", sociability=7, intellect=7), 8, 8)
         self.assertGreater(Simulation.willing_to_learn(keen), Simulation.willing_to_learn(dull))
@@ -5025,6 +5025,47 @@ class MaterialTests(unittest.TestCase):
         animal.help_call_turn = world.turn - 2
         world._sense(friend)
         self.assertEqual(friend.helping, 1)
+
+    def test_projects_learnt_taken_up_progress_felt_steps_sought_leaders_instruct_and_plans_confided(self):
+        sm = simulation_module
+        with patch.multiple(sm, PROJECT_EVERY=1, PROJECT_PULL=2.0, INSTRUCTED_PULL=2.0):
+            world = Simulation(width=80, height=80, population=0, seed=3)
+            leader = world._add_agent(encode_dna("grazer", patience=7, curiosity=7), 30, 30)
+            follower = world._add_agent(encode_dna("grazer"), 31, 30)
+            world._index_cells()
+            leader.aim_sampled, leader.aim_last, leader.aim_good, leader.aim_good_drift = True, [0.0] * 15, 1.0, 0.0
+            leader.bow = True
+            world._sense(leader)
+            self.assertGreater(leader.aim_value[sm.SELF_GEAR], 0.0)
+            self.assertEqual((leader.project_aim, leader.project_dir, leader.projects_taken), (sm.SELF_GEAR, 1, 1))
+            leader.project_last = 0.0
+            senses, _, _ = world._sense(leader)
+            self.assertGreaterEqual(leader.project_progress_turns, 1)
+            self.assertEqual(senses[SENSES.index("plan")], 1.0)
+            self.assertEqual(senses[SENSES.index("plan_self")], 1.0)
+            rest = ACTIONS.index("rest")
+            leader.project_deeds = [0.0] * len(ACTIONS)
+            leader.project_deeds[rest] = 0.5
+            leader.goal_kind = sm.NO_GOAL
+            senses, _, situation = world._sense(leader)
+            self.assertEqual((leader.goal_kind, leader.goal_target, leader.goal_project), (sm.GOAL_FOR_DEED, rest, True))
+            self.assertEqual(senses[SENSES.index("goal_project")], 1.0)
+            world._act(leader, "rest", situation)
+            self.assertEqual((leader.shown_step, leader.plan_open), (rest, True))
+            leader.shown_turn = world.turn - 1  # shown last turn
+            follower.follows = leader.identifier
+            follower.known.append(sm.Acquaintance(leader.identifier, sm.REGARD_STRONG, 0))
+            senses, _, _ = world._sense(follower)
+            self.assertEqual((follower.goal_kind, follower.goal_target, follower.goal_instructed, follower.instructed_by),
+                             (sm.GOAL_FOR_DEED, rest, True, leader.identifier))
+            self.assertEqual(senses[SENSES.index("goal_instructed")], 1.0)
+            _, _, situation = world._sense(leader)
+            situation["addressee"] = follower
+            follower.project_aim = -1
+            world._act(leader, "confide", situation)
+            self.assertEqual((leader.confided, follower.confided_to, follower.project_aim, follower.project_confided, follower.project_from),
+                             (1, 1, sm.SELF_GEAR, True, leader.identifier))
+            self.assertGreater(follower.aim_value[sm.SELF_GEAR], 0.0)
 
     def test_a_child_hearing_its_parent_call_learns_the_call_and_what_the_parent_did_a_strangers_not(self):
         simulation = Simulation(30, 30, 0, seed=1)

@@ -233,6 +233,19 @@ def ingenuity_record(agent) -> dict:
             "open": [node(n) for n, was in enumerate(agent.was_open) if was]}
 
 
+def project_record(agent) -> dict:
+    """Its long aims and project (see PROJECT_PULL). As the C++ version's."""
+    return {"values": [float(v) for v in agent.aim_value], "last": [float(v) for v in agent.aim_last],
+            "head": [int(agent.aim_sampled), agent.project_aim, agent.project_dir, agent.project_turn, agent.project_progress_turn,
+                     agent.project_x, agent.project_y, agent.project_group, agent.project_concept, agent.project_from, agent.project_waited,
+                     int(agent.project_confided), int(agent.goal_project), int(agent.goal_instructed), agent.instructed_by,
+                     agent.shown_step, agent.shown_turn, int(agent.plan_open), agent.projects_taken, agent.projects_given_up,
+                     agent.project_progress_turns, agent.instructions_taken, agent.confided, agent.confided_to],
+            "good": [float(agent.aim_good), float(agent.aim_good_drift), float(agent.project_last)],
+            "deeds": [[deed, float(v)] for deed, v in enumerate(agent.project_deeds) if v != 0.0],
+            "things": [[thing, float(v)] for thing, v in enumerate(agent.project_things) if v != 0.0]}
+
+
 def goal_record(agent) -> dict:
     """Its needs, what eases them and its goal (see GOAL_JOY): only reliefs learnt. As the C++ version's."""
     needs = [float(v) for pair in zip(agent.needs, agent.need_drift) for v in pair]
@@ -242,7 +255,7 @@ def goal_record(agent) -> dict:
     return {"head": [agent.goal_kind, agent.goal_target, agent.goal_need, agent.goal_turn, float(agent.goal_urgency), float(agent.goal_close),
                      agent.goals_formed, agent.goals_reached, agent.goals_abandoned, agent.goals_switched, agent.goals_dropped,
                      agent.goal_reach_turns, int(agent.has_needs)],
-            "needs": needs, "things": things, "deeds": deeds, "ones": ones, "desire": desire_record(agent), "ingenuity": ingenuity_record(agent),
+            "needs": needs, "things": things, "deeds": deeds, "ones": ones, "desire": desire_record(agent), "ingenuity": ingenuity_record(agent), "project": project_record(agent),
             "asking": [int(agent.stuck), agent.stuck_goal_turn, agent.help_call_turn, agent.stuck_turns, agent.free_turns, agent.stuck_calls,
                        agent.free_calls, agent.unstuck_after_call, agent.unstuck_silent, agent.helped, agent.helping, agent.helped_turn, agent.help_taught_turn]}
 
@@ -498,6 +511,29 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
             for thing, x, y, seen in d.get("places", []):
                 if 0 <= int(thing) < 21:
                     agent.place_x[int(thing)], agent.place_y[int(thing)], agent.place_turn[int(thing)] = int(x), int(y), int(seen)
+        if "project" in g:  # see PROJECT_PULL
+            p = g["project"]
+            agent.aim_value, agent.aim_last = [float(v) for v in p["values"]], [float(v) for v in p["last"]]
+            h = [int(v) for v in p["head"]]
+            agent.aim_sampled = bool(h[0])
+            (agent.project_aim, agent.project_dir, agent.project_turn, agent.project_progress_turn, agent.project_x, agent.project_y,
+             agent.project_group, agent.project_concept, agent.project_from, agent.project_waited) = h[1:11]
+            agent.project_confided, agent.goal_project, agent.goal_instructed = bool(h[11]), bool(h[12]), bool(h[13])
+            agent.instructed_by = h[14]
+            agent.shown_step = numbers.action(h[15]) if h[15] >= 0 else -1
+            agent.shown_turn, agent.plan_open = h[16], bool(h[17])
+            (agent.projects_taken, agent.projects_given_up, agent.project_progress_turns, agent.instructions_taken, agent.confided,
+             agent.confided_to) = h[18:24]
+            agent.aim_good, agent.aim_good_drift, agent.project_last = (float(v) for v in p["good"])
+            for deed, value in p["deeds"]:
+                deed = numbers.action(int(deed))
+                if deed >= 0:
+                    agent.project_deeds[deed] = float(value)
+            for thing, value in p["things"]:
+                if 0 <= int(thing) < 21:
+                    agent.project_things[int(thing)] = float(value)
+            if not 0 <= agent.project_aim < 15:
+                agent.project_aim = -1
         if "asking" in g:  # see HELPED_JOY
             a = g["asking"]
             agent.stuck, agent.stuck_goal_turn, agent.help_call_turn = bool(a[0]), int(a[1]), int(a[2])
@@ -528,7 +564,7 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
                     agent.opens.append([node(source), node(to), float(strength), bool(used)])
             steps = [node(step) for step in i["steps"]]
             agent.goal_steps = [] if any(step < 0 for step in steps) else steps
-        if not agent.goal_desire and agent.goal_kind != 0 and not 0 <= agent.goal_need < 6:
+        if not agent.goal_desire and not agent.goal_project and not agent.goal_instructed and agent.goal_kind != 0 and not 0 <= agent.goal_need < 6:
             agent.goal_kind = 0
         if agent.goal_kind == 0:
             agent.goal_target = agent.goal_need = -1
