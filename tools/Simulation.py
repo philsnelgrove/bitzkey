@@ -5252,8 +5252,6 @@ class Simulation:
             available.add("drop_fruit")
         cooked_fruit = self._nearest_pile(agent, reach, self.cooked_fruit_piles) if self._any_piles else None
         eat_fruit = cooked_fruit if seen(cooked_fruit) else fruit_pile or cooked_fruit
-        if agent.species == "predator":
-            eat_fruit = cooked_fruit  # raw fruit it cannot eat (PREDATOR_COOKED_FRUIT)
         beside_fire = fire is not None and abs(fire[0] - agent.x) + abs(fire[1] - agent.y) <= 1
         if agent.any_tool and agent.carried_stone + agent.carried_wood and (agent.x, agent.y) not in self.shelters and not self.sea(agent.x, agent.y):
             available.add("construct")
@@ -5332,7 +5330,9 @@ class Simulation:
             available.add("feed_fire")
         if beside_fire and self._food_to_cook(agent, kill, flora, meat_pile, fruit_pile):
             available.add("cook")
-        if (eat_meat and MEAT_PORTION * agent.digestion > 0) or (eat_fruit and FRUIT_PORTION * self.fruit_share(agent, True) > 0):
+        # fruit eaten from a pile: a predator only cooked (PREDATOR_COOKED_FRUIT)
+        fruit_edible = eat_fruit is not None and FRUIT_PORTION * self.fruit_share(agent, self.cooked_fruit_piles.get(eat_fruit, 0) > 0) > 0
+        if (eat_meat and MEAT_PORTION * agent.digestion > 0) or fruit_edible:
             available.add("eat_pile")
         if ((agent.carried_meat + agent.cooked_meat > 0 and MEAT_PORTION * agent.digestion > 0) or (agent.carried_fruit + agent.cooked_fruit > 0 and FRUIT_PORTION * agent.browsing > 0)
                 or (agent.cooked_fruit > 0 and FRUIT_PORTION * self.fruit_share(agent, True) > 0)):
