@@ -526,6 +526,12 @@ _SITUATION = np.array([sense for sense in range(SENSES.index("heard_first_1")) i
 HELP_WINDOW = 3
 HELPED_JOY = 1.0  # and the call it made while stuck is taught it (as CALL_HARM); brains sense their goal stuck
 HELPING_JOY = 0.2
+HELP_WITNESS = 0.5  # useful help only (see HELPED_JOY in the C++ version): its witnesses' share of the joy
+HELP_GAVE, HELP_DROPPED, HELP_DEFENDED, HELP_LED = range(4)
+_HELP_KINDS = {**{a: HELP_GAVE for a in ("give", "offer", "tutor", "feed_young")},
+               **{a: HELP_DROPPED for a in ("drop_meat", "drop_fruit", "drop_stone", "drop_bone", "drop_wood")},
+               **{a: HELP_DEFENDED for a in ("attack", "defend", "hunt", "shoot")},
+               **{a: HELP_LED for a in ("go_north", "go_south", "go_east", "go_west", "walk_north", "walk_south", "walk_east", "walk_west", "revisit")}}
 # Projects (see PROJECT_PULL in the C++ version): long aims about a site, a group, its kin, itself or a concept, learnt
 # from its own life, held as one project, raised or lowered; leaders instruct by sign or word; CONFIDE shares a plan.
 SITE_BUILT, SITE_ROADS, SITE_FIRES, SITE_STORES, SITE_KIND, GROUP_FOES, GROUP_OWN, GROUP_PEACE, KIN_FAMILY, SELF_GEAR, SELF_SKILLS, \
@@ -1731,6 +1737,14 @@ class Bitzkey:
     stuck_goal_turn: int = -1
     help_call_turn: int = -1
     helped_turn: int = -1  # when last helped, and when that was last taught its call
+    help_to: int = -1  # help it tried (see HELPED_JOY): to whom, which deed and kind, when, held, for which goal, what it sensed
+    help_deed: int = -1
+    help_kind: int = -1
+    help_turn: int = -1
+    help_goal_turn: int = -1
+    help_pending: bool = False
+    help_senses: list | None = None
+    help_given: list = field(default_factory=lambda: [0] * 4)
     aim_value: list = field(default_factory=lambda: [0.0] * 15)  # projects (see PROJECT_PULL): each aim's worth to it
     aim_last: list = field(default_factory=lambda: [0.0] * 15)
     aim_agree: list = field(default_factory=lambda: [0.0] * 15)
@@ -2894,6 +2908,42 @@ class Simulation:
         self._attack(agent, opponent, "fighting")
         agent.last_action = "fought"
 
+    def _settle_help(self) -> None:
+        """Help tried this turn looked at; last turn's judged: useful if the caller's stuck goal came free. As the C++ version's."""
+        if HELPED_JOY <= 0 and HELPING_JOY <= 0:
+            return
+        for helper in self.agents:
+            if helper.help_to < 0:
+                continue
+            caller = self.find_agent(helper.help_to)
+            fresh = helper.help_turn == self.turn and not helper.help_pending
+            if not helper.alive or caller is None or caller is helper or not caller.alive or caller.species != helper.species:
+                helper.help_to = -1
+                continue
+            if fresh:
+                if (caller.stuck and caller.goal_kind != NO_GOAL and caller.help_call_turn >= 0 and helper.help_turn - caller.help_call_turn <= HELP_WINDOW + 1
+                        and abs(caller.x - helper.x) + abs(caller.y - helper.y) <= 1):
+                    helper.help_pending, helper.help_goal_turn = True, caller.goal_turn
+                else:
+                    helper.help_to = -1
+                continue
+            if helper.help_pending and helper.help_turn == self.turn - 1:
+                if not caller.stuck and caller.goal_kind != NO_GOAL and caller.goal_turn == helper.help_goal_turn:  # useful
+                    caller.helped += 1
+                    caller.helped_turn = self.turn
+                    caller.reward += HELPED_JOY * caller.feeling("sociability")
+                    helper.helping += 1
+                    helper.help_given[helper.help_kind] += 1
+                    joy = HELPING_JOY * helper.feeling("sociability")
+                    helper.reward += joy
+                    rate = self._learning_rate(helper)
+                    if joy > 0 and rate > 0 and helper.brain is not None and helper.help_senses is not None:
+                        helper.brain.learn(helper.help_senses, helper.help_deed, limited_value(joy), rate)
+                    self._deed_seen(helper, 1.0, caller, "help")
+                helper.help_to, helper.help_pending = -1, False
+            elif helper.help_turn < self.turn - 1:
+                helper.help_to = -1
+
     def _settle_fights(self) -> None:
         """After the turn: new fights begun, and those won, fled or ended, settled."""
         self.fights.extend(self._fights_begun)
@@ -3238,6 +3288,11 @@ class Simulation:
                 if culture is not None or kind == "victory":
                     self._culture_seen(other, doer, "victory" if kind == "victory" else culture)
                 if kind == "culture":
+                    continue
+                if kind == "help":  # useful help seen: the helper esteemed, and a share of its joy (see HELP_WITNESS)
+                    self._note_deed(other, doer, 1.0, WITNESS_SHARE, "plain", True)
+                    if HELP_WITNESS > 0 and HELPING_JOY > 0:
+                        other.reward += HELP_WITNESS * HELPING_JOY * other.feeling("sociability")
                     continue
                 if kind == "title":  # a titled leader, esteemed by all who see it and hold it no foe
                     if not self._is_foe(other, doer):
@@ -5096,6 +5151,7 @@ class Simulation:
             if agent.alive:
                 self._act(agent, action, situation)
         self._settle_fights()
+        self._settle_help()
         self._learn_witnessed()
 
     def _survey(self, agent: Bitzkey) -> None:
@@ -6321,22 +6377,11 @@ class Simulation:
                     agent.project_unstuck_silent += 1
             if called:
                 agent.unstuck_after_call += 1
-                if any(other is not agent and other.alive and other.species == agent.species
-                       and abs(other.x - agent.x) + abs(other.y - agent.y) <= 1 for other in self._nearby(agent, 1)):
-                    agent.helped += 1
-                    agent.helped_turn = self.turn
-                    relief += HELPED_JOY * agent.feeling("sociability")
             else:
                 agent.unstuck_silent += 1
         agent.stuck = stuck
         if stuck:
             agent.stuck_goal_turn = agent.goal_turn
-        if HELPING_JOY > 0 and agent.heard_from >= 0:  # beside one of its kind it heard call while stuck (heard a turn late)
-            caller = self.find_agent(agent.heard_from)
-            if (caller is not None and caller is not agent and caller.alive and caller.species == agent.species
-                    and caller.help_call_turn == self.turn - 2 and abs(caller.x - agent.x) + abs(caller.y - agent.y) <= 1):
-                agent.helping += 1
-                relief += HELPING_JOY * agent.feeling("sociability")
         if agent.project_aim >= 0:  # its project, sensed (see PROJECT_PULL)
             plan = SENSES.index("plan")
             senses[plan] = 0.5 if agent.project_confided else 1.0
@@ -7398,6 +7443,10 @@ class Simulation:
             caller.reward += ANSWERED_JOY * caller.feeling("sociability")
             caller_tally = self.initiative_tally.setdefault(caller.species, {"calls": 0, "babbled": 0, "babble_addressed": 0, "answered_back": 0, "answered_heeded": 0})
             caller_tally["answered_heeded" if kind == 0 else "answered_back"] += 1
+        kind = _HELP_KINDS.get(action, -1)  # help tried (see HELPED_JOY), looked at once all have acted
+        if kind >= 0 and agent.heard_from >= 0 and agent.last_senses is not None and (HELPED_JOY > 0 or HELPING_JOY > 0):
+            agent.help_to, agent.help_deed, agent.help_kind, agent.help_turn = agent.heard_from, ACTIONS.index(action), kind, self.turn
+            agent.help_pending, agent.help_senses = False, list(agent.last_senses)
         agent.plan_open = agent.project_aim >= 0  # its project's step shown in sight (see INSTRUCTED_PULL)
         if (agent.plan_open and (agent.goal_project or agent.goal_instructed) and agent.goal_kind == GOAL_FOR_DEED
                 and ACTIONS.index(action) == agent.goal_target):

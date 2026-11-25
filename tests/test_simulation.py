@@ -5016,15 +5016,24 @@ class MaterialTests(unittest.TestCase):
         self.assertEqual(senses[SENSES.index("goal_stuck")], 1.0)  # it senses its goal stuck
         self.assertEqual(animal.stuck_turns, 1)
         animal.help_call_turn = world.turn
+        friend.help_to, friend.help_deed, friend.help_kind, friend.help_turn, friend.help_pending = animal.identifier, ACTIONS.index("give"), sm.HELP_GAVE, world.turn, False
+        world._settle_help()
+        self.assertTrue(friend.help_pending)
+        friend.help_turn = world.turn - 1
         animal.goal_target = ACTIONS.index("go_east")
         animal.want_deeds, animal.spark_deeds = [0.0] * len(ACTIONS), [0.0] * len(ACTIONS)  # nothing pulls it back to the bow
-        _, _, situation = world._sense(animal)
+        world._sense(animal)
         self.assertFalse(animal.stuck)
-        self.assertEqual((animal.unstuck_after_call, animal.helped), (1, 1))
+        self.assertEqual(animal.unstuck_after_call, 1)
+        before, helper_before = animal.reward, friend.reward
+        world._settle_help()
+        self.assertEqual((animal.helped, animal.helped_turn, friend.helping, friend.help_given[sm.HELP_GAVE], friend.help_to), (1, world.turn, 1, 1, -1))
+        self.assertGreater(animal.reward, before)
+        self.assertGreater(friend.reward, helper_before)
+        animal.help_call_turn = world.turn
         friend.heard_from = animal.identifier
-        animal.help_call_turn = world.turn - 2
         world._sense(friend)
-        self.assertEqual(friend.helping, 1)
+        self.assertEqual(friend.helping, 1)  # merely beside: no help
 
     def test_projects_learnt_taken_up_progress_felt_steps_sought_leaders_instruct_and_plans_confided(self):
         sm = simulation_module

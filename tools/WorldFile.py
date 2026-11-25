@@ -294,6 +294,9 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "womb": [[_genome(dna), _mind(mind), numbers.brain(brain), float(energy), int(generation), int(father)]
                  for dna, mind, brain, energy, generation, father in agent.womb],
         "due_turn": agent.due_turn, "mind": _mind(agent.mind), "last_senses": numbers.senses(agent.last_senses),
+        "help_tried": ([agent.help_to, agent.help_deed, agent.help_kind, agent.help_turn, agent.help_goal_turn, int(agent.help_pending), numbers.senses(agent.help_senses)]
+                       if agent.help_to >= 0 else None),
+        "help_given": list(agent.help_given),
         "last_choice": int(agent.last_choice), "last_forced": bool(agent.last_forced), "last_panicked": bool(agent.last_panicked), "last_wellbeing": float(agent.last_wellbeing),
         "reward": float(agent.reward), "last_comfort": float(agent.last_comfort),
         "odds": {action: float(chance) for action, chance in agent.odds.items()},
@@ -481,6 +484,13 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
         n = record["name_heed"]
         agent.name_spoke_turn, agent.called_turn, agent.called_one, agent.called_close = int(n[0]), int(n[1]), int(n[2]), float(n[3])
         agent.called_me_turn, agent.name_judged_turn, agent.name_heeded, agent.name_reward = int(n[4]), int(n[5]), bool(n[6]), float(n[7])
+    if record.get("help_tried") is not None:  # help tried, to be judged (see HELPED_JOY)
+        h = record["help_tried"]
+        agent.help_to, agent.help_deed, agent.help_kind, agent.help_turn, agent.help_goal_turn = int(h[0]), numbers.action(int(h[1])), int(h[2]), int(h[3]), int(h[4])
+        agent.help_pending, agent.help_senses = bool(h[5]), numbers.senses(h[6])
+        if agent.help_deed < 0 or not 0 <= agent.help_kind < 4:
+            agent.help_to = -1
+    agent.help_given = [int(v) for v in record.get("help_given", [0, 0, 0, 0])]
     agent.word_one = int(record.get("word_one", -1))
     agent.learn_one = int(record.get("learn_one", -1))
     if "goal" in record:  # see GOAL_JOY
