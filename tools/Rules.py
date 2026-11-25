@@ -369,7 +369,7 @@ _TABLE: dict[str, list[tuple]] = {
         ("BABBLE_AGE", "Babbling age", "turns of age by which the urge to babble has faded to nothing, from its full strength at birth", 1, 2000, 1),
         ("ANSWERED_JOY", "Joy of being answered", "joy, times its sociability, a caller feels for each hearer (at most three a turn) that answers it: calls back, says its word back, or does as its word or name meant; whatever was said; 0 for none", 0.0, 2.0, 0.05),
         ("HELP_WINDOW", "Help window", "turns after it called while its goal was stuck in which the goal coming free counts as helped", 1, 48, 1),
-        ("HELPED_JOY", "Joy of being helped", "relief, times its sociability, an animal feels when its stuck goal comes free soon after it called, with one of its kind beside it; 0 for none", 0.0, 2.0, 0.05),
+        ("HELPED_JOY", "Joy of being helped", "relief, times its sociability, an animal feels when its stuck goal comes free soon after it called, with one of its kind beside it; and the call it made while stuck is taught it; 0 for none", 0.0, 2.0, 0.05),
         ("HELPING_JOY", "Joy of helping", "joy, times its sociability, an animal feels on coming beside one of its kind it heard call while that one's goal was stuck; 0 for none", 0.0, 2.0, 0.05),
         ("RELIEF_RATE", "Relief learning", "how fast an animal learns, from its own life, how much each need eased after it came nearer each thing or companion, or did each deed; 0 for none", 0.0, 1.0, 0.01),
         ("RELIEF_INHERIT", "Relief inheritance", "share of what eased its parents' needs that a newborn starts with, as if it had learnt it", 0.0, 1.0, 0.05),

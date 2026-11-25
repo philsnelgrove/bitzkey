@@ -1723,7 +1723,7 @@ class NewTraitTests(unittest.TestCase):
         self.assertEqual(OUTPUTS[-22:-18], ("attend", "ignore", "point_one", "point_self"))  # and pointing at one animal, or itself
         self.assertEqual(OUTPUTS[-1], "sixth_call_5")  # then a second word's sounds
         self.assertEqual(len(OUTPUTS), POINT + len(OUTSIDE_SENSES) + 4 + 18)
-        self.assertEqual(SENSES[-217:-211], ("pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed"))
+        self.assertEqual(SENSES[-218:-212], ("pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed"))
         dull = self.simulation._add_agent(encode_dna("grazer", sociability=1, intellect=1), 1, 1)
         keen = self.simulation._add_agent(encode_dna("grazer", sociability=7, intellect=7), 8, 8)
         self.assertGreater(Simulation.willing_to_learn(keen), Simulation.willing_to_learn(dull))
@@ -5010,9 +5010,10 @@ class MaterialTests(unittest.TestCase):
         animal.spark_deeds[bow] = 0.5
         animal.relief_deeds = [[0.0] * len(ACTIONS) for _ in range(6)]
         animal.relief_things = [[0.0] * 21 for _ in range(6)]
-        world._sense(animal)
+        senses, _, _ = world._sense(animal)
         self.assertEqual(animal.goal_kind, sm.GOAL_FOR_DEED)
         self.assertTrue(animal.stuck)
+        self.assertEqual(senses[SENSES.index("goal_stuck")], 1.0)  # it senses its goal stuck
         self.assertEqual(animal.stuck_turns, 1)
         animal.help_call_turn = world.turn
         animal.goal_target = ACTIONS.index("go_east")

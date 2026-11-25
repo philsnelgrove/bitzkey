@@ -523,7 +523,7 @@ OPENS_LINKS = 24
 # one of its kind beside it, is HELPED_JOY times its sociability; coming beside one of its kind it heard call while
 # stuck, HELPING_JOY times its sociability. As the C++ version's.
 HELP_WINDOW = 3
-HELPED_JOY = 0.3
+HELPED_JOY = 1.0  # and the call it made while stuck is taught it (as CALL_HARM); brains sense their goal stuck
 HELPING_JOY = 0.2
 # The lexicon (the user's design): words settled by accord, a right guess or a corrected one, each with the thing it
 # means and the regard for the one it was settled with; LEXICON_SIZE for each point of intellect and one more, the
@@ -1700,6 +1700,8 @@ class Bitzkey:
     stuck: bool = False  # asking (see HELPED_JOY): its goal stuck, for which goal, when it last called while stuck
     stuck_goal_turn: int = -1
     help_call_turn: int = -1
+    helped_turn: int = -1  # when last helped, and when that was last taught its call
+    help_taught_turn: int = -1
     stuck_turns: int = 0
     free_turns: int = 0
     stuck_calls: int = 0
@@ -6039,6 +6041,7 @@ class Simulation:
                 if any(other is not agent and other.alive and other.species == agent.species
                        and abs(other.x - agent.x) + abs(other.y - agent.y) <= 1 for other in self._nearby(agent, 1)):
                     agent.helped += 1
+                    agent.helped_turn = self.turn
                     relief += HELPED_JOY * agent.feeling("sociability")
             else:
                 agent.unstuck_silent += 1
@@ -6065,6 +6068,8 @@ class Simulation:
                 agent.goal_remembered = remembered_goal
                 deep = float(len(agent.goal_steps))
                 senses[GOAL_DESIRE_SENSE + 3] = deep / (deep + 1.0)
+            if agent.stuck:  # shut to it (see HELPED_JOY)
+                senses[GOAL_DESIRE_SENSE + 4] = 1.0
             senses[GOAL_SENSE + 2] = max(0.0, seek_close)
             place = place_of(seek_kind, seek)
             if place is not None:  # its way there
@@ -6698,12 +6703,35 @@ class Simulation:
         value = limited_value(-CALL_HARM)
         return [(senses, output, value, rate) for output in outputs]
 
+    def _call_help_lessons(self, agent: Bitzkey) -> list[tuple]:
+        """Helped soon after it called while stuck: the call it made then taught the joy, against what it sensed as it
+        called (see HELPED_JOY). As the C++ version's."""
+        if HELPED_JOY <= 0 or agent.helped_turn < 0 or agent.helped_turn <= agent.help_taught_turn:
+            return []
+        agent.help_taught_turn = agent.helped_turn
+        if agent.voiced_turn < 0 or agent.voiced_turn != agent.help_call_turn:  # its last call the one it made stuck
+            return []
+        if not agent.habits or agent.brain is None:
+            return []
+        rate = self._learning_rate(agent)
+        if rate <= 0:
+            return []
+        habit_senses, said = agent.habits[-1]
+        senses = (habit_senses.astype(float) / 60.0 - _READ_SHIFT) / _READ_SCALE
+        outputs = [call_output(FIRST_CALL + said[0])]
+        for place in range(1, MAX_SOUNDS):
+            outputs.append(sound_output(place, said[place]))
+            if said[place] < 0:
+                break
+        value = limited_value(HELPED_JOY * agent.feeling("sociability"))
+        return [(senses, output, value, rate) for output in outputs]
+
     def _settled_call(self, agent: Bitzkey) -> list[tuple]:
         """Its held call lesson, with what it did to its listeners, as lessons of (senses, output, target, rate)."""
         relieved, agent.relieved = agent.relieved, False  # one who heard it was then less surprised: the itch passes
         if relieved:
             agent.itch = 0.0
-        harm = self._call_harm_lessons(agent)
+        harm = self._call_harm_lessons(agent) + self._call_help_lessons(agent)
         if not agent.call_held:
             return harm
         agent.call_held = False

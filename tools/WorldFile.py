@@ -244,7 +244,7 @@ def goal_record(agent) -> dict:
                      agent.goal_reach_turns, int(agent.has_needs)],
             "needs": needs, "things": things, "deeds": deeds, "ones": ones, "desire": desire_record(agent), "ingenuity": ingenuity_record(agent),
             "asking": [int(agent.stuck), agent.stuck_goal_turn, agent.help_call_turn, agent.stuck_turns, agent.free_turns, agent.stuck_calls,
-                       agent.free_calls, agent.unstuck_after_call, agent.unstuck_silent, agent.helped, agent.helping]}
+                       agent.free_calls, agent.unstuck_after_call, agent.unstuck_silent, agent.helped, agent.helping, agent.helped_turn, agent.help_taught_turn]}
 
 
 def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
@@ -503,6 +503,8 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
             agent.stuck, agent.stuck_goal_turn, agent.help_call_turn = bool(a[0]), int(a[1]), int(a[2])
             (agent.stuck_turns, agent.free_turns, agent.stuck_calls, agent.free_calls, agent.unstuck_after_call, agent.unstuck_silent,
              agent.helped, agent.helping) = (int(v) for v in a[3:11])
+            if len(a) > 12:
+                agent.helped_turn, agent.help_taught_turn = int(a[11]), int(a[12])
         if "ingenuity" in g:  # see OPENS_RATE
             i = g["ingenuity"]
             top = i["head"]
