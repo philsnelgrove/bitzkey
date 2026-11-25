@@ -242,7 +242,9 @@ def goal_record(agent) -> dict:
     return {"head": [agent.goal_kind, agent.goal_target, agent.goal_need, agent.goal_turn, float(agent.goal_urgency), float(agent.goal_close),
                      agent.goals_formed, agent.goals_reached, agent.goals_abandoned, agent.goals_switched, agent.goals_dropped,
                      agent.goal_reach_turns, int(agent.has_needs)],
-            "needs": needs, "things": things, "deeds": deeds, "ones": ones, "desire": desire_record(agent), "ingenuity": ingenuity_record(agent)}
+            "needs": needs, "things": things, "deeds": deeds, "ones": ones, "desire": desire_record(agent), "ingenuity": ingenuity_record(agent),
+            "asking": [int(agent.stuck), agent.stuck_goal_turn, agent.help_call_turn, agent.stuck_turns, agent.free_turns, agent.stuck_calls,
+                       agent.free_calls, agent.unstuck_after_call, agent.unstuck_silent, agent.helped, agent.helping]}
 
 
 def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
@@ -496,6 +498,11 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
             for thing, x, y, seen in d.get("places", []):
                 if 0 <= int(thing) < 21:
                     agent.place_x[int(thing)], agent.place_y[int(thing)], agent.place_turn[int(thing)] = int(x), int(y), int(seen)
+        if "asking" in g:  # see HELPED_JOY
+            a = g["asking"]
+            agent.stuck, agent.stuck_goal_turn, agent.help_call_turn = bool(a[0]), int(a[1]), int(a[2])
+            (agent.stuck_turns, agent.free_turns, agent.stuck_calls, agent.free_calls, agent.unstuck_after_call, agent.unstuck_silent,
+             agent.helped, agent.helping) = (int(v) for v in a[3:11])
         if "ingenuity" in g:  # see OPENS_RATE
             i = g["ingenuity"]
             top = i["head"]

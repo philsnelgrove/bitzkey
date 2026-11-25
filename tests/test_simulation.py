@@ -4996,6 +4996,35 @@ class MaterialTests(unittest.TestCase):
         simulation._eat_carried(predator)
         self.assertEqual(predator.species, "omnivore")
 
+    def test_asking_a_stuck_goal_and_calls_counted_and_come_free_after_a_call_with_one_beside_is_relief(self):
+        sm = simulation_module
+        world = Simulation(width=80, height=80, population=0, seed=3)
+        animal = world._add_agent(encode_dna("grazer", sociability=7), 30, 30)
+        friend = world._add_agent(encode_dna("grazer", sociability=7), 31, 30)
+        world._index_cells()
+        bow = ACTIONS.index("make_bow")
+        animal.goal_kind, animal.goal_target, animal.goal_desire, animal.goal_need, animal.goal_turn = sm.GOAL_FOR_DEED, bow, True, -1, world.turn - 1
+        animal.want_deeds = [0.0] * len(ACTIONS)
+        animal.want_deeds[bow] = 0.5
+        animal.spark_deeds = [0.0] * len(ACTIONS)
+        animal.spark_deeds[bow] = 0.5
+        animal.relief_deeds = [[0.0] * len(ACTIONS) for _ in range(6)]
+        animal.relief_things = [[0.0] * 21 for _ in range(6)]
+        world._sense(animal)
+        self.assertEqual(animal.goal_kind, sm.GOAL_FOR_DEED)
+        self.assertTrue(animal.stuck)
+        self.assertEqual(animal.stuck_turns, 1)
+        animal.help_call_turn = world.turn
+        animal.goal_target = ACTIONS.index("go_east")
+        animal.want_deeds, animal.spark_deeds = [0.0] * len(ACTIONS), [0.0] * len(ACTIONS)  # nothing pulls it back to the bow
+        _, _, situation = world._sense(animal)
+        self.assertFalse(animal.stuck)
+        self.assertEqual((animal.unstuck_after_call, animal.helped), (1, 1))
+        friend.heard_from = animal.identifier
+        animal.help_call_turn = world.turn - 2
+        world._sense(friend)
+        self.assertEqual(friend.helping, 1)
+
     def test_a_child_hearing_its_parent_call_learns_the_call_and_what_the_parent_did_a_strangers_not(self):
         simulation = Simulation(30, 30, 0, seed=1)
         parent = simulation._add_agent(encode_dna("grazer"), 5, 5)

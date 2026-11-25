@@ -519,6 +519,12 @@ OPENS_INHERIT = 0.5
 OPENS_MIN = 0.1
 PLAN_DEPTH = 3.0
 OPENS_LINKS = 24
+# Asking (see HELPED_JOY): a stuck goal (shut to it) coming free within HELP_WINDOW turns after it called while stuck,
+# one of its kind beside it, is HELPED_JOY times its sociability; coming beside one of its kind it heard call while
+# stuck, HELPING_JOY times its sociability. As the C++ version's.
+HELP_WINDOW = 3
+HELPED_JOY = 0.3
+HELPING_JOY = 0.2
 # The lexicon (the user's design): words settled by accord, a right guess or a corrected one, each with the thing it
 # means and the regard for the one it was settled with; LEXICON_SIZE for each point of intellect and one more, the
 # least used forgotten when full; changed only by a friend or family member regarded more (family at least
@@ -1691,6 +1697,17 @@ class Bitzkey:
     steps_reached: int = 0
     steps_given_up: int = 0
     chains_unfinished: int = 0  # goals that ended, reached or not, with steps still open
+    stuck: bool = False  # asking (see HELPED_JOY): its goal stuck, for which goal, when it last called while stuck
+    stuck_goal_turn: int = -1
+    help_call_turn: int = -1
+    stuck_turns: int = 0
+    free_turns: int = 0
+    stuck_calls: int = 0
+    free_calls: int = 0
+    unstuck_after_call: int = 0
+    unstuck_silent: int = 0
+    helped: int = 0
+    helping: int = 0
     links_first_followed: int = 0
     harm_taught_turn: int = -1  # the last strike whose harm it taught its call (see CALL_HARM)
     quiet_wish: float = 0.0  # as it last chose: how much its brain preferred silence to its best sound (PARENT_HUSH)
@@ -6009,6 +6026,31 @@ class Simulation:
                     agent.chains_begun += 1
                 agent.goal_steps.append(best[0])
                 agent.step_turn = self.turn
+        # Asking (see HELPED_JOY): its goal stuck, or come free soon after it called while stuck, one of its kind beside it.
+        stuck = root >= 0 and shut(root)
+        if agent.goal_kind != NO_GOAL:
+            if stuck:
+                agent.stuck_turns += 1
+            else:
+                agent.free_turns += 1
+        if agent.stuck and not stuck and agent.goal_kind != NO_GOAL and agent.goal_turn == agent.stuck_goal_turn:
+            if agent.help_call_turn >= 0 and self.turn - agent.help_call_turn <= HELP_WINDOW:
+                agent.unstuck_after_call += 1
+                if any(other is not agent and other.alive and other.species == agent.species
+                       and abs(other.x - agent.x) + abs(other.y - agent.y) <= 1 for other in self._nearby(agent, 1)):
+                    agent.helped += 1
+                    relief += HELPED_JOY * agent.feeling("sociability")
+            else:
+                agent.unstuck_silent += 1
+        agent.stuck = stuck
+        if stuck:
+            agent.stuck_goal_turn = agent.goal_turn
+        if HELPING_JOY > 0 and agent.heard_from >= 0:  # beside one of its kind it heard call while stuck (heard a turn late)
+            caller = self.find_agent(agent.heard_from)
+            if (caller is not None and caller is not agent and caller.alive and caller.species == agent.species
+                    and caller.help_call_turn == self.turn - 2 and abs(caller.x - agent.x) + abs(caller.y - agent.y) <= 1):
+                agent.helping += 1
+                relief += HELPING_JOY * agent.feeling("sociability")
         # Felt, and sensed: the goal's urgency and need, but what it seeks now, its step if it has one.
         if agent.goal_kind != NO_GOAL:
             unease = GOAL_UNEASE * agent.goal_urgency
@@ -6916,6 +6958,11 @@ class Simulation:
             caller_tally = self.initiative_tally.setdefault(caller.species, {"calls": 0, "babbled": 0, "babble_addressed": 0, "answered_back": 0, "answered_heeded": 0})
             caller_tally["answered_heeded" if kind == 0 else "answered_back"] += 1
         if agent.call != SILENT and agent.call_turn == self.turn:  # its call, as it sets about its action
+            if agent.stuck:  # called while its goal was stuck (see HELPED_JOY)
+                agent.stuck_calls += 1
+                agent.help_call_turn = self.turn
+            elif agent.goal_kind != NO_GOAL:
+                agent.free_calls += 1
             # each sound costs, in hunger and in stamina, the dearer the more it has called of late (see HOARSE)
             sounds = max(1, self._sounds_made(agent)) * (1.0 + HOARSE * agent.chatter)
             agent.hunger = min(100.0, agent.hunger + CALL_COST * sounds)
