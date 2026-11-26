@@ -5980,6 +5980,32 @@ class LandTests(unittest.TestCase):
                 self.assertEqual(caller.wooed_taught_turn, now)
                 self.assertEqual(simulation._woo_lessons(caller), [])  # taught once
 
+    def test_concept_words_coined_kept_taken_once_held_by_intellect_and_the_idea_on_its_mind(self):
+        sm = simulation_module
+        simulation = Simulation(30, 30, 0, seed=1)
+        one = simulation._add_agent(encode_dna("omnivore", size=3), 5, 5)
+        other = simulation._add_agent(encode_dna("omnivore", size=3), 6, 5)
+        simulation._index_cells()
+        for each in (one, other):
+            each.mind["intellect"] = 7.0
+            each.mind["sociability"] = sm.TRAIT_MAX
+        one.call, one.sounds, one.call_turn = sm.FIRST_CALL + 2, [1, -1], simulation.turn
+        word = simulation.concept_word(one, 2)
+        self.assertIsNotNone(word)
+        self.assertEqual(word[3], 2)
+        self.assertEqual(len(one.concepts), 1)
+        one.call = sm.SILENT
+        self.assertEqual(simulation.concept_word(one, 2)[0], sm.FIRST_CALL + 2)  # held now, said again though silent
+        self.assertIsNone(simulation.concept_word(one, 1))  # silent and holding none
+        self.assertTrue(Simulation.take_concept(other, word, 0.5))
+        self.assertFalse(Simulation.take_concept(other, word, 0.5))  # held already
+        self.assertEqual(Simulation.concepts_capacity(other), int(math.floor(sm.CONCEPTS_SIZE * 8.0 + 0.5)))
+        one.project_aim = 2
+        self.assertEqual(Simulation.concept_on_mind(one), 2)
+        one.project_aim = -1
+        one.values[sm.GLORY_VALUE] = 2.0
+        self.assertEqual(Simulation.concept_on_mind(one), sm.PROJECT_AIMS + sm.GLORY_VALUE)
+
     def test_values_inherited_mutated_taught_and_scaling_the_joys_they_name(self):
         sm = simulation_module
         simulation = Simulation(30, 30, 0, seed=1)

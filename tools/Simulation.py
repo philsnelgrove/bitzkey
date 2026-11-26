@@ -541,6 +541,9 @@ HAWK_BUYER = 1
 WOO_WINDOW = 20  # wooing (see WOO_JOY in the C++ version): turns from the caller's call and the comer's move to the mating
 WOO_JOY = 1.0
 WOO_COMER = 1
+CONVERSE_WINDOW = 3  # conversation (see CONVERSE_JOY in the C++ version): a reply to one that lately replied
+CONVERSE_JOY = 0.3
+CONCEPTS_SIZE = 1  # concept-words (see CONCEPTS_SIZE in the C++ version): words for aims and values
 _HELP_KINDS = {**{a: HELP_GAVE for a in ("give", "offer", "tutor", "feed_young")},
                **{a: HELP_DROPPED for a in ("drop_meat", "drop_fruit", "drop_stone", "drop_bone", "drop_wood")},
                **{a: HELP_DEFENDED for a in ("attack", "defend", "hunt", "shoot")},
@@ -1658,6 +1661,19 @@ class Bitzkey:
     names: list = field(default_factory=list)  # its names, each [call, sound, sound, the one named, regard, uses] (see NAMES_SIZE)
     deeds: list = field(default_factory=list)  # its deed-words, each [call, sound, sound, action, regard, uses] (see DEEDS_SIZE)
     deed_spoke_turn: int = -1
+    concepts: list = field(default_factory=list)  # concept-words (see CONCEPTS_SIZE): [call, s1, s2, idea, regard, uses]
+    concept_spoke_turn: int = -1
+    concept_heard_turn: int = -1
+    replied_to: int = -1  # see CONVERSE_JOY
+    replied_turn: int = -1
+    talk_calls: int = 0  # talk in its life, for the probe
+    idle_calls: int = 0
+    said_things: int = 0
+    said_deeds: int = 0
+    said_names: int = 0
+    said_concepts: int = 0
+    heard_concepts: int = 0
+    exchanges: int = 0
     meant_by_deed: bool = False  # whether the word last heard was a deed-word, meant_deed its deed
     judged_by_deed: bool = False
     echo_turn: int = -1  # the last turn it said a deed-word back, doing its guess
@@ -3165,6 +3181,49 @@ class Simulation:
         return 0 if LEXICON_SIZE <= 0 else int(math.floor(LEXICON_SIZE * (1 + agent.mind["intellect"]) + 0.5))
 
     @staticmethod
+    def concepts_capacity(agent: Bitzkey) -> int:
+        """How many concept-words it can hold (see CONCEPTS_SIZE). As the C++ version's."""
+        return 0 if CONCEPTS_SIZE <= 0 else int(math.floor(CONCEPTS_SIZE * (1 + agent.mind["intellect"]) + 0.5))
+
+    @staticmethod
+    def top_value_concept(agent: Bitzkey) -> int:
+        best = 0
+        for kind in range(1, VALUE_KINDS):
+            if agent.value(kind) > agent.value(best):
+                best = kind
+        return PROJECT_AIMS + best
+
+    @staticmethod
+    def concept_on_mind(agent: Bitzkey) -> int:
+        return agent.project_aim if agent.project_aim >= 0 else Simulation.top_value_concept(agent)
+
+    def concept_word(self, teller: Bitzkey, idea: int):
+        """Its word for the idea, or, holding none and calling this turn, its call taken as one; None if neither."""
+        if CONCEPTS_SIZE <= 0 or idea < 0:
+            return None
+        for word in teller.concepts:
+            if word[3] == idea:
+                word[5] += 1
+                return list(word)
+        if teller.call < FIRST_CALL or teller.call_turn != self.turn:
+            return None
+        coined = [teller.call, teller.sounds[0], teller.sounds[1], idea, 1.0, 1]
+        return coined if self.take_concept(teller, coined, 1.0) else None
+
+    @staticmethod
+    def take_concept(who: Bitzkey, word: list, regard: float) -> bool:
+        room = Simulation.concepts_capacity(who)
+        if room <= 0:
+            return False
+        if any((held[0] == word[0] and held[1:3] == word[1:3]) or held[3] == word[3] for held in who.concepts):
+            return False
+        if len(who.concepts) >= room:  # full: it forgets the one used least
+            least = min(range(len(who.concepts)), key=lambda i: who.concepts[i][5])
+            del who.concepts[least]
+        who.concepts.append([word[0], word[1], word[2], word[3], float(regard), 0])
+        return True
+
+    @staticmethod
     def deeds_capacity(agent: Bitzkey) -> int:
         """How many deed-words it can hold (see DEEDS_SIZE). As the C++ version's."""
         return 0 if DEEDS_SIZE <= 0 else int(math.floor(DEEDS_SIZE * (1 + agent.mind["intellect"]) + 0.5))
@@ -3318,6 +3377,12 @@ class Simulation:
                     continue
                 child.deeds.append([word[0], word[1], word[2], word[3], float(LEXICON_FAMILY), 0])
                 self.deed_tally[child.species]["inherited"] += 1
+        if CONCEPTS_SIZE > 0 and LEXICON_INHERIT > 0 and parent.concepts:  # and its concept-words, alike
+            ideas = sorted(parent.concepts, key=lambda w: -w[5])
+            for word in ideas[:int(math.floor(LEXICON_INHERIT * len(ideas) + 0.5))]:
+                if len(child.concepts) >= self.concepts_capacity(child):
+                    break
+                self.take_concept(child, word, LEXICON_FAMILY)
         if LEXICON_SIZE <= 0 or LEXICON_INHERIT <= 0 or not parent.lexicon:
             return
         words = sorted(parent.lexicon, key=lambda w: -w[5])
@@ -5175,6 +5240,20 @@ class Simulation:
                                 agent.voiced_turn = agent.deed_spoke_turn = self.turn
                                 word[5] += 1
                             break
+                    # An idea on its mind, pointing at itself and saying no deed-word: its concept-word (see CONCEPTS_SIZE).
+                    if (CONCEPTS_SIZE > 0 and LEXICON_SPEAK > 0 and agent.point == POINT_SELF_THING and agent.deed_spoke_turn != self.turn
+                            and not cried and not repeated and not echoed and ACTIONS[choice] != "learn"
+                            and not (ACTIONS[choice] == "address" and situation.get("retry_to") is not None) and agent.concepts):
+                        topic = self.concept_on_mind(agent)
+                        for word in agent.concepts:
+                            if word[3] != topic:
+                                continue
+                            if whim(agent.identifier ^ 0x434F4E43, self.turn) < LEXICON_SPEAK * agent.feeling("sociability"):
+                                agent.call = agent.last_call = word[0]
+                                agent.sounds, agent.last_sounds = [word[1], word[2]], [word[1], word[2]]
+                                agent.voiced_turn = agent.concept_spoke_turn = self.turn
+                                word[5] += 1
+                            break
                     # One it has a name for: it says that name, as it says a word.
                     if (NAMES_SIZE > 0 and LEXICON_SPEAK > 0 and agent.point == POINT_ONE_THING and not cried and not repeated
                             and ACTIONS[choice] != "learn" and not (ACTIONS[choice] == "address" and situation.get("retry_to") is not None)):
@@ -5860,6 +5939,15 @@ class Simulation:
                 agent.word_from = caller.identifier
                 agent.meant_liked = self._family(agent, caller) or self._regard_for(agent, caller) > 0
                 agent.unknown_turn = -1
+                break
+        if CONCEPTS_SIZE > 0 and caller is not None and caller.call >= FIRST_CALL:  # a concept-word it holds, heard (see CONCEPTS_SIZE)
+            for word in agent.concepts:
+                if not self.says(caller, word[0], word[1:3]):
+                    continue
+                word[5] += 1
+                agent.heard_concepts += 1
+                agent.concept_heard_turn = self.turn
+                agent.word_from = caller.identifier
                 break
         annoyed_by = -1
         if ANNOYANCE > 0 and caller is not None and caller.species == agent.species and caller.call >= FIRST_CALL:  # the same again, from the same one
@@ -7606,6 +7694,14 @@ class Simulation:
                 continue
             if caller.answered_turn != self.turn:
                 caller.answered_turn, caller.answered_count = self.turn, 0
+            exchange = (CONVERSE_JOY > 0 and agent.replied_to != caller.identifier and caller.replied_to == agent.identifier
+                        and caller.replied_turn >= 0 and self.turn - caller.replied_turn <= CONVERSE_WINDOW)  # see CONVERSE_JOY
+            agent.replied_to, agent.replied_turn = caller.identifier, self.turn
+            if exchange:
+                agent.exchanges += 1
+                caller.exchanges += 1
+                agent.reward += CONVERSE_JOY * agent.feeling("sociability") * agent.value(TALK_VALUE)
+                caller.reward += CONVERSE_JOY * caller.feeling("sociability") * caller.value(TALK_VALUE)
             if caller.answered_count >= ANSWERS_A_TURN:
                 continue
             caller.answered_count += 1
@@ -7638,6 +7734,13 @@ class Simulation:
         if agent.call != SILENT and agent.call_turn == self.turn:  # its call, as it sets about its action
             if WOO_JOY > 0 and agent.can_breed:  # called ready to breed (see WOO_JOY)
                 agent.woo_call_turn = self.turn
+            if agent.call >= FIRST_CALL:  # its talk, for the probe (see CONVERSE_JOY)
+                agent.talk_calls += 1
+                agent.idle_calls += agent.goal_kind == NO_GOAL and not agent.stuck and agent.struck_turn < self.turn - 1
+                agent.said_things += agent.lexicon_spoke_turn == self.turn
+                agent.said_deeds += agent.deed_spoke_turn == self.turn
+                agent.said_names += agent.name_spoke_turn == self.turn
+                agent.said_concepts += agent.concept_spoke_turn == self.turn
             if HAWK_JOY > 0 and any(self._holds(agent, good) for good in range(GOODS)):  # holding a good it might offer
                 agent.hawk_call_turn = self.turn
             if agent.stuck:  # called while its goal was stuck (see HELPED_JOY)
@@ -7864,6 +7967,10 @@ class Simulation:
                 other.aim_value[aim] += min(1.0, max(0.0, CONFIDE_SHARE)) * agent.aim_value[aim] * regard
                 other.confided_to += 1
                 self.teach_values(other, self.shown_values(agent), 1.0 if self._family(other, agent) else regard)  # see VALUE_TEACH
+                idea_words = [w for w in (self.concept_word(agent, aim), self.concept_word(agent, self.top_value_concept(agent))) if w is not None]
+                if self._family(other, agent) or self._regard_for(other, agent) > 0:  # its words for its aim and top value (see CONCEPTS_SIZE)
+                    for w in idea_words:
+                        self.take_concept(other, w, LEXICON_FAMILY if self._family(other, agent) else regard)
                 if CONFIDE_WORDS:  # the words its plan and goal need, taken up as words settled are (see CONFIDE_WORDS)
                     deed_words = [list(w) for w in agent.deeds if 0 <= w[3] < len(ACTIONS) and (agent.project_deeds[w[3]] > 0 or (agent.goal_kind == GOAL_FOR_DEED and agent.goal_target == w[3]))]
                     thing_words = [list(w) for w in agent.lexicon if 0 <= w[3] < 21 and (agent.project_things[w[3]] > 0 or (agent.goal_kind == GOAL_FOR_THING and agent.goal_target == w[3]))]
@@ -9307,6 +9414,10 @@ class Simulation:
         tutor.hunger = min(100.0, tutor.hunger + TUTOR_COST)
         pupil.tutored_turn = self.turn
         self.teach_values(pupil, self.shown_values(tutor), 1.0 if self._family(pupil, tutor) else min(1.0, max(0.0, self._regard_for(pupil, tutor))))
+        if CONCEPTS_SIZE > 0 and (self._family(pupil, tutor) or self._regard_for(pupil, tutor) > 0):  # see CONCEPTS_SIZE
+            word = self.concept_word(tutor, self.top_value_concept(tutor))
+            if word is not None:
+                self.take_concept(pupil, word, LEXICON_FAMILY if self._family(pupil, tutor) else self._regard_for(pupil, tutor))
         if lesson == len(CRAFTS):
             pupil.archery += TUTOR_PRACTICE * ARCHERY_LEARNING * (1 - pupil.archery)  # worth part of a shot
         else:
