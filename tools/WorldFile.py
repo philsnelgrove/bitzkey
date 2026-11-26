@@ -297,6 +297,7 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "help_tried": ([agent.help_to, agent.help_deed, agent.help_kind, agent.help_turn, agent.help_goal_turn, int(agent.help_pending), numbers.senses(agent.help_senses)]
                        if agent.help_to >= 0 else None),
         "help_given": list(agent.help_given),
+        "values": [[float(v) for v in agent.values], [float(v) for v in agent.taught], [float(v) for v in agent.liked_by_cue], agent.value_lessons, float(agent.liked)],
         "hawking": [agent.hawk_call_turn, agent.hawk_to, agent.hawk_deed if agent.hawk_to >= 0 else -1, agent.hawk_move_turn, agent.hawk_far,
                     agent.sold_turn, agent.bought_turn, agent.sold_taught_turn, agent.bought_taught_turn, float(agent.sold_gain), float(agent.bought_gain),
                     int(agent.sold_call is not None), agent.hawked_sales, agent.hawked_buys],
@@ -496,6 +497,12 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
         if agent.help_deed < 0 or not 0 <= agent.help_kind < 4:
             agent.help_to = -1
     agent.help_given = [int(v) for v in record.get("help_given", [0, 0, 0, 0])]
+    if record.get("values") is not None:  # see VALUE_KINDS
+        v = record["values"]
+        agent.values = [max(0.0, min(3.0, float(x))) for x in v[0]][:8] + [1.0] * max(0, 8 - len(v[0]))
+        agent.taught = [max(-1.0, min(3.0, float(x))) for x in v[1]][:8] + [0.0] * max(0, 8 - len(v[1]))
+        agent.liked_by_cue = [float(x) for x in v[2]][:5] + [0.0] * max(0, 5 - len(v[2]))
+        agent.value_lessons, agent.liked = int(v[3]), float(v[4])
     if record.get("hawking") is not None:  # see HAWK_JOY
         h = record["hawking"]
         agent.hawk_call_turn, agent.hawk_to = int(h[0]), int(h[1])

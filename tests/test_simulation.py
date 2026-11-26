@@ -5951,6 +5951,39 @@ class LandTests(unittest.TestCase):
                 self.assertEqual(owner.sold_taught_turn, now)
                 self.assertEqual(simulation._hawk_lessons(owner), [])  # taught once
 
+    def test_values_inherited_mutated_taught_and_scaling_the_joys_they_name(self):
+        sm = simulation_module
+        simulation = Simulation(30, 30, 0, seed=1)
+        mother = simulation._add_agent(encode_dna("omnivore", size=3), 5, 5)
+        father = simulation._add_agent(encode_dna("omnivore", size=3), 6, 5)
+        child = simulation._add_agent(encode_dna("omnivore", size=3), 7, 5)
+        simulation._index_cells()
+        self.assertEqual(child.value(sm.TRADE_VALUE), 1.0)
+        mother.values, father.values, mother.taught = [2.0] * 8, [0.0] * 8, [0.4] * 8
+        simulation.inherit_values(child, mother, father)
+        for kind in range(8):
+            self.assertLessEqual(abs(child.values[kind] - 1.0), sm.VALUE_MUTATION + 1e-9)
+            self.assertAlmostEqual(child.taught[kind], sm.VALUE_INHERIT * 0.4)
+        child.values, child.taught = [1.0] * 8, [0.0] * 8
+        Simulation.teach_values(child, [2.0] * 8, 1.0)
+        self.assertAlmostEqual(child.taught[sm.GLORY_VALUE], sm.VALUE_TEACH)
+        self.assertAlmostEqual(child.value(sm.GLORY_VALUE), 1.0 + sm.VALUE_TEACH)
+        Simulation.teach_values(child, [2.0] * 8, 0.0)
+        self.assertEqual(child.value_lessons, 1)
+        trader, owner = mother, father
+        for one in (trader, owner):
+            for trait in ("aggression", "dominance", "empathy", "sociability"):
+                one.mind[trait] = 0.0
+            one.mind["intellect"] = 7.0
+            one.values, one.taught, one.reward = [1.0] * 8, [0.0] * 8, 0.0
+        owner.values[sm.TRADE_VALUE] = 2.0
+        trader.weapon = sm.STONE_AXE
+        owner.armour_worn = sm.WOOD_ARMOUR
+        owner.mind["aggression"] = 7.0
+        simulation._offer(trader, owner, sm.ARMOUR_POSSESSION, sm.WEAPON_POSSESSION)
+        self.assertEqual(trader.last_action, "traded")
+        self.assertAlmostEqual(owner.reward - trader.reward, sm.TRADE_JOY)  # its trade joy twice over
+
     def test_an_offer_is_weighed_by_both_a_deal_that_seems_a_gain_to_each_is_made_one_that_doesnt_refused(self):
         sm = simulation_module
         simulation = Simulation(30, 30, 0, seed=1)

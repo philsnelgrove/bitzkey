@@ -528,6 +528,13 @@ HELPED_JOY = 1.0  # and the call it made while stuck is taught it (as CALL_HARM)
 HELPING_JOY = 0.2
 HELP_WITNESS = 0.5  # useful help only (see HELPED_JOY in the C++ version): its witnesses' share of the joy
 HELP_GAVE, HELP_DROPPED, HELP_DEFENDED, HELP_LED = range(4)
+# Values (see VALUE_KINDS in the C++ version): what each kind of joy is worth to it, inherited and taught.
+TRADE_VALUE, HELP_VALUE, GIFT_VALUE, GLORY_VALUE, TALK_VALUE, GOAL_VALUE, LIKING_VALUE, TEACHABLE_VALUE = range(8)
+VALUE_KINDS, VALUE_MAX = 8, 3.0
+VALUE_MUTATION = 0.05
+VALUE_INHERIT = 0.5
+VALUE_TEACH = 0.1
+LIKING = 0.5
 HAWK_WINDOW = 20  # hawking (see HAWK_JOY in the C++ version): turns from the owner's call and the buyer's move to the deal
 HAWK_JOY = 1.0
 HAWK_BUYER = 1
@@ -1759,6 +1766,11 @@ class Bitzkey:
     help_senses: list | None = None
     help_given: list = field(default_factory=lambda: [0] * 4)
     hawk_call_turn: int = -1  # hawking (see HAWK_JOY): as the C++ version's
+    values: list = field(default_factory=lambda: [1.0] * 8)  # see VALUE_KINDS
+    taught: list = field(default_factory=lambda: [0.0] * 8)
+    liked: float = 0.0
+    liked_by_cue: list = field(default_factory=lambda: [0.0] * 5)
+    value_lessons: int = 0
     hawk_to: int = -1
     hawk_deed: int = -1
     hawk_move_turn: int = -1
@@ -2145,6 +2157,10 @@ class Bitzkey:
     def herd_instinct(self) -> float:
         """How strongly it herds: the lower of its current empathy and patience, 0 to 1."""
         return min(self.feeling("empathy"), self.feeling("patience"))
+
+    def value(self, kind: int) -> float:
+        """What a joy of that kind is worth to it, times (see VALUE_KINDS)."""
+        return max(0.0, min(VALUE_MAX, self.values[kind] * (1.0 + self.taught[kind])))
 
     def feeling(self, trait: str) -> float:
         """A temperament trait, as it is now, as a share of its full range. The feeble are drawn out of themselves, the old
@@ -2850,7 +2866,7 @@ class Simulation:
             return
         self._hand_over(agent, friend, possession)
         self._note_deed(friend, agent, 1.0, 1.0, "plain", True)  # a gift, a kindness
-        agent.reward += GIVE_JOY * (0.5 + max(agent.feeling("empathy"), agent.feeling("sociability")))
+        agent.reward += GIVE_JOY * (0.5 + max(agent.feeling("empathy"), agent.feeling("sociability"))) * agent.value(GIFT_VALUE)
 
     @staticmethod
     def _holds(holder: Bitzkey, good: int) -> bool:
@@ -2924,9 +2940,9 @@ class Simulation:
             self._note_deed(owner, agent, 1.0 if owner_gain > 0 else -1.0, TRADE_REGARD, "plain", True)
             self._note_deed(agent, owner, 1.0 if agent_gain > 0 else -1.0, TRADE_REGARD, "plain", True)
             if agent_gain > 0:
-                agent.reward += TRADE_JOY
+                agent.reward += TRADE_JOY * agent.value(TRADE_VALUE)
             if owner_gain > 0:
-                owner.reward += TRADE_JOY
+                owner.reward += TRADE_JOY * owner.value(TRADE_VALUE)
             if (HAWK_JOY > 0 and owner.hawk_call_turn >= 0 and self.turn - owner.hawk_call_turn <= HAWK_WINDOW  # hawked (see HAWK_JOY)
                     and agent.hawk_to == owner.identifier and agent.hawk_move_turn >= owner.hawk_call_turn
                     and self.turn - agent.hawk_move_turn <= HAWK_WINDOW):
@@ -2971,10 +2987,10 @@ class Simulation:
                 if not caller.stuck and caller.goal_kind != NO_GOAL and caller.goal_turn == helper.help_goal_turn:  # useful
                     caller.helped += 1
                     caller.helped_turn = self.turn
-                    caller.reward += HELPED_JOY * caller.feeling("sociability")
+                    caller.reward += HELPED_JOY * caller.feeling("sociability") * caller.value(HELP_VALUE)
                     helper.helping += 1
                     helper.help_given[helper.help_kind] += 1
-                    joy = HELPING_JOY * helper.feeling("sociability")
+                    joy = HELPING_JOY * helper.feeling("sociability") * helper.value(HELP_VALUE)
                     helper.reward += joy
                     rate = self._learning_rate(helper)
                     if joy > 0 and rate > 0 and helper.brain is not None and helper.help_senses is not None:
@@ -3013,7 +3029,7 @@ class Simulation:
             won.append((winner, loser))
         self.fights = going
         for winner, loser, challenger, leader in challenges:  # glory and shame (see CHALLENGE_GLORY)
-            winner.reward += CHALLENGE_GLORY * (0.5 + winner.feeling("dominance"))
+            winner.reward += CHALLENGE_GLORY * (0.5 + winner.feeling("dominance")) * winner.value(GLORY_VALUE)
             loser.reward -= CHALLENGE_LOSS
             loser.humbled_until = self.turn + max(0, CHALLENGE_HUMBLED)
             leader.challenges_faced += 1
@@ -3332,7 +3348,7 @@ class Simulation:
                 if kind == "help":  # useful help seen: the helper esteemed, and a share of its joy (see HELP_WITNESS)
                     self._note_deed(other, doer, 1.0, WITNESS_SHARE, "plain", True)
                     if HELP_WITNESS > 0 and HELPING_JOY > 0:
-                        other.reward += HELP_WITNESS * HELPING_JOY * other.feeling("sociability")
+                        other.reward += HELP_WITNESS * HELPING_JOY * other.feeling("sociability") * other.value(HELP_VALUE)
                     continue
                 if kind == "title":  # a titled leader, esteemed by all who see it and hold it no foe
                     if not self._is_foe(other, doer):
@@ -5196,6 +5212,7 @@ class Simulation:
             agent.last_comfort = comfort
             agent.reward = -BOREDOM_UNEASE * agent.boredom
             agent.joy_mark = agent.reward  # its joys from here on are known by what it rises above this (see DESIRE)
+            agent.liked = 0.0
             agent.call_pleasure = 0.0
             agent.assailant = None  # the chance to strike back, or need to flee, passes with this turn's choice
             agent.panicked = False
@@ -6039,12 +6056,17 @@ class Simulation:
         heard_deed = agent.meant_deed if heard_last and agent.meant_by_deed else -1
         heard_one = agent.called_one if agent.called_turn == self.turn - 1 else -1
 
+        rise = [0.0] * 5  # its wanting woken the more this turn, by cue (see LIKING)
+
         def wake(spark: float, fade: float, source_was: int, want: float, cue: float, source: int, trait: float) -> tuple[float, float, int]:
+            before = spark
             spark *= linger
             if DESIRE > 0 and want > 0 and cue > 0:
                 woken = DESIRE * want * cue * trait * (1.0 - fade)
                 if woken > spark:
                     spark, source_was = woken, source
+                if woken > before:
+                    rise[source] += woken - before
             return spark, fade * (1.0 - recover), source_was
 
         for thing in range(len(OUTSIDE_SENSES)):
@@ -6066,6 +6088,14 @@ class Simulation:
             if one[0] == heard_one and heard > cue:
                 cue, source = heard, CUE_HEARD
             one[4], one[5], one[9] = wake(one[4], one[5], one[9], one[3], cue, source, social)
+        if LIKING > 0:  # anticipation: its wanting woken the more, felt (see LIKING)
+            scale = LIKING * agent.value(LIKING_VALUE)
+            for cue_kind, risen in enumerate(rise):
+                if risen > 0:
+                    joy = scale * risen
+                    agent.reward += joy
+                    agent.liked += joy
+                    agent.liked_by_cue[cue_kind] += joy
         # Its enemies (see VENDETTA): seen, the grudge faded, the dead let go, and each sparked by sight, place or name.
         fierce, fading = 0.5 + agent.feeling("aggression"), (1.0 / VENDETTA_MEMORY if VENDETTA_MEMORY > 0 else 1.0)
         kept = []
@@ -6113,7 +6143,7 @@ class Simulation:
             sated = not pulled and push < GOAL_SATED
             patience = agent.feeling("patience")
             if met:
-                joy = 0.0 if agent.goal_project or agent.goal_vendetta else GOAL_JOY * agent.goal_urgency  # a project's step: only progress brings joy
+                joy = 0.0 if agent.goal_project or agent.goal_vendetta else GOAL_JOY * agent.goal_urgency * agent.value(GOAL_VALUE)  # a project's step: only progress brings joy
                 if agent.goal_instructed:
                     agent.instructions_taken += 1
                 if agent.goal_desire:  # as much as its pleasure in it has not faded, and fading the more (PLEASURE_FADE)
@@ -6158,7 +6188,7 @@ class Simulation:
         # What it liked (see DESIRE): the good it felt since last turn, beyond its usual, after what it came nearer and did.
         if lived and WANTING_RATE > 0:
             rate = min(1.0, WANTING_RATE)
-            good = max(0.0, agent.reward - agent.joy_mark)  # its own joys only, not a goal's, lest the sought be liked for being sought
+            good = max(0.0, agent.reward - agent.joy_mark - agent.liked)  # liking kept out (see LIKING); its own joys only, not a goal's, lest the sought be liked for being sought
             gain = good - agent.good_drift
             agent.good_drift += rate * (good - agent.good_drift)
             for thing in range(len(OUTSIDE_SENSES)):
@@ -7250,7 +7280,7 @@ class Simulation:
             outputs.append(sound_output(place, said[place]))
             if said[place] < 0:
                 break
-        value = limited_value(HELPED_JOY * agent.feeling("sociability"))
+        value = limited_value(HELPED_JOY * agent.feeling("sociability") * agent.value(HELP_VALUE))
         return [(senses, output, value, rate) for output in outputs]
 
     def _hawk_lessons(self, agent: Bitzkey) -> list[tuple]:
@@ -7264,7 +7294,7 @@ class Simulation:
             if agent.sold_call is not None and agent.sold_gain > 0 and rate > 0:
                 habit_senses, said = agent.sold_call
                 senses = (np.asarray(habit_senses).astype(float) / 60.0 - _READ_SHIFT) / _READ_SCALE
-                value = limited_value(HAWK_JOY * agent.sold_gain * agent.feeling("sociability"))
+                value = limited_value(HAWK_JOY * agent.sold_gain * agent.feeling("sociability") * agent.value(TRADE_VALUE))
                 lessons.append((senses, call_output(FIRST_CALL + said[0]), value, rate))
                 for place in range(1, MAX_SOUNDS):
                     output = sound_output(place, said[place])
@@ -7275,7 +7305,7 @@ class Simulation:
         if agent.bought_turn >= 0 and agent.bought_turn > agent.bought_taught_turn:
             agent.bought_taught_turn = agent.bought_turn
             if HAWK_BUYER and agent.bought_gain > 0 and rate > 0 and agent.hawk_deed >= 0 and agent.hawk_senses is not None:
-                value = limited_value(HAWK_JOY * agent.bought_gain * agent.feeling("curiosity"))
+                value = limited_value(HAWK_JOY * agent.bought_gain * agent.feeling("curiosity") * agent.value(TRADE_VALUE))
                 lessons.append((np.asarray(agent.hawk_senses, dtype=float), agent.hawk_deed, value, rate))
         return lessons
 
@@ -7535,7 +7565,7 @@ class Simulation:
             if caller.answered_count >= ANSWERS_A_TURN:
                 continue
             caller.answered_count += 1
-            caller.reward += ANSWERED_JOY * caller.feeling("sociability")
+            caller.reward += ANSWERED_JOY * caller.feeling("sociability") * caller.value(TALK_VALUE)
             caller_tally = self.initiative_tally.setdefault(caller.species, {"calls": 0, "babbled": 0, "babble_addressed": 0, "answered_back": 0, "answered_heeded": 0})
             caller_tally["answered_heeded" if kind == 0 else "answered_back"] += 1
         kind = _HELP_KINDS.get(action, -1)  # help tried (see HELPED_JOY), looked at once all have acted
@@ -7779,6 +7809,7 @@ class Simulation:
                 regard = min(1.0, max(0.0, self._regard_for(other, agent)))
                 other.aim_value[aim] += min(1.0, max(0.0, CONFIDE_SHARE)) * agent.aim_value[aim] * regard
                 other.confided_to += 1
+                self.teach_values(other, self.shown_values(agent), 1.0 if self._family(other, agent) else regard)  # see VALUE_TEACH
                 if CONFIDE_WORDS:  # the words its plan and goal need, taken up as words settled are (see CONFIDE_WORDS)
                     deed_words = [list(w) for w in agent.deeds if 0 <= w[3] < len(ACTIONS) and (agent.project_deeds[w[3]] > 0 or (agent.goal_kind == GOAL_FOR_DEED and agent.goal_target == w[3]))]
                     thing_words = [list(w) for w in agent.lexicon if 0 <= w[3] < 21 and (agent.project_things[w[3]] > 0 or (agent.goal_kind == GOAL_FOR_THING and agent.goal_target == w[3]))]
@@ -9187,6 +9218,33 @@ class Simulation:
                 return craft
         return -1
 
+    @staticmethod
+    def shown_values(teller: Bitzkey) -> list[float]:
+        return [teller.value(kind) for kind in range(VALUE_KINDS)]
+
+    @staticmethod
+    def teach_values(learner: Bitzkey, shown: list[float], trust: float) -> None:
+        """The learner's taught values moved toward making its own the teller's (see VALUE_TEACH)."""
+        if VALUE_TEACH <= 0 or trust <= 0:
+            return
+        rate = min(1.0, VALUE_TEACH * trust * learner.value(TEACHABLE_VALUE))
+        if rate <= 0:
+            return
+        for kind in range(VALUE_KINDS):
+            if learner.values[kind] <= 0:
+                continue
+            target = max(-1.0, min(VALUE_MAX, shown[kind] / learner.values[kind] - 1.0))
+            learner.taught[kind] += rate * (target - learner.taught[kind])
+        learner.value_lessons += 1
+
+    def inherit_values(self, child: Bitzkey, mother: Bitzkey, father: Bitzkey | None) -> None:
+        """Its parents' mean, each moved by up to VALUE_MUTATION either way; VALUE_INHERIT of its mother's taught."""
+        for kind in range(VALUE_KINDS):
+            base = (mother.values[kind] + father.values[kind]) / 2.0 if father is not None else mother.values[kind]
+            step = VALUE_MUTATION * (2.0 * whim(child.identifier ^ (0x7A10 + kind), self.turn) - 1.0)
+            child.values[kind] = max(0.0, min(VALUE_MAX, base + step))
+            child.taught[kind] = min(1.0, max(0.0, VALUE_INHERIT)) * mother.taught[kind]
+
     def _tutor(self, tutor: Bitzkey, pupil: Bitzkey, lesson: int) -> None:
         """One lesson, as the C++ version's, for the hunger of a call."""
         if pupil is None or not pupil.alive or abs(pupil.x - tutor.x) + abs(pupil.y - tutor.y) > 1 or lesson < 0:
@@ -9194,6 +9252,7 @@ class Simulation:
             return
         tutor.hunger = min(100.0, tutor.hunger + TUTOR_COST)
         pupil.tutored_turn = self.turn
+        self.teach_values(pupil, self.shown_values(tutor), 1.0 if self._family(pupil, tutor) else min(1.0, max(0.0, self._regard_for(pupil, tutor))))
         if lesson == len(CRAFTS):
             pupil.archery += TUTOR_PRACTICE * ARCHERY_LEARNING * (1 - pupil.archery)  # worth part of a shot
         else:
@@ -9324,7 +9383,7 @@ class Simulation:
             agent.reward += 2 * joy
             self._witness(agent, meal / agent.stomach / 100)  # its pack sees it succeed: the fullness it gained
             if (self._rival_weight(agent, victim) > 0 or self._is_foe(agent, victim)) and _wanting(agent):  # one fewer rival, in want
-                agent.reward += RIVAL_KILL_JOY * agent.rivalry * (1 - 0.5 * agent.feeling("tolerance"))
+                agent.reward += RIVAL_KILL_JOY * agent.rivalry * (1 - 0.5 * agent.feeling("tolerance")) * agent.value(GLORY_VALUE)
             self._experience(agent, "kill")
         pain = EMPATHY_PAIN * (2 if killed else 1)
         agent.reward -= pain * empathy * (1.0 if self._same_kind(agent, victim) else OTHER_KIND)
@@ -9777,6 +9836,7 @@ class Simulation:
             if father_now is not None:
                 self.inherit_words(child, father_now)
             self.inherit_relief(child, mother, father_now)  # and what eased its parents' needs (see RELIEF_INHERIT)
+            self.inherit_values(child, mother, father_now)  # and its parents' values (see VALUE_KINDS)
             self.name_at_birth(child, mother)  # and its mother names it (see NAMES_SIZE)
             if CUES:  # its mother's cry, or now and then another
                 child.cry = cue_cry(mother)
