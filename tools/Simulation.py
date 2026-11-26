@@ -528,6 +528,9 @@ HELPED_JOY = 1.0  # and the call it made while stuck is taught it (as CALL_HARM)
 HELPING_JOY = 0.2
 HELP_WITNESS = 0.5  # useful help only (see HELPED_JOY in the C++ version): its witnesses' share of the joy
 HELP_GAVE, HELP_DROPPED, HELP_DEFENDED, HELP_LED = range(4)
+HAWK_WINDOW = 20  # hawking (see HAWK_JOY in the C++ version): turns from the owner's call and the buyer's move to the deal
+HAWK_JOY = 1.0
+HAWK_BUYER = 1
 _HELP_KINDS = {**{a: HELP_GAVE for a in ("give", "offer", "tutor", "feed_young")},
                **{a: HELP_DROPPED for a in ("drop_meat", "drop_fruit", "drop_stone", "drop_bone", "drop_wood")},
                **{a: HELP_DEFENDED for a in ("attack", "defend", "hunt", "shoot")},
@@ -1755,6 +1758,21 @@ class Bitzkey:
     help_pending: bool = False
     help_senses: list | None = None
     help_given: list = field(default_factory=lambda: [0] * 4)
+    hawk_call_turn: int = -1  # hawking (see HAWK_JOY): as the C++ version's
+    hawk_to: int = -1
+    hawk_deed: int = -1
+    hawk_move_turn: int = -1
+    hawk_far: int = 0
+    hawk_senses: list | None = None
+    sold_turn: int = -1
+    bought_turn: int = -1
+    sold_taught_turn: int = -1
+    bought_taught_turn: int = -1
+    sold_gain: float = 0.0
+    bought_gain: float = 0.0
+    sold_call: tuple | None = None  # (senses, said) of the call that drew the buyer
+    hawked_sales: int = 0
+    hawked_buys: int = 0
     aim_value: list = field(default_factory=lambda: [0.0] * 15)  # projects (see PROJECT_PULL): each aim's worth to it
     aim_last: list = field(default_factory=lambda: [0.0] * 15)
     aim_agree: list = field(default_factory=lambda: [0.0] * 15)
@@ -2909,6 +2927,16 @@ class Simulation:
                 agent.reward += TRADE_JOY
             if owner_gain > 0:
                 owner.reward += TRADE_JOY
+            if (HAWK_JOY > 0 and owner.hawk_call_turn >= 0 and self.turn - owner.hawk_call_turn <= HAWK_WINDOW  # hawked (see HAWK_JOY)
+                    and agent.hawk_to == owner.identifier and agent.hawk_move_turn >= owner.hawk_call_turn
+                    and self.turn - agent.hawk_move_turn <= HAWK_WINDOW):
+                owner.sold_turn, owner.sold_gain = self.turn, owner_gain
+                owner.sold_call = ((owner.habits[-1][0].copy(), list(owner.habits[-1][1]))
+                                   if owner.voiced_turn == owner.hawk_call_turn and owner.habits else None)
+                owner.hawked_sales += 1
+                agent.bought_turn, agent.bought_gain = self.turn, agent_gain
+                agent.hawked_buys += 1
+                agent.hawk_to = -1
             agent.last_action = "traded"
 
     def _brawl(self, agent: Bitzkey, opponent: Bitzkey) -> None:
@@ -7225,12 +7253,38 @@ class Simulation:
         value = limited_value(HELPED_JOY * agent.feeling("sociability"))
         return [(senses, output, value, rate) for output in outputs]
 
+    def _hawk_lessons(self, agent: Bitzkey) -> list[tuple]:
+        """A hawked deal: the seller's call and the buyer's move taught, once each (see HAWK_JOY). As the C++ version's."""
+        if HAWK_JOY <= 0 or agent.brain is None:
+            return []
+        rate = self._learning_rate(agent)
+        lessons = []
+        if agent.sold_turn >= 0 and agent.sold_turn > agent.sold_taught_turn:
+            agent.sold_taught_turn = agent.sold_turn
+            if agent.sold_call is not None and agent.sold_gain > 0 and rate > 0:
+                habit_senses, said = agent.sold_call
+                senses = (np.asarray(habit_senses).astype(float) / 60.0 - _READ_SHIFT) / _READ_SCALE
+                value = limited_value(HAWK_JOY * agent.sold_gain * agent.feeling("sociability"))
+                lessons.append((senses, call_output(FIRST_CALL + said[0]), value, rate))
+                for place in range(1, MAX_SOUNDS):
+                    output = sound_output(place, said[place])
+                    if output is not None and output >= 0:
+                        lessons.append((senses, output, value, rate))
+                    if said[place] < 0:
+                        break
+        if agent.bought_turn >= 0 and agent.bought_turn > agent.bought_taught_turn:
+            agent.bought_taught_turn = agent.bought_turn
+            if HAWK_BUYER and agent.bought_gain > 0 and rate > 0 and agent.hawk_deed >= 0 and agent.hawk_senses is not None:
+                value = limited_value(HAWK_JOY * agent.bought_gain * agent.feeling("curiosity"))
+                lessons.append((np.asarray(agent.hawk_senses, dtype=float), agent.hawk_deed, value, rate))
+        return lessons
+
     def _settled_call(self, agent: Bitzkey) -> list[tuple]:
         """Its held call lesson, with what it did to its listeners, as lessons of (senses, output, target, rate)."""
         relieved, agent.relieved = agent.relieved, False  # one who heard it was then less surprised: the itch passes
         if relieved:
             agent.itch = 0.0
-        harm = self._call_harm_lessons(agent) + self._call_help_lessons(agent)
+        harm = self._call_harm_lessons(agent) + self._call_help_lessons(agent) + self._hawk_lessons(agent)
         if not agent.call_held:
             return harm
         agent.call_held = False
@@ -7485,6 +7539,13 @@ class Simulation:
             caller_tally = self.initiative_tally.setdefault(caller.species, {"calls": 0, "babbled": 0, "babble_addressed": 0, "answered_back": 0, "answered_heeded": 0})
             caller_tally["answered_heeded" if kind == 0 else "answered_back"] += 1
         kind = _HELP_KINDS.get(action, -1)  # help tried (see HELPED_JOY), looked at once all have acted
+        if kind == HELP_LED and HAWK_JOY > 0 and agent.heard_from >= 0 and agent.last_senses is not None:  # see HAWK_JOY
+            caller = self.find_agent(agent.heard_from)
+            if caller is not None and caller is not agent:
+                far = abs(caller.x - agent.x) + abs(caller.y - agent.y)
+                if far > 1:
+                    agent.hawk_to, agent.hawk_deed, agent.hawk_move_turn, agent.hawk_far = caller.identifier, ACTIONS.index(action), self.turn, far
+                    agent.hawk_senses = list(agent.last_senses)
         if kind >= 0 and agent.heard_from >= 0 and agent.last_senses is not None and (HELPED_JOY > 0 or HELPING_JOY > 0):
             agent.help_to, agent.help_deed, agent.help_kind, agent.help_turn = agent.heard_from, ACTIONS.index(action), kind, self.turn
             agent.help_pending, agent.help_senses = False, list(agent.last_senses)
@@ -7493,6 +7554,8 @@ class Simulation:
                 and ACTIONS.index(action) == agent.goal_target):
             agent.shown_step, agent.shown_turn = agent.goal_target, self.turn
         if agent.call != SILENT and agent.call_turn == self.turn:  # its call, as it sets about its action
+            if HAWK_JOY > 0 and any(self._holds(agent, good) for good in range(GOODS)):  # holding a good it might offer
+                agent.hawk_call_turn = self.turn
             if agent.stuck:  # called while its goal was stuck (see HELPED_JOY)
                 agent.stuck_calls += 1
                 agent.project_stuck_calls += agent.goal_project

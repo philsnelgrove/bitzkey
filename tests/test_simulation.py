@@ -5916,6 +5916,41 @@ class LandTests(unittest.TestCase):
         self.assertAlmostEqual(situation["admired"], 1 / 3)  # one about it holds it a friend
         self.assertGreater(Simulation._comfort(follower, situation), Simulation._comfort(follower, alone))
 
+    def test_hawking_a_deal_with_one_that_heard_the_owner_from_afar_and_came_is_hawked_and_taught_once(self):
+        import numpy as np
+        sm = simulation_module
+        for came in (True, False):
+            simulation = Simulation(30, 30, 0, seed=1)
+            trader = simulation._add_agent(encode_dna("omnivore", size=3), 5, 5)
+            owner = simulation._add_agent(encode_dna("omnivore", size=3), 6, 5)
+            simulation._index_cells()
+            for one in (trader, owner):
+                for trait in ("aggression", "dominance", "empathy"):
+                    one.mind[trait] = 0.0
+                one.mind["intellect"] = 7.0
+                one.mind["sociability"] = one.mind["curiosity"] = sm.TRAIT_MAX
+            trader.weapon = sm.STONE_AXE
+            owner.armour_worn = sm.WOOD_ARMOUR
+            owner.mind["aggression"] = 7.0
+            now = simulation.turn
+            owner.hawk_call_turn = owner.voiced_turn = now
+            owner.habits.append((np.zeros(len(owner.last_senses) if owner.last_senses is not None else 1, dtype=np.int8), [2, 1, -1]))
+            if came:
+                trader.hawk_to, trader.hawk_deed, trader.hawk_move_turn, trader.hawk_far = owner.identifier, ACTIONS.index("go_east"), now, 4
+            simulation._offer(trader, owner, sm.ARMOUR_POSSESSION, sm.WEAPON_POSSESSION)
+            self.assertEqual(trader.last_action, "traded")
+            self.assertEqual(owner.hawked_sales, 1 if came else 0)
+            self.assertEqual(trader.hawked_buys, 1 if came else 0)
+            if came:
+                self.assertIsNotNone(owner.sold_call)
+                self.assertGreater(owner.sold_gain, 0.0)
+                self.assertEqual(simulation._hawk_lessons(trader) == [], trader.hawk_senses is None)
+                self.assertEqual(trader.bought_taught_turn, now)
+                self.assertEqual(owner.sold_taught_turn, -1)
+                self.assertTrue(simulation._hawk_lessons(owner))
+                self.assertEqual(owner.sold_taught_turn, now)
+                self.assertEqual(simulation._hawk_lessons(owner), [])  # taught once
+
     def test_an_offer_is_weighed_by_both_a_deal_that_seems_a_gain_to_each_is_made_one_that_doesnt_refused(self):
         sm = simulation_module
         simulation = Simulation(30, 30, 0, seed=1)

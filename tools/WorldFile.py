@@ -297,6 +297,11 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
         "help_tried": ([agent.help_to, agent.help_deed, agent.help_kind, agent.help_turn, agent.help_goal_turn, int(agent.help_pending), numbers.senses(agent.help_senses)]
                        if agent.help_to >= 0 else None),
         "help_given": list(agent.help_given),
+        "hawking": [agent.hawk_call_turn, agent.hawk_to, agent.hawk_deed if agent.hawk_to >= 0 else -1, agent.hawk_move_turn, agent.hawk_far,
+                    agent.sold_turn, agent.bought_turn, agent.sold_taught_turn, agent.bought_taught_turn, float(agent.sold_gain), float(agent.bought_gain),
+                    int(agent.sold_call is not None), agent.hawked_sales, agent.hawked_buys],
+        "hawk_senses": numbers.senses(agent.hawk_senses) if agent.hawk_to >= 0 and agent.hawk_senses is not None else None,
+        "sold_call": ([[int(v) for v in agent.sold_call[0]], [int(v) for v in agent.sold_call[1]]] if agent.sold_call is not None else None),
         "last_choice": int(agent.last_choice), "last_forced": bool(agent.last_forced), "last_panicked": bool(agent.last_panicked), "last_wellbeing": float(agent.last_wellbeing),
         "reward": float(agent.reward), "last_comfort": float(agent.last_comfort),
         "odds": {action: float(chance) for action, chance in agent.odds.items()},
@@ -491,6 +496,20 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
         if agent.help_deed < 0 or not 0 <= agent.help_kind < 4:
             agent.help_to = -1
     agent.help_given = [int(v) for v in record.get("help_given", [0, 0, 0, 0])]
+    if record.get("hawking") is not None:  # see HAWK_JOY
+        h = record["hawking"]
+        agent.hawk_call_turn, agent.hawk_to = int(h[0]), int(h[1])
+        agent.hawk_deed = numbers.action(int(h[2])) if int(h[2]) >= 0 else -1
+        agent.hawk_move_turn, agent.hawk_far = int(h[3]), int(h[4])
+        agent.sold_turn, agent.bought_turn, agent.sold_taught_turn, agent.bought_taught_turn = int(h[5]), int(h[6]), int(h[7]), int(h[8])
+        agent.sold_gain, agent.bought_gain = float(h[9]), float(h[10])
+        agent.hawked_sales, agent.hawked_buys = int(h[12]), int(h[13])
+        if record.get("hawk_senses") is not None:
+            agent.hawk_senses = numbers.senses(record["hawk_senses"])
+        if agent.hawk_to >= 0 and agent.hawk_deed < 0:
+            agent.hawk_to = -1
+        c = record.get("sold_call")
+        agent.sold_call = (np.asarray(c[0], dtype=np.int8), [int(v) for v in c[1]]) if int(h[11]) and c is not None else None
     agent.word_one = int(record.get("word_one", -1))
     agent.learn_one = int(record.get("learn_one", -1))
     if "goal" in record:  # see GOAL_JOY
