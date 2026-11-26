@@ -7736,7 +7736,7 @@ class Simulation:
                 agent.woo_call_turn = self.turn
             if agent.call >= FIRST_CALL:  # its talk, for the probe (see CONVERSE_JOY)
                 agent.talk_calls += 1
-                agent.idle_calls += agent.goal_kind == NO_GOAL and not agent.stuck and agent.struck_turn < self.turn - 1
+                agent.idle_calls += agent.hunger < 50 and agent.health > 75 and not agent.stuck and agent.struck_turn < self.turn - 1  # no need, no danger
                 agent.said_things += agent.lexicon_spoke_turn == self.turn
                 agent.said_deeds += agent.deed_spoke_turn == self.turn
                 agent.said_names += agent.name_spoke_turn == self.turn
