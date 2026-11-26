@@ -5951,6 +5951,35 @@ class LandTests(unittest.TestCase):
                 self.assertEqual(owner.sold_taught_turn, now)
                 self.assertEqual(simulation._hawk_lessons(owner), [])  # taught once
 
+    def test_wooing_a_mating_with_one_that_heard_the_caller_from_afar_and_came_is_wooed_and_taught_once(self):
+        import numpy as np
+        for came in (True, False):
+            simulation = Simulation(30, 30, 0, seed=1)
+            caller = simulation._add_agent(encode_dna("grazer", size=3), 5, 5)
+            comer = simulation._add_agent(encode_dna("grazer", size=3), 5, 6)
+            simulation._index_cells()
+            now = simulation.turn
+            caller.woo_call_turn = caller.voiced_turn = now  # it called, ready to breed
+            caller.habits.append((np.zeros(len(caller.last_senses) if caller.last_senses is not None else 1, dtype=np.int8), [3, 0, -1]))
+            if came:  # the other heard it from five away and moved
+                comer.woo_to, comer.woo_deed, comer.woo_move_turn, comer.woo_far = caller.identifier, ACTIONS.index("go_north"), now, 5
+                comer.woo_senses = [0.0] * 4
+            simulation._breed(comer, caller)
+            self.assertEqual((caller.matings, comer.matings), (1, 1))
+            self.assertEqual(caller.wooed_count, 1 if came else 0)
+            self.assertEqual(comer.came_count, 1 if came else 0)
+            self.assertEqual(comer.wooed_count, 0)  # the comer did not call
+            if came:
+                self.assertIsNotNone(caller.wooed_call)
+                self.assertEqual(caller.woo_calls[3], 1)
+                self.assertEqual(caller.wooed_far_total, 5)
+                self.assertEqual(comer.woo_to, -1)
+                simulation._woo_lessons(comer)
+                self.assertEqual(comer.came_taught_turn, now)
+                simulation._woo_lessons(caller)
+                self.assertEqual(caller.wooed_taught_turn, now)
+                self.assertEqual(simulation._woo_lessons(caller), [])  # taught once
+
     def test_values_inherited_mutated_taught_and_scaling_the_joys_they_name(self):
         sm = simulation_module
         simulation = Simulation(30, 30, 0, seed=1)

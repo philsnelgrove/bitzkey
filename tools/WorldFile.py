@@ -303,6 +303,12 @@ def _agent_record(agent: Bitzkey, numbers: _Numbers) -> dict:
                     int(agent.sold_call is not None), agent.hawked_sales, agent.hawked_buys],
         "hawk_senses": numbers.senses(agent.hawk_senses) if agent.hawk_to >= 0 and agent.hawk_senses is not None else None,
         "sold_call": ([[int(v) for v in agent.sold_call[0]], [int(v) for v in agent.sold_call[1]]] if agent.sold_call is not None else None),
+        "wooing": [agent.woo_call_turn, agent.woo_to, agent.woo_deed if agent.woo_to >= 0 else -1, agent.woo_move_turn, agent.woo_far,
+                   agent.wooed_turn, agent.came_turn, agent.wooed_taught_turn, agent.came_taught_turn, int(agent.wooed_call is not None),
+                   agent.matings, agent.wooed_count, agent.came_count, agent.wooed_far_total, [int(v) for v in agent.woo_calls]],
+        "woo_senses": (numbers.senses(agent.woo_senses) if agent.woo_senses is not None
+                       and (agent.woo_to >= 0 or agent.came_turn > agent.came_taught_turn) else None),
+        "wooed_call": ([[int(v) for v in agent.wooed_call[0]], [int(v) for v in agent.wooed_call[1]]] if agent.wooed_call is not None else None),
         "last_choice": int(agent.last_choice), "last_forced": bool(agent.last_forced), "last_panicked": bool(agent.last_panicked), "last_wellbeing": float(agent.last_wellbeing),
         "reward": float(agent.reward), "last_comfort": float(agent.last_comfort),
         "odds": {action: float(chance) for action, chance in agent.odds.items()},
@@ -517,6 +523,22 @@ def _agent_from(record: Mapping, numbers: _Reader, before_terrain: bool = False)
             agent.hawk_to = -1
         c = record.get("sold_call")
         agent.sold_call = (np.asarray(c[0], dtype=np.int8), [int(v) for v in c[1]]) if int(h[11]) and c is not None else None
+    if record.get("wooing") is not None:  # see WOO_JOY
+        w = record["wooing"]
+        agent.woo_call_turn, agent.woo_to = int(w[0]), int(w[1])
+        agent.woo_deed = numbers.action(int(w[2])) if int(w[2]) >= 0 else -1
+        agent.woo_move_turn, agent.woo_far = int(w[3]), int(w[4])
+        agent.wooed_turn, agent.came_turn, agent.wooed_taught_turn, agent.came_taught_turn = int(w[5]), int(w[6]), int(w[7]), int(w[8])
+        agent.matings, agent.wooed_count, agent.came_count, agent.wooed_far_total = int(w[10]), int(w[11]), int(w[12]), int(w[13])
+        agent.woo_calls = [int(v) for v in w[14]][:5] + [0] * max(0, 5 - len(w[14]))
+        if record.get("woo_senses") is not None:
+            agent.woo_senses = numbers.senses(record["woo_senses"])
+        else:
+            agent.came_taught_turn = max(agent.came_taught_turn, agent.came_turn)
+        if agent.woo_deed < 0:
+            agent.woo_to = -1
+        c = record.get("wooed_call")
+        agent.wooed_call = (np.asarray(c[0], dtype=np.int8), [int(v) for v in c[1]]) if int(w[9]) and c is not None else None
     agent.word_one = int(record.get("word_one", -1))
     agent.learn_one = int(record.get("learn_one", -1))
     if "goal" in record:  # see GOAL_JOY

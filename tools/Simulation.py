@@ -538,6 +538,9 @@ LIKING = 0.5
 HAWK_WINDOW = 20  # hawking (see HAWK_JOY in the C++ version): turns from the owner's call and the buyer's move to the deal
 HAWK_JOY = 1.0
 HAWK_BUYER = 1
+WOO_WINDOW = 20  # wooing (see WOO_JOY in the C++ version): turns from the caller's call and the comer's move to the mating
+WOO_JOY = 1.0
+WOO_COMER = 1
 _HELP_KINDS = {**{a: HELP_GAVE for a in ("give", "offer", "tutor", "feed_young")},
                **{a: HELP_DROPPED for a in ("drop_meat", "drop_fruit", "drop_stone", "drop_bone", "drop_wood")},
                **{a: HELP_DEFENDED for a in ("attack", "defend", "hunt", "shoot")},
@@ -1785,6 +1788,22 @@ class Bitzkey:
     sold_call: tuple | None = None  # (senses, said) of the call that drew the buyer
     hawked_sales: int = 0
     hawked_buys: int = 0
+    woo_call_turn: int = -1  # wooing (see WOO_JOY): as the C++ version's
+    woo_to: int = -1
+    woo_deed: int = -1
+    woo_move_turn: int = -1
+    woo_far: int = 0
+    woo_senses: list | None = None
+    wooed_turn: int = -1
+    came_turn: int = -1
+    wooed_taught_turn: int = -1
+    came_taught_turn: int = -1
+    wooed_call: tuple | None = None  # (senses, said) of the call that drew the comer
+    matings: int = 0
+    wooed_count: int = 0
+    came_count: int = 0
+    wooed_far_total: int = 0
+    woo_calls: list = field(default_factory=lambda: [0] * 5)
     aim_value: list = field(default_factory=lambda: [0.0] * 15)  # projects (see PROJECT_PULL): each aim's worth to it
     aim_last: list = field(default_factory=lambda: [0.0] * 15)
     aim_agree: list = field(default_factory=lambda: [0.0] * 15)
@@ -7309,12 +7328,37 @@ class Simulation:
                 lessons.append((np.asarray(agent.hawk_senses, dtype=float), agent.hawk_deed, value, rate))
         return lessons
 
+    def _woo_lessons(self, agent: Bitzkey) -> list[tuple]:
+        """A wooed mating: the caller's call and the comer's move taught, once each (see WOO_JOY). As the C++ version's."""
+        if WOO_JOY <= 0 or agent.brain is None:
+            return []
+        rate = self._learning_rate(agent)
+        value = limited_value(mating_joy(agent, WOO_JOY))
+        lessons = []
+        if agent.wooed_turn >= 0 and agent.wooed_turn > agent.wooed_taught_turn:
+            agent.wooed_taught_turn = agent.wooed_turn
+            if agent.wooed_call is not None and rate > 0:
+                habit_senses, said = agent.wooed_call
+                senses = (np.asarray(habit_senses).astype(float) / 60.0 - _READ_SHIFT) / _READ_SCALE
+                lessons.append((senses, call_output(FIRST_CALL + said[0]), value, rate))
+                for place in range(1, MAX_SOUNDS):
+                    output = sound_output(place, said[place])
+                    if output is not None and output >= 0:
+                        lessons.append((senses, output, value, rate))
+                    if said[place] < 0:
+                        break
+        if agent.came_turn >= 0 and agent.came_turn > agent.came_taught_turn:
+            agent.came_taught_turn = agent.came_turn
+            if WOO_COMER and rate > 0 and agent.woo_deed >= 0 and agent.woo_senses is not None:
+                lessons.append((np.asarray(agent.woo_senses, dtype=float), agent.woo_deed, value, rate))
+        return lessons
+
     def _settled_call(self, agent: Bitzkey) -> list[tuple]:
         """Its held call lesson, with what it did to its listeners, as lessons of (senses, output, target, rate)."""
         relieved, agent.relieved = agent.relieved, False  # one who heard it was then less surprised: the itch passes
         if relieved:
             agent.itch = 0.0
-        harm = self._call_harm_lessons(agent) + self._call_help_lessons(agent) + self._hawk_lessons(agent)
+        harm = self._call_harm_lessons(agent) + self._call_help_lessons(agent) + self._hawk_lessons(agent) + self._woo_lessons(agent)
         if not agent.call_held:
             return harm
         agent.call_held = False
@@ -7576,6 +7620,14 @@ class Simulation:
                 if far > 1:
                     agent.hawk_to, agent.hawk_deed, agent.hawk_move_turn, agent.hawk_far = caller.identifier, ACTIONS.index(action), self.turn, far
                     agent.hawk_senses = list(agent.last_senses)
+        if (kind == HELP_LED and WOO_JOY > 0 and agent.heard_from >= 0 and agent.last_senses is not None
+                and agent.can_breed):  # a move made, ready to breed, on hearing a caller from afar (see WOO_JOY)
+            caller = self.find_agent(agent.heard_from)
+            if caller is not None and caller is not agent:
+                far = abs(caller.x - agent.x) + abs(caller.y - agent.y)
+                if far > 1:
+                    agent.woo_to, agent.woo_deed, agent.woo_move_turn, agent.woo_far = caller.identifier, ACTIONS.index(action), self.turn, far
+                    agent.woo_senses = list(agent.last_senses)
         if kind >= 0 and agent.heard_from >= 0 and agent.last_senses is not None and (HELPED_JOY > 0 or HELPING_JOY > 0):
             agent.help_to, agent.help_deed, agent.help_kind, agent.help_turn = agent.heard_from, ACTIONS.index(action), kind, self.turn
             agent.help_pending, agent.help_senses = False, list(agent.last_senses)
@@ -7584,6 +7636,8 @@ class Simulation:
                 and ACTIONS.index(action) == agent.goal_target):
             agent.shown_step, agent.shown_turn = agent.goal_target, self.turn
         if agent.call != SILENT and agent.call_turn == self.turn:  # its call, as it sets about its action
+            if WOO_JOY > 0 and agent.can_breed:  # called ready to breed (see WOO_JOY)
+                agent.woo_call_turn = self.turn
             if HAWK_JOY > 0 and any(self._holds(agent, good) for good in range(GOODS)):  # holding a good it might offer
                 agent.hawk_call_turn = self.turn
             if agent.stuck:  # called while its goal was stuck (see HELPED_JOY)
@@ -9532,6 +9586,23 @@ class Simulation:
         temperaments, which its dot then shows."""
         self._note_deed(first, second, MATING_DEED)
         self._note_deed(second, first, MATING_DEED)
+        first.matings += 1
+        second.matings += 1
+        for caller, comer in ((first, second), (second, first)) if WOO_JOY > 0 else ():  # wooed (see WOO_JOY)
+            if (caller.woo_call_turn < 0 or self.turn - caller.woo_call_turn > WOO_WINDOW or comer.woo_to != caller.identifier
+                    or comer.woo_move_turn < caller.woo_call_turn or self.turn - comer.woo_move_turn > WOO_WINDOW):
+                continue
+            caller.wooed_turn = self.turn
+            caller.wooed_call = ((caller.habits[-1][0].copy(), list(caller.habits[-1][1]))
+                                 if caller.voiced_turn == caller.woo_call_turn and caller.habits else None)
+            if caller.wooed_call is not None and 0 <= caller.wooed_call[1][0] < 5:
+                caller.woo_calls[caller.wooed_call[1][0]] += 1
+            caller.wooed_count += 1
+            caller.wooed_far_total += comer.woo_far
+            comer.came_turn = self.turn
+            comer.came_count += 1
+            comer.woo_to = -1
+            break
         litter = litter_size([(parent.trait("litter"), parent.trait("size")) for parent in (first, second)])
         if CROWDING_LIMIT:
             litter = max(1, int(litter * (1 - self._crowding(first, second, own_kind=True) / CROWDING_LIMIT) + 0.5))  # its own kind
