@@ -3983,6 +3983,27 @@ class CallTests(unittest.TestCase):
         self.assertTrue(hearer.name_heeded)
         self.assertAlmostEqual(situation["word_reward"], sm.LEXICON_HEED)
 
+    def test_gossip_a_name_heard_from_one_trusted_shares_the_callers_regard_for_that_one_alone(self):
+        sm = simulation_module
+        world = Simulation(width=40, height=40, population=0, seed=3)
+        caller = world._add_agent(encode_dna("grazer"), 10, 10)
+        hearer = world._add_agent(encode_dna("grazer"), 12, 10)
+        named = world._add_agent(encode_dna("grazer"), 14, 10)
+        world._index_cells()
+        hearer.names.append([FIRST_CALL + 1, 2, -1, named.identifier, 0.5, 0])
+        hearer.mind["sociability"] = sm.TRAIT_MAX
+        hearer.known.append(sm.Acquaintance(caller.identifier, 1.0, 0))
+        caller.known.append(sm.Acquaintance(named.identifier, -0.8, 0))
+        caller.call, caller.sounds, caller.call_turn, caller.call_urgency = FIRST_CALL + 1, [2, -1], world.turn - 1, 1.0
+        world._think_all([hearer])
+        self.assertEqual(hearer.called_one, named.identifier)
+        found = next(one for one in hearer.known if one.identifier == named.identifier)
+        self.assertLess(found.regard, 0.0)
+        self.assertGreater(found.regard, -0.8)
+        self.assertFalse(any(one.regard < 0 for one in hearer.factions))  # of that one alone: its colour not soured (it may mate as it acts)
+        self.assertEqual(world.gossip_tally["grazer"]["heard"], 1)
+        self.assertEqual(world.gossip_tally["grazer"]["ill"], 1)
+
     def test_names_full_the_dead_are_forgotten_first_and_the_one_pointed_at_is_in_sight(self):
         from tools.Brain import POINT_ONE_THING
         sm = simulation_module

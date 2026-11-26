@@ -553,6 +553,7 @@ PROJECT_INHERIT = 0.5
 INSTRUCTED_PULL = 0.5
 CONFIDE_SHARE = 0.5
 CONFIDE_STEPS = 1  # one that takes up a plan confided takes up what moves its aim (see the C++ version)
+GOSSIP = 0.5  # a share of the caller's regard for one it names, taken on by the hearer (see the C++ version)
 CONFIDE_WORDS = 1  # confiding shares the words its plan and goal need (see the C++ version)
 # Vendetta and challenges (see VENDETTA and CHALLENGE_GLORY in the C++ version). As the C++ version's.
 ENEMIES = 4
@@ -2465,6 +2466,7 @@ class Simulation:
         self.turn = 0
         # Since the world began or was loaded: words taken into lexicons, and how (see LEXICON_SIZE).
         self.lexicon_tally = defaultdict(lambda: dict.fromkeys(("agreed", "witnessed", "inherited", "confirmed", "overridden", "refused", "confided"), 0))
+        self.gossip_tally = defaultdict(lambda: dict.fromkeys(("heard", "ill", "hearsay", "shift"), 0))  # see GOSSIP
         self.deed_tally = defaultdict(lambda: dict.fromkeys(("agreed", "witnessed", "inherited", "confirmed", "overridden", "refused", "confided"), 0))
         self.initiative_tally = {}  # see BABBLE and ANSWERED_JOY
         self.name_tally = defaultdict(lambda: dict.fromkeys(("agreed", "witnessed", "inherited", "confirmed", "overridden", "refused", "named_at_birth"), 0))
@@ -2672,13 +2674,14 @@ class Simulation:
         if kind == "skill":
             one.skill += rate * (1 - one.skill)
 
-    def _note_deed(self, agent: Bitzkey, other: Bitzkey, deed: float, weight: float = 1.0, kind: str = "plain", regarded: bool = True) -> None:
+    def _note_deed(self, agent: Bitzkey, other: Bitzkey, deed: float, weight: float = 1.0, kind: str = "plain", regarded: bool = True,
+                   faction: bool = True) -> None:
         """What `other` did to `agent`, worth `deed`, -1 to 1, noted in its regard for them."""
         known = agent.known
         least = lambda one: (max(abs(one.regard), one.danger, one.skill), one.last)
         while len(known) > max(0, ACQUAINTANCES):
             known.remove(min(known, key=least))
-        if agent is not other:
+        if agent is not other and faction:
             self._note_faction(agent, other, deed, weight, kind, regarded)
         if ACQUAINTANCES <= 0 or agent is other:
             return
@@ -4793,6 +4796,29 @@ class Simulation:
             if (NAMING > 0 and caller is not None and caller is not agent and caller.alive and caller.named >= 0
                     and caller.named_turn == self.turn - 1):
                 told[index] = caller
+        # Gossip: a name heard this turn, of another than itself or the caller, weighed for all, then taken in (see GOSSIP).
+        hearsay = []
+        for index, (agent, senses, options, situation) in enumerate(plans):
+            if GOSSIP <= 0 or idle[index] or agent.called_turn != self.turn or agent.called_one < 0 or agent.word_from < 0:
+                continue
+            caller, named = self.find_agent(agent.word_from), self.find_agent(agent.called_one)
+            if (caller is None or named is None or not caller.alive or not named.alive or named is caller or named is agent
+                    or caller is agent):
+                continue
+            view = self._raw_regard_for(caller, named)
+            trust = 1.0 if self._family(agent, caller) else max(0.0, min(1.0, self._regard_for(agent, caller)))
+            weight = GOSSIP * trust * max(0.0, min(1.0, caller.call_urgency)) * agent.feeling("sociability")
+            if view != 0.0 and weight > 0.0:
+                hearsay.append((agent, named, view, weight))
+        for agent, named, view, weight in hearsay:
+            knew = any(one.identifier == named.identifier for one in agent.known)
+            before = self._raw_regard_for(agent, named)
+            self._note_deed(agent, named, view, weight, "plain", True, False)
+            tally = self.gossip_tally[agent.species]
+            tally["heard"] += 1
+            tally["ill"] += view < 0
+            tally["hearsay"] += not knew
+            tally["shift"] += abs(self._raw_regard_for(agent, named) - before)
         chosen = {}
         for index, ((agent, senses, options, situation), valued, comfort) in enumerate(zip(plans, values, comforts)):
             calls_valued = valued
