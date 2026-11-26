@@ -842,6 +842,7 @@ TERRITORY_RAMP = 3     # each rival past that limit adds a third of the species'
 RIVAL_UNEASE = 0.3     # discomfort of a fully overcrowded territory, less for the tolerant
 RIVALRY_WEAR = 0.5     # how much an overcrowded territory wears down a hunter's reluctance to kill its own species
 RIVAL_KILL_JOY = 0.5   # relief at killing a predator in an overcrowded territory
+HOSTILITY_IN_WANT = 1  # hostility to its own only while its home band holds too little food to breed (see the C++ version)
 # Herding: an animal's herd instinct is the lower of its current empathy and patience, 0..1, and
 # scales every effect below. Its herd-mates are animals of its species, and for predators its kind,
 # that it would accept as mates (tolerance widens that).
@@ -1474,6 +1475,11 @@ def call_reach(caller: Bitzkey) -> int:
     return min(MAX_CALL_REACH, max(1, round(CALL_REACH * (0.5 + caller.physique("size")))))
 
 
+def _wanting(agent) -> bool:
+    """Hostile to its own: in want of food enough to breed, or the rule off (see HOSTILITY_IN_WANT)."""
+    return not HOSTILITY_IN_WANT or agent.in_want
+
+
 def gestation(size: int) -> int:
     """Turns an animal of this body size carries its young."""
     shortest, longest = GESTATION
@@ -1588,6 +1594,7 @@ class Bitzkey:
     hunts_predators: bool = True  # omnivores: whether its other food was scarce enough to hunt predators
     guarded: bool = False  # a predator's infant: whether a grown one of its kind was close by as the turn began
     own_rivalry: float = 0.0  # the same, counting only its own species: what wears down its reluctance
+    in_want: bool = False  # its home band holds too little food for it to breed (see HOSTILITY_IN_WANT)
     alarm: int | None = None  # what struck a herd-mate close by since it last acted, or a herd-mate alerted it to
     kill_alert: tuple[int, int] | None = None  # where a pack-mate alerted it to a fresh kill since it last acted
     call: int = SILENT  # what it called alongside its last action (Brain.py's CALLS), heard the turn after
@@ -6135,9 +6142,13 @@ class Simulation:
             if agent.project_aim < 0 or agent.project_confided:  # the aim it values most, if enough, its own project
                 def sure(aim: int) -> float:  # consistency its way (see PROJECT_CONSISTENCY)
                     return abs(agent.aim_agree[aim]) if agent.aim_value[aim] * agent.aim_agree[aim] > 0 else 0.0
+                def score(aim: int) -> float:  # fed, no wish to thin its own (see HOSTILITY_IN_WANT)
+                    if aim == GROUP_OWN and agent.aim_value[GROUP_OWN] < 0 and not _wanting(agent):
+                        return 0.0
+                    return abs(agent.aim_value[aim]) * sure(aim)
                 best = 0
                 for aim in range(1, PROJECT_AIMS):
-                    if abs(agent.aim_value[aim]) * sure(aim) > abs(agent.aim_value[best]) * sure(best):
+                    if score(aim) > score(best):
                         best = aim
                 best_worth = abs(agent.aim_value[best])
                 group = self._hostile_realm(agent)
@@ -6154,6 +6165,8 @@ class Simulation:
                     agent.project_things = [0.0] * 21
                     agent.projects_taken += 1
         project_kind, project_target, project_pull = NO_GOAL, -1, 0.0
+        if agent.project_aim == GROUP_OWN and agent.project_dir < 0 and not _wanting(agent):  # to thin its own, dropped once fed
+            agent.project_aim = -1
         if agent.project_aim >= 0:
             m = self._aim_measure(agent, agent.project_aim, agent.project_x, agent.project_y, agent.project_group, agent.project_concept, sight)
             moved = (m - agent.project_last) * agent.project_dir
@@ -9221,7 +9234,7 @@ class Simulation:
                 agent.nourish(meal, meat=True)
             agent.reward += 2 * joy
             self._witness(agent, meal / agent.stomach / 100)  # its pack sees it succeed: the fullness it gained
-            if self._rival_weight(agent, victim) > 0 or self._is_foe(agent, victim):  # one fewer rival for the feeding ground
+            if (self._rival_weight(agent, victim) > 0 or self._is_foe(agent, victim)) and _wanting(agent):  # one fewer rival, in want
                 agent.reward += RIVAL_KILL_JOY * agent.rivalry * (1 - 0.5 * agent.feeling("tolerance"))
             self._experience(agent, "kill")
         pain = EMPATHY_PAIN * (2 if killed else 1)
@@ -9501,6 +9514,8 @@ class Simulation:
         self._band_prey, self._band_predators = prey, predators
         self._band_omnivores, self._band_omnivore_prey = omnivores, omnivore_prey
         self._living = Counter(agent.species for agent in self.agents if agent.alive)
+        for agent in self.agents:  # in want of food enough to breed (see HOSTILITY_IN_WANT)
+            agent.in_want = agent.alive and agent.species != "plant" and not self._well_fed(agent)
         shares = {species: scarcity_share(count, species) for species, count in self._living.items()}
         glut = max(0.0, (self._living["predator"] - PREDATOR_GLUT) / PREDATOR_GLUT) if PREDATOR_GLUT > 0 else 0.0
         famine_line = 2 * RARE_PREY / 100 * self._living["predator"]  # and prey dying out: from twice the rare line, other kinds by it, its own by none
@@ -10161,7 +10176,7 @@ class Simulation:
             # Predators only when it would win, blow for blow.
             return ((other.species == "grazer" and hunter.hunts_grazers)
                     or (other.species == "predator" and hunter.hunts_predators and cls.would_win(hunter, other)) or (
-                other.species == "omnivore" and hunter.own_rivalry > 0
+                other.species == "omnivore" and hunter.own_rivalry > 0 and _wanting(hunter)
                 and hunter.hunger / 100 > cls.cannibal_reluctance(hunter) * (1 - RIVALRY_WEAR * hunter.own_rivalry)))
         if hunter.species != "predator":
             return False
@@ -10174,7 +10189,7 @@ class Simulation:
         # Other kinds of predator only when hungry past its reluctance, which a territory overcrowded with predators
         # wears away, and so does a world glutted with them or running out of prey; its own kind only once that is
         # twice as bad.
-        reluctance = cls.cannibal_reluctance(hunter) * (1 - RIVALRY_WEAR * hunter.own_rivalry)
+        reluctance = cls.cannibal_reluctance(hunter) * (1 - RIVALRY_WEAR * (hunter.own_rivalry if _wanting(hunter) else 0.0))
         if cls._same_kind(hunter, other):
             own = min(1.0, max(0.0, hunter.glut - 1))
             return own > 0 and hunter.hunger / 100 > reluctance * (1 - own)

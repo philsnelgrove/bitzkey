@@ -997,9 +997,11 @@ class NewTraitTests(unittest.TestCase):
         ruthless.hunger = 50
         self.assertFalse(self.simulation._is_prey(ruthless, other))
         ruthless.own_rivalry = 0.5
+        self.assertFalse(self.simulation._is_prey(ruthless, other))  # well fed: no hostility to its own (see HOSTILITY_IN_WANT)
+        ruthless.in_want = True
         self.assertTrue(self.simulation._is_prey(ruthless, other))
         gentle = self.simulation._add_agent(encode_dna("omnivore", empathy=7, tolerance=7, patience=7), 3, 3)
-        gentle.hunger, gentle.own_rivalry = 80, 0.5  # reluctance worn down by a quarter, to three quarters
+        gentle.hunger, gentle.own_rivalry, gentle.in_want = 80, 0.5, True  # reluctance worn down by a quarter, to three quarters
         self.assertTrue(self.simulation._is_prey(gentle, other))
         gentle.hunger = 70
         self.assertFalse(self.simulation._is_prey(gentle, other))
@@ -1034,8 +1036,11 @@ class NewTraitTests(unittest.TestCase):
         gentle = self.simulation._add_agent(encode_dna("predator", empathy=7, tolerance=7, patience=7), 1, 1)
         kin = self.simulation._add_agent(gentle.dna, 2, 1)
         stranger = self.simulation._add_agent(gentle.dna ^ (0xFFFF << 48), 3, 1)  # 50% apart: another kind
-        gentle.hunger, gentle.own_rivalry = 70, 0.8  # reluctance worn down by RIVALRY_WEAR of 0.8, to 0.6
+        gentle.hunger, gentle.own_rivalry, gentle.in_want = 70, 0.8, True  # reluctance worn down by RIVALRY_WEAR of 0.8, to 0.6
         self.assertTrue(self.simulation._is_prey(gentle, stranger))
+        gentle.in_want = False  # well fed: crowding wears nothing down
+        self.assertFalse(self.simulation._is_prey(gentle, stranger))
+        gentle.in_want = True
         gentle.hunger = 50
         self.assertFalse(self.simulation._is_prey(gentle, stranger))
         gentle.hunger = 99
@@ -5085,6 +5090,9 @@ class MaterialTests(unittest.TestCase):
             self.assertEqual((leader.confided, follower.confided_to, follower.project_aim, follower.project_confided, follower.project_from),
                              (1, 1, sm.SELF_GEAR, True, leader.identifier))
             self.assertGreater(follower.aim_value[sm.SELF_GEAR], 0.0)
+            follower.project_aim, follower.project_dir, follower.project_confided, follower.in_want = sm.GROUP_OWN, -1, False, False
+            world._sense(follower)
+            self.assertNotEqual(follower.project_aim, sm.GROUP_OWN)  # to thin its own, dropped once fed
 
     def test_vendetta_struck_makes_an_enemy_sought_and_a_challenge_is_a_duel_the_loser_shamed(self):
         sm = simulation_module

@@ -670,6 +670,7 @@ _TABLE: dict[str, list[tuple]] = {
         ("RIVALRY_WEAR", "Rivalry wear", "how much an overcrowded territory wears down reluctance to kill its own species",
          0.0, 1.0, 0.05),
         ("RIVAL_KILL_JOY", "Rival kill joy", "relief at killing a rival in an overcrowded territory", 0.0, 5.0, 0.05),
+        ("HOSTILITY_IN_WANT", "Hostility in want", "1: an overcrowded territory wears down reluctance to kill its own kind, killing a rival is a joy, and lowering its own group's numbers is an aim (dropped once fed), only while its home band holds too little food for it to breed; 0: whatever the food", 0, 1, 1),
         ("TERRITORY.predator.fewest", "Predator rivals, cruel", "rivals the least empathetic predator tolerates",
          0, 50, 1),
         ("TERRITORY.predator.most", "Predator rivals, kind", "rivals the most empathetic predator tolerates",
