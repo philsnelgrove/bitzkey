@@ -2371,5 +2371,9 @@
 "Message units": "Unità del messaggio",
 "the most units (sounds, or words said whole) a call may go on with after its words, each chosen knowing what came before; 0 for none": "il massimo di unità (suoni, o parole dette intere) con cui un richiamo può proseguire dopo le sue parole, ciascuna scelta sapendo ciò che è venuto prima; 0 per nessuna",
 "Order sample": "Campione d'ordine",
-"share of hearers of two units or more thought again with the units reversed, to measure whether order matters": "parte degli ascoltatori di due unità o più pensati di nuovo con le unità invertite, per misurare se l'ordine conta"
+"share of hearers of two units or more thought again with the units reversed, to measure whether order matters": "parte degli ascoltatori di due unità o più pensati di nuovo con le unità invertite, per misurare se l'ordine conta",
+"Order joy": "Gioia dell'ordine",
+"joy a caller feels when its hearers heard its words in the order they are used to hearing (and pain when not), times its sociability and talk value; which order is not said; 0 for none": "gioia di chi chiama quando i suoi ascoltatori hanno udito le sue parole nell'ordine che sono abituati a udire (e dolore se no), per la sua socievolezza e il suo valore di conversazione; quale ordine non è detto; 0 per nessuna",
+"Order lesson": "Lezione dell'ordine",
+"how much of its hearers' agreement with its word order is added to that call's own lesson": "quanto dell'accordo dei suoi ascoltatori con il suo ordine delle parole si aggiunge alla lezione di quel richiamo"
 }

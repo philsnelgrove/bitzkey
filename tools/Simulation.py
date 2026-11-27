@@ -553,6 +553,12 @@ INFLUENCE_USEFUL = 0
 DEAF = 0  # for experiments: no animal hears another's call
 MESSAGE_UNITS = 4  # messages (see MESSAGE_UNITS in the C++ version): units a call may go on with after its words
 ORDER_SAMPLE = 0.1
+# Order agreement (the user's choice): each animal remembers which way round it has heard each pair of word kinds; a
+# hearer judges a message's mixed word pairs against that (the way heard more 1, the other -1, else 0), and the mean is
+# credited to the caller the next turn as influence is: added to the call's lesson at ORDER_LESSON, felt at ORDER_JOY
+# times its sociability and talk value. Which way round is not said. As the C++ version's. 0 for none.
+ORDER_JOY = 0.5
+ORDER_LESSON = 1.0
 
 
 def _empty_units():
@@ -1768,6 +1774,12 @@ class Bitzkey:
     held_unit_count: int = 0
     held_units_stopped: bool = False
     heard_unit_count: int = 0
+    heard_orders: list = field(default_factory=lambda: [[0] * 4 for _ in range(4)])  # see ORDER_JOY
+    order_agreed: float = 0.0
+    order_turn: int = -1
+    order_from: int = -1
+    order_credit: float = 0.0
+    order_hearers: int = 0
     meant_by_deed: bool = False  # whether the word last heard was a deed-word, meant_deed its deed
     judged_by_deed: bool = False
     echo_turn: int = -1  # the last turn it said a deed-word back, doing its guess
@@ -4198,6 +4210,25 @@ class Simulation:
                         if any(word[0] == unit[1] and word[1] == unit[2] and word[2] == unit[3] for word in words):
                             heard[f"heard_unit_{place + 1}_{kind}"] = 1.0
                 agent.heard_unit_count = caller.unit_count
+                if agent.order_turn != self.turn:  # its word pairs, against the ways round it has heard them (see ORDER_JOY)
+                    judged, total, last = 0, 0, -1
+                    tally = self.message_tally.setdefault(agent.species, {"order_judged": 0, "order_moved": 0.0})
+                    for unit in caller.units[:min(caller.unit_count, MAX_UNITS)]:
+                        if unit[0] < UNIT_THING:
+                            continue
+                        kind = unit[0] - UNIT_THING
+                        if last >= 0 and last != kind:
+                            with_, against = agent.heard_orders[last][kind], agent.heard_orders[kind][last]
+                            said = (with_ > against) - (with_ < against)
+                            judged += 1
+                            total += said
+                            tally["agree_judged"] = tally.get("agree_judged", 0) + 1
+                            tally["agreed"] = tally.get("agreed", 0) + (said > 0)
+                            tally["disagreed"] = tally.get("disagreed", 0) + (said < 0)
+                            agent.heard_orders[last][kind] += 1
+                        last = kind
+                    if judged > 0:
+                        agent.order_agreed, agent.order_turn, agent.order_from = total / judged, self.turn, caller.identifier
         else:
             agent.heard_unit_count = 0
         return heard, caller
@@ -7371,13 +7402,14 @@ class Simulation:
             agent.call_credit, agent.call_listeners, agent.wishes_done, agent.intent_met = 0.0, 0, 0, 0
             agent.arena_credit, agent.arena_listeners = 0.0, 0
             agent.influence_credit, agent.influence_hearers = 0.0, 0
+            agent.order_credit, agent.order_hearers = 0.0, 0
             agent.wish_judged, agent.wish_advantage = False, 0.0
         if wishing:
             for index, lesson in lessons.items():
                 agent = plans[index][0]
                 if agent.call_held and agent.chosen_turn == self.turn - 1:
                     agent.wish_judged, agent.wish_advantage = True, lesson[0] - agent.chosen_value
-        if CALL_EMPATHY <= 0 and not wishing and ARENA_PAYOFF <= 0 and INFLUENCE_JOY <= 0 and INFLUENCE_LESSON <= 0:
+        if CALL_EMPATHY <= 0 and not wishing and ARENA_PAYOFF <= 0 and INFLUENCE_JOY <= 0 and INFLUENCE_LESSON <= 0 and ORDER_JOY <= 0 and ORDER_LESSON <= 0:
             return
         for index, lesson in lessons.items():
             listener = plans[index][0]
@@ -7394,6 +7426,14 @@ class Simulation:
                 caller.influence_life += moved
                 caller.influence_moved += moved > 0.05
                 caller.reward += INFLUENCE_JOY * moved * caller.feeling("sociability") * caller.value(TALK_VALUE)
+            if ((ORDER_JOY > 0 or ORDER_LESSON > 0) and listener.order_turn == listener.chosen_turn and listener.order_from == caller.identifier
+                    and caller.order_hearers < INFLUENCE_HEARERS):  # its word order, against this one's habit of hearing
+                caller.order_hearers += 1
+                caller.order_credit += listener.order_agreed
+                caller.reward += ORDER_JOY * listener.order_agreed * caller.feeling("sociability") * caller.value(TALK_VALUE)
+                tally = self.message_tally.setdefault(caller.species, {"order_judged": 0, "order_moved": 0.0})
+                tally["agree_credited"] = tally.get("agree_credited", 0) + 1
+                tally["agree_credit"] = tally.get("agree_credit", 0.0) + listener.order_agreed
             if not caller.call_held:
                 continue
             if ARENA_PAYOFF > 0 and listener.blinded_turn == listener.chosen_turn:  # the call was all it had
@@ -7656,6 +7696,7 @@ class Simulation:
         if agent.arena_listeners > 0:
             target += ARENA_PAYOFF * agent.arena_credit / agent.arena_listeners
         target += INFLUENCE_LESSON * agent.influence_credit  # how far it moved its hearers (see INFLUENCE_JOY)
+        target += ORDER_LESSON * agent.order_credit  # said as its hearers are used to hearing (see ORDER_JOY)
         pointed = agent.held_point >= 0 and agent.understood_count > 0
         understood = agent.understood_sum / agent.understood_count if pointed else 0.0  # how much less surprised, on average
         target += UNDERSTOOD * understood

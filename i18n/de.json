@@ -2371,5 +2371,9 @@
 "Message units": "Nachrichteneinheiten",
 "the most units (sounds, or words said whole) a call may go on with after its words, each chosen knowing what came before; 0 for none": "die meisten Einheiten (Laute oder ganze Wörter), mit denen ein Ruf nach seinen Wörtern weitergehen kann, jede in Kenntnis des Vorigen gewählt; 0 für keine",
 "Order sample": "Reihenfolgestichprobe",
-"share of hearers of two units or more thought again with the units reversed, to measure whether order matters": "Anteil der Hörer von zwei oder mehr Einheiten, die erneut mit umgekehrter Reihenfolge bedacht werden, um zu messen, ob Reihenfolge zählt"
+"share of hearers of two units or more thought again with the units reversed, to measure whether order matters": "Anteil der Hörer von zwei oder mehr Einheiten, die erneut mit umgekehrter Reihenfolge bedacht werden, um zu messen, ob Reihenfolge zählt",
+"Order joy": "Reihenfolgefreude",
+"joy a caller feels when its hearers heard its words in the order they are used to hearing (and pain when not), times its sociability and talk value; which order is not said; 0 for none": "Freude eines Rufers, wenn seine Hörer seine Wörter in der Reihenfolge hörten, die sie gewohnt sind (und Schmerz, wenn nicht), mal Geselligkeit und Gesprächswert; welche Reihenfolge, wird nicht gesagt; 0 für keine",
+"Order lesson": "Reihenfolgelektion",
+"how much of its hearers' agreement with its word order is added to that call's own lesson": "wie viel der Übereinstimmung seiner Hörer mit seiner Wortreihenfolge zur eigenen Lektion des Rufs addiert wird"
 }

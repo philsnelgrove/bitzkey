@@ -2371,5 +2371,9 @@
 "Message units": "Jednostki wiadomości",
 "the most units (sounds, or words said whole) a call may go on with after its words, each chosen knowing what came before; 0 for none": "najwięcej jednostek (dźwięków lub całych słów), którymi wołanie może ciągnąć się po swoich słowach, każda wybrana ze znajomością poprzednich; 0 bez",
 "Order sample": "Próbka kolejności",
-"share of hearers of two units or more thought again with the units reversed, to measure whether order matters": "część słuchaczy dwóch lub więcej jednostek rozważanych ponownie z jednostkami odwróconymi, by zmierzyć, czy kolejność ma znaczenie"
+"share of hearers of two units or more thought again with the units reversed, to measure whether order matters": "część słuchaczy dwóch lub więcej jednostek rozważanych ponownie z jednostkami odwróconymi, by zmierzyć, czy kolejność ma znaczenie",
+"Order joy": "Radość z szyku",
+"joy a caller feels when its hearers heard its words in the order they are used to hearing (and pain when not), times its sociability and talk value; which order is not said; 0 for none": "radość wołającego, gdy słuchacze usłyszeli jego słowa w szyku, do którego przywykli (a ból, gdy nie), razy jego towarzyskość i wartość rozmowy; jaki szyk, nie jest powiedziane; 0 dla żadnej",
+"Order lesson": "Lekcja szyku",
+"how much of its hearers' agreement with its word order is added to that call's own lesson": "ile zgodności słuchaczy z jego szykiem słów dodaje się do lekcji tego wołania"
 }

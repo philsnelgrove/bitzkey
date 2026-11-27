@@ -6007,6 +6007,28 @@ class LandTests(unittest.TestCase):
         one.values[sm.GLORY_VALUE] = 2.0
         self.assertEqual(Simulation.concept_on_mind(one), sm.PROJECT_AIMS + sm.GLORY_VALUE)
 
+    def test_order_agreement_credited_to_the_caller_it_heard_felt_either_way(self):
+        sm = simulation_module
+        simulation = Simulation(30, 30, 0, seed=1)
+        caller = simulation._add_agent(encode_dna("omnivore", size=3), 5, 5)
+        hearer = simulation._add_agent(encode_dna("omnivore", size=3), 6, 5)
+        simulation._index_cells()
+        caller.mind["sociability"] = sm.TRAIT_MAX
+        now = simulation.turn
+        hearer.call_heeded = caller.identifier
+        hearer.chosen_turn = hearer.order_turn = now - 1
+        hearer.order_from = caller.identifier
+        hearer.order_agreed = -0.5  # said against the way it is used to hearing
+        caller.reward = 0.0
+        plans = [(caller, None, [], {}), (hearer, None, [], {})]
+        simulation._credit_callers(plans, {1: (0.0,)})
+        self.assertEqual(caller.order_hearers, 1)
+        self.assertAlmostEqual(caller.order_credit, -0.5)
+        self.assertAlmostEqual(caller.reward, sm.ORDER_JOY * -0.5 * caller.feeling("sociability") * caller.value(sm.TALK_VALUE))
+        hearer.order_from = caller.identifier + 1  # heard from another: nothing to this one
+        simulation._credit_callers(plans, {1: (0.0,)})
+        self.assertEqual(caller.order_credit, 0.0)
+
     def test_influence_deafened_senses_and_a_call_that_moved_a_hearer_credited_to_its_caller(self):
         import numpy as np
         from tools.Brain import SENSES
