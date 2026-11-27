@@ -1312,7 +1312,16 @@ class BitzkeyApp:
             if (hearing and agent.alive and agent.call != world.SILENT and agent.call_turn == self.simulation.turn
                     and view.collidepoint(point)):
                 loudness = CALL_VOLUME * (0.3 + 0.7 * nearness) * (0.25 + 0.75 * agent.physique("size"))
-                heard.append((agent.call, loudness, (point[0] - view.centerx) / (view.width / 2)))
+                sounds = [agent.call]  # its sounds in order: its first word, its second, its message's units
+                if agent.call >= world.FIRST_CALL:
+                    sounds += [world.FIRST_CALL + sound for sound in agent.sounds if sound >= 0]
+                    if agent.call2 >= world.FIRST_CALL:
+                        sounds += [agent.call2, *(world.FIRST_CALL + sound for sound in agent.sounds2 if sound >= 0)]
+                    if agent.units_turn == agent.call_turn:
+                        for unit in agent.units[:agent.unit_count]:
+                            if unit[1] >= world.FIRST_CALL:
+                                sounds += [unit[1], *(world.FIRST_CALL + sound for sound in unit[2:4] if sound >= 0)]
+                heard.append((tuple(sounds), loudness, (point[0] - view.centerx) / (view.width / 2)))
             radius = self._dot_radius(agent, largest, smallest)
             self._draw_bitzkey(agent, point, radius, self._corpse_opacity(agent))
             if agent.identifier == self.selected_id or (agent.alive and agent.identifier in self.graph.selection):

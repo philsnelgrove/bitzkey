@@ -18,6 +18,8 @@ RATE = 44100
 LENGTH = 0.25    # seconds
 PITCH = 1600.0   # the beep's, in hertz
 VOICES = 12      # sounding at once at most: the click, and the calls
+SHORTENED = 6.0  # each of the five sounds a sixth as long as it was, so a whole call fits a turn
+GAP = 0.012      # seconds between one sound of a call and the next
 
 _sound: pg.mixer.Sound | None = None
 _calls: dict[int, pg.mixer.Sound] = {}  # each call's sound
@@ -51,9 +53,10 @@ def call_sound(call: int, rate: int = RATE) -> list[float]:
     if not SILENT < call < len(CALLS):
         return []
     length = (0.0, 0.26, 0.14, 0.32, 0.26, 0.16, 0.22)[call]
+    slower = 1.0 if call == ALERT_CALL else SHORTENED  # the five a sixth as long, `time` on their old clock
     samples, phase, noise = [], 0.0, 0x2545F491 + call
-    for index in range(int(length * rate)):
-        time = index / rate
+    for index in range(int(length / slower * rate)):
+        time = index * slower / rate
         part = time / length
         envelope, harmonics, rasp = 1.0, 0.0, 0.0
         if call == ALERT_CALL:  # two quick falling yelps
@@ -104,14 +107,32 @@ def start() -> None:
         _calls.clear()
 
 
-def calls_heard(calls: list[tuple[int, float, float]]) -> None:
-    """Calls heard on the map, each (which, how loud 0 to 1, where across the view -1 left to 1 right), played at once,
-    the loudest first, as many as can sound together; panned with equal power, so each sounds as loud wherever it
-    comes from."""
+_sequences: dict = {}  # each call's sounds one after another, made once
+
+
+def call_sequence(sounds, rate: int = RATE) -> list[float]:
+    """A call's sounds, one after another with a short gap, as samples. As the C++ version's."""
+    samples: list[float] = []
+    for sound in sounds:
+        made = call_sound(sound, rate)
+        if made:
+            samples += made + [0.0] * int(GAP * rate)
+    return samples
+
+
+def calls_heard(calls: list[tuple]) -> None:
+    """Calls heard on the map, each (its sounds in order, how loud 0 to 1, where across the view -1 left to 1 right),
+    played at once, the loudest first, as many as can sound together, each call's sounds one after another; panned
+    with equal power, so each sounds as loud wherever it comes from."""
     if not _calls:
         return
-    for call, loudness, pan in sorted(calls, key=lambda heard: -heard[1]):
-        sound = _calls.get(call)
+    for sounds, loudness, pan in sorted(calls, key=lambda heard: -heard[1]):
+        sounds = (sounds,) if isinstance(sounds, int) else tuple(sounds)
+        if sounds not in _sequences and len(_sequences) < 4096:
+            rate, _, channels = pg.mixer.get_init()
+            samples = call_sequence(sounds, rate)
+            _sequences[sounds] = _made(samples, channels) if samples else None
+        sound = _sequences.get(sounds)
         if sound is None or loudness <= 0:
             continue
         channel = pg.mixer.find_channel()
