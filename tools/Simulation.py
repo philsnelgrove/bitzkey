@@ -544,6 +544,26 @@ WOO_COMER = 1
 CONVERSE_WINDOW = 3  # conversation (see CONVERSE_JOY in the C++ version): a reply to one that lately replied
 CONVERSE_JOY = 0.3
 CONCEPTS_SIZE = 1  # concept-words (see CONCEPTS_SIZE in the C++ version): words for aims and values
+INFLUENCE_JOY = 0.5  # influence (see INFLUENCE_JOY in the C++ version): how far a call moved its hearers' choices
+INFLUENCE_LESSON = 1.0
+INFLUENCE_HEARERS = 3
+INFLUENCE_SAMPLE = 1.0
+INFLUENCE_USEFUL = 0
+DEAF = 0  # for experiments: no animal hears another's call
+_DEAF_SENSES = None  # the senses of hearing, found once
+
+
+def deafened(senses):
+    """Its senses with all it heard this turn taken out (see INFLUENCE_JOY). As the C++ version's."""
+    global _DEAF_SENSES
+    if _DEAF_SENSES is None:
+        from tools.Brain import SENSES as _names
+        heard = ("heard_call_", "heard_first_", "heard_second_", "heard_third_", "heard_fourth_", "heard_fifth_", "heard_sixth_", "voice_", "named")
+        _DEAF_SENSES = [i for i, n in enumerate(_names) if n.startswith(heard) or n in ("caller_known", "caller_regard", "pointed", "pointed_closeness",
+                                                                                          "addressed", "meant", "meant_closeness") or n.startswith("meant_") and n != "meant_closeness"]
+    deaf = np.array(senses, dtype=float, copy=True)
+    deaf[_DEAF_SENSES] = 0.0
+    return deaf
 _HELP_KINDS = {**{a: HELP_GAVE for a in ("give", "offer", "tutor", "feed_young")},
                **{a: HELP_DROPPED for a in ("drop_meat", "drop_fruit", "drop_stone", "drop_bone", "drop_wood")},
                **{a: HELP_DEFENDED for a in ("attack", "defend", "hunt", "shoot")},
@@ -1674,6 +1694,14 @@ class Bitzkey:
     said_concepts: int = 0
     heard_concepts: int = 0
     exchanges: int = 0
+    influence_given: float = 0.0  # influence (see INFLUENCE_JOY): as a hearer, how far a call moved its choice, and when
+    influence_turn: int = -1
+    influence_kind: int = 0
+    influence_sound: int = -1
+    influence_credit: float = 0.0  # as a caller
+    influence_hearers: int = 0
+    influence_life: float = 0.0
+    influence_moved: int = 0
     meant_by_deed: bool = False  # whether the word last heard was a deed-word, meant_deed its deed
     judged_by_deed: bool = False
     echo_turn: int = -1  # the last turn it said a deed-word back, doing its guess
@@ -3767,7 +3795,7 @@ class Simulation:
         seen = away <= sight
         near = self._closeness(agent, (standout.x, standout.y), sight) if seen else 0.0
         heard = 0.0  # its voice known among the rest, and from where, in sight or out of it
-        if (standout.call >= FIRST_CALL and standout.call_turn == self.turn - 1 and away <= call_reach(standout)
+        if (not DEAF and standout.call >= FIRST_CALL and standout.call_turn == self.turn - 1 and away <= call_reach(standout)
                 and not standout.spoke_alone):  # not a call said to another alone
             heard = 1 - away / (call_reach(standout) + 1)
         found = {"leader": float(agent.leader), "standout_leads": float(standout.leader), "standout_esteem": best, "standout_closeness": near,
@@ -4047,7 +4075,7 @@ class Simulation:
         addressed = None  # one who spoke to it alone from beside it last turn, heard over all others
         furthest = min(MAX_CALL_REACH, math.ceil(CALL_REACH * 1.5))  # the largest caller's
         for other in self._nearby(agent, furthest):
-            if other.call < FIRST_CALL or other.call_turn != self.turn - 1:
+            if DEAF or other.call < FIRST_CALL or other.call_turn != self.turn - 1:  # see DEAF
                 continue
             if other.spoke_alone:  # said to one alone: none else hears it
                 if other.address_to == agent.identifier and (addressed is None or other.identifier < addressed.identifier):
@@ -4099,7 +4127,7 @@ class Simulation:
         """The loudest caller of its own kind it heard, to credit should the call help."""
         found, kin_loudest, addressed = None, 0.0, None
         for other in self._nearby(agent, min(MAX_CALL_REACH, math.ceil(CALL_REACH * 1.5))):
-            if other is agent or other.call < FIRST_CALL or other.call_turn != self.turn - 1:
+            if DEAF or other is agent or other.call < FIRST_CALL or other.call_turn != self.turn - 1:
                 continue
             if other.spoke_alone:  # said to one alone: heard by that one only, over all others
                 if other.address_to == agent.identifier and (addressed is None or other.identifier < addressed.identifier):
@@ -4869,6 +4897,26 @@ class Simulation:
             for row, valued in zip(members, batch.values(np.array([plans[index][1] for index in members])).tolist()):
                 values[row] = valued
             batches.append((batch, members))
+        # Influence (see INFLUENCE_JOY): each hearer of a call, of a share of them, thought again with what it heard taken out.
+        if (INFLUENCE_JOY > 0 or INFLUENCE_LESSON > 0) and not DEAF:
+            for index, (agent, senses, options, situation) in enumerate(plans):
+                heard = situation.get("heard_from")  # the caller it heard, if any
+                heard_from = heard if isinstance(heard, int) else (heard.identifier if heard is not None else -1)
+                if idle[index] or heard_from < 0 or heard_from == agent.identifier or agent.species == "plant":
+                    continue
+                if INFLUENCE_SAMPLE < 1.0 and whim(agent.identifier ^ 0x494E464C, self.turn) >= INFLUENCE_SAMPLE:
+                    continue
+                heard_odds = choice_odds(values[index], options)
+                deaf_odds = choice_odds(list(agent.brain.values(deafened(senses))), options)
+                moved = sum(abs(heard_odds.get(option, 0.0) - deaf_odds.get(option, 0.0)) for option in options)
+                agent.influence_given = min(1.0, 0.5 * moved / max(0.05, INFLUENCE_SAMPLE))
+                agent.influence_turn, agent.influence_kind, agent.influence_sound = self.turn, 0, -1
+                caller = self.find_agent(heard_from)
+                if caller is not None:  # what that call held, as it was made
+                    made = self.turn - 1
+                    agent.influence_kind = (4 if caller.concept_spoke_turn == made else 3 if caller.name_spoke_turn == made
+                                            else 2 if caller.deed_spoke_turn == made else 1 if caller.lexicon_spoke_turn == made else 0)
+                    agent.influence_sound = caller.call - FIRST_CALL if caller.call >= FIRST_CALL else -1
         # Speak as heard: each about to learn from a call it made hears it as one who heard it would, weighed against
         # hearing nothing or any one sound (see hearing_itself, understood).
         for index, (agent, *_) in enumerate(plans):
@@ -5374,7 +5422,7 @@ class Simulation:
         if HUNTERS_HEAR and quarry is None and agent.species in ("predator", "omnivore"):  # prey it heard call, out of sight
             nearest = None
             for other in self._nearby(agent, MAX_CALL_REACH):
-                if other.call < FIRST_CALL or other.call_turn != self.turn - 1 or other.spoke_alone or not other.alive or not self._preys_on(agent, other):
+                if DEAF or other.call < FIRST_CALL or other.call_turn != self.turn - 1 or other.spoke_alone or not other.alive or not self._preys_on(agent, other):
                     continue
                 away = abs(other.x - agent.x) + abs(other.y - agent.y)
                 if away <= call_reach(other) and (nearest is None or away < nearest or (away == nearest and other.identifier < quarry.identifier)):
@@ -7188,20 +7236,31 @@ class Simulation:
             agent = plan[0]
             agent.call_credit, agent.call_listeners, agent.wishes_done, agent.intent_met = 0.0, 0, 0, 0
             agent.arena_credit, agent.arena_listeners = 0.0, 0
+            agent.influence_credit, agent.influence_hearers = 0.0, 0
             agent.wish_judged, agent.wish_advantage = False, 0.0
         if wishing:
             for index, lesson in lessons.items():
                 agent = plans[index][0]
                 if agent.call_held and agent.chosen_turn == self.turn - 1:
                     agent.wish_judged, agent.wish_advantage = True, lesson[0] - agent.chosen_value
-        if CALL_EMPATHY <= 0 and not wishing and ARENA_PAYOFF <= 0:
+        if CALL_EMPATHY <= 0 and not wishing and ARENA_PAYOFF <= 0 and INFLUENCE_JOY <= 0 and INFLUENCE_LESSON <= 0:
             return
         for index, lesson in lessons.items():
             listener = plans[index][0]
             if listener.call_heeded < 0 or listener.chosen_turn != self.turn - 1:
                 continue
             caller = self.find_agent(listener.call_heeded)
-            if caller is None or not caller.alive or not caller.call_held or caller is listener:
+            if caller is None or not caller.alive or caller is listener:
+                continue
+            if ((INFLUENCE_JOY > 0 or INFLUENCE_LESSON > 0) and listener.influence_turn == listener.chosen_turn
+                    and caller.influence_hearers < INFLUENCE_HEARERS and (not INFLUENCE_USEFUL or lesson[0] - listener.chosen_value >= 0)):
+                moved = listener.influence_given  # its call's influence on this one (see INFLUENCE_JOY)
+                caller.influence_hearers += 1
+                caller.influence_credit += moved
+                caller.influence_life += moved
+                caller.influence_moved += moved > 0.05
+                caller.reward += INFLUENCE_JOY * moved * caller.feeling("sociability") * caller.value(TALK_VALUE)
+            if not caller.call_held:
                 continue
             if ARENA_PAYOFF > 0 and listener.blinded_turn == listener.chosen_turn:  # the call was all it had
                 caller.arena_credit += lesson[0] - listener.chosen_value
@@ -7462,6 +7521,7 @@ class Simulation:
             target += INTENT * agent.intent_met / agent.call_listeners
         if agent.arena_listeners > 0:
             target += ARENA_PAYOFF * agent.arena_credit / agent.arena_listeners
+        target += INFLUENCE_LESSON * agent.influence_credit  # how far it moved its hearers (see INFLUENCE_JOY)
         pointed = agent.held_point >= 0 and agent.understood_count > 0
         understood = agent.understood_sum / agent.understood_count if pointed else 0.0  # how much less surprised, on average
         target += UNDERSTOOD * understood

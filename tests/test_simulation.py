@@ -6006,6 +6006,34 @@ class LandTests(unittest.TestCase):
         one.values[sm.GLORY_VALUE] = 2.0
         self.assertEqual(Simulation.concept_on_mind(one), sm.PROJECT_AIMS + sm.GLORY_VALUE)
 
+    def test_influence_deafened_senses_and_a_call_that_moved_a_hearer_credited_to_its_caller(self):
+        import numpy as np
+        from tools.Brain import SENSES
+        sm = simulation_module
+        deaf = sm.deafened(np.full(len(SENSES), 0.5))
+        for name in ("heard_call_1", "heard_first_1", "meant", "named", "meant_eat", "heard_fourth_1", "voice_pitch"):
+            self.assertEqual(deaf[SENSES.index(name)], 0.0, name)
+        self.assertEqual(deaf[SENSES.index("meant_closeness")], 0.0)
+        self.assertEqual(deaf[SENSES.index("goal")], 0.5)  # all else kept
+        simulation = Simulation(30, 30, 0, seed=1)
+        caller = simulation._add_agent(encode_dna("omnivore", size=3), 5, 5)
+        hearer = simulation._add_agent(encode_dna("omnivore", size=3), 6, 5)
+        simulation._index_cells()
+        caller.mind["sociability"] = sm.TRAIT_MAX
+        now = simulation.turn
+        hearer.call_heeded = caller.identifier
+        hearer.chosen_turn = hearer.influence_turn = now - 1
+        hearer.influence_given = 0.4
+        caller.reward = 0.0
+        plans = [(caller, None, [], {}), (hearer, None, [], {})]
+        simulation._credit_callers(plans, {1: (0.0,)})
+        self.assertEqual(caller.influence_hearers, 1)
+        self.assertAlmostEqual(caller.influence_credit, 0.4)
+        self.assertAlmostEqual(caller.reward, sm.INFLUENCE_JOY * 0.4 * caller.feeling("sociability") * caller.value(sm.TALK_VALUE))
+        hearer.influence_turn = now - 5  # a choice made before: nothing
+        simulation._credit_callers(plans, {1: (0.0,)})
+        self.assertEqual(caller.influence_credit, 0.0)
+
     def test_values_inherited_mutated_taught_and_scaling_the_joys_they_name(self):
         sm = simulation_module
         simulation = Simulation(30, 30, 0, seed=1)
