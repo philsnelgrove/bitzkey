@@ -390,6 +390,8 @@ _TABLE: dict[str, list[tuple]] = {
         ("INFLUENCE_SAMPLE", "Influence sample", "share of hearers thought a second time, deaf, to measure a call's influence; less is faster", 0.05, 1.0, 0.05),
         ("INFLUENCE_USEFUL", "Influence only useful", "1: a call's influence counts only from a hearer whose turn went at least as well as it expected", 0, 1, 1),
         ("DEAF", "Deaf", "1: no animal hears another's call, to judge whether words matter (for copies of worlds)", 0, 1, 1),
+        ("MESSAGE_UNITS", "Message units", "the most units (sounds, or words said whole) a call may go on with after its words, each chosen knowing what came before; 0 for none", 0, 4, 1),
+        ("ORDER_SAMPLE", "Order sample", "share of hearers of two units or more thought again with the units reversed, to measure whether order matters", 0.0, 1.0, 0.05),
         ("HELP_WITNESS", "Help witnessed", "share of the joy of helping that each who saw useful help feels, beside esteeming the helper; 0 for none", 0.0, 1.0, 0.05),
         ("PROJECT_RATE", "Project learning", "how fast an animal learns, from its own life, which long aims rose (or fell) before it felt good, sampled every few turns; 0 for none", 0.0, 1.0, 0.01),
         ("PROJECT_EVERY", "Project sampling", "turns between an animal's samples of the world's long aims, learnt against how good it felt between them", 1, 480, 1),

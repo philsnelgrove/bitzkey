@@ -22,7 +22,8 @@ from tools.Brain import _READ_SCALE, _READ_SHIFT  # how a brain reads each sense
 import tools.Brain as brain_rules  # its rules, as they now stand
 from tools.Brain import (read_senses, ACTIONS, ALERT_CALL, CALL_COUNT, CALLS, FIRST_CALL, MAX_SOUNDS, sound_output, FORESEEN, FORESIGHT, MEMORY_GATES, MEMORY_NEURONS, OUTPUTS, SENSES, SILENT, Brain, BrainBatch, call_output,
                          OUTSIDE, OUTSIDE_FORESEEN, OUTSIDE_SENSES, VOICE_SENSES, utterance_sense, WISH, WISHES, POINT, POINTED_SENSE, GOAL_SENSE, GOAL_NEED_SENSE, GOAL_DESIRE_SENSE, GOAL_THING_SENSE, GOAL_ONE_SENSE, GOAL_DEED_SENSE, MEANT_SENSE, NAMED_SENSE, MEANT_DEED_SENSE, utterance2_sense, word2_output, ATTEND, ATTEND_YES, ATTEND_NO, POINT_ONE, POINT_ONE_THING, POINT_SELF, POINT_SELF_THING, point_output,
-                         choice_odds, depth_for, gene_senses, imagined_call, imagining, make_senses, memory_after, width_for)
+                         choice_odds, depth_for, gene_senses, imagined_call, imagining, make_senses, memory_after, width_for,
+                         MAX_UNITS, UNIT_KINDS, UNIT_STOP, UNIT_SOUND, UNIT_THING, UNIT_DEED, UNIT_NAME, UNIT_CONCEPT, UNIT_KIND_NAMES, unit_output, said_sense, heard_unit_sense)
 from tools.Genome import (GENOME, SPECIES, TEMPERAMENT, TRAIT_MAX, body_word, color_from_word, colour_difference, cross, decode_nocturnal, dot_difference,
                           inherit_mind,
                           ring_difference, social_difference, social_word, BODY_MUTATION_CHANCE, COLD_TOLERANCE,
@@ -550,6 +551,63 @@ INFLUENCE_HEARERS = 3
 INFLUENCE_SAMPLE = 1.0
 INFLUENCE_USEFUL = 0
 DEAF = 0  # for experiments: no animal hears another's call
+MESSAGE_UNITS = 4  # messages (see MESSAGE_UNITS in the C++ version): units a call may go on with after its words
+ORDER_SAMPLE = 0.1
+
+
+def _empty_units():
+    return [[UNIT_STOP, -1, -1, -1] for _ in range(MAX_UNITS)]  # each: unit, call, its later two sounds
+
+
+def scrambled(senses, seed: int):
+    """What it heard, its content drawn anew, the same length. As the C++ version's."""
+    out = np.array(senses, dtype=float, copy=True)
+    order = list(range(CALL_COUNT))
+    for at in range(CALL_COUNT - 1, 0, -1):
+        other = min(at, int(whim(seed ^ (0x5C00 + at), 7) * (at + 1)))
+        order[at], order[other] = order[other], order[at]
+    heard_at = SENSES.index("heard_call_1")
+    for call in range(CALL_COUNT):
+        for part in range(4):
+            out[heard_at + 4 * order[call] + part] = senses[heard_at + 4 * call + part]
+    draw = 0
+    for sense_of in (utterance_sense, utterance2_sense):
+        for place in range(MAX_SOUNDS):
+            sounded = any(senses[sense_of(place, sound)] != 0.0 for sound in range(CALL_COUNT))
+            for sound in range(CALL_COUNT):
+                out[sense_of(place, sound)] = 0.0
+            if sounded:
+                out[sense_of(place, int(whim(seed ^ (0x5C20 + draw), 7) * CALL_COUNT) % CALL_COUNT)] = 1.0
+                draw += 1
+    for place in range(MAX_UNITS):
+        sounded = any(senses[heard_unit_sense(place, kind)] != 0.0 for kind in range(UNIT_KINDS))
+        for kind in range(UNIT_KINDS):
+            out[heard_unit_sense(place, kind)] = 0.0
+        if sounded:
+            out[heard_unit_sense(place, int(whim(seed ^ (0x5C40 + place), 7) * CALL_COUNT) % CALL_COUNT)] = 1.0
+    out[MEANT_SENSE:MEANT_SENSE + 2] = 0.0
+    out[NAMED_SENSE:NAMED_SENSE + 4] = 0.0
+    out[MEANT_DEED_SENSE:MEANT_DEED_SENSE + len(ACTIONS)] = 0.0
+    return out
+
+
+def reversed_units(senses, count: int):
+    out = np.array(senses, dtype=float, copy=True)
+    count = max(0, min(MAX_UNITS, count))
+    for place in range(count):
+        for kind in range(UNIT_KINDS):
+            out[heard_unit_sense(place, kind)] = senses[heard_unit_sense(count - 1 - place, kind)]
+    return out
+
+
+def with_said(senses, units, count: int):
+    out = np.array(senses, dtype=float, copy=True)
+    out[said_sense(0, 0):said_sense(0, 0) + MAX_UNITS * UNIT_KINDS] = 0.0
+    for place in range(min(count, MAX_UNITS)):
+        unit = units[place][0]
+        if UNIT_STOP < unit < UNIT_KINDS + 1:
+            out[said_sense(place, unit - 1)] = 1.0
+    return out
 _DEAF_SENSES = None  # the senses of hearing, found once
 
 
@@ -1702,6 +1760,14 @@ class Bitzkey:
     influence_hearers: int = 0
     influence_life: float = 0.0
     influence_moved: int = 0
+    units: list = field(default_factory=_empty_units)  # a message (see MESSAGE_UNITS)
+    unit_count: int = 0
+    units_turn: int = -1
+    units_stopped: bool = False
+    held_units: list = field(default_factory=_empty_units)
+    held_unit_count: int = 0
+    held_units_stopped: bool = False
+    heard_unit_count: int = 0
     meant_by_deed: bool = False  # whether the word last heard was a deed-word, meant_deed its deed
     judged_by_deed: bool = False
     echo_turn: int = -1  # the last turn it said a deed-word back, doing its guess
@@ -2563,6 +2629,7 @@ class Simulation:
         self.turn = 0
         # Since the world began or was loaded: words taken into lexicons, and how (see LEXICON_SIZE).
         self.lexicon_tally = defaultdict(lambda: dict.fromkeys(("agreed", "witnessed", "inherited", "confirmed", "overridden", "refused", "confided"), 0))
+        self.message_tally: dict = {}
         self.gossip_tally = defaultdict(lambda: dict.fromkeys(("heard", "ill", "hearsay", "shift"), 0))  # see GOSSIP
         self.deed_tally = defaultdict(lambda: dict.fromkeys(("agreed", "witnessed", "inherited", "confirmed", "overridden", "refused", "confided"), 0))
         self.initiative_tally = {}  # see BABBLE and ANSWERED_JOY
@@ -4121,6 +4188,18 @@ class Simulation:
                         break
                     heard[f"heard_{place}_{sound + 1}"] = 1.0
             heard.update(zip(VOICE_SENSES, call_tag(caller, agent)))  # and the tag it carries, read by all who hear it
+            agent.heard_unit_count = 0
+            if caller.units_turn == self.turn - 1 and caller.call_turn == self.turn - 1:  # and its message's units
+                for place, unit in enumerate(caller.units[:caller.unit_count]):
+                    if unit[1] < FIRST_CALL:
+                        continue
+                    heard[f"heard_unit_{place + 1}_sound_{unit[1] - FIRST_CALL + 1}"] = 1.0
+                    for kind, words in (("thing_word", agent.lexicon), ("deed_word", agent.deeds), ("name", agent.names), ("concept_word", agent.concepts)):
+                        if any(word[0] == unit[1] and word[1] == unit[2] and word[2] == unit[3] for word in words):
+                            heard[f"heard_unit_{place + 1}_{kind}"] = 1.0
+                agent.heard_unit_count = caller.unit_count
+        else:
+            agent.heard_unit_count = 0
         return heard, caller
 
     def _kin_caller(self, agent: Bitzkey) -> Bitzkey | None:
@@ -4907,7 +4986,12 @@ class Simulation:
                 if INFLUENCE_SAMPLE < 1.0 and whim(agent.identifier ^ 0x494E464C, self.turn) >= INFLUENCE_SAMPLE:
                     continue
                 heard_odds = choice_odds(values[index], options)
-                deaf_odds = choice_odds(list(agent.brain.values(deafened(senses))), options)
+                deaf_odds = choice_odds(list(agent.brain.values(scrambled(senses, agent.identifier ^ self.turn))), options)
+                if ORDER_SAMPLE > 0 and agent.heard_unit_count >= 2 and whim(agent.identifier ^ 0x4F524445, self.turn) < ORDER_SAMPLE:
+                    turned = choice_odds(list(agent.brain.values(reversed_units(senses, agent.heard_unit_count))), options)
+                    tally = self.message_tally.setdefault(agent.species, {"order_judged": 0, "order_moved": 0.0})
+                    tally["order_judged"] = tally.get("order_judged", 0) + 1
+                    tally["order_moved"] = tally.get("order_moved", 0.0) + 0.5 * sum(abs(heard_odds.get(o, 0.0) - turned.get(o, 0.0)) for o in options)
                 moved = sum(abs(heard_odds.get(option, 0.0) - deaf_odds.get(option, 0.0)) for option in options)
                 agent.influence_given = min(1.0, 0.5 * moved / max(0.05, INFLUENCE_SAMPLE))
                 agent.influence_turn, agent.influence_kind, agent.influence_sound = self.turn, 0, -1
@@ -5364,6 +5448,8 @@ class Simulation:
             agent.panicked = False
             agent.alarm = agent.herd_assailant = agent.kill_alert = None
             actions.append((agent, action, situation))
+        if MESSAGE_UNITS > 0:
+            self._speak_units(actions)
         for index, (hearer, _, _, _) in enumerate(plans):  # a caller relieved: one who heard it is then less surprised
             if NAMING <= 0 or idle[index]:
                 continue
@@ -7172,10 +7258,58 @@ class Simulation:
         """A call copied from another, valued as that one valued it, by the Call baseline. As the C++ version's."""
         return limited_value(call_target + CALL_BASELINE * (caller.call_part - learner.call_part))
 
+    def _speak_units(self, actions: list) -> None:
+        """Each that called this turn goes on, unit by unit (see MESSAGE_UNITS). As the C++ version's."""
+        def word_of(agent, unit, choice):
+            def find(words, thing):
+                return next((word for word in words if word[3] == thing), None)
+            if unit == UNIT_THING:
+                return find(agent.lexicon, agent.point) if 0 <= agent.point < len(OUTSIDE_SENSES) else None
+            if unit == UNIT_DEED:
+                return find(agent.deeds, agent.point_one if agent.point == POINT_SELF_THING else choice)
+            if unit == UNIT_NAME:
+                return find(agent.names, agent.point_one) if agent.point == POINT_ONE_THING else None
+            if unit == UNIT_CONCEPT:
+                return find(agent.concepts, self.concept_on_mind(agent))
+            return None
+        speaking = []
+        for agent, action, _ in actions:
+            agent.unit_count, agent.units_stopped = 0, False
+            if agent.call >= FIRST_CALL and agent.call_turn == self.turn and agent.brain is not None:
+                agent.units_turn = self.turn
+                speaking.append((agent, ACTIONS.index(action) if isinstance(action, str) else action))
+        for place in range(min(MESSAGE_UNITS, MAX_UNITS)):
+            going_on = []
+            for agent, choice in speaking:
+                valued = list(agent.brain.values(with_said(agent.last_senses, agent.units, agent.unit_count)))
+                outputs = [unit_output(UNIT_STOP), *(unit_output(UNIT_SOUND + sound) for sound in range(CALL_COUNT))]
+                outputs += [unit_output(unit) for unit in (UNIT_THING, UNIT_DEED, UNIT_NAME, UNIT_CONCEPT) if word_of(agent, unit, choice) is not None]
+                odds = choice_odds(valued, outputs, CALL_TEMPERATURE)
+                roll, picked = whim(agent.identifier ^ (0x554E4954 + place), self.turn), outputs[0]
+                for output in outputs:
+                    roll -= odds.get(output, 0.0)
+                    picked = output
+                    if roll < 0:
+                        break
+                unit = picked - unit_output(0)
+                if unit == UNIT_STOP:
+                    agent.units_stopped = True
+                    continue
+                word = word_of(agent, unit, choice) if unit >= UNIT_THING else None
+                agent.units[agent.unit_count] = [unit, word[0], word[1], word[2]] if word is not None else [unit, FIRST_CALL + unit - UNIT_SOUND, -1, -1]
+                agent.unit_count += 1
+                going_on.append((agent, choice))
+            speaking = going_on
+
     @staticmethod
     def _sounds_made(agent: Bitzkey) -> int:
         """How many sounds its current call has, 0 silent or alerting."""
-        return 0 if agent.call < FIRST_CALL else 1 + sum(sound >= 0 for sound in agent.sounds)
+        if agent.call < FIRST_CALL:
+            return 0
+        made = 1 + sum(sound >= 0 for sound in agent.sounds)
+        if agent.units_turn == agent.call_turn:  # and its message's units
+            made += sum(1 + (unit[2] >= 0) + (unit[3] >= 0) for unit in agent.units[:agent.unit_count])
+        return made
 
     def _gauge_understanding(self, plans: list) -> None:
         """Each caller, of each who read its finger last turn: how much less surprised by the thing pointed at that one is
@@ -7529,6 +7663,9 @@ class Simulation:
         target += learnt + agent.corrected_gain  # and its wrong guess, corrected: worth a share
         target = limited_value(target)
         lessons = harm + [(agent.call_senses, output, target, rate) for output in agent.call_outputs + agent.call2_outputs if output >= 0]
+        for place in range(min(MAX_UNITS, agent.held_unit_count + (1 if agent.held_units_stopped else 0))):  # and each unit
+            unit = agent.held_units[place][0] if place < agent.held_unit_count else UNIT_STOP
+            lessons.append((with_said(agent.call_senses, agent.held_units, place), unit_output(unit), target, rate))
         if WISH_LEARNING > 0 and agent.wish_judged:  # its wishes: each deed its hearers did, by how its own turn went
             value = limited_value(agent.wish_advantage)
             lessons += [(agent.call_senses, WISH + wish, value, rate * WISH_LEARNING)
@@ -7561,6 +7698,9 @@ class Simulation:
                     agent.call_senses, agent.call_outputs = agent.last_senses, outputs  # the lesson a turn, till theirs is judged
                     agent.call2_outputs = self._utterance2_outputs(agent)
                     agent.held_call_target, agent.call_held, agent.held_intent = call_target, rate > 0, agent.intent
+                    agent.held_units = [list(unit) for unit in agent.units]  # its message's units (see MESSAGE_UNITS)
+                    agent.held_unit_count = agent.unit_count if agent.units_turn == self.turn - 1 else 0
+                    agent.held_units_stopped = agent.units_turn == self.turn - 1 and agent.units_stopped
                     agent.held_point = agent.pointed_at(self.turn - 1)
                     agent.held_learn = agent.learn_gain if agent.learn_correct and agent.learn_turn == self.turn - 1 else 0.0
                 else:

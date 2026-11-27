@@ -1657,7 +1657,7 @@ class NewTraitTests(unittest.TestCase):
     def test_outside_foresight_learns_how_near_it_will_next_sense_a_hunter_prey_and_meat(self):
         from tools.Brain import OUTPUTS, OUTSIDE, OUTSIDE_SENSES, later_sound
         self.assertEqual(OUTPUTS[OUTSIDE:OUTSIDE + 3], ("foresee_threat", "foresee_prey", "foresee_carrion"))
-        self.assertEqual(len(OUTPUTS[OUTSIDE:]), 21 + 7 + 21 + 2 + 2 + 18)  # then the seven wishes, then pointing, then attention, then pointing at one
+        self.assertEqual(len(OUTPUTS[OUTSIDE:]), 21 + 7 + 21 + 2 + 2 + 18 + 10)  # then the seven wishes, then pointing, then attention, then pointing at one
         self.assertFalse(later_sound(OUTSIDE))
         self.assertTrue(later_sound(OUTSIDE - 1))
         grazer = self.simulation._add_agent(encode_dna("grazer"), 5, 5)
@@ -1724,11 +1724,12 @@ class NewTraitTests(unittest.TestCase):
     def test_pointing_a_caller_points_at_an_outside_thing_and_its_hearers_read_the_finger(self):
         from tools.Brain import OUTPUTS, OUTSIDE_SENSES, POINT, SENSES
         self.assertEqual(OUTPUTS[POINT], "point_threat")
-        self.assertEqual(OUTPUTS[-23], "point_comfort")
-        self.assertEqual(OUTPUTS[-22:-18], ("attend", "ignore", "point_one", "point_self"))  # and pointing at one animal, or itself
-        self.assertEqual(OUTPUTS[-1], "sixth_call_5")  # then a second word's sounds
-        self.assertEqual(len(OUTPUTS), POINT + len(OUTSIDE_SENSES) + 4 + 18)
-        self.assertEqual(SENSES[-235:-229], ("pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed"))
+        self.assertEqual(OUTPUTS[-33], "point_comfort")
+        self.assertEqual(OUTPUTS[-32:-28], ("attend", "ignore", "point_one", "point_self"))  # and pointing at one animal, or itself
+        self.assertEqual(OUTPUTS[-1 - 10], "sixth_call_5")  # then a second word's sounds
+        self.assertEqual(OUTPUTS[-1], "unit_concept_word")  # then a message's units
+        self.assertEqual(len(OUTPUTS), POINT + len(OUTSIDE_SENSES) + 4 + 18 + 10)
+        self.assertEqual(SENSES[-307:-301], ("pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed"))
         dull = self.simulation._add_agent(encode_dna("grazer", sociability=1, intellect=1), 1, 1)
         keen = self.simulation._add_agent(encode_dna("grazer", sociability=7, intellect=7), 8, 8)
         self.assertGreater(Simulation.willing_to_learn(keen), Simulation.willing_to_learn(dull))
@@ -6033,6 +6034,26 @@ class LandTests(unittest.TestCase):
         hearer.influence_turn = now - 5  # a choice made before: nothing
         simulation._credit_callers(plans, {1: (0.0,)})
         self.assertEqual(caller.influence_credit, 0.0)
+
+    def test_messages_units_said_so_far_scrambled_keeps_length_and_drops_words_reversed_turns_them(self):
+        import numpy as np
+        from tools.Brain import SENSES, said_sense, heard_unit_sense, utterance_sense, UNIT_SOUND, UNIT_THING
+        sm = simulation_module
+        units = sm._empty_units()
+        units[0] = [UNIT_SOUND + 2, sm.FIRST_CALL + 2, -1, -1]
+        units[1] = [UNIT_THING, sm.FIRST_CALL + 1, 3, -1]
+        said = sm.with_said(np.zeros(len(SENSES)), units, 2)
+        self.assertEqual(said[said_sense(0, UNIT_SOUND + 2 - 1)], 1.0)
+        self.assertEqual(said[said_sense(1, UNIT_THING - 1)], 1.0)
+        heard = np.zeros(len(SENSES))
+        heard[heard_unit_sense(0, 2)] = heard[heard_unit_sense(1, 1)] = heard[heard_unit_sense(1, UNIT_THING - 1)] = 1.0
+        turned = sm.reversed_units(heard, 2)
+        self.assertEqual(turned[heard_unit_sense(0, UNIT_THING - 1)], 1.0)
+        heard[SENSES.index("meant")] = heard[utterance_sense(0, 1)] = 1.0
+        mixed = sm.scrambled(heard, 12345)
+        self.assertEqual(mixed[SENSES.index("meant")], 0.0)
+        self.assertEqual(sum(mixed[utterance_sense(0, s)] != 0 for s in range(5)), 1)
+        self.assertEqual(sum(any(mixed[heard_unit_sense(p, k)] != 0 for k in range(9)) for p in range(4)), 2)
 
     def test_values_inherited_mutated_taught_and_scaling_the_joys_they_name(self):
         sm = simulation_module

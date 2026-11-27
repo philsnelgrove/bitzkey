@@ -82,6 +82,22 @@ SECOND_WORD_OUTPUTS = tuple(f"{place}_{choice}" for place in ("fourth", "fifth",
                             for choice in ("stop", "call_1", "call_2", "call_3", "call_4", "call_5"))
 
 
+# Messages (see MESSAGE_UNITS): after its words a call may go on, unit by unit, each stopping, one of the five sounds, or
+# a word it holds said whole (a thing-word, deed-word, name or concept-word). As the C++ version's.
+UNIT_KIND_NAMES = ("sound_1", "sound_2", "sound_3", "sound_4", "sound_5", "thing_word", "deed_word", "name", "concept_word")
+UNIT_STOP, UNIT_SOUND = 0, 1
+UNIT_THING, UNIT_DEED, UNIT_NAME, UNIT_CONCEPT = 6, 7, 8, 9
+UNIT_CHOICES = 10
+UNIT_KINDS = 9
+MAX_UNITS = 4
+UNIT_OUTPUTS = ("unit_stop", *(f"unit_{kind}" for kind in UNIT_KIND_NAMES))
+MESSAGE_UNIT = SECOND_WORD + len(SECOND_WORD_OUTPUTS)
+
+
+def unit_output(unit: int) -> int:
+    return MESSAGE_UNIT + unit
+
+
 def word2_output(place: int, sound: int) -> int:
     """The output valuing, at a second word's `place` (0..2), stopping (sound -1) or a sound 0..4."""
     return SECOND_WORD + place * SOUND_CHOICES + 1 + sound
@@ -98,7 +114,7 @@ def point_output(point: int) -> int:
 # what it foresees, then a call's later sounds, then what it foresees of the outside, then its wishes of its hearers.
 OUTPUTS = (ACTIONS + CALLS + tuple(f"memory_gate_{neuron}" for neuron in range(1, MEMORY_NEURONS + 1))
            + tuple(f"memory_value_{neuron}" for neuron in range(1, MEMORY_NEURONS + 1)) + FORESEEN + LATER_SOUNDS
-           + OUTSIDE_FORESEEN + WISHES + POINTS + ATTENDS + ("point_one", "point_self") + SECOND_WORD_OUTPUTS)
+           + OUTSIDE_FORESEEN + WISHES + POINTS + ATTENDS + ("point_one", "point_self") + SECOND_WORD_OUTPUTS + UNIT_OUTPUTS)
 
 
 def sound_output(place: int, sound: int) -> int:
@@ -109,7 +125,8 @@ def sound_output(place: int, sound: int) -> int:
 def later_sound(output: int) -> bool:
     """Whether an output values a second or third sound (not stopping): a new brain holds back from them as from calling."""
     return ((MORE_SOUNDS <= output < OUTSIDE and (output - MORE_SOUNDS) % SOUND_CHOICES != 0)
-            or (SECOND_WORD <= output < len(OUTPUTS) and (output - SECOND_WORD) % SOUND_CHOICES != 0))  # and a second word's
+            or (SECOND_WORD <= output < MESSAGE_UNIT and (output - SECOND_WORD) % SOUND_CHOICES != 0)  # and a second word's
+            or MESSAGE_UNIT < output < len(OUTPUTS))  # and a message's units
 
 
 def call_output(call: int) -> int:
@@ -234,6 +251,9 @@ SENSES = (
     # Imagining: the action it pictures itself taking, a -1 or 1 for each bit of its number, or all 0 when it pictures
     # nothing. Only its foresight is taught with them set. As the C++ version's.
     "imagined_1", "imagined_2", "imagined_3", "imagined_4", "imagined_5", "imagined_6", "imagined_7",
+    # A message's units (see MESSAGE_UNITS): what it has said so far, then the units of the loudest call it heard.
+    *(f"said_unit_{place}_{kind}" for place in range(1, 5) for kind in UNIT_KIND_NAMES),
+    *(f"heard_unit_{place}_{kind}" for place in range(1, 5) for kind in UNIT_KIND_NAMES),
 )
 INPUT_SIZE = len(SENSES)
 MEMORY_SENSE = SENSES.index("memory_1")  # the first sense of what the memory held
@@ -250,6 +270,17 @@ MEANT_SENSE = SENSES.index("meant")  # then "meant_closeness"
 NAMED_SENSE = SENSES.index("named")  # then "named_closeness", "named_regard", "named_me"
 MEANT_DEED_SENSE = SENSES.index("meant_eat")  # then one for each action, in order
 UTTERANCE2_SENSE = SENSES.index("heard_fourth_1")
+SAID_SENSE = SENSES.index("said_unit_1_sound_1")
+HEARD_UNIT_SENSE = SENSES.index("heard_unit_1_sound_1")
+
+
+def said_sense(place: int, kind: int) -> int:
+    """The sense of having said, at `place` (0..3), a unit of `kind` (0..8, the unit less one)."""
+    return SAID_SENSE + UNIT_KINDS * place + kind
+
+
+def heard_unit_sense(place: int, kind: int) -> int:
+    return HEARD_UNIT_SENSE + UNIT_KINDS * place + kind
 
 
 def utterance2_sense(place: int, sound: int) -> int:
@@ -290,7 +321,8 @@ SPARSE_SENSES = frozenset((
     "pointed", "pointed_closeness", "attending", "sees_pointing", "watched", "addressed",
     "goal", "goal_urgency", "goal_closeness", "goal_one_family", "goal_desire", "goal_depth", "goal_stuck", "goal_project", "goal_instructed", "goal_enemy", *(f"goal_need_{need}" for need in NEED_NAMES),
     *(f"goal_{thing}" for thing in OUTSIDE_THINGS), "goal_one", *(f"goal_deed_{action}" for action in ACTIONS), "meant", "meant_closeness", "named", "named_closeness", "named_me", *(f"meant_{action}" for action in ACTIONS),
-    *(f"heard_{place}_{sound}" for place in ("fourth", "fifth", "sixth") for sound in range(1, 6))))
+    *(f"heard_{place}_{sound}" for place in ("fourth", "fifth", "sixth") for sound in range(1, 6)),
+    *(f"{side}_unit_{place}_{kind}" for side in ("said", "heard") for place in range(1, 5) for kind in UNIT_KIND_NAMES)))
 _READ_SCALE = np.array([1.0 if name in SIGNED_SENSES else 2.0 for name in SENSES])
 _READ_SHIFT = np.array([0.0 if name in SIGNED_SENSES or name in SPARSE_SENSES else -1.0 for name in SENSES])
 
@@ -358,7 +390,7 @@ def imagined_call(call: int) -> int:
 
 def imagining(senses: Sequence[float], action: int) -> list[float]:
     """The same senses, picturing itself taking `action`."""
-    return [*senses[:IMAGINED_SENSE], *(1.0 if action >> bit & 1 else -1.0 for bit in range(IMAGINED_BITS))]
+    return [*senses[:IMAGINED_SENSE], *(1.0 if action >> bit & 1 else -1.0 for bit in range(IMAGINED_BITS)), *senses[IMAGINED_SENSE + IMAGINED_BITS:]]
 
 
 def make_senses(**values: float) -> list[float]:
