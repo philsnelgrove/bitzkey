@@ -568,7 +568,11 @@ class BitzkeyApp:
         zone = min(len(HOMES) - 1, max(0, round(world_.temperature(tile[1]))))
         notes = [f"WEATHER: {HOMES[zone]}, {SEASONS[season(world_.turn)]}"]
         if tile in world_.shelters:
-            notes.append("SHELTER")
+            notes.append("CAVE" if world_.relief.get(tile) == 1 else "SHELTER")
+        if world_.relief.get(tile) == 1:
+            notes.append("RIDGE")
+        elif world_.relief.get(tile) == 2:
+            notes.append("THICKET")
         elif tile in world_.sites:
             notes.append(f"SHELTER SITE {world_.sites[tile]}/{world.SHELTER_UNITS}")
         fire = world_.fires.get(tile, (0,))[0] - world_.turn
@@ -1232,6 +1236,15 @@ class BitzkeyApp:
             else:
                 pg.draw.circle(surface, SEA_GRASS if self.simulation.sea(x, y) else GRASS, point,
                                max(1, round(min(cell_width, cell_height) * 0.18)))
+        if self.simulation.relief:  # terrain: ridges grey-brown, thickets dark green
+            shades = {1: pg.Surface((max(1, math.ceil(cell_width)), max(1, math.ceil(cell_height))), pg.SRCALPHA),
+                      2: pg.Surface((max(1, math.ceil(cell_width)), max(1, math.ceil(cell_height))), pg.SRCALPHA)}
+            shades[1].fill((122, 104, 84, 170))
+            shades[2].fill((34, 82, 40, 180))
+            for (x, y), kind in self.simulation.relief.items():
+                left, top = round(board.left + x * cell_width), round(board.top + y * cell_height)
+                if reach.collidepoint((left, top)):
+                    surface.blit(shades[kind], (left, top))
         half = max(2, round(min(cell_width, cell_height) * 0.25))
         pile_font = UI.font("segoeui", 11)
         for x, y in {*self.simulation.meat_piles, *self.simulation.fruit_piles, *self.simulation.stone_piles, *self.simulation.bone_piles, *self.simulation.wood_piles,

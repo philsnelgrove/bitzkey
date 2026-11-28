@@ -6007,6 +6007,26 @@ class LandTests(unittest.TestCase):
         one.values[sm.GLORY_VALUE] = 2.0
         self.assertEqual(Simulation.concept_on_mind(one), sm.PROJECT_AIMS + sm.GLORY_VALUE)
 
+    def test_terrain_hides_what_lies_behind_and_a_told_place_is_remembered(self):
+        simulation = Simulation(30, 30, 0, seed=1)
+        seer = simulation._add_agent(encode_dna("omnivore", size=3), 2, 5)
+        simulation._index_cells()
+        self.assertTrue(simulation.in_view(seer, 8, 5))
+        simulation.set_relief(5, 5, 2)
+        self.assertFalse(simulation.in_view(seer, 8, 5))
+        self.assertTrue(simulation.in_view(seer, 5, 5))
+        self.assertTrue(simulation.in_view(seer, 3, 5))
+        simulation.set_relief(2, 5, 1)  # on a ridge it sees over all
+        self.assertTrue(simulation.in_view(seer, 8, 5))
+        simulation.set_relief(2, 5, 0)
+        simulation.fruit_piles[(8, 5)] = 5
+        self.assertIsNone(simulation._nearest_pile(seer, seer.sight, simulation.fruit_piles))
+        seer.told_place = ("fruit", 8, 5, simulation.turn + 3)
+        self.assertEqual(simulation._told_pile(seer, "fruit"), (8, 5))
+        self.assertIsNone(simulation._told_pile(seer, "meat"))
+        seer.told_place = ("fruit", 8, 5, simulation.turn - 1)
+        self.assertIsNone(simulation._told_pile(seer, "fruit"))
+
     def test_order_agreement_credited_to_the_caller_it_heard_felt_either_way(self):
         sm = simulation_module
         simulation = Simulation(30, 30, 0, seed=1)

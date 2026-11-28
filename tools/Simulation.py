@@ -559,6 +559,26 @@ ORDER_SAMPLE = 0.1
 # times its sociability and talk value. Which way round is not said. As the C++ version's. 0 for none.
 ORDER_JOY = 0.5
 ORDER_LESSON = 1.0
+# Terrain (the user's design): ridges and thickets grown once in a world's life on its land (TERRAIN_RIDGES and
+# TERRAIN_THICKETS percent of it) by a draw of their own; both block sight through them (LINE_OF_SIGHT), though one on a
+# ridge sees over all; calls are heard through them. A step onto a ridge costs RIDGE_CLIMB times a step's effort, one into
+# a thicket THICKET_SLOW steps of its pace; RIDGE_CAVES percent of ridge squares hold a cave, a shelter. As the C++ version's.
+LINE_OF_SIGHT = 1
+TERRAIN_RIDGES = 3.0
+TERRAIN_THICKETS = 8.0
+RIDGE_CAVES = 5.0
+RIDGE_CLIMB = 2.0
+THICKET_SLOW = 2
+# Told places: one attending to a finger pointed at a pile it does not itself see knows where that pile lies for
+# TOLD_MEMORY turns, sensed and sought as one in sight. 0 for none.
+TOLD_MEMORY = 10
+# Windfalls: about once in WINDFALL_DAYS days a fruiting tree drops WINDFALL_FRUIT portions of fruit, or a carcass leaves
+# WINDFALL_MEAT of meat, where no animal sees it, hidden by terrain if it can be. 0 days for none.
+WINDFALL_DAYS = 7.0
+WINDFALL_FRUIT = 40
+WINDFALL_MEAT = 10
+TOLD_PILES = {"meat_pile_closeness": "meat", "fruit_pile_closeness": "fruit", "stone_pile_closeness": "stone",
+              "bone_pile_closeness": "bone", "wood_pile_closeness": "wood"}
 
 
 def _empty_units():
@@ -1780,6 +1800,7 @@ class Bitzkey:
     order_from: int = -1
     order_credit: float = 0.0
     order_hearers: int = 0
+    told_place: tuple = ("", 0, 0, -1)  # a told pile's kind, square and last turn remembered (see TOLD_MEMORY)
     meant_by_deed: bool = False  # whether the word last heard was a deed-word, meant_deed its deed
     judged_by_deed: bool = False
     echo_turn: int = -1  # the last turn it said a deed-word back, doing its guess
@@ -2687,6 +2708,10 @@ class Simulation:
         self.sites: dict[tuple[int, int], int] = {}  # units in each unfinished shelter
         self.works: dict[tuple[int, int], list[int]] = {}  # each bow or wagon begun: [craft, stone, bone, wood, hide, turn last worked]
         self.shelters: set[tuple[int, int]] = set()
+        self.relief: dict[tuple[int, int], int] = {}  # each ridge (1) and thicket (2) square (see TERRAIN_RIDGES)
+        self.relief_grown = False
+        self.windfalls: list[list] = []  # those lying: x, y, kind, turn, eaters, told eaters
+        self.windfall_tally = {"made": 0, "gone": 0, "found": 0, "eaters": 0, "told_eaters": 0, "told": 0, "told_of_windfalls": 0}
         self.wagons: list[list] = []  # every wagon made: [x, y, its hitcher or -1, what it holds beyond its hitcher's own load]
         self.parked: dict[tuple[int, int], list[int]] = {}  # the wagons no one drags, by their squares
         self.arable: set[tuple[int, int]] = set()  # worked land
@@ -2721,6 +2746,8 @@ class Simulation:
         self.grass_regrowth = initial_grass * GRASS_REGROWTH
         self._sow(initial_grass)
         self.scatter_stones()
+        if population > 0:
+            self.grow_relief()  # a world to live in; a bare one, as in tests, has none unless set
         self._witnessed: list[tuple] = []
         if population > 0:  # the plants first, and `pregrowth` turns' head start, uncounted; then the animals
             self._spawn_biomes(plants=True)
@@ -3343,7 +3370,7 @@ class Simulation:
     def one_closeness(self, agent: Bitzkey, one: int, sight: int) -> float:
         """How close that one is, 0 out of sight."""
         other = self.find_agent(one) if one >= 0 else None
-        if other is None or not other.alive or abs(other.x - agent.x) + abs(other.y - agent.y) > sight:
+        if other is None or not other.alive or abs(other.x - agent.x) + abs(other.y - agent.y) > sight or not self.in_view(agent, other.x, other.y):
             return 0.0
         return self._closeness(agent, (other.x, other.y), sight)
 
@@ -3352,7 +3379,7 @@ class Simulation:
         sight = self._sight_now(agent)
         if prefer >= 0:
             other = self.find_agent(prefer)
-            if other is not None and other.alive and other is not agent and abs(other.x - agent.x) + abs(other.y - agent.y) <= sight:
+            if other is not None and other.alive and other is not agent and abs(other.x - agent.x) + abs(other.y - agent.y) <= sight and self.in_view(agent, other.x, other.y):
                 return prefer
         named, kind, named_at, kind_at = None, None, sight + 1, sight + 1
         held = {name[3] for name in agent.names}
@@ -4746,6 +4773,8 @@ class Simulation:
         if self._any_piles:
             self._spoil_piles()
             self._rot_materials()
+        self._settle_windfalls()
+        self._drop_windfall()
         self._go_fallow()
         self._rot_works()
         for agent in self.agents:  # bodies rotted away, not eaten to the last portion, may feed a new plant
@@ -5562,7 +5591,7 @@ class Simulation:
                     foe_away, shoot_at = away, other
         call_range = {"predator": MATING_CALL_RANGE, "omnivore": OMNIVORE_MATING_CALL_RANGE}.get(agent.species, 0.0)
         if suitor is None and call_range > 0 and agent.can_breed:  # the mating call reaches further
-            suitor = next((other for other in self._nearby(agent, int(call_range * sight))
+            suitor = next((other for other in self._nearby(agent, int(call_range * sight), sighted=False)
                            if self._compatible(agent, other) and other.can_breed), None)
         if suitor is not None and not suitor.leader and self._leaders > 0 and agent.can_breed:  # a leader in sight is courted first
             suitor = next((other for other in self._nearby(agent, sight) if other is not agent and other.leader and other.alive
@@ -5605,6 +5634,8 @@ class Simulation:
                 hunter = alarm_source  # the herd's alarm: flight from whatever struck a herd-mate, or it was alerted to
         seen_kill = kill
         meat_pile = self._nearest_pile(agent, sight, self.meat_piles) if self._any_piles else None
+        if meat_pile is None and self._any_piles:
+            meat_pile = self._told_pile(agent, "meat")  # or one it was shown, unseen (see TOLD_MEMORY)
         # cooked food in sight first, then raw, then cooked food smelt beyond sight
         reach = min(MAX_SIGHT, max(sight, round(sight * SMELL_REACH)))
         seen = lambda cell: cell is not None and abs(cell[0] - agent.x) + abs(cell[1] - agent.y) <= sight
@@ -5615,12 +5646,16 @@ class Simulation:
             sx, sy = self.tie_side(agent)
             for dx, dy in SEEN_WITHIN[sight]:
                 cell = (agent.x + sx * dx, agent.y + sy * dy)
-                if self.fires.get(cell, (0,))[0] > self.turn:
+                if self.fires.get(cell, (0,))[0] > self.turn and self.in_view(agent, *cell):
                     fire = cell
                     break
         stone_pile = self._nearest_pile(agent, sight, self.stone_piles) if self._any_piles else None
         bone_pile = self._nearest_pile(agent, sight, self.bone_piles) if self._any_piles else None
         wood_pile = self._nearest_pile(agent, sight, self.wood_piles) if self._any_piles else None
+        if self._any_piles:
+            stone_pile = stone_pile or self._told_pile(agent, "stone")
+            bone_pile = bone_pile or self._told_pile(agent, "bone")
+            wood_pile = wood_pile or self._told_pile(agent, "wood")
         gear_pile, gear_kind = None, None
         room = agent.load < agent.capacity  # a tool beside those it has, if it has room to carry it
         for kind in GEAR_KINDS[:5] if self._any_piles else ():
@@ -5959,14 +5994,14 @@ class Simulation:
             load=min(1.0, agent.load / agent.capacity),
             meat_carried=agent.carried_meat / agent.load if agent.load else 0.0,
             fruit_carried=agent.carried_fruit / agent.load if agent.load else 0.0,
-            meat_pile_closeness=self._closeness(agent, meat_pile, sight),
-            fruit_pile_closeness=self._closeness(agent, fruit_pile, sight),
+            meat_pile_closeness=self._pile_closeness(agent, meat_pile, sight),
+            fruit_pile_closeness=self._pile_closeness(agent, fruit_pile, sight),
             stone_carried=agent.carried_stone / agent.load if agent.load else 0.0,
             bone_carried=agent.carried_bone / agent.load if agent.load else 0.0,
             wood_carried=agent.carried_wood / agent.load if agent.load else 0.0,
-            stone_pile_closeness=self._closeness(agent, stone_pile, sight),
-            bone_pile_closeness=self._closeness(agent, bone_pile, sight),
-            wood_pile_closeness=self._closeness(agent, wood_pile, sight),
+            stone_pile_closeness=self._pile_closeness(agent, stone_pile, sight),
+            bone_pile_closeness=self._pile_closeness(agent, bone_pile, sight),
+            wood_pile_closeness=self._pile_closeness(agent, wood_pile, sight),
             gear_pile_closeness=self._closeness(agent, gear_pile, sight), fire_closeness=self._closeness(agent, fire, sight), fire_friendly=float(fire is not None and self._fire_friendly(agent, fire)),
             wielding=float(self._gear_force(agent) > 1), armoured=float(agent.armour_worn != 0),
             foe_sheltered=float(any(foe is not None and self._safe_inside(foe) for foe in (target, defend_target))),
@@ -6043,13 +6078,15 @@ class Simulation:
             watched = (self.find_agent(agent.attending) if agent.attend_turn == self.turn - 1 and agent.attending >= 0
                        else None)
             if (watched is not None and watched.alive and watched is not agent
-                    and abs(watched.x - agent.x) + abs(watched.y - agent.y) <= sight):
+                    and abs(watched.x - agent.x) + abs(watched.y - agent.y) <= sight and self.in_view(agent, watched.x, watched.y)):
                 senses[POINTED_SENSE + 2] = 1.0
                 attend_to = watched.identifier  # it may keep its focus, or lose it
                 attend_known = self.recognises(agent, watched)
                 pointed = watched.pointed_at(self.turn - 1)
                 if pointed >= 0:
                     pointed_from = watched.identifier
+                    if TOLD_MEMORY > 0 and pointed < len(OUTSIDE_SENSES) and senses[OUTSIDE_SENSES[pointed]] <= 0:
+                        self._tell_place(agent, watched, pointed)
                     senses[POINTED_SENSE] = 1.0
                     senses[POINTED_SENSE + 1] = (self._closeness(agent, (watched.x, watched.y), sight) if pointed == POINT_SELF_THING
                                                  else self.one_closeness(agent, watched.pointed_one_at(self.turn - 1), sight)
@@ -7067,7 +7104,7 @@ class Simulation:
             return
         if caller.call_kind == 1:
             return  # a cry tells of pain, not of what it did
-        if abs(caller.x - listener.x) + abs(caller.y - listener.y) > self._sight_now(listener):
+        if abs(caller.x - listener.x) + abs(caller.y - listener.y) > self._sight_now(listener) or not self.in_view(listener, caller.x, caller.y):
             return  # heard, but not seen
         if whim(listener.identifier ^ 0xC0B1, self.turn) >= CUE_COPY:
             return
@@ -7085,7 +7122,7 @@ class Simulation:
             parent = self.find_agent(identifier) if identifier is not None and identifier >= 0 else None
             if parent is None or not parent.alive or parent.quiet_wish <= 0:
                 continue
-            if abs(parent.x - child.x) + abs(parent.y - child.y) > self._sight_now(parent):
+            if abs(parent.x - child.x) + abs(parent.y - child.y) > self._sight_now(parent) or not self.in_view(parent, child.x, child.y):
                 continue  # it must see its young call
             if hushing is None or parent.quiet_wish > hushing.quiet_wish:
                 hushing = parent
@@ -7104,7 +7141,7 @@ class Simulation:
         caller = self.find_agent(listener.heard_from)
         if caller is None or not caller.alive or caller.last_senses is None or caller.last_call < FIRST_CALL:
             return []
-        if abs(caller.x - listener.x) + abs(caller.y - listener.y) > self._sight_now(listener):
+        if abs(caller.x - listener.x) + abs(caller.y - listener.y) > self._sight_now(listener) or not self.in_view(listener, caller.x, caller.y):
             return []  # heard, but not seen
         if whim(~listener.identifier, self.turn) >= BODY_LANGUAGE * listener.mind["intellect"]:
             return []  # seen, but not read
@@ -8330,12 +8367,15 @@ class Simulation:
         elif action in HEADINGS:
             dx, dy, walk, went = HEADINGS[action]
             cells = 1 if walk else agent.steps
-            moved = 0  # as far as it goes before the map's edge (north and south) or a full square
+            moved = spent = 0  # as far as it goes before the map's edge (north and south) or a full square
             for step in range(1, cells + 1):
                 x, y = (agent.x + dx * step) % self.width, agent.y + dy * step
                 if not 0 <= y < self.height or not self._can_enter(agent, (x, y)) or self._room_in((x, y), agent) < agent.space:
                     break
                 moved = step
+                spent += THICKET_SLOW if THICKET_SLOW > 1 and self.relief.get((x, y)) == 2 else 1  # see THICKET_SLOW
+                if spent >= cells:
+                    break
             if moved:
                 self._move(agent, (agent.x + dx * moved) % self.width, agent.y + dy * moved)
             if walk:
@@ -8678,6 +8718,7 @@ class Simulation:
                 agent.last_action = "sought a pile"
                 return
             self._add_to_pile(self.meat_piles, pile, -1)
+            self._windfall_eaten(agent, pile)
         else:
             self._move_toward(agent, corpse.x, corpse.y)
             if far(corpse.x, corpse.y) > 1 or not self._fresh(corpse) or corpse.meat <= 0 or corpse.portions <= 0:
@@ -8700,6 +8741,7 @@ class Simulation:
                 agent.last_action = "sought a pile"
                 return
             self._add_to_pile(self.fruit_piles, pile, -1)
+            self._windfall_eaten(agent, pile)
             agent.carried_fruit += 1
             agent.last_action = "took fruit"
             return
@@ -8740,6 +8782,7 @@ class Simulation:
             agent.last_action = "sought a pile"
             return
         self._add_to_pile(piles, pile, -1)
+        self._windfall_eaten(agent, pile)
         cooked = piles is self.cooked_meat_piles or piles is self.cooked_fruit_piles
         if piles is self.fruit_piles:
             self._keep_seed(agent)
@@ -10220,14 +10263,204 @@ class Simulation:
         at = bisect.bisect_left(self.agents, identifier, key=lambda agent: agent.identifier)
         return self.agents[at] if at < len(self.agents) and self.agents[at].identifier == identifier else None
 
-    def _nearby(self, agent: Bitzkey, radius: int) -> list[Bitzkey]:
+    def _nearby(self, agent: Bitzkey, radius: int, sighted: bool = True) -> list[Bitzkey]:
+        """Those within a radius of it that it sees, terrain aside (see LINE_OF_SIGHT); not `sighted`, all, as heard."""
         found = []
         cells, x, y = self._cells, agent.x, agent.y
+        blocks = sighted and radius > 1 and self._sight_blocks(agent)
         for dx, dy in nearby_offsets(radius):
-            for other in cells.get((x + dx, y + dy), ()):
+            here = cells.get((x + dx, y + dy), ())
+            if here and blocks and not self._line_clear(x, y, dx, dy):
+                continue
+            for other in here:
                 if other is not agent and other.alive:
                     found.append(other)
         return found
+
+    def relief_at(self, x: int, y: int) -> int:
+        return self.relief.get((x % self.width, y), 0) if self.relief else 0
+
+    def _sight_blocks(self, agent: Bitzkey) -> bool:
+        return LINE_OF_SIGHT > 0 and bool(self.relief) and self.relief.get((agent.x, agent.y)) != 1
+
+    def _line_clear(self, fx: int, fy: int, dx: int, dy: int) -> bool:
+        """Whether Bresenham's line from a square to the one (dx, dy) from it crosses no ridge or thicket, its ends aside."""
+        ax, ay = abs(dx), abs(dy)
+        if max(ax, ay) <= 1 or not self.relief:
+            return True
+        sx, sy = (1 if dx > 0 else -1), (1 if dy > 0 else -1)
+        x = y = 0
+        error = ax - ay
+        relief, width = self.relief, self.width
+        while True:
+            doubled = 2 * error
+            if doubled > -ay:
+                error -= ay
+                x += sx
+            if doubled < ax:
+                error += ax
+                y += sy
+            if x == dx and y == dy:
+                return True
+            if not 0 <= fy + y < self.height:
+                return True
+            if ((fx + x) % width, fy + y) in relief:
+                return False
+
+    def in_view(self, agent: Bitzkey, x: int, y: int) -> bool:
+        """Whether terrain leaves that square in its view (how far it is aside)."""
+        if not self._sight_blocks(agent):
+            return True
+        dx = x - agent.x
+        if dx > self.width // 2:
+            dx -= self.width
+        elif dx < -(self.width // 2):
+            dx += self.width
+        return self._line_clear(agent.x, agent.y, dx, y - agent.y)
+
+    def set_relief(self, x: int, y: int, kind: int) -> None:
+        """One square's terrain, for tests and tools."""
+        self.relief_grown = True
+        if kind:
+            self.relief[(x, y)] = kind
+        else:
+            self.relief.pop((x, y), None)
+
+    def grow_relief(self) -> None:
+        """Ridges, thickets and caves, once in a world's life, by an LCG of the map's size, as the C++ version draws them."""
+        if self.relief_grown:
+            return
+        self.relief_grown = True
+        self.relief = {}
+        mask = 0xFFFFFFFFFFFFFFFF
+        state = (self.width * 2000029 + self.height * 7 + 1) & mask
+
+        def draw(below: int) -> int:
+            nonlocal state
+            state = (state * 6364136223846793005 + 1442695040888963407) & mask
+            return (state >> 33) % max(1, below)
+
+        land = sum(not self.sea(x, y) for y in range(self.height) for x in range(self.width))
+        target = lambda percent: int(land * max(0.0, min(100.0, percent)) / 100)
+        steps = ((1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1))
+        ridges_wanted, thickets_wanted = target(TERRAIN_RIDGES), target(TERRAIN_THICKETS)
+        ridges, thickets, ridge_squares, tries = 0, 0, [], 0
+        while ridges < ridges_wanted and tries < 100000:
+            tries += 1
+            x, y, heading = draw(self.width), draw(self.height), draw(8)
+            length = 12 + draw(30)
+            step = 0
+            while step < length and ridges < ridges_wanted:
+                if not 0 <= y < self.height or self.sea(x, y):
+                    break
+                if (x, y) not in self.relief:
+                    self.relief[(x, y)] = 1
+                    ridges += 1
+                    ridge_squares.append((x, y))
+                if draw(4) == 0:
+                    heading = (heading + (1 if draw(2) else 7)) % 8
+                x, y = (x + steps[heading][0]) % self.width, y + steps[heading][1]
+                step += 1
+        tries = 0
+        while thickets < thickets_wanted and tries < 100000:
+            tries += 1
+            cx, cy, radius = draw(self.width), draw(self.height), 2 + draw(3)
+            if self.sea(cx, cy):
+                continue
+            for dy in range(-radius, radius + 1):
+                for dx in range(-radius, radius + 1):
+                    x, y = (cx + dx) % self.width, cy + dy
+                    if dx * dx + dy * dy > radius * radius - draw(radius + 1) or not 0 <= y < self.height or self.sea(x, y):
+                        continue
+                    if (x, y) in self.relief:
+                        continue
+                    self.relief[(x, y)] = 2
+                    thickets += 1
+        for square in ridge_squares:  # caves, shelters in all ways
+            if draw(10000) < int(max(0.0, min(100.0, RIDGE_CAVES)) * 100):
+                self.shelters.add(square)
+
+    def _told_pile(self, agent: Bitzkey, kind: str) -> tuple[int, int] | None:
+        """The told place of that kind (see TOLD_MEMORY), still lying."""
+        told, x, y, until = agent.told_place
+        if TOLD_MEMORY <= 0 or told != kind or until < self.turn or getattr(self, kind + "_piles").get((x, y), 0) <= 0:
+            return None
+        return x, y
+
+    def _tell_place(self, hearer: Bitzkey, pointer: Bitzkey, thing: int) -> None:
+        kind = TOLD_PILES.get(OUTSIDE_SENSES[thing])
+        if kind is None:
+            return
+        pile = self._nearest_pile(pointer, self._sight_now(pointer), getattr(self, kind + "_piles"))  # the one it sees
+        if pile is None:
+            return
+        hearer.told_place = (kind, pile[0], pile[1], self.turn + TOLD_MEMORY)
+        self.windfall_tally["told"] += 1
+        self.windfall_tally["told_of_windfalls"] += sum(fall[0] == pile[0] and fall[1] == pile[1] for fall in self.windfalls)
+
+    def _drop_windfall(self) -> None:
+        """See WINDFALL_DAYS: drawn from the turn alone, as the C++ version does, so the world's own draws are untouched."""
+        if WINDFALL_DAYS <= 0 or DAY_LENGTH <= 0:
+            return
+        mask = 0xFFFFFFFFFFFFFFFF
+        state = ((self.turn * 0x9E3779B97F4A7C15) & mask) ^ (self.width * 1000003 + self.height)
+
+        def next_draw() -> int:
+            nonlocal state
+            state = (state + 0x9E3779B97F4A7C15) & mask
+            z = state
+            z = ((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9) & mask
+            z = ((z ^ (z >> 27)) * 0x94D049BB133111EB) & mask
+            return z ^ (z >> 31)
+
+        if (next_draw() >> 11) / 9007199254740992.0 >= 1.0 / (WINDFALL_DAYS * DAY_LENGTH):
+            return
+        fruit = next_draw() % 2 == 0
+        best, best_seen, best_hidden = None, 0, False
+        for _ in range(64):
+            x, y = next_draw() % self.width, next_draw() % self.height
+            if self.sea(x, y) or self.relief_at(x, y) == 1:
+                continue
+            hidden = self.relief_at(x, y) == 2 or any(self.relief_at(x + dx, y + dy) for dy in (-1, 0, 1) for dx in (-1, 0, 1))
+            seen = 0
+            for dx, dy in nearby_offsets(MAX_SIGHT):
+                for other in self._cells.get(((x + dx) % self.width, y + dy), ()):
+                    if other.alive and other.species != "plant" and abs(other.x - x) + abs(other.y - y) <= self._sight_now(other) and self.in_view(other, x, y):
+                        seen += 1
+            if best is None or seen < best_seen or (seen == best_seen and hidden and not best_hidden):
+                best, best_seen, best_hidden = (x, y), seen, hidden
+            if seen == 0 and hidden:
+                break
+        if best is None:
+            return
+        kind = "fruit" if fruit else "meat"
+        self._add_to_pile(getattr(self, kind + "_piles"), best, max(1, WINDFALL_FRUIT if fruit else WINDFALL_MEAT))
+        self._any_piles = True
+        self.windfalls.append([best[0], best[1], kind, self.turn, [], 0])
+        self.windfall_tally["made"] += 1
+
+    def _settle_windfalls(self) -> None:
+        kept = []
+        for fall in self.windfalls:
+            if getattr(self, fall[2] + "_piles").get((fall[0], fall[1]), 0) > 0:
+                kept.append(fall)
+                continue
+            tally = self.windfall_tally
+            tally["gone"] += 1
+            tally["found"] += bool(fall[4])
+            tally["eaters"] += len(fall[4])
+            tally["told_eaters"] += fall[5]
+        self.windfalls = kept
+
+    def _windfall_eaten(self, agent: Bitzkey, cell: tuple[int, int]) -> None:
+        for fall in self.windfalls:
+            if (fall[0], fall[1]) != cell:
+                continue
+            if agent.identifier not in fall[4]:
+                fall[4].append(agent.identifier)
+                told = agent.told_place
+                fall[5] += told[3] >= self.turn and told[1] == cell[0] and told[2] == cell[1]
+            return
 
     def _room(self) -> float:
         """How many more animals the population cap allows; unlimited without a cap."""
@@ -10311,7 +10544,7 @@ class Simulation:
         sx, sy = self.tie_side(agent)
         for dx, dy in SIGHT_WITHIN[sight]:
             cell = (x + sx * dx, y + sy * dy)
-            if grass.get(cell, 0) > 0 and self._can_enter(agent, cell) and agent.climate_steps(climate[cell[1]]) <= worst:
+            if grass.get(cell, 0) > 0 and self._can_enter(agent, cell) and agent.climate_steps(climate[cell[1]]) <= worst and self.in_view(agent, *cell):
                 return cell
         return None
 
@@ -10358,7 +10591,7 @@ class Simulation:
         sx, sy = self.tie_side(agent)
         for dx, dy in SEEN_WITHIN[sight]:
             cell = (agent.x + sx * dx, agent.y + sy * dy)
-            if piles.get(cell, 0) > 0 and self._can_enter(agent, cell):
+            if piles.get(cell, 0) > 0 and self._can_enter(agent, cell) and self.in_view(agent, *cell):
                 return cell
         return None
 
@@ -10373,7 +10606,10 @@ class Simulation:
         carrion, x, y = self._carrion, agent.x, agent.y
         sx, sy = self.tie_side(agent)
         for dx, dy in SEEN_WITHIN[sight]:
-            for corpse in carrion.get((x + sx * dx, y + sy * dy), ()):
+            here = carrion.get((x + sx * dx, y + sy * dy), ())
+            if here and not self.in_view(agent, x + sx * dx, y + sy * dy):
+                continue
+            for corpse in here:
                 if corpse.meat > 0 and agent.can_be(corpse.wet):
                     return corpse
         return None
@@ -10385,7 +10621,10 @@ class Simulation:
         kills, x, y = self._kills, agent.x, agent.y
         sx, sy = self.tie_side(agent)
         for dx, dy in SEEN_WITHIN[sight]:
-            for corpse in kills.get((x + sx * dx, y + sy * dy), ()):
+            here = kills.get((x + sx * dx, y + sy * dy), ())
+            if here and not self.in_view(agent, x + sx * dx, y + sy * dy):
+                continue
+            for corpse in here:
                 if self._feeds_on(agent, corpse) and agent.can_be(corpse.wet) and not self._spares(agent, corpse):
                     return corpse
         return None
@@ -10401,13 +10640,17 @@ class Simulation:
         browses = agent.species in ("grazer", "omnivore")
         courts = agent.can_breed
         cells, x, y = self._cells, agent.x, agent.y
+        blocks = self._sight_blocks(agent)
         sx, sy = self.tie_side(agent)
         for dx, dy in SEEN_WITHIN[max(sight, prey_sight)]:
             far = abs(dx) + abs(dy) > sight  # beyond its sight but for prey
             if ((quarry or not hunts) and (far or ((hunter or not hunted)
                                                    and (suitor or not courts) and (flora or not browses)))):
                 break
-            for other in cells.get((x + sx * dx, y + sy * dy), ()):
+            here = cells.get((x + sx * dx, y + sy * dy), ())
+            if here and blocks and not self._line_clear(x, y, sx * dx, sy * dy):
+                continue
+            for other in here:
                 if other is agent or not other.alive:
                     continue
                 if quarry is None and self._preys_on(agent, other):
@@ -10421,6 +10664,13 @@ class Simulation:
                 elif courts and suitor is None and other.can_breed and self._compatible(agent, other):
                     suitor = other
         return quarry, hunter, suitor, flora
+
+    @staticmethod
+    def _pile_closeness(agent: Bitzkey, cell: tuple[int, int] | None, sight: int) -> float:
+        """A pile's closeness, one told of beyond its sight (see TOLD_MEMORY) faint but above none."""
+        if cell is None:
+            return 0.0
+        return Simulation._closeness(agent, cell, max(sight, abs(cell[0] - agent.x) + abs(cell[1] - agent.y)))
 
     @staticmethod
     def _closeness(agent: Bitzkey, cell: tuple[int, int] | None, sight: int) -> float:
@@ -10445,6 +10695,10 @@ class Simulation:
         cells = max(abs(dx), abs(dy))
         agent.trail.extend(((agent.x + dx * step // cells) % self.width, agent.y + dy * step // cells)
                            for step in range(cells))
+        if RIDGE_CLIMB > 1 and self.relief:  # each ridge square stepped onto, a climb (see RIDGE_CLIMB)
+            for step in range(1, cells + 1):
+                if self.relief.get(((agent.x + dx * step // cells) % self.width, agent.y + dy * step // cells)) == 1:
+                    agent.hunger += agent.burn * GO_EFFORT * (RIDGE_CLIMB - 1)
         self._cells[(agent.x, agent.y)].remove(agent)
         agent.x, agent.y = x, y
         agent.wet = self.sea(x, y)
@@ -10463,8 +10717,9 @@ class Simulation:
         agent.hunger += agent.burn * GO_EFFORT * max(0, cells - 1)
 
     def _move_toward(self, agent: Bitzkey, x: int, y: int, steps: int | None = None) -> None:
-        cells = 0
-        for _ in range(agent.steps if steps is None else steps):
+        cells, taken, budget = 0, 0, agent.steps if steps is None else steps
+        while taken < budget:
+            taken += 1
             if agent.x != x:
                 moved = self._step(agent, agent.x + (1 if x > agent.x else -1), agent.y)
             elif agent.y != y:
@@ -10474,17 +10729,22 @@ class Simulation:
             if not moved:
                 break
             cells += 1
+            if THICKET_SLOW > 1 and self.relief.get((agent.x, agent.y)) == 2:
+                taken += THICKET_SLOW - 1  # see THICKET_SLOW
         self._effort(agent, cells)
 
     def _move_away(self, agent: Bitzkey, threat: Bitzkey) -> None:
-        cells = 0
+        cells, taken = 0, 0
         side = self.tie_side(agent)  # straight in line with it, either way
-        for _ in range(agent.steps):
+        while taken < agent.steps:
+            taken += 1
             dx = side[0] if agent.x == threat.x else 1 if agent.x > threat.x else -1
             dy = side[1] if agent.y == threat.y else 1 if agent.y > threat.y else -1
             if not self._step(agent, (agent.x + dx) % self.width, self._within(agent.y + dy)):
                 break
             cells += 1
+            if THICKET_SLOW > 1 and self.relief.get((agent.x, agent.y)) == 2:
+                taken += THICKET_SLOW - 1  # see THICKET_SLOW
         self._effort(agent, cells)
 
     @staticmethod
